@@ -1,8 +1,7 @@
 import './Sidebar.css';
 import defaultFoto from '../assets/default.jpg';
-import { Link } from 'react-router-dom';
 
-function Sidebar() {
+function Sidebar({ onOpenActividades }) {
   return (
     <div id="barraLateral">
       <div id="perfilSidebar">
@@ -12,20 +11,23 @@ function Sidebar() {
       </div>
 
       <div id="caminito">
-        <Link to="/" className="step">
+        {/* Módulos (sin navegación por ahora) */}
+        <div className="step">
           <div className="circle">🧠</div>
           <span>Módulos</span>
-        </Link>
+        </div>
 
-        <Link to="/actividades" className="step">
+        {/* ACTIVIDADES: Abre modal */}
+        <div className="step" onClick={onOpenActividades} style={{ cursor: 'pointer' }}>
           <div className="circle">📘</div>
           <span>Actividades</span>
-        </Link>
+        </div>
 
-        <Link to="/examen" className="step">
+        {/* Examen (también sin navegación por ahora) */}
+        <div className="step">
           <div className="circle">🔬</div>
           <span>Examen</span>
-        </Link>
+        </div>
       </div>
     </div>
   );
