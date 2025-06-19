@@ -2,6 +2,8 @@ import './Sidebar.css';
 import defaultFoto from '../assets/default.jpg';
 import { Link } from 'react-router-dom';
 
+
+
 function Sidebar() {
   return (
     <div id="barraLateral">
@@ -17,18 +19,19 @@ function Sidebar() {
           <span>Módulos</span>
         </Link>
 
-        <Link to="/actividades" className="step">
+        <div className="step">
           <div className="circle">📘</div>
           <span>Actividades</span>
-        </Link>
+        </div>
 
-        <Link to="/examen" className="step">
+        <div className="step">
           <div className="circle">🔬</div>
           <span>Examen</span>
-        </Link>
+        </div>
       </div>
     </div>
   );
 }
 
 export default Sidebar;
+
