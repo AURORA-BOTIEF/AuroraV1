@@ -5,8 +5,8 @@ import ProfileModal from './components/ProfileModal';
 import './index.css';
 import logo from './assets/Netec.png';
 import previewImg from './assets/Preview.png';
-
-
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Home from './components/Home';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem("id_token"));
@@ -63,7 +63,9 @@ function App() {
             <Sidebar token={token} />
             <ProfileModal token={token} />
             <ChatModal token={token} />
-            
+            <Routes>
+              <Route path="/" element={<Home />} />
+            </Routes>
             <button id="logout" onClick={handleLogout}>Cerrar sesión</button>
           </div>
         </Router>
