@@ -57,6 +57,7 @@ body {
 .read-the-docs {
   color: #888;
 }
+
 #logout {
   position: fixed;
   top: 20px;
@@ -75,5 +76,49 @@ body {
 
 #logout:hover {
   background-color: #930d04;
+}
 
+/* Estilos para selector de rol */
+.rol-selector-container {
+  padding: 2rem;
+  max-width: 400px;
+  margin: 5rem auto;
+  background: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+  text-align: center;
+}
+
+.rol-selector-container h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.rol-selector-btn {
+  margin: 0.5rem 1rem;
+  padding: 0.75rem 2rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  transition: background-color 0.3s ease;
+}
+
+.rol-selector-btn.admin {
+  background-color: #d9534f;
+}
+
+.rol-selector-btn.admin:hover {
+  background-color: #c9302c;
+}
+
+.rol-selector-btn.participant {
+  background-color: #0275d8;
+}
+
+.rol-selector-btn.participant:hover {
+  background-color: #025aa5;
 }

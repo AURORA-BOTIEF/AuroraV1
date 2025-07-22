@@ -4,14 +4,15 @@ import { Link } from 'react-router-dom';
 import './Sidebar.css';
 import defaultFoto from '../assets/default.jpg';
 
-function Sidebar() {
+function Sidebar({ email }) {
+  console.log("📧 Email en Sidebar:", email);
   return (
     // Añadimos la clase 'sidebar' para que los estilos de index.css se apliquen
     <div id="barraLateral" className="sidebar"> 
       <div id="perfilSidebar">
         <img id="fotoPerfilSidebar" src={defaultFoto} alt="Foto perfil" />
         <div className="nombre" id="nombreSidebar">Usuario</div>
-        <div className="email" id="emailSidebar">usuario@ejemplo.com</div>
+        <div className="email" id="emailSidebar">{email}</div>
       </div>
 
       <div id="caminito">
