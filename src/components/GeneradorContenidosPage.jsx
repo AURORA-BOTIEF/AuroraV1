@@ -48,7 +48,7 @@ function GeneradorContenidosPage() {
           <div className="opcion-menu disabled">
             <div className="icono">👥</div>
             <div className="texto">
-              <h3>Generador Temario Seminario</h3>
+              <h3>Generador de Temario Sem</h3>
               <p>Diseña un temario para sesiones cortas, charlas,conferencias, divulgación.</p>
             </div>
           </div>

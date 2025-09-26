@@ -1,7 +1,6 @@
 // src/components/EditorDeTemario.jsx (TU CÓDIGO CON LAS CORRECCIONES FINALES)
-
 import React, { useState, useEffect, useRef } from "react";
-import html2pdf from "html2pdf.js";
+import jsPDF from 'jspdf'; // <-- IMPORTACIÓN IMPORTANTE
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from '../assets/encabezado.png';
 import pieDePaginaImagen from '../assets/pie_de_pagina.png';
@@ -51,7 +50,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
   const [exportTipo, setExportTipo] = useState("pdf");
   const [seleccionadas, setSeleccionadas] = useState({});
 
-  // 1. AJUSTE CLAVE: Nos aseguramos que la ref se llame pdfContentRef
   const pdfContentRef = useRef(null); 
 
   const [params, setParams] = useState({
@@ -77,11 +75,8 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     let targetObject;
 
     if (subIndex === null) {
-      // Es un campo a nivel de capítulo
       targetObject = nuevoTemario.temario[capIndex];
     } else {
-      // Es un campo a nivel de subcapítulo
-      // Asegurarse de que el subcapítulo sea un objeto
       if (typeof nuevoTemario.temario[capIndex].subcapitulos[subIndex] !== 'object') {
         nuevoTemario.temario[capIndex].subcapitulos[subIndex] = { 
           nombre: nuevoTemario.temario[capIndex].subcapitulos[subIndex] 
@@ -90,7 +85,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
       targetObject = nuevoTemario.temario[capIndex].subcapitulos[subIndex];
     }
     
-    // Convertir a número si el campo lo requiere
     const numericFields = ['tiempo_capitulo_min', 'tiempo_subcapitulo_min', 'sesion'];
     targetObject[fieldName] = numericFields.includes(fieldName) ? parseInt(value, 10) || 0 : value;
     
@@ -139,83 +133,146 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     }
   };
 
-// --- FUNCIÓN DE EXPORTACIÓN FINAL (CON PLANTILLA Y SIN MARCA DE AGUA) ---
+// --- NUEVA FUNCIÓN PROFESIONAL PARA EXPORTAR PDF ---
 const exportarPDF = async () => {
-    setTimeout(async () => {
-      const elemento = pdfContentRef.current; 
-      if (!elemento) {
-        setErrorUi("Error: No se encontró el contenido para exportar.");
-        return;
-      }
-      setOkUi("Generando PDF profesional...");
-      setErrorUi("");
-      elemento.classList.add('pdf-exporting');
+    try {
+        setOkUi("Generando PDF profesional...");
+        setErrorUi("");
 
-      try {
-        const options = {
-          // =================================================================
-          // ========= CAMBIO 1: AUMENTAR EL MARGEN SUPERIOR =========
-          // =================================================================
-          // Aumentamos el margen superior (de 2 a 2.2) para bajar todo el contenido.
-          margin: [2.8, 1, 1.5, 1], // [Arriba, Izquierda, Abajo, Derecha] en pulgadas
+        // Inicializamos el documento PDF. Usaremos 'points' como unidad (es más fácil para fuentes).
+        const doc = new jsPDF({
+            orientation: 'portrait',
+            unit: 'pt',
+            format: 'letter'
+        });
 
-          filename: `Temario_${slugify(temario.nombre_curso)}.pdf`,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, logging: false },
-          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-          pagebreak: { mode: 'css', avoid: '.pdf-capitulo' }
-        };
-
-        const worker = html2pdf().set(options).from(elemento).toPdf();
-        const pdf = await worker.get('pdf');
-        const totalPages = pdf.internal.getNumberOfPages();
+        // Obtenemos las dimensiones de la página y definimos márgenes
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = { top: 80, bottom: 80, left: 40, right: 40 };
+        const contentWidth = pageWidth - margin.left - margin.right;
         
+        // Cargamos las imágenes del encabezado y pie de página una sola vez
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
         const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
 
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
+        // --- INICIAMOS EL DIBUJO DEL CONTENIDO ---
+        
+        let y = margin.top; // Esta es nuestra "pluma". Siempre sabrá en qué altura de la página escribir.
+
+        // Función para añadir una nueva página y resetear 'y'
+        const addPageIfNeeded = () => {
+            if (y > pageHeight - margin.bottom) {
+                doc.addPage();
+                y = margin.top;
+            }
+        };
+
+        // Título Principal
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(20);
+        doc.text(temario.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: 'center' });
+        y += 30;
+
+        // --- Función reutilizable para dibujar un título de sección y su contenido ---
+        const drawSection = (title, content) => {
+            if (!content) return; // Si no hay contenido, no dibujes nada
+            
+            addPageIfNeeded();
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(14);
+            doc.text(title, margin.left, y);
+            y += 15;
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            
+            // Usamos splitTextToSize para que el texto largo se ajuste automáticamente al ancho
+            const textLines = doc.splitTextToSize(content, contentWidth);
+            doc.text(textLines, margin.left, y);
+            y += (textLines.length * 12) + 20; // Incrementamos 'y' según el número de líneas
+        };
+
+        // Dibujamos las secciones principales
+        drawSection("Descripción General", temario.descripcion_general);
+        drawSection("Audiencia", temario.audiencia);
+        drawSection("Prerrequisitos", temario.prerrequisitos);
+        drawSection("Objetivos", temario.objetivos);
+        
+        // --- TEMARIO DETALLADO ---
+        if (temario.temario && temario.temario.length > 0) {
+            addPageIfNeeded();
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(16);
+            doc.text("Temario", margin.left, y);
+            y += 20;
+
+            temario.temario.forEach(capitulo => {
+                addPageIfNeeded();
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(12);
+                doc.text(capitulo.capitulo, margin.left, y);
+                y += 15;
+
+                // Subcapítulos
+                if (capitulo.subcapitulos && capitulo.subcapitulos.length > 0) {
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(10);
+                    capitulo.subcapitulos.forEach(sub => {
+                        addPageIfNeeded();
+                        const nombre = typeof sub === 'object' ? sub.nombre : sub;
+                        const tiempo = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : '';
+                        const sesion = typeof sub === 'object' ? sub.sesion : '';
+                        
+                        let meta = '';
+                        if (tiempo) meta += `${tiempo} min`;
+                        if (tiempo && sesion) meta += ' • ';
+                        if (sesion) meta += `Sesión ${sesion}`;
+
+                        // Dibuja el nombre del subcapítulo
+                        doc.text(`• ${nombre}`, margin.left + 15, y);
+                        
+                        // Dibuja la meta (tiempo/sesión) alineada a la derecha
+                        doc.text(meta, pageWidth - margin.right, y, { align: 'right' });
+                        y += 14;
+                    });
+                }
+                y += 10; // Espacio entre capítulos
+            });
+        }
+
+        // --- PAGINACIÓN Y ENCABEZADOS/PIES DE PÁGINA ---
+        const totalPages = doc.internal.getNumberOfPages();
 
         for (let i = 1; i <= totalPages; i++) {
-          pdf.setPage(i);
-          const propsEncabezado = pdf.getImageProperties(encabezadoDataUrl);
-          const altoEncabezado = pageWidth * (propsEncabezado.height / propsEncabezado.width);
-          pdf.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEncabezado); 
+            doc.setPage(i); // Cambia a la página 'i'
 
-          const propsPie = pdf.getImageProperties(pieDePaginaDataUrl);
-          const altoPie = pageWidth * (propsPie.height / propsPie.width);
-          pdf.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
+            // Añadir Encabezado
+            const propsEncabezado = doc.getImageProperties(encabezadoDataUrl);
+            const altoEncabezado = pageWidth * (propsEncabezado.height / propsEncabezado.width);
+            doc.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEncabezado);
 
-          pdf.setFontSize(9);
-          pdf.setTextColor("#6c757d");
-          const pageNumText = `Página ${i} de ${totalPages}`;
-          const pageNumWidth = pdf.getStringUnitWidth(pageNumText) * pdf.internal.getFontSize() / pdf.internal.scaleFactor;
-          
-          // =================================================================
-          // ========= CAMBIO 2: SUBIR LA NUMERACIÓN DE PÁGINA =========
-          // =================================================================
-          // Cambiamos 'pageHeight - 0.5' a 'pageHeight - 0.7' para subir el texto.
-          pdf.text(pageNumText, (pageWidth - pageNumWidth) / 2, pageHeight - 0.7);
+            // Añadir Pie de Página
+            const propsPie = doc.getImageProperties(pieDePaginaDataUrl);
+            const altoPie = pageWidth * (propsPie.height / propsPie.width);
+            doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-          // <-- CAMBIO: AQUÍ AÑADIMOS LA NUEVA LEYENDA -->
-          const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación del área de Instrucción de Netec.";
-          pdf.setFontSize(8); // Un tamaño de letra un poco más pequeño para la leyenda
-          pdf.setTextColor("#888888"); // Un color gris para que sea sutil
-          // Posicionamos el texto en la esquina inferior izquierda (1 pulgada de margen)
-          pdf.text(leyenda, 1, pageHeight - 0.9); 
+            // Añadir número de página
+            const pageNumText = `Página ${i} de ${totalPages}`;
+            doc.setFontSize(9);
+            doc.setTextColor("#6c757d");
+            doc.text(pageNumText, pageWidth / 2, pageHeight - 30, { align: 'center' });
         }
-        
-        await worker.save();
+
+        // Guardar el PDF
+        doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
         setOkUi("PDF exportado correctamente ✔");
 
-      } catch (error) {
+    } catch (error) {
         console.error("Error al generar PDF:", error);
         setErrorUi("Error al generar el PDF.");
-      } finally {
-        elemento.classList.remove('pdf-exporting');
-      }
-    }, 0); 
-  };
+    }
+};
 
   const exportarExcel = () => {
     if (!temario) {
@@ -244,62 +301,14 @@ const exportarPDF = async () => {
         </div>
       )}
 
-      {/* --- CONTENIDO OCULTO PARA PDF --- */}
-      {/* 3. AJUSTE CLAVE: La 'ref' se asigna aquí, al div que contiene el contenido limpio */}
+      {/* Este DIV oculto ya no se usa para la nueva exportación, pero se puede mantener por si se necesita */}
       <div ref={pdfContentRef} className="pdf-clean">
           <div className="pdf-body">
-            <h1 className="pdf-title">{temario?.nombre_curso || temario?.tema_curso}</h1>
-            <div className="pdf-meta">
-              {temario?.version_tecnologia && <div><strong>Versión:</strong> {temario.version_tecnologia}</div>}
-              {temario?.horas_totales && <div><strong>Horas Totales:</strong> {temario.horas_totales}</div>}
-              {temario?.numero_sesiones && <div><strong>Sesiones:</strong> {temario.numero_sesiones}</div>}
-              {temario?.EOL && <div><strong>EOL:</strong> {temario.EOL}</div>}
-              {temario?.porcentaje_teoria_practica_general && (<div><strong>Distribución:</strong> {temario.porcentaje_teoria_practica_general}</div>)}
-            </div>
-            {temario?.descripcion_general && (<><h2>Descripción General</h2><p className="pdf-justify">{temario.descripcion_general}</p></>)}
-            {temario?.audiencia && (<><h2>Audiencia</h2><p className="pdf-justify">{temario.audiencia}</p></>)}
-            {temario?.prerrequisitos && (<><h2>Prerrequisitos</h2><p className="pdf-justify">{temario.prerrequisitos}</p></>)}
-            {temario?.objetivos && (<><h2>Objetivos</h2><p className="pdf-justify" style={{ whiteSpace: 'pre-wrap' }}>{temario.objetivos}</p></>)}
-            
-            <h2>Temario</h2>
-            {(temario?.temario || []).map((cap, i) => (
-              <div key={i} className="pdf-capitulo">
-                <h3>{cap.capitulo}</h3>
-                {(cap.tiempo_capitulo_min || cap.porcentaje_teoria_practica_capitulo) && (
-                  <div className="pdf-cap-meta">
-                    {cap.tiempo_capitulo_min ? <span><strong>Duración:</strong> {cap.tiempo_capitulo_min} min</span> : null}
-                    {cap.tiempo_capitulo_min && cap.porcentaje_teoria_practica_capitulo ? <span> • </span> : null}
-                    {cap.porcentaje_teoria_practica_capitulo ? (<span><strong>Distribución:</strong> {cap.porcentaje_teoria_practica_capitulo}</span>) : null}
-                  </div>
-                )}
-                {cap.objetivos_capitulo && (
-                  <div className="pdf-objetivos-cap">
-                    <strong>Objetivos:</strong>
-                    <div className="pdf-objetivos-lista">
-                      {Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.map((obj, idx) => (<div key={idx} className="pdf-objetivo-item">• {obj}</div>)) : <div className="pdf-objetivo-item">• {cap.objetivos_capitulo}</div>}
-                    </div>
-                  </div>
-                )}
-                <ul className="pdf-subcapitulos">
-                  {(cap.subcapitulos || []).map((sub, j) => {
-                    const nombre = typeof sub === 'object' ? sub.nombre : sub;
-                    const t = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : undefined;
-                    const s = typeof sub === 'object' ? sub.sesion : undefined;
-                    return (
-                      <li key={j}>
-                        <span>{nombre}</span>
-                        {(t || s) && (<span className="pdf-sub-meta">{t ? `${t} min` : ''}{t && s ? ' • ' : ''}{s ? `Sesión ${s}` : ''}</span>)}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+            {/* ... Contenido para la exportación antigua (basada en imagen) ... */}
           </div>
       </div>
 
-      {/* --- INTERFAZ DE EDICIÓN VISIBLE (TU CÓDIGO ORIGINAL SIN CAMBIOS) --- */}
-      {/* --- COPIA Y PEGA ESTE BLOQUE COMPLETO --- */}
+      {/* --- INTERFAZ DE EDICIÓN VISIBLE --- */}
 <div className="app-view">
   <div className="vista-selector">
     <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
@@ -314,7 +323,7 @@ const exportarPDF = async () => {
   ) : (
     <div>
       {vista === 'detallada' ? (
-        // --- VISTA DETALLADA (CORREGIDA Y COMPLETA) ---
+        // --- VISTA DETALLADA ---
         <div>
           <label className="editor-label">Nombre del Curso</label>
           <textarea name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
@@ -368,7 +377,7 @@ const exportarPDF = async () => {
           ))}
         </div>
       ) : (
-        // --- VISTA RESUMIDA (CORREGIDA Y COMPLETA) ---
+        // --- VISTA RESUMIDA ---
         <div className="vista-resumida-editable">
           <input name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
           
@@ -445,8 +454,4 @@ const exportarPDF = async () => {
 }
 
 export default EditorDeTemario;
-
-
-
-
 
