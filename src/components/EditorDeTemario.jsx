@@ -1,6 +1,6 @@
-// src/components/EditorDeTemario.jsx (TU CÓDIGO CON LAS CORRECCIONES FINALES)
+// src/components/EditorDeTemario.jsx (VERSIÓN FINAL CORREGIDA)
 import React, { useState, useEffect, useRef } from "react";
-import jsPDF from 'jspdf'; // <-- IMPORTACIÓN IMPORTANTE
+import jsPDF from 'jspdf';
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from '../assets/encabezado.png';
 import pieDePaginaImagen from '../assets/pie_de_pagina.png';
@@ -133,93 +133,115 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     }
   };
 
-// --- NUEVA FUNCIÓN PROFESIONAL PARA EXPORTAR PDF ---
+// --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN FINAL) ---
 const exportarPDF = async () => {
     try {
         setOkUi("Generando PDF profesional...");
         setErrorUi("");
 
-        // Inicializamos el documento PDF. Usaremos 'points' como unidad (es más fácil para fuentes).
         const doc = new jsPDF({
             orientation: 'portrait',
             unit: 'pt',
             format: 'letter'
         });
 
-        // Obtenemos las dimensiones de la página y definimos márgenes
+        // <-- AJUSTE: Definimos el color azul corporativo
+        const azulNetec = "#005A9C";
+
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         const margin = { top: 80, bottom: 80, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
-        // Cargamos las imágenes del encabezado y pie de página una sola vez
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
         const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
-
-        // --- INICIAMOS EL DIBUJO DEL CONTENIDO ---
         
-        let y = margin.top; // Esta es nuestra "pluma". Siempre sabrá en qué altura de la página escribir.
+        let y = margin.top;
 
-        // Función para añadir una nueva página y resetear 'y'
-        const addPageIfNeeded = () => {
-            if (y > pageHeight - margin.bottom) {
+        const addPageIfNeeded = (spaceNeeded = 20) => {
+            if (y + spaceNeeded > pageHeight - margin.bottom) {
                 doc.addPage();
                 y = margin.top;
             }
         };
 
-        // Título Principal
         doc.setFont("helvetica", "bold");
         doc.setFontSize(20);
+        // <-- AJUSTE: Aplicamos el color azul al título principal
+        doc.setTextColor(azulNetec);
         doc.text(temario.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: 'center' });
+        doc.setTextColor(0, 0, 0); // Regresamos a color negro
         y += 30;
 
-        // --- Función reutilizable para dibujar un título de sección y su contenido ---
         const drawSection = (title, content) => {
-            if (!content) return; // Si no hay contenido, no dibujes nada
+            if (!content) return;
             
-            addPageIfNeeded();
+            const contentAsText = Array.isArray(content) ? content.join('\n') : content;
+            const textLines = doc.splitTextToSize(contentAsText, contentWidth);
+            const sectionHeight = 15 + (textLines.length * 12) + 20;
+
+            addPageIfNeeded(sectionHeight);
+            
             doc.setFont("helvetica", "bold");
             doc.setFontSize(14);
+            // <-- AJUSTE: Aplicamos el color azul a los títulos de sección
+            doc.setTextColor(azulNetec);
             doc.text(title, margin.left, y);
+            doc.setTextColor(0, 0, 0); // Regresamos a color negro
             y += 15;
 
             doc.setFont("helvetica", "normal");
             doc.setFontSize(10);
             
-            // Usamos splitTextToSize para que el texto largo se ajuste automáticamente al ancho
-            const textLines = doc.splitTextToSize(content, contentWidth);
             doc.text(textLines, margin.left, y);
-            y += (textLines.length * 12) + 20; // Incrementamos 'y' según el número de líneas
+            y += (textLines.length * 12) + 20;
         };
 
-        // Dibujamos las secciones principales
         drawSection("Descripción General", temario.descripcion_general);
         drawSection("Audiencia", temario.audiencia);
         drawSection("Prerrequisitos", temario.prerrequisitos);
         drawSection("Objetivos", temario.objetivos);
         
-        // --- TEMARIO DETALLADO ---
         if (temario.temario && temario.temario.length > 0) {
-            addPageIfNeeded();
+            addPageIfNeeded(40);
             doc.setFont("helvetica", "bold");
             doc.setFontSize(16);
+            // <-- AJUSTE: Aplicamos el color azul al título "Temario"
+            doc.setTextColor(azulNetec);
             doc.text("Temario", margin.left, y);
+            doc.setTextColor(0, 0, 0); // Regresamos a color negro
             y += 20;
 
             temario.temario.forEach(capitulo => {
-                addPageIfNeeded();
+                addPageIfNeeded(50);
                 doc.setFont("helvetica", "bold");
                 doc.setFontSize(12);
                 doc.text(capitulo.capitulo, margin.left, y);
                 y += 15;
+                
+                if (capitulo.objetivos_capitulo && capitulo.objetivos_capitulo.length > 0) {
+                    const objetivos = Array.isArray(capitulo.objetivos_capitulo) ? capitulo.objetivos_capitulo : [capitulo.objetivos_capitulo];
+                    addPageIfNeeded(20 + objetivos.length * 12);
+                    
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(10);
+                    doc.text("Objetivos:", margin.left + 15, y);
+                    y += 12;
 
-                // Subcapítulos
+                    doc.setFont("helvetica", "normal");
+                    objetivos.forEach(obj => {
+                        const objLines = doc.splitTextToSize(`• ${obj}`, contentWidth - 15);
+                        doc.text(objLines, margin.left + 15, y);
+                        y += (objLines.length * 12);
+                    });
+                    y += 8;
+                }
+
                 if (capitulo.subcapitulos && capitulo.subcapitulos.length > 0) {
                     doc.setFont("helvetica", "normal");
                     doc.setFontSize(10);
                     capitulo.subcapitulos.forEach(sub => {
-                        addPageIfNeeded();
+                        addPageIfNeeded(14);
                         const nombre = typeof sub === 'object' ? sub.nombre : sub;
                         const tiempo = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : '';
                         const sesion = typeof sub === 'object' ? sub.sesion : '';
@@ -228,43 +250,46 @@ const exportarPDF = async () => {
                         if (tiempo) meta += `${tiempo} min`;
                         if (tiempo && sesion) meta += ' • ';
                         if (sesion) meta += `Sesión ${sesion}`;
-
-                        // Dibuja el nombre del subcapítulo
-                        doc.text(`• ${nombre}`, margin.left + 15, y);
                         
-                        // Dibuja la meta (tiempo/sesión) alineada a la derecha
-                        doc.text(meta, pageWidth - margin.right, y, { align: 'right' });
-                        y += 14;
+                        const subLines = doc.splitTextToSize(`• ${nombre}`, contentWidth - 80); 
+                        doc.text(subLines, margin.left + 15, y);
+                        
+                        doc.text(meta, pageWidth - margin.right - 10, y, { align: 'right' });
+                        
+                        y += (subLines.length * 12) + 2;
                     });
                 }
-                y += 10; // Espacio entre capítulos
+                y += 10;
             });
         }
 
-        // --- PAGINACIÓN Y ENCABEZADOS/PIES DE PÁGINA ---
         const totalPages = doc.internal.getNumberOfPages();
 
         for (let i = 1; i <= totalPages; i++) {
-            doc.setPage(i); // Cambia a la página 'i'
+            doc.setPage(i);
 
-            // Añadir Encabezado
             const propsEncabezado = doc.getImageProperties(encabezadoDataUrl);
             const altoEncabezado = pageWidth * (propsEncabezado.height / propsEncabezado.width);
             doc.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEncabezado);
 
-            // Añadir Pie de Página
             const propsPie = doc.getImageProperties(pieDePaginaDataUrl);
             const altoPie = pageWidth * (propsPie.height / propsPie.width);
             doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-            // Añadir número de página
-            const pageNumText = `Página ${i} de ${totalPages}`;
+            const footerTextY = pageHeight - altoPie + 15;
+
             doc.setFontSize(9);
             doc.setTextColor("#6c757d");
-            doc.text(pageNumText, pageWidth / 2, pageHeight - 30, { align: 'center' });
+
+            const pageNumText = `Página ${i} de ${totalPages}`;
+            doc.text(pageNumText, pageWidth / 2, footerTextY, { align: 'center' });
+            
+            const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
+            doc.setFontSize(8);
+            doc.setTextColor("#888888");
+            doc.text(leyenda, margin.left, footerTextY);
         }
 
-        // Guardar el PDF
         doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
         setOkUi("PDF exportado correctamente ✔");
 
@@ -301,124 +326,116 @@ const exportarPDF = async () => {
         </div>
       )}
 
-      {/* Este DIV oculto ya no se usa para la nueva exportación, pero se puede mantener por si se necesita */}
-      <div ref={pdfContentRef} className="pdf-clean">
-          <div className="pdf-body">
-            {/* ... Contenido para la exportación antigua (basada en imagen) ... */}
-          </div>
-      </div>
+      <div ref={pdfContentRef} style={{ display: 'none' }}></div>
 
-      {/* --- INTERFAZ DE EDICIÓN VISIBLE --- */}
-<div className="app-view">
-  <div className="vista-selector">
-    <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
-    <button className={`btn-vista ${vista === 'resumida' ? 'activo' : ''}`} onClick={() => setVista('resumida')}>Vista Resumida</button>
-  </div>
-  <div className="vista-info">
-    {vista === 'detallada' ? (<p>📝 Vista completa con todos los campos editables organizados verticalmente</p>) : (<p>📋 Vista compacta con campos organizados en grillas para edición rápida</p>)}
-  </div>
-
-  {isLoading ? (
-    <div className="spinner-container"><div className="spinner"></div><p>Generando nueva versión...</p></div>
-  ) : (
-    <div>
-      {vista === 'detallada' ? (
-        // --- VISTA DETALLADA ---
-        <div>
-          <label className="editor-label">Nombre del Curso</label>
-          <textarea name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
-          
-          <label className="editor-label">Descripción General</label>
-          <textarea name="descripcion_general" value={temario.descripcion_general || ''} onChange={handleInputChange} className="textarea-descripcion" />
-          
-          <label className="editor-label">Audiencia</label>
-          <textarea name="audiencia" value={temario.audiencia || ''} onChange={handleInputChange} className="textarea-descripcion" />
-          
-          <label className="editor-label">Prerrequisitos</label>
-          <textarea name="prerrequisitos" value={Array.isArray(temario.prerrequisitos) ? temario.prerrequisitos.join('\n') : temario.prerrequisitos || ''} onChange={(e) => handleInputChange({ target: { name: 'prerrequisitos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un prerrequisito por línea"/>
-          
-          <label className="editor-label">Objetivos Generales</label>
-          <textarea name="objetivos" value={Array.isArray(temario.objetivos) ? temario.objetivos.join('\n') : temario.objetivos || ''} onChange={(e) => handleInputChange({ target: { name: 'objetivos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un objetivo por línea" />
-
-          <h3>Temario Detallado</h3>
-          {(temario.temario || []).map((cap, capIndex) => (
-            <div key={capIndex} className="capitulo-editor">
-              <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
-              
-              <div className="info-grid-capitulo">
-                  <div className="info-item">
-                      <label>Duración (min)</label>
-                      <input type="number" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} className="input-info-small"/>
-                  </div>
-              </div>
-
-              <div className="objetivos-capitulo">
-                  <label>Objetivos del Capítulo</label>
-                  <textarea value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} className="textarea-objetivos-capitulo" placeholder="Un objetivo por línea"/>
-              </div>
-              
-              <ul>
-                {(cap.subcapitulos || []).map((sub, subIndex) => {
-                  const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-                  return (
-                    <li key={subIndex}>
-                      <div className="subcapitulo-item-detallado">
-                          <input value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} className="input-subcapitulo" placeholder="Nombre del subcapítulo"/>
-                          <div className="subcapitulo-meta-inputs">
-                              <input type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min"/>
-                              <input type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión"/>
-                          </div>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          ))}
+      <div className="app-view">
+        <div className="vista-selector">
+            <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
+            <button className={`btn-vista ${vista === 'resumida' ? 'activo' : ''}`} onClick={() => setVista('resumida')}>Vista Resumida</button>
         </div>
-      ) : (
-        // --- VISTA RESUMIDA ---
-        <div className="vista-resumida-editable">
-          <input name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
-          
-          <h3>Temario Detallado</h3>
-          {(temario.temario || []).map((cap, capIndex) => (
-            <div key={capIndex} className="capitulo-resumido">
-              <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
-              
-              <div className="info-grid-capitulo">
-                <div className="info-item">
-                  <label>Duración Total (min)</label>
-                  <input type="number" className="input-info-small" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} />
+        <div className="vista-info">
+            {vista === 'detallada' ? (<p>📝 Vista completa con todos los campos editables organizados verticalmente</p>) : (<p>📋 Vista compacta con campos organizados en grillas para edición rápida</p>)}
+        </div>
+
+        {isLoading ? (
+            <div className="spinner-container"><div className="spinner"></div><p>Generando nueva versión...</p></div>
+        ) : (
+            <div>
+            {vista === 'detallada' ? (
+                <div>
+                <label className="editor-label">Nombre del Curso</label>
+                <textarea name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
+                
+                <label className="editor-label">Descripción General</label>
+                <textarea name="descripcion_general" value={temario.descripcion_general || ''} onChange={handleInputChange} className="textarea-descripcion" />
+                
+                <label className="editor-label">Audiencia</label>
+                <textarea name="audiencia" value={temario.audiencia || ''} onChange={handleInputChange} className="textarea-descripcion" />
+                
+                <label className="editor-label">Prerrequisitos</label>
+                <textarea name="prerrequisitos" value={Array.isArray(temario.prerrequisitos) ? temario.prerrequisitos.join('\n') : temario.prerrequisitos || ''} onChange={(e) => handleInputChange({ target: { name: 'prerrequisitos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un prerrequisito por línea"/>
+                
+                <label className="editor-label">Objetivos Generales</label>
+                <textarea name="objetivos" value={Array.isArray(temario.objetivos) ? temario.objetivos.join('\n') : temario.objetivos || ''} onChange={(e) => handleInputChange({ target: { name: 'objetivos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un objetivo por línea" />
+
+                <h3>Temario Detallado</h3>
+                {(temario.temario || []).map((cap, capIndex) => (
+                    <div key={capIndex} className="capitulo-editor">
+                    <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
+                    
+                    <div className="info-grid-capitulo">
+                        <div className="info-item">
+                            <label>Duración (min)</label>
+                            <input type="number" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} className="input-info-small"/>
+                        </div>
+                    </div>
+
+                    <div className="objetivos-capitulo">
+                        <label>Objetivos del Capítulo</label>
+                        <textarea value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} className="textarea-objetivos-capitulo" placeholder="Un objetivo por línea"/>
+                    </div>
+                    
+                    <ul>
+                        {(cap.subcapitulos || []).map((sub, subIndex) => {
+                        const subObj = typeof sub === 'object' ? sub : { nombre: sub };
+                        return (
+                            <li key={subIndex}>
+                            <div className="subcapitulo-item-detallado">
+                                <input value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} className="input-subcapitulo" placeholder="Nombre del subcapítulo"/>
+                                <div className="subcapitulo-meta-inputs">
+                                    <input type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min"/>
+                                    <input type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión"/>
+                                </div>
+                            </div>
+                            </li>
+                        )
+                        })}
+                    </ul>
+                    </div>
+                ))}
                 </div>
-              </div>
+            ) : (
+                <div className="vista-resumida-editable">
+                <input name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
+                
+                <h3>Temario Detallado</h3>
+                {(temario.temario || []).map((cap, capIndex) => (
+                    <div key={capIndex} className="capitulo-resumido">
+                    <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
+                    
+                    <div className="info-grid-capitulo">
+                        <div className="info-item">
+                        <label>Duración Total (min)</label>
+                        <input type="number" className="input-info-small" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} />
+                        </div>
+                    </div>
 
-              <div className="objetivos-capitulo-resumido">
-                <label>Objetivos del Capítulo</label>
-                <textarea className="textarea-objetivos-resumido" value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} />
-              </div>
+                    <div className="objetivos-capitulo-resumido">
+                        <label>Objetivos del Capítulo</label>
+                        <textarea className="textarea-objetivos-resumido" value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} />
+                    </div>
 
-              <div className="subcapitulos-resumidos">
-                {(cap.subcapitulos || []).map((sub, subIndex) => {
-                    const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-                    return (
-                      <div key={subIndex} className="subcapitulo-item">
-                          <input className="input-subcapitulo-resumido" value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} placeholder="Nombre del subcapítulo" />
-                          <div className="subcapitulo-tiempos">
-                              <input className="input-tiempo-sub" type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min" />
-                              <input className="input-sesion-sub" type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión" />
-                          </div>
-                      </div>
-                    )
-                })}
-              </div>
+                    <div className="subcapitulos-resumidos">
+                        {(cap.subcapitulos || []).map((sub, subIndex) => {
+                            const subObj = typeof sub === 'object' ? sub : { nombre: sub };
+                            return (
+                            <div key={subIndex} className="subcapitulo-item">
+                                <input className="input-subcapitulo-resumido" value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} placeholder="Nombre del subcapítulo" />
+                                <div className="subcapitulo-tiempos">
+                                    <input className="input-tiempo-sub" type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min" />
+                                    <input className="input-sesion-sub" type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión" />
+                                </div>
+                            </div>
+                            )
+                        })}
+                    </div>
+                    </div>
+                ))}
+                </div>
+            )}
             </div>
-          ))}
+        )}
         </div>
-      )}
-    </div>
-  )}
-</div>
 
       <div className="acciones-footer">
         <button onClick={() => setMostrarFormRegenerar(prev => !prev)}>Ajustar y Regenerar</button>
@@ -454,4 +471,3 @@ const exportarPDF = async () => {
 }
 
 export default EditorDeTemario;
-
