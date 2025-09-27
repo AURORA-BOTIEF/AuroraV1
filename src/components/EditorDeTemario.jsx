@@ -150,7 +150,7 @@ const exportarPDF = async () => {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        const margin = { top: 180, bottom: 100, left: 40, right: 40 };
+        const margin = { top: 200, bottom: 100, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
@@ -218,7 +218,7 @@ const exportarPDF = async () => {
             doc.setFont("helvetica", "normal");
             doc.setFontSize(10);
             
-            doc.text(textLines, margin.left, y, { align: 'justify', maxWidth: contentWidth });
+            doc.text(textLines, margin.left, y);
             y += (textLines.length * 12) + 20;
         };
 
@@ -316,7 +316,8 @@ const exportarPDF = async () => {
             doc.text(pageNumText, pageWidth / 2, pageNumY, { align: 'center' });
         }
 
-        doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
+        const nombreParaArchivo = temario.nombre_curso || temario.tema_curso;
+        doc.save(`Temario_${slugify(nombreParaArchivo)}.pdf`);
         setOkUi("PDF exportado correctamente ✔");
 
     } catch (error) {
