@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (VERSIÓN FINAL CON HELVETICA)
+// src/components/EditorDeTemario.jsx (VERSIÓN FINAL CON AJUSTES DE MARGEN)
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from 'jspdf';
 import { downloadExcelTemario } from "../utils/downloadExcel";
@@ -150,7 +150,7 @@ const exportarPDF = async () => {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        const margin = { top: 120, bottom: 80, left: 40, right: 40 };
+        const margin = { top: 140, bottom: 80, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
@@ -243,22 +243,20 @@ const exportarPDF = async () => {
                 doc.text(capitulo.capitulo, margin.left, y);
                 y += 15;
                 
+                // <-- AJUSTE CLAVE: Cambia el formato de los objetivos de capítulo
                 if (capitulo.objetivos_capitulo && capitulo.objetivos_capitulo.length > 0) {
                     const objetivos = Array.isArray(capitulo.objetivos_capitulo) ? capitulo.objetivos_capitulo : [capitulo.objetivos_capitulo];
-                    addPageIfNeeded(20 + objetivos.length * 12);
+                    const objetivosTexto = objetivos.join(' ');
+                    const textoCompleto = `Objetivos: ${objetivosTexto}`;
                     
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(10);
-                    doc.text("Objetivos:", margin.left + 15, y);
-                    y += 12;
-
+                    const textLines = doc.splitTextToSize(textoCompleto, contentWidth - 15);
+                    
+                    addPageIfNeeded(20 + textLines.length * 12);
+                    
                     doc.setFont("helvetica", "normal");
-                    objetivos.forEach(obj => {
-                        const objLines = doc.splitTextToSize(`• ${obj}`, contentWidth - 15);
-                        doc.text(objLines, margin.left + 15, y);
-                        y += (objLines.length * 12);
-                    });
-                    y += 8;
+                    doc.setFontSize(10);
+                    doc.text(textLines, margin.left + 15, y);
+                    y += (textLines.length * 12) + 8;
                 }
 
                 if (capitulo.subcapitulos && capitulo.subcapitulos.length > 0) {
@@ -300,8 +298,8 @@ const exportarPDF = async () => {
             const altoPie = pageWidth * (propsPie.height / propsPie.width);
             doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-            const leyendaY = pageHeight - 45;
-            const pageNumY = pageHeight - 30;
+            const leyendaY = pageHeight - 60;
+            const pageNumY = pageHeight - 45;
 
             doc.setFont("helvetica", "normal");
             const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
@@ -496,4 +494,5 @@ const exportarPDF = async () => {
 }
 
 export default EditorDeTemario;
+
 
