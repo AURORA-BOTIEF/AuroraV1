@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (VERSIÓN FINAL CORREGIDA)
+// src/components/EditorDeTemario.jsx (VERSIÓN FINAL CON HELVETICA)
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from 'jspdf';
 import { downloadExcelTemario } from "../utils/downloadExcel";
@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_TEMARIOS_API || "";
 
 function slugify(str = "") {
   return String(str)
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFD").replace(/[\u00-~]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
@@ -133,7 +133,7 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     }
   };
 
-// --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN FINAL) ---
+// --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN FINAL CON HELVETICA) ---
 const exportarPDF = async () => {
     try {
         setOkUi("Generando PDF profesional...");
@@ -145,12 +145,12 @@ const exportarPDF = async () => {
             format: 'letter'
         });
 
-        // <-- AJUSTE: Definimos el color azul corporativo
         const azulNetec = "#005A9C";
 
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
-        const margin = { top: 80, bottom: 80, left: 40, right: 40 };
+        
+        const margin = { top: 120, bottom: 80, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
@@ -164,14 +164,40 @@ const exportarPDF = async () => {
                 y = margin.top;
             }
         };
-
+        
         doc.setFont("helvetica", "bold");
         doc.setFontSize(20);
-        // <-- AJUSTE: Aplicamos el color azul al título principal
         doc.setTextColor(azulNetec);
         doc.text(temario.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: 'center' });
-        doc.setTextColor(0, 0, 0); // Regresamos a color negro
+        doc.setTextColor(0, 0, 0);
         y += 30;
+
+        const drawMetaInfo = () => {
+            const metaData = [
+                { label: "Versión:", value: temario.version_tecnologia },
+                { label: "Horas Totales:", value: temario.horas_totales },
+                { label: "Sesiones:", value: temario.numero_sesiones },
+                { label: "EOL:", value: temario.EOL },
+                { label: "Distribución:", value: temario.porcentaje_teoria_practica_general },
+            ].filter(item => item.value); 
+
+            if (metaData.length === 0) return;
+
+            addPageIfNeeded(metaData.length * 15);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+
+            metaData.forEach(item => {
+                doc.setFont("helvetica", "bold");
+                doc.text(item.label, margin.left, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(String(item.value), margin.left + 80, y);
+                y += 15;
+            });
+            y += 15;
+        };
+
+        drawMetaInfo();
 
         const drawSection = (title, content) => {
             if (!content) return;
@@ -184,10 +210,9 @@ const exportarPDF = async () => {
             
             doc.setFont("helvetica", "bold");
             doc.setFontSize(14);
-            // <-- AJUSTE: Aplicamos el color azul a los títulos de sección
             doc.setTextColor(azulNetec);
             doc.text(title, margin.left, y);
-            doc.setTextColor(0, 0, 0); // Regresamos a color negro
+            doc.setTextColor(0, 0, 0);
             y += 15;
 
             doc.setFont("helvetica", "normal");
@@ -206,10 +231,9 @@ const exportarPDF = async () => {
             addPageIfNeeded(40);
             doc.setFont("helvetica", "bold");
             doc.setFontSize(16);
-            // <-- AJUSTE: Aplicamos el color azul al título "Temario"
             doc.setTextColor(azulNetec);
             doc.text("Temario", margin.left, y);
-            doc.setTextColor(0, 0, 0); // Regresamos a color negro
+            doc.setTextColor(0, 0, 0);
             y += 20;
 
             temario.temario.forEach(capitulo => {
@@ -276,18 +300,19 @@ const exportarPDF = async () => {
             const altoPie = pageWidth * (propsPie.height / propsPie.width);
             doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-            const footerTextY = pageHeight - altoPie + 15;
+            const leyendaY = pageHeight - 45;
+            const pageNumY = pageHeight - 30;
 
-            doc.setFontSize(9);
-            doc.setTextColor("#6c757d");
-
-            const pageNumText = `Página ${i} de ${totalPages}`;
-            doc.text(pageNumText, pageWidth / 2, footerTextY, { align: 'center' });
-            
+            doc.setFont("helvetica", "normal");
             const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
             doc.setFontSize(8);
             doc.setTextColor("#888888");
-            doc.text(leyenda, margin.left, footerTextY);
+            doc.text(leyenda, margin.left, leyendaY);
+
+            doc.setFontSize(9);
+            doc.setTextColor("#6c757d");
+            const pageNumText = `Página ${i} de ${totalPages}`;
+            doc.text(pageNumText, pageWidth / 2, pageNumY, { align: 'center' });
         }
 
         doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
@@ -471,3 +496,4 @@ const exportarPDF = async () => {
 }
 
 export default EditorDeTemario;
+
