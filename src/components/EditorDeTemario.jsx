@@ -150,7 +150,7 @@ const exportarPDF = async () => {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        const margin = { top: 140, bottom: 80, left: 40, right: 40 };
+        const margin = { top: 160, bottom: 80, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
@@ -298,8 +298,8 @@ const exportarPDF = async () => {
             const altoPie = pageWidth * (propsPie.height / propsPie.width);
             doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-            const leyendaY = pageHeight - 60;
-            const pageNumY = pageHeight - 45;
+            const leyendaY = pageHeight - 65;
+            const pageNumY = pageHeight - 50;
 
             doc.setFont("helvetica", "normal");
             const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
