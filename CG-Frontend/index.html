@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CrewAI Course Generator</title>
+    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
+</head>
+
+<body>
+    <main>
+        <h1>CrewAI: Upload outline & generate lesson</h1>
+
+        <section>
+            <h2>1) Upload outline.yaml</h2>
+            <input id="fileInput" type="file" accept=".yaml,.yml" />
+            <button id="uploadBtn">Upload to S3</button>
+            <div id="uploadStatus"></div>
+        </section>
+
+        <section>
+            <h2>2) Generation settings</h2>
+            <label>Course bucket: <input id="courseBucket" value="crewai-course-artifacts" /></label>
+            <label>Project folder: <input id="projectFolder"
+                    placeholder="e.g. 250916-kubernetes-for-devops-engineers-05" /></label>
+            <label>Module #: <input id="moduleNum" type="number" value="3" /></label>
+            <label>Lesson #: <input id="lessonNum" type="number" value="1" /></label>
+            <label>Max images: <input id="maxImages" type="number" value="3" min="0" max="50" /></label>
+            <label>Model provider:
+                <select id="modelProvider">
+                    <option value="openai">OpenAI</option>
+                    <option value="bedrock">Bedrock</option>
+                </select>
+            </label>
+            <br />
+            <button id="startBtn">Start generation</button>
+            <div id="startStatus"></div>
+        </section>
+
+        <section>
+            <h2>3) Execution status</h2>
+            <div>Execution ARN: <span id="execArn">-</span></div>
+            <div>Status: <span id="execState">Not started</span></div>
+            <pre id="execStatus">No execution yet</pre>
+        </section>
+
+        <section>
+            <h2>4) Visual prompts</h2>
+            <ul id="promptsList"></ul>
+        </section>
+
+        <section>
+            <h2>5) Generated images</h2>
+            <div id="imagesContainer"></div>
+        </section>
+    </main>
+
+    <script>
+        // Load runtime config for API endpoints, then dynamically load the app
+        // Default to the deployed API endpoints so local dev doesn't accidentally call localhost:/presign
+        window.__FRONTEND_CONFIG = {
+            apiBaseUrl: 'https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod',
+            presignEndpoint: 'https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod/presign',
+            startJobEndpoint: 'https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod/start-job',
+            execStatusEndpoint: 'https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod/exec-status'
+        };
+        (async function () {
+            try {
+                const r = await fetch('/config.json');
+                if (r.ok) window.__FRONTEND_CONFIG = await r.json();
+            } catch (e) {
+                // fall back to defaults (local endpoints)
+            }
+            // Load app.js only after config is available to avoid race conditions
+            const s = document.createElement('script');
+            s.src = 'app.js';
+            document.body.appendChild(s);
+        })();
+    </script>
+</body>
+
+</html>

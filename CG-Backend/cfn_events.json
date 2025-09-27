@@ -1,0 +1,221 @@
+{
+    "StackEvents": [
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "cb67edd0-9810-11f0-a6ca-0affea8020ad",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "netec-cg-dev",
+            "PhysicalResourceId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "Timestamp": "2025-09-23T00:03:54.785000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "caec5530-9810-11f0-8049-129c7e9dec81",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "netec-cg-dev",
+            "PhysicalResourceId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "Timestamp": "2025-09-23T00:03:53.976000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "StarterApiFunction-UPDATE_COMPLETE-2025-09-23T00:03:51.099Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "StarterApiFunction",
+            "PhysicalResourceId": "netec-cg-dev-StarterApiFunction-AWtZlInFEH9D",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:51.099000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-StarterApiFunctionRole-nBcj8lv9DMci\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Description\":\"API endpoint to start the ContentGen -> VisualPlanner state machine\",\"Timeout\":\"30\",\"Handler\":\"starter_api.lambda_handler\",\"Environment\":{\"Variables\":{\"STATE_MACHINE_ARN\":\"arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine-EsfKMIXs4Prh\",\"SKIP_S3_HEAD_CHECK\":\"true\"}},\"Code\":{\"S3Bucket\":\"aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq\",\"S3Key\":\"crewai-course-generator-stack/0154a71c1e6064edb6be55555b649471\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "ExecStatusFunction-UPDATE_COMPLETE-2025-09-23T00:03:50.076Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "ExecStatusFunction",
+            "PhysicalResourceId": "netec-cg-dev-ExecStatusFunction-ldwTXGN1Uxyo",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:50.076000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-ExecStatusFunctionRole-ktI0gsRWzbKz\",\"MemorySize\":\"128\",\"Runtime\":\"python3.12\",\"Description\":\"Returns Step Functions execution status for a given arn\",\"Timeout\":\"10\",\"Handler\":\"exec_status.lambda_handler\",\"Code\":{\"S3Bucket\":\"aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq\",\"S3Key\":\"crewai-course-generator-stack/0154a71c1e6064edb6be55555b649471\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "StarterApiFunction-UPDATE_IN_PROGRESS-2025-09-23T00:03:41.375Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "StarterApiFunction",
+            "PhysicalResourceId": "netec-cg-dev-StarterApiFunction-AWtZlInFEH9D",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:41.375000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-StarterApiFunctionRole-nBcj8lv9DMci\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Description\":\"API endpoint to start the ContentGen -> VisualPlanner state machine\",\"Timeout\":\"30\",\"Handler\":\"starter_api.lambda_handler\",\"Environment\":{\"Variables\":{\"STATE_MACHINE_ARN\":\"arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine-EsfKMIXs4Prh\",\"SKIP_S3_HEAD_CHECK\":\"true\"}},\"Code\":{\"S3Bucket\":\"aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq\",\"S3Key\":\"crewai-course-generator-stack/0154a71c1e6064edb6be55555b649471\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "ExecStatusFunction-UPDATE_IN_PROGRESS-2025-09-23T00:03:41.270Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "ExecStatusFunction",
+            "PhysicalResourceId": "netec-cg-dev-ExecStatusFunction-ldwTXGN1Uxyo",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:41.270000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-ExecStatusFunctionRole-ktI0gsRWzbKz\",\"MemorySize\":\"128\",\"Runtime\":\"python3.12\",\"Description\":\"Returns Step Functions execution status for a given arn\",\"Timeout\":\"10\",\"Handler\":\"exec_status.lambda_handler\",\"Code\":{\"S3Bucket\":\"aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq\",\"S3Key\":\"crewai-course-generator-stack/0154a71c1e6064edb6be55555b649471\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CourseGeneratorStateMachine-UPDATE_COMPLETE-2025-09-23T00:03:38.698Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CourseGeneratorStateMachine",
+            "PhysicalResourceId": "arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine-EsfKMIXs4Prh",
+            "ResourceType": "AWS::StepFunctions::StateMachine",
+            "Timestamp": "2025-09-23T00:03:38.698000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"DefinitionString\":\"{\\n  \\\"Comment\\\": \\\"Orchestrate ContentGen -> VisualPlanner -> ImagesGen for a single lesson\\\",\\n  \\\"StartAt\\\": \\\"InvokeContentGen\\\",\\n  \\\"States\\\": {\\n    \\\"InvokeContentGen\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiContentGen-33wXd60SKD4a\\\",\\n        \\\"Payload.$\\\": \\\"$\\\"\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"ParseContentGenResult\\\"\\n    },\\n    \\\"ParseContentGenResult\\\": {\\n      \\\"Type\\\": \\\"Pass\\\",\\n      \\\"Parameters\\\": {\\n        \\\"lesson_key.$\\\": \\\"$.Payload.lesson_key\\\",\\n        \\\"course_bucket.$\\\": \\\"$.Payload.course_bucket\\\",\\n        \\\"project_folder.$\\\": \\\"$.Payload.project_folder\\\",\\n        \\\"payload.$\\\": \\\"$.Payload\\\",\\n        \\\"original.$\\\": \\\"$\\\",\\n        \\\"model_provider.$\\\": \\\"$.Payload.model_provider\\\",\\n        \\\"performance_mode.$\\\": \\\"$.Payload.performance_mode\\\",\\n        \\\"content_source.$\\\": \\\"$.Payload.content_source\\\"\\n      },\\n      \\\"Next\\\": \\\"InvokeVisualPlanner\\\"\\n    },\\n    \\\"InvokeVisualPlanner\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiVisualPlanner-okgEBRfYNUTE\\\",\\n        \\\"Payload\\\": {\\n          \\\"course_bucket.$\\\": \\\"$.course_bucket\\\",\\n          \\\"lesson_key.$\\\": \\\"$.lesson_key\\\",\\n          \\\"project_folder.$\\\": \\\"$.project_folder\\\",\\n          \\\"model_provider.$\\\": \\\"$.model_provider\\\",\\n          \\\"performance_mode.$\\\": \\\"$.performance_mode\\\",\\n          \\\"content_source.$\\\": \\\"$.content_source\\\",\\n          \\\"original.$\\\": \\\"$\\\"\\n        }\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"InvokeImagesGen\\\"\\n    },\\n    \\\"InvokeImagesGen\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiImagesGen-OzYtDV56A5fD\\\",\\n        \\\"Payload\\\": {\\n          \\\"course_bucket.$\\\": \\\"$.course_bucket\\\",\\n          \\\"project_folder.$\\\": \\\"$.project_folder\\\",\\n          \\\"max_images.$\\\": \\\"$$.Execution.Input.max_images\\\",\\n          \\\"original.$\\\": \\\"$.original\\\"\\n        }\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"SuccessState\\\"\\n    },\\n    \\\"FailState\\\": { \\\"Type\\\": \\\"Fail\\\", \\\"Cause\\\": \\\"TaskFailed\\\", \\\"Error\\\": \\\"OrchestrationFailed\\\" },\\n    \\\"SuccessState\\\": { \\\"Type\\\": \\\"Succeed\\\" }\\n  }\\n}\\n\",\"RoleArn\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CourseGeneratorStateMachineRole-4b7YMpWK67LK\"}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CourseGeneratorStateMachine-UPDATE_IN_PROGRESS-2025-09-23T00:03:35.254Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CourseGeneratorStateMachine",
+            "PhysicalResourceId": "arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine-EsfKMIXs4Prh",
+            "ResourceType": "AWS::StepFunctions::StateMachine",
+            "Timestamp": "2025-09-23T00:03:35.254000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"DefinitionString\":\"{\\n  \\\"Comment\\\": \\\"Orchestrate ContentGen -> VisualPlanner -> ImagesGen for a single lesson\\\",\\n  \\\"StartAt\\\": \\\"InvokeContentGen\\\",\\n  \\\"States\\\": {\\n    \\\"InvokeContentGen\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiContentGen-33wXd60SKD4a\\\",\\n        \\\"Payload.$\\\": \\\"$\\\"\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"ParseContentGenResult\\\"\\n    },\\n    \\\"ParseContentGenResult\\\": {\\n      \\\"Type\\\": \\\"Pass\\\",\\n      \\\"Parameters\\\": {\\n        \\\"lesson_key.$\\\": \\\"$.Payload.lesson_key\\\",\\n        \\\"course_bucket.$\\\": \\\"$.Payload.course_bucket\\\",\\n        \\\"project_folder.$\\\": \\\"$.Payload.project_folder\\\",\\n        \\\"payload.$\\\": \\\"$.Payload\\\",\\n        \\\"original.$\\\": \\\"$\\\",\\n        \\\"model_provider.$\\\": \\\"$.Payload.model_provider\\\",\\n        \\\"performance_mode.$\\\": \\\"$.Payload.performance_mode\\\",\\n        \\\"content_source.$\\\": \\\"$.Payload.content_source\\\"\\n      },\\n      \\\"Next\\\": \\\"InvokeVisualPlanner\\\"\\n    },\\n    \\\"InvokeVisualPlanner\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiVisualPlanner-okgEBRfYNUTE\\\",\\n        \\\"Payload\\\": {\\n          \\\"course_bucket.$\\\": \\\"$.course_bucket\\\",\\n          \\\"lesson_key.$\\\": \\\"$.lesson_key\\\",\\n          \\\"project_folder.$\\\": \\\"$.project_folder\\\",\\n          \\\"model_provider.$\\\": \\\"$.model_provider\\\",\\n          \\\"performance_mode.$\\\": \\\"$.performance_mode\\\",\\n          \\\"content_source.$\\\": \\\"$.content_source\\\",\\n          \\\"original.$\\\": \\\"$\\\"\\n        }\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"InvokeImagesGen\\\"\\n    },\\n    \\\"InvokeImagesGen\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiImagesGen-OzYtDV56A5fD\\\",\\n        \\\"Payload\\\": {\\n          \\\"course_bucket.$\\\": \\\"$.course_bucket\\\",\\n          \\\"project_folder.$\\\": \\\"$.project_folder\\\",\\n          \\\"max_images.$\\\": \\\"$$.Execution.Input.max_images\\\",\\n          \\\"original.$\\\": \\\"$.original\\\"\\n        }\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"SuccessState\\\"\\n    },\\n    \\\"FailState\\\": { \\\"Type\\\": \\\"Fail\\\", \\\"Cause\\\": \\\"TaskFailed\\\", \\\"Error\\\": \\\"OrchestrationFailed\\\" },\\n    \\\"SuccessState\\\": { \\\"Type\\\": \\\"Succeed\\\" }\\n  }\\n}\\n\",\"RoleArn\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CourseGeneratorStateMachineRole-4b7YMpWK67LK\"}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CrewaiContentGen-UPDATE_COMPLETE-2025-09-23T00:03:33.040Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CrewaiContentGen",
+            "PhysicalResourceId": "netec-cg-dev-CrewaiContentGen-33wXd60SKD4a",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:33.040000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CrewaiContentGenRole-rA0Rai6Uctnj\",\"ImageConfig\":{\"Command\":[\"content_gen.lambda_handler\"]},\"MemorySize\":\"2048\",\"Description\":\"Generates structured course content following YAML outline requirements\",\"Timeout\":\"900\",\"PackageType\":\"Image\",\"Environment\":{\"Variables\":{\"YAML_STRUCTURE_ENABLED\":\"true\",\"OUTPUT_S3_BUCKET\":\"crewai-course-artifacts\",\"BEDROCK_API_KEY\":\"ABSKSnVhbkRhdmlkLWF0LTc0NjQzNDI5Njg2OTpLRjhMV0Erd2tjVDhKRmllbXVtbysyRnN1MHVoeXpzWWoveFYvOWpwS1UvTTBDbXN6Mk0xV001UzN2ND0=\"}},\"Code\":{\"ImageUri\":\"746434296869.dkr.ecr.us-east-1.amazonaws.com/neteccgdev3245d368/crewaicontentgen8046a304repo:crewaicontentgen-99e36c4b70d1-latest\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"x86_64\"]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CrewaiImagesGen-UPDATE_COMPLETE-2025-09-23T00:03:32.970Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CrewaiImagesGen",
+            "PhysicalResourceId": "netec-cg-dev-CrewaiImagesGen-OzYtDV56A5fD",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:32.970000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CrewaiImagesGenRole-z20EBfOBfLxv\",\"ImageConfig\":{\"Command\":[\"images_gen.lambda_handler\"]},\"MemorySize\":\"2048\",\"Description\":\"Generates images from visual prompts using Google Gemini\",\"Timeout\":\"900\",\"PackageType\":\"Image\",\"Environment\":{\"Variables\":{\"YAML_STRUCTURE_ENABLED\":\"true\",\"OUTPUT_S3_BUCKET\":\"crewai-course-artifacts\",\"GOOGLE_API_KEY\":\"****\"}},\"Code\":{\"ImageUri\":\"746434296869.dkr.ecr.us-east-1.amazonaws.com/neteccgdev3245d368/crewaiimagesgenea1a9325repo:crewaicontentgen-99e36c4b70d1-latest\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"x86_64\"]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CrewaiVisualPlanner-UPDATE_COMPLETE-2025-09-23T00:03:16.359Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CrewaiVisualPlanner",
+            "PhysicalResourceId": "netec-cg-dev-CrewaiVisualPlanner-okgEBRfYNUTE",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:16.359000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CrewaiVisualPlannerRole-ivQfPqu5fpWw\",\"ImageConfig\":{\"Command\":[\"visual_planner.lambda_handler\"]},\"MemorySize\":\"2048\",\"Description\":\"Generates visual planning prompts from course content\",\"Timeout\":\"900\",\"PackageType\":\"Image\",\"Environment\":{\"Variables\":{\"YAML_STRUCTURE_ENABLED\":\"true\",\"OUTPUT_S3_BUCKET\":\"crewai-course-artifacts\",\"BEDROCK_API_KEY\":\"ABSKSnVhbkRhdmlkLWF0LTc0NjQzNDI5Njg2OTpLRjhMV0Erd2tjVDhKRmllbXVtbysyRnN1MHVoeXpzWWoveFYvOWpwS1UvTTBDbXN6Mk0xV001UzN2ND0=\"}},\"Code\":{\"ImageUri\":\"746434296869.dkr.ecr.us-east-1.amazonaws.com/neteccgdev3245d368/crewaivisualplanner7b06b020repo:crewaicontentgen-99e36c4b70d1-latest\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"x86_64\"]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "PresignFunction-UPDATE_COMPLETE-2025-09-23T00:03:00.637Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "PresignFunction",
+            "PhysicalResourceId": "netec-cg-dev-PresignFunction-Ehd5v7sWBQzU",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:03:00.637000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-PresignFunctionRole-jDp8XYBebHnl\",\"MemorySize\":\"128\",\"Runtime\":\"python3.12\",\"Description\":\"Issues presigned URLs for outline uploads\",\"Timeout\":\"10\",\"Handler\":\"presign.lambda_handler\",\"Environment\":{\"Variables\":{\"UPLOAD_BUCKET\":\"crewai-course-artifacts\"}},\"Code\":{\"S3Bucket\":\"aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq\",\"S3Key\":\"crewai-course-generator-stack/0154a71c1e6064edb6be55555b649471\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CrewaiVisualPlanner-UPDATE_IN_PROGRESS-2025-09-23T00:02:50.955Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CrewaiVisualPlanner",
+            "PhysicalResourceId": "netec-cg-dev-CrewaiVisualPlanner-okgEBRfYNUTE",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:02:50.955000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CrewaiVisualPlannerRole-ivQfPqu5fpWw\",\"ImageConfig\":{\"Command\":[\"visual_planner.lambda_handler\"]},\"MemorySize\":\"2048\",\"Description\":\"Generates visual planning prompts from course content\",\"Timeout\":\"900\",\"PackageType\":\"Image\",\"Environment\":{\"Variables\":{\"YAML_STRUCTURE_ENABLED\":\"true\",\"OUTPUT_S3_BUCKET\":\"crewai-course-artifacts\",\"BEDROCK_API_KEY\":\"ABSKSnVhbkRhdmlkLWF0LTc0NjQzNDI5Njg2OTpLRjhMV0Erd2tjVDhKRmllbXVtbysyRnN1MHVoeXpzWWoveFYvOWpwS1UvTTBDbXN6Mk0xV001UzN2ND0=\"}},\"Code\":{\"ImageUri\":\"746434296869.dkr.ecr.us-east-1.amazonaws.com/neteccgdev3245d368/crewaivisualplanner7b06b020repo:crewaicontentgen-99e36c4b70d1-latest\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"x86_64\"]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CrewaiImagesGen-UPDATE_IN_PROGRESS-2025-09-23T00:02:50.903Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CrewaiImagesGen",
+            "PhysicalResourceId": "netec-cg-dev-CrewaiImagesGen-OzYtDV56A5fD",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:02:50.903000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CrewaiImagesGenRole-z20EBfOBfLxv\",\"ImageConfig\":{\"Command\":[\"images_gen.lambda_handler\"]},\"MemorySize\":\"2048\",\"Description\":\"Generates images from visual prompts using Google Gemini\",\"Timeout\":\"900\",\"PackageType\":\"Image\",\"Environment\":{\"Variables\":{\"YAML_STRUCTURE_ENABLED\":\"true\",\"OUTPUT_S3_BUCKET\":\"crewai-course-artifacts\",\"GOOGLE_API_KEY\":\"****\"}},\"Code\":{\"ImageUri\":\"746434296869.dkr.ecr.us-east-1.amazonaws.com/neteccgdev3245d368/crewaiimagesgenea1a9325repo:crewaicontentgen-99e36c4b70d1-latest\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"x86_64\"]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "PresignFunction-UPDATE_IN_PROGRESS-2025-09-23T00:02:50.782Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "PresignFunction",
+            "PhysicalResourceId": "netec-cg-dev-PresignFunction-Ehd5v7sWBQzU",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:02:50.782000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-PresignFunctionRole-jDp8XYBebHnl\",\"MemorySize\":\"128\",\"Runtime\":\"python3.12\",\"Description\":\"Issues presigned URLs for outline uploads\",\"Timeout\":\"10\",\"Handler\":\"presign.lambda_handler\",\"Environment\":{\"Variables\":{\"UPLOAD_BUCKET\":\"crewai-course-artifacts\"}},\"Code\":{\"S3Bucket\":\"aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq\",\"S3Key\":\"crewai-course-generator-stack/0154a71c1e6064edb6be55555b649471\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CrewaiContentGen-UPDATE_IN_PROGRESS-2025-09-23T00:02:50.767Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CrewaiContentGen",
+            "PhysicalResourceId": "netec-cg-dev-CrewaiContentGen-33wXd60SKD4a",
+            "ResourceType": "AWS::Lambda::Function",
+            "Timestamp": "2025-09-23T00:02:50.767000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceProperties": "{\"Role\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CrewaiContentGenRole-rA0Rai6Uctnj\",\"ImageConfig\":{\"Command\":[\"content_gen.lambda_handler\"]},\"MemorySize\":\"2048\",\"Description\":\"Generates structured course content following YAML outline requirements\",\"Timeout\":\"900\",\"PackageType\":\"Image\",\"Environment\":{\"Variables\":{\"YAML_STRUCTURE_ENABLED\":\"true\",\"OUTPUT_S3_BUCKET\":\"crewai-course-artifacts\",\"BEDROCK_API_KEY\":\"ABSKSnVhbkRhdmlkLWF0LTc0NjQzNDI5Njg2OTpLRjhMV0Erd2tjVDhKRmllbXVtbysyRnN1MHVoeXpzWWoveFYvOWpwS1UvTTBDbXN6Mk0xV001UzN2ND0=\"}},\"Code\":{\"ImageUri\":\"746434296869.dkr.ecr.us-east-1.amazonaws.com/neteccgdev3245d368/crewaicontentgen8046a304repo:crewaicontentgen-99e36c4b70d1-latest\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"x86_64\"]}"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "a27990e0-9810-11f0-80c2-122d53d07f31",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "netec-cg-dev",
+            "PhysicalResourceId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "Timestamp": "2025-09-23T00:02:46.105000+00:00",
+            "ResourceStatus": "UPDATE_IN_PROGRESS",
+            "ResourceStatusReason": "User Initiated"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "5aaad2f0-97fd-11f0-9767-1205f68fdc09",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "netec-cg-dev",
+            "PhysicalResourceId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "Timestamp": "2025-09-22T21:44:45.202000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "5a18a510-97fd-11f0-b261-120c7e3e32e1",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "netec-cg-dev",
+            "PhysicalResourceId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "Timestamp": "2025-09-22T21:44:44.247000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS"
+        },
+        {
+            "StackId": "arn:aws:cloudformation:us-east-1:746434296869:stack/netec-cg-dev/47396e50-93c2-11f0-ab0f-0affc433d38b",
+            "EventId": "CourseGeneratorStateMachine-UPDATE_COMPLETE-2025-09-22T21:44:40.698Z",
+            "StackName": "netec-cg-dev",
+            "LogicalResourceId": "CourseGeneratorStateMachine",
+            "PhysicalResourceId": "arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine-EsfKMIXs4Prh",
+            "ResourceType": "AWS::StepFunctions::StateMachine",
+            "Timestamp": "2025-09-22T21:44:40.698000+00:00",
+            "ResourceStatus": "UPDATE_COMPLETE",
+            "ResourceProperties": "{\"DefinitionString\":\"{\\n  \\\"Comment\\\": \\\"Orchestrate ContentGen -> VisualPlanner -> ImagesGen for a single lesson\\\",\\n  \\\"StartAt\\\": \\\"InvokeContentGen\\\",\\n  \\\"States\\\": {\\n    \\\"InvokeContentGen\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiContentGen-33wXd60SKD4a\\\",\\n        \\\"Payload.$\\\": \\\"$\\\"\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"ParseContentGenResult\\\"\\n    },\\n    \\\"ParseContentGenResult\\\": {\\n      \\\"Type\\\": \\\"Pass\\\",\\n      \\\"Parameters\\\": {\\n        \\\"lesson_key.$\\\": \\\"$.Payload.lesson_key\\\",\\n        \\\"course_bucket.$\\\": \\\"$.Payload.course_bucket\\\",\\n        \\\"project_folder.$\\\": \\\"$.Payload.project_folder\\\",\\n        \\\"payload.$\\\": \\\"$.Payload\\\",\\n        \\\"original.$\\\": \\\"$\\\",\\n        \\\"model_provider.$\\\": \\\"$$.Execution.Input.model_provider\\\",\\n        \\\"performance_mode.$\\\": \\\"$$.Execution.Input.performance_mode\\\",\\n        \\\"content_source.$\\\": \\\"$$.Execution.Input.content_source\\\"\\n      },\\n      \\\"Next\\\": \\\"InvokeVisualPlanner\\\"\\n    },\\n    \\\"InvokeVisualPlanner\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiVisualPlanner-okgEBRfYNUTE\\\",\\n        \\\"Payload\\\": {\\n          \\\"course_bucket.$\\\": \\\"$.course_bucket\\\",\\n          \\\"lesson_key.$\\\": \\\"$.lesson_key\\\",\\n          \\\"project_folder.$\\\": \\\"$.project_folder\\\",\\n          \\\"model_provider.$\\\": \\\"$.model_provider\\\",\\n          \\\"performance_mode.$\\\": \\\"$.performance_mode\\\",\\n          \\\"content_source.$\\\": \\\"$.content_source\\\",\\n          \\\"original.$\\\": \\\"$\\\"\\n        }\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"InvokeImagesGen\\\"\\n    },\\n    \\\"InvokeImagesGen\\\": {\\n      \\\"Type\\\": \\\"Task\\\",\\n      \\\"Resource\\\": \\\"arn:aws:states:::lambda:invoke\\\",\\n      \\\"Parameters\\\": {\\n        \\\"FunctionName\\\": \\\"arn:aws:lambda:us-east-1:746434296869:function:netec-cg-dev-CrewaiImagesGen-OzYtDV56A5fD\\\",\\n        \\\"Payload\\\": {\\n          \\\"course_bucket.$\\\": \\\"$.course_bucket\\\",\\n          \\\"project_folder.$\\\": \\\"$.project_folder\\\",\\n          \\\"max_images.$\\\": \\\"$$.Execution.Input.max_images\\\",\\n          \\\"original.$\\\": \\\"$.original\\\"\\n        }\\n      },\\n      \\\"Retry\\\": [{ \\\"ErrorEquals\\\": [\\\"Lambda.ServiceException\\\",\\\"Lambda.AWSLambdaException\\\",\\\"Lambda.SdkClientException\\\"], \\\"IntervalSeconds\\\": 5, \\\"MaxAttempts\\\": 2, \\\"BackoffRate\\\": 2.0 }],\\n      \\\"Catch\\\": [{ \\\"ErrorEquals\\\": [\\\"States.ALL\\\"], \\\"ResultPath\\\": \\\"$.error\\\", \\\"Next\\\": \\\"FailState\\\" }],\\n      \\\"Next\\\": \\\"SuccessState\\\"\\n    },\\n    \\\"FailState\\\": { \\\"Type\\\": \\\"Fail\\\", \\\"Cause\\\": \\\"TaskFailed\\\", \\\"Error\\\": \\\"OrchestrationFailed\\\" },\\n    \\\"SuccessState\\\": { \\\"Type\\\": \\\"Succeed\\\" }\\n  }\\n}\\n\",\"RoleArn\":\"arn:aws:iam::746434296869:role/netec-cg-dev-CourseGeneratorStateMachineRole-4b7YMpWK67LK\"}"
+        }
+    ],
+    "NextToken": "eyJOZXh0VG9rZW4iOiBudWxsLCAiYm90b190cnVuY2F0ZV9hbW91bnQiOiAyMH0="
+}
