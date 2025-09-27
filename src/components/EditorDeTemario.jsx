@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (VERSIÓN FINAL CON AJUSTES DE MARGEN)
+// src/components/EditorDeTemario.jsx (VERSIÓN CON NUMERACIÓN)
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from 'jspdf';
 import { downloadExcelTemario } from "../utils/downloadExcel";
@@ -133,7 +133,7 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     }
   };
 
-// --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN FINAL CON HELVETICA) ---
+// --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN CON NUMERACIÓN) ---
 const exportarPDF = async () => {
     try {
         setOkUi("Generando PDF profesional...");
@@ -150,7 +150,7 @@ const exportarPDF = async () => {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        const margin = { top: 160, bottom: 80, left: 40, right: 40 };
+        const margin = { top: 150, bottom: 80, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
@@ -236,14 +236,15 @@ const exportarPDF = async () => {
             doc.setTextColor(0, 0, 0);
             y += 20;
 
-            temario.temario.forEach(capitulo => {
+            // <-- AJUSTE: El bucle ahora recibe el índice
+            temario.temario.forEach((capitulo, capIndex) => {
                 addPageIfNeeded(50);
                 doc.setFont("helvetica", "bold");
                 doc.setFontSize(12);
-                doc.text(capitulo.capitulo, margin.left, y);
+                // <-- AJUSTE: Se añade la numeración al capítulo
+                doc.text(`Capítulo ${capIndex + 1}: ${capitulo.capitulo}`, margin.left, y);
                 y += 15;
                 
-                // <-- AJUSTE CLAVE: Cambia el formato de los objetivos de capítulo
                 if (capitulo.objetivos_capitulo && capitulo.objetivos_capitulo.length > 0) {
                     const objetivos = Array.isArray(capitulo.objetivos_capitulo) ? capitulo.objetivos_capitulo : [capitulo.objetivos_capitulo];
                     const objetivosTexto = objetivos.join(' ');
@@ -262,7 +263,8 @@ const exportarPDF = async () => {
                 if (capitulo.subcapitulos && capitulo.subcapitulos.length > 0) {
                     doc.setFont("helvetica", "normal");
                     doc.setFontSize(10);
-                    capitulo.subcapitulos.forEach(sub => {
+                    // <-- AJUSTE: El bucle ahora recibe el índice
+                    capitulo.subcapitulos.forEach((sub, subIndex) => {
                         addPageIfNeeded(14);
                         const nombre = typeof sub === 'object' ? sub.nombre : sub;
                         const tiempo = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : '';
@@ -273,7 +275,8 @@ const exportarPDF = async () => {
                         if (tiempo && sesion) meta += ' • ';
                         if (sesion) meta += `Sesión ${sesion}`;
                         
-                        const subLines = doc.splitTextToSize(`• ${nombre}`, contentWidth - 80); 
+                        // <-- AJUSTE: Se añade la numeración al subtema
+                        const subLines = doc.splitTextToSize(`${capIndex + 1}.${subIndex + 1} ${nombre}`, contentWidth - 80); 
                         doc.text(subLines, margin.left + 15, y);
                         
                         doc.text(meta, pageWidth - margin.right - 10, y, { align: 'right' });
@@ -298,8 +301,8 @@ const exportarPDF = async () => {
             const altoPie = pageWidth * (propsPie.height / propsPie.width);
             doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-            const leyendaY = pageHeight - 65;
-            const pageNumY = pageHeight - 50;
+            const leyendaY = pageHeight - 70;
+            const pageNumY = pageHeight - 55;
 
             doc.setFont("helvetica", "normal");
             const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
@@ -382,9 +385,14 @@ const exportarPDF = async () => {
                 <textarea name="objetivos" value={Array.isArray(temario.objetivos) ? temario.objetivos.join('\n') : temario.objetivos || ''} onChange={(e) => handleInputChange({ target: { name: 'objetivos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un objetivo por línea" />
 
                 <h3>Temario Detallado</h3>
+                {/* <-- AJUSTE: El bucle ahora recibe el índice */}
                 {(temario.temario || []).map((cap, capIndex) => (
                     <div key={capIndex} className="capitulo-editor">
-                    <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
+                    {/* <-- AJUSTE: Se añade la numeración al capítulo */}
+                    <div className="capitulo-titulo-con-numero">
+                        <h4>Capítulo {capIndex + 1}:</h4>
+                        <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
+                    </div>
                     
                     <div className="info-grid-capitulo">
                         <div className="info-item">
@@ -399,11 +407,14 @@ const exportarPDF = async () => {
                     </div>
                     
                     <ul>
+                        {/* <-- AJUSTE: El bucle ahora recibe el índice */}
                         {(cap.subcapitulos || []).map((sub, subIndex) => {
                         const subObj = typeof sub === 'object' ? sub : { nombre: sub };
                         return (
                             <li key={subIndex}>
                             <div className="subcapitulo-item-detallado">
+                                {/* <-- AJUSTE: Se añade la numeración al subtema */}
+                                <span className="subcapitulo-numero">{capIndex + 1}.{subIndex + 1}</span>
                                 <input value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} className="input-subcapitulo" placeholder="Nombre del subcapítulo"/>
                                 <div className="subcapitulo-meta-inputs">
                                     <input type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min"/>
@@ -422,9 +433,14 @@ const exportarPDF = async () => {
                 <input name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
                 
                 <h3>Temario Detallado</h3>
+                {/* <-- AJUSTE: El bucle ahora recibe el índice */}
                 {(temario.temario || []).map((cap, capIndex) => (
                     <div key={capIndex} className="capitulo-resumido">
-                    <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
+                    {/* <-- AJUSTE: Se añade la numeración al capítulo */}
+                    <div className="capitulo-titulo-con-numero">
+                        <h4>Capítulo {capIndex + 1}:</h4>
+                        <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
+                    </div>
                     
                     <div className="info-grid-capitulo">
                         <div className="info-item">
@@ -439,10 +455,13 @@ const exportarPDF = async () => {
                     </div>
 
                     <div className="subcapitulos-resumidos">
+                        {/* <-- AJUSTE: El bucle ahora recibe el índice */}
                         {(cap.subcapitulos || []).map((sub, subIndex) => {
                             const subObj = typeof sub === 'object' ? sub : { nombre: sub };
                             return (
                             <div key={subIndex} className="subcapitulo-item">
+                                {/* <-- AJUSTE: Se añade la numeración al subtema */}
+                                <span className="subcapitulo-numero">{capIndex + 1}.{subIndex + 1}</span>
                                 <input className="input-subcapitulo-resumido" value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} placeholder="Nombre del subcapítulo" />
                                 <div className="subcapitulo-tiempos">
                                     <input className="input-tiempo-sub" type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min" />
@@ -494,5 +513,4 @@ const exportarPDF = async () => {
 }
 
 export default EditorDeTemario;
-
 
