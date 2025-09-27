@@ -150,7 +150,7 @@ const exportarPDF = async () => {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        const margin = { top: 150, bottom: 80, left: 40, right: 40 };
+        const margin = { top: 180, bottom: 100, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
@@ -218,7 +218,7 @@ const exportarPDF = async () => {
             doc.setFont("helvetica", "normal");
             doc.setFontSize(10);
             
-            doc.text(textLines, margin.left, y);
+            doc.text(textLines, margin.left, y, { align: 'justify', maxWidth: contentWidth });
             y += (textLines.length * 12) + 20;
         };
 
