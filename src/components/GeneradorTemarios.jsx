@@ -2,12 +2,33 @@ import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
+const asesoresComerciales = [
+  "Alejandra Galvez",
+  "Ana Aragón",
+  "Arely Alvarez",
+  "Benjamin Araya",
+  "Carolina Aguilar",
+  "Cristian Centeno",
+  "Elizabeth Navia",
+  "Eonice Garfías",
+  "Guadalupe Agiz",
+  "Jazmin Soriano",
+  "Lezly Durán",
+  "Lusdey Trujillo",
+  "Natalia García",
+  "Natalia Gomez",
+  "Vianey Miranda",
+].sort();
+
+
 function GeneradorTemarios() {
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   const [params, setParams] = useState({
+    nombre_preventa: '',
+    asesor_comercial: '',
     tecnologia: '',
     tema_curso: '',
     nivel_dificultad: 'basico',
@@ -21,22 +42,18 @@ function GeneradorTemarios() {
 
   const apiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
 
-// CÓDIGO CORREGIDO
-const handleParamChange = (e) => {
+  const handleParamChange = (e) => {
     const { name, value } = e.target;
-
-    // Esta es la clave: si el campo es uno de los sliders, lo convertimos a número.
     let valorFinal = value;
     if (name === 'horas_por_sesion' || name === 'numero_sesiones_por_semana') {
         valorFinal = parseInt(value, 10);
     }
-    
     setParams(prev => ({ ...prev, [name]: valorFinal }));
-};
+  };
 
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
-      setError("Por favor, completa Tecnología, Tema del Curso y Sector/Audiencia.");
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
+      setError("Por favor, completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
     }
     setIsLoading(true);
@@ -91,6 +108,19 @@ const handleParamChange = (e) => {
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
+            <label>Nombre Preventa Asociado</label>
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} placeholder="Ej: Juan Pérez" />
+          </div>
+          <div className="form-group">
+            <label>Asesor(a) Comercial Asociado</label>
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
+                <option value="">Selecciona un asesor(a)</option>
+                {asesoresComerciales.map(nombre => (
+                    <option key={nombre} value={nombre}>{nombre}</option>
+                ))}
+            </select>
+          </div>
+          <div className="form-group">
             <label>Tecnología</label>
             <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
           </div>
@@ -122,17 +152,17 @@ const handleParamChange = (e) => {
           </div>
         </div>
         <div className="form-group">
-            <label>Tipo de Objetivo</label>
-            <div className="radio-group">
-                <label>
-                    <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
-                    Saber Hacer (Enfocado en habilidades)
-                </label>
-                <label>
-                    <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
-                    Certificación (Enfocado en examen)
-                </label>
-            </div>
+          <label>Tipo de Objetivo</label>
+          <div className="radio-group">
+              <label>
+                  <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
+                  Saber Hacer (Enfocado en habilidades)
+              </label>
+              <label>
+                  <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
+                  Certificación (Enfocado en examen)
+              </label>
+          </div>
         </div>
 
         {params.objetivo_tipo === 'certificacion' && (
@@ -171,3 +201,4 @@ const handleParamChange = (e) => {
 }
 
 export default GeneradorTemarios;
+
