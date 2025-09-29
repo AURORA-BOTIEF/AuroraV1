@@ -1,7 +1,6 @@
-// src/components/EditorDeTemario.jsx (TU CÓDIGO CON LAS CORRECCIONES FINALES)
-
+// src/components/EditorDeTemario.jsx (VERSIÓN CON NUMERACIÓN)
 import React, { useState, useEffect, useRef } from "react";
-import html2pdf from "html2pdf.js";
+import jsPDF from 'jspdf';
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from '../assets/encabezado.png';
 import pieDePaginaImagen from '../assets/pie_de_pagina.png';
@@ -11,7 +10,7 @@ const API_BASE = import.meta.env.VITE_TEMARIOS_API || "";
 
 function slugify(str = "") {
   return String(str)
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFD").replace(/[\u00-~]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
@@ -51,7 +50,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
   const [exportTipo, setExportTipo] = useState("pdf");
   const [seleccionadas, setSeleccionadas] = useState({});
 
-  // 1. AJUSTE CLAVE: Nos aseguramos que la ref se llame pdfContentRef
   const pdfContentRef = useRef(null); 
 
   const [params, setParams] = useState({
@@ -77,11 +75,8 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     let targetObject;
 
     if (subIndex === null) {
-      // Es un campo a nivel de capítulo
       targetObject = nuevoTemario.temario[capIndex];
     } else {
-      // Es un campo a nivel de subcapítulo
-      // Asegurarse de que el subcapítulo sea un objeto
       if (typeof nuevoTemario.temario[capIndex].subcapitulos[subIndex] !== 'object') {
         nuevoTemario.temario[capIndex].subcapitulos[subIndex] = { 
           nombre: nuevoTemario.temario[capIndex].subcapitulos[subIndex] 
@@ -90,7 +85,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
       targetObject = nuevoTemario.temario[capIndex].subcapitulos[subIndex];
     }
     
-    // Convertir a número si el campo lo requiere
     const numericFields = ['tiempo_capitulo_min', 'tiempo_subcapitulo_min', 'sesion'];
     targetObject[fieldName] = numericFields.includes(fieldName) ? parseInt(value, 10) || 0 : value;
     
@@ -109,113 +103,219 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     setMostrarFormRegenerar(false);
   };
 
+// <-- AJUSTE CLAVE: Esta función ahora se comunica con el componente padre (GeneradorTemarios)
   const handleSaveClick = async () => {
     setErrorUi("");
     setOkUi("");
-    if (!API_BASE) {
-      setErrorUi("Falta configurar VITE_TEMARIOS_API.");
-      return;
+    setGuardando(true);
+
+    const nota = window.prompt("Escribe una nota para esta versión (opcional):", `Guardado ${nowIso()}`) || "";
+
+    // Llama a la función 'onSave' que viene como prop desde GeneradorTemarios
+    const resultado = await onSave(temario, nota);
+
+    // Muestra el mensaje de éxito o error que devuelve el padre
+    if (resultado.success) {
+      setOkUi(resultado.message);
+    } else {
+      setErrorUi(resultado.message);
     }
-    try {
-      setGuardando(true);
-      const cursoId = slugify(temario?.nombre_curso || params?.tema_curso || "curso");
-      const nota =
-        window.prompt("Escribe una nota para esta versión (opcional):", `Guardado ${nowIso()}`) ||
-        "";
-      const token = localStorage.getItem("id_token") || "";
-      const res = await fetch(`${API_BASE.replace(/\/$/, "")}/temarios`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ cursoId, contenido: temario, nota })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al guardar versión");
-      setOkUi(`Versión guardada ✔ (versionId: ${data.versionId || "N/A"})`);
-    } catch (err) {
-      console.error(err);
-      setErrorUi(err.message || "Error al guardar versión");
-    } finally {
-      setGuardando(false);
-    }
+    
+    setGuardando(false);
   };
 
-// --- FUNCIÓN DE EXPORTACIÓN FINAL (CON PLANTILLA Y SIN MARCA DE AGUA) ---
+// --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN CON NUMERACIÓN) ---
 const exportarPDF = async () => {
-    setTimeout(async () => {
-      const elemento = pdfContentRef.current; 
-      if (!elemento) {
-        setErrorUi("Error: No se encontró el contenido para exportar.");
-        return;
-      }
-      setOkUi("Generando PDF profesional...");
-      setErrorUi("");
-      elemento.classList.add('pdf-exporting');
+    try {
+        setOkUi("Generando PDF profesional...");
+        setErrorUi("");
 
-      try {
-        const options = {
-          // =================================================================
-          // ========= CAMBIO 1: AUMENTAR EL MARGEN SUPERIOR =========
-          // =================================================================
-          // Aumentamos el margen superior (de 2 a 2.2) para bajar todo el contenido.
-          margin: [2.8, 1, 1.5, 1], // [Arriba, Izquierda, Abajo, Derecha] en pulgadas
+        const doc = new jsPDF({
+            orientation: 'portrait',
+            unit: 'pt',
+            format: 'letter'
+        });
 
-          filename: `Temario_${slugify(temario.nombre_curso)}.pdf`,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, logging: false },
-          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-          pagebreak: { mode: 'css', avoid: '.pdf-capitulo' }
-        };
+        const azulNetec = "#005A9C";
 
-        const worker = html2pdf().set(options).from(elemento).toPdf();
-        const pdf = await worker.get('pdf');
-        const totalPages = pdf.internal.getNumberOfPages();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        const margin = { top: 210, bottom: 100, left: 40, right: 40 };
+        const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
         const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
+        
+        let y = margin.top;
 
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
+        const addPageIfNeeded = (spaceNeeded = 20) => {
+            if (y + spaceNeeded > pageHeight - margin.bottom) {
+                doc.addPage();
+                y = margin.top;
+            }
+        };
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(20);
+        doc.setTextColor(azulNetec);
+        doc.text(temario.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: 'center' });
+        doc.setTextColor(0, 0, 0);
+        y += 30;
+
+        const drawMetaInfo = () => {
+            const metaData = [
+                { label: "Versión:", value: temario.version_tecnologia },
+                { label: "Horas Totales:", value: temario.horas_totales },
+                { label: "Sesiones:", value: temario.numero_sesiones },
+                { label: "EOL:", value: temario.EOL },
+                { label: "Distribución:", value: temario.porcentaje_teoria_practica_general },
+            ].filter(item => item.value); 
+
+            if (metaData.length === 0) return;
+
+            addPageIfNeeded(metaData.length * 15);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+
+            metaData.forEach(item => {
+                doc.setFont("helvetica", "bold");
+                doc.text(item.label, margin.left, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(String(item.value), margin.left + 80, y);
+                y += 15;
+            });
+            y += 15;
+        };
+
+        drawMetaInfo();
+
+        const drawSection = (title, content) => {
+            if (!content) return;
+            
+            const contentAsText = Array.isArray(content) ? content.join('\n') : content;
+            const textLines = doc.splitTextToSize(contentAsText, contentWidth);
+            const sectionHeight = 15 + (textLines.length * 12) + 20;
+
+            addPageIfNeeded(sectionHeight);
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(14);
+            doc.setTextColor(azulNetec);
+            doc.text(title, margin.left, y);
+            doc.setTextColor(0, 0, 0);
+            y += 15;
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            
+            doc.text(textLines, margin.left, y);
+            y += (textLines.length * 12) + 20;
+        };
+
+        drawSection("Descripción General", temario.descripcion_general);
+        drawSection("Audiencia", temario.audiencia);
+        drawSection("Prerrequisitos", temario.prerrequisitos);
+        drawSection("Objetivos", temario.objetivos);
+        
+        if (temario.temario && temario.temario.length > 0) {
+            addPageIfNeeded(40);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(16);
+            doc.setTextColor(azulNetec);
+            doc.text("Temario", margin.left, y);
+            doc.setTextColor(0, 0, 0);
+            y += 20;
+
+            // <-- AJUSTE: El bucle ahora recibe el índice
+            temario.temario.forEach((capitulo, capIndex) => {
+                addPageIfNeeded(50);
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(12);
+                // <-- AJUSTE: Se añade la numeración al capítulo
+                doc.text(`Capítulo ${capIndex + 1}: ${capitulo.capitulo}`, margin.left, y);
+                y += 15;
+                
+                if (capitulo.objetivos_capitulo && capitulo.objetivos_capitulo.length > 0) {
+                    const objetivos = Array.isArray(capitulo.objetivos_capitulo) ? capitulo.objetivos_capitulo : [capitulo.objetivos_capitulo];
+                    const objetivosTexto = objetivos.join(' ');
+                    const textoCompleto = `Objetivos: ${objetivosTexto}`;
+                    
+                    const textLines = doc.splitTextToSize(textoCompleto, contentWidth - 15);
+                    
+                    addPageIfNeeded(20 + textLines.length * 12);
+                    
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(10);
+                    doc.text(textLines, margin.left + 15, y);
+                    y += (textLines.length * 12) + 8;
+                }
+
+                if (capitulo.subcapitulos && capitulo.subcapitulos.length > 0) {
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(10);
+                    // <-- AJUSTE: El bucle ahora recibe el índice
+                    capitulo.subcapitulos.forEach((sub, subIndex) => {
+                        addPageIfNeeded(14);
+                        const nombre = typeof sub === 'object' ? sub.nombre : sub;
+                        const tiempo = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : '';
+                        const sesion = typeof sub === 'object' ? sub.sesion : '';
+                        
+                        let meta = '';
+                        if (tiempo) meta += `${tiempo} min`;
+                        if (tiempo && sesion) meta += ' • ';
+                        if (sesion) meta += `Sesión ${sesion}`;
+                        
+                        // <-- AJUSTE: Se añade la numeración al subtema
+                        const subLines = doc.splitTextToSize(`${capIndex + 1}.${subIndex + 1} ${nombre}`, contentWidth - 80); 
+                        doc.text(subLines, margin.left + 15, y);
+                        
+                        doc.text(meta, pageWidth - margin.right - 10, y, { align: 'right' });
+                        
+                        y += (subLines.length * 12) + 2;
+                    });
+                }
+                y += 10;
+            });
+        }
+
+        const totalPages = doc.internal.getNumberOfPages();
 
         for (let i = 1; i <= totalPages; i++) {
-          pdf.setPage(i);
-          const propsEncabezado = pdf.getImageProperties(encabezadoDataUrl);
-          const altoEncabezado = pageWidth * (propsEncabezado.height / propsEncabezado.width);
-          pdf.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEncabezado); 
+            doc.setPage(i);
 
-          const propsPie = pdf.getImageProperties(pieDePaginaDataUrl);
-          const altoPie = pageWidth * (propsPie.height / propsPie.width);
-          pdf.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
+            const propsEncabezado = doc.getImageProperties(encabezadoDataUrl);
+            const altoEncabezado = pageWidth * (propsEncabezado.height / propsEncabezado.width);
+            doc.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEncabezado);
 
-          pdf.setFontSize(9);
-          pdf.setTextColor("#6c757d");
-          const pageNumText = `Página ${i} de ${totalPages}`;
-          const pageNumWidth = pdf.getStringUnitWidth(pageNumText) * pdf.internal.getFontSize() / pdf.internal.scaleFactor;
-          
-          // =================================================================
-          // ========= CAMBIO 2: SUBIR LA NUMERACIÓN DE PÁGINA =========
-          // =================================================================
-          // Cambiamos 'pageHeight - 0.5' a 'pageHeight - 0.7' para subir el texto.
-          pdf.text(pageNumText, (pageWidth - pageNumWidth) / 2, pageHeight - 0.7);
+            const propsPie = doc.getImageProperties(pieDePaginaDataUrl);
+            const altoPie = pageWidth * (propsPie.height / propsPie.width);
+            doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
 
-          // <-- CAMBIO: AQUÍ AÑADIMOS LA NUEVA LEYENDA -->
-          const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación del área de Instrucción de Netec.";
-          pdf.setFontSize(8); // Un tamaño de letra un poco más pequeño para la leyenda
-          pdf.setTextColor("#888888"); // Un color gris para que sea sutil
-          // Posicionamos el texto en la esquina inferior izquierda (1 pulgada de margen)
-          pdf.text(leyenda, 1, pageHeight - 0.9); 
+            const leyendaY = pageHeight - 70;
+            const pageNumY = pageHeight - 55;
+
+            doc.setFont("helvetica", "normal");
+            const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
+            doc.setFontSize(8);
+            doc.setTextColor("#888888");
+            doc.text(leyenda, margin.left, leyendaY);
+
+            doc.setFontSize(9);
+            doc.setTextColor("#6c757d");
+            const pageNumText = `Página ${i} de ${totalPages}`;
+            doc.text(pageNumText, pageWidth / 2, pageNumY, { align: 'center' });
         }
-        
-        await worker.save();
+
+        const nombreParaArchivo = temario.nombre_curso || temario.tema_curso;
+        doc.save(`Temario_${slugify(nombreParaArchivo)}.pdf`);
         setOkUi("PDF exportado correctamente ✔");
 
-      } catch (error) {
+    } catch (error) {
         console.error("Error al generar PDF:", error);
         setErrorUi("Error al generar el PDF.");
-      } finally {
-        elemento.classList.remove('pdf-exporting');
-      }
-    }, 0); 
-  };
+    }
+};
 
   const exportarExcel = () => {
     if (!temario) {
@@ -244,172 +344,132 @@ const exportarPDF = async () => {
         </div>
       )}
 
-      {/* --- CONTENIDO OCULTO PARA PDF --- */}
-      {/* 3. AJUSTE CLAVE: La 'ref' se asigna aquí, al div que contiene el contenido limpio */}
-      <div ref={pdfContentRef} className="pdf-clean">
-          <div className="pdf-body">
-            <h1 className="pdf-title">{temario?.nombre_curso || temario?.tema_curso}</h1>
-            <div className="pdf-meta">
-              {temario?.version_tecnologia && <div><strong>Versión:</strong> {temario.version_tecnologia}</div>}
-              {temario?.horas_totales && <div><strong>Horas Totales:</strong> {temario.horas_totales}</div>}
-              {temario?.numero_sesiones && <div><strong>Sesiones:</strong> {temario.numero_sesiones}</div>}
-              {temario?.EOL && <div><strong>EOL:</strong> {temario.EOL}</div>}
-              {temario?.porcentaje_teoria_practica_general && (<div><strong>Distribución:</strong> {temario.porcentaje_teoria_practica_general}</div>)}
-            </div>
-            {temario?.descripcion_general && (<><h2>Descripción General</h2><p className="pdf-justify">{temario.descripcion_general}</p></>)}
-            {temario?.audiencia && (<><h2>Audiencia</h2><p className="pdf-justify">{temario.audiencia}</p></>)}
-            {temario?.prerrequisitos && (<><h2>Prerrequisitos</h2><p className="pdf-justify">{temario.prerrequisitos}</p></>)}
-            {temario?.objetivos && (<><h2>Objetivos</h2><p className="pdf-justify" style={{ whiteSpace: 'pre-wrap' }}>{temario.objetivos}</p></>)}
-            
-            <h2>Temario</h2>
-            {(temario?.temario || []).map((cap, i) => (
-              <div key={i} className="pdf-capitulo">
-                <h3>{cap.capitulo}</h3>
-                {(cap.tiempo_capitulo_min || cap.porcentaje_teoria_practica_capitulo) && (
-                  <div className="pdf-cap-meta">
-                    {cap.tiempo_capitulo_min ? <span><strong>Duración:</strong> {cap.tiempo_capitulo_min} min</span> : null}
-                    {cap.tiempo_capitulo_min && cap.porcentaje_teoria_practica_capitulo ? <span> • </span> : null}
-                    {cap.porcentaje_teoria_practica_capitulo ? (<span><strong>Distribución:</strong> {cap.porcentaje_teoria_practica_capitulo}</span>) : null}
-                  </div>
-                )}
-                {cap.objetivos_capitulo && (
-                  <div className="pdf-objetivos-cap">
-                    <strong>Objetivos:</strong>
-                    <div className="pdf-objetivos-lista">
-                      {Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.map((obj, idx) => (<div key={idx} className="pdf-objetivo-item">• {obj}</div>)) : <div className="pdf-objetivo-item">• {cap.objetivos_capitulo}</div>}
+      <div ref={pdfContentRef} style={{ display: 'none' }}></div>
+
+      <div className="app-view">
+        <div className="vista-selector">
+            <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
+            <button className={`btn-vista ${vista === 'resumida' ? 'activo' : ''}`} onClick={() => setVista('resumida')}>Vista Resumida</button>
+        </div>
+        <div className="vista-info">
+            {vista === 'detallada' ? (<p>📝 Vista completa con todos los campos editables organizados verticalmente</p>) : (<p>📋 Vista compacta con campos organizados en grillas para edición rápida</p>)}
+        </div>
+
+        {isLoading ? (
+            <div className="spinner-container"><div className="spinner"></div><p>Generando nueva versión...</p></div>
+        ) : (
+            <div>
+            {vista === 'detallada' ? (
+                <div>
+                <label className="editor-label">Nombre del Curso</label>
+                <textarea name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
+                
+                <label className="editor-label">Descripción General</label>
+                <textarea name="descripcion_general" value={temario.descripcion_general || ''} onChange={handleInputChange} className="textarea-descripcion" />
+                
+                <label className="editor-label">Audiencia</label>
+                <textarea name="audiencia" value={temario.audiencia || ''} onChange={handleInputChange} className="textarea-descripcion" />
+                
+                <label className="editor-label">Prerrequisitos</label>
+                <textarea name="prerrequisitos" value={Array.isArray(temario.prerrequisitos) ? temario.prerrequisitos.join('\n') : temario.prerrequisitos || ''} onChange={(e) => handleInputChange({ target: { name: 'prerrequisitos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un prerrequisito por línea"/>
+                
+                <label className="editor-label">Objetivos Generales</label>
+                <textarea name="objetivos" value={Array.isArray(temario.objetivos) ? temario.objetivos.join('\n') : temario.objetivos || ''} onChange={(e) => handleInputChange({ target: { name: 'objetivos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un objetivo por línea" />
+
+                <h3>Temario Detallado</h3>
+                {/* <-- AJUSTE: El bucle ahora recibe el índice */}
+                {(temario.temario || []).map((cap, capIndex) => (
+                    <div key={capIndex} className="capitulo-editor">
+                    {/* <-- AJUSTE: Se añade la numeración al capítulo */}
+                    <div className="capitulo-titulo-con-numero">
+                        <h4>Capítulo {capIndex + 1}:</h4>
+                        <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
                     </div>
-                  </div>
-                )}
-                <ul className="pdf-subcapitulos">
-                  {(cap.subcapitulos || []).map((sub, j) => {
-                    const nombre = typeof sub === 'object' ? sub.nombre : sub;
-                    const t = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : undefined;
-                    const s = typeof sub === 'object' ? sub.sesion : undefined;
-                    return (
-                      <li key={j}>
-                        <span>{nombre}</span>
-                        {(t || s) && (<span className="pdf-sub-meta">{t ? `${t} min` : ''}{t && s ? ' • ' : ''}{s ? `Sesión ${s}` : ''}</span>)}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
-      </div>
+                    
+                    <div className="info-grid-capitulo">
+                        <div className="info-item">
+                            <label>Duración (min)</label>
+                            <input type="number" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} className="input-info-small"/>
+                        </div>
+                    </div>
 
-      {/* --- INTERFAZ DE EDICIÓN VISIBLE (TU CÓDIGO ORIGINAL SIN CAMBIOS) --- */}
-      {/* --- COPIA Y PEGA ESTE BLOQUE COMPLETO --- */}
-<div className="app-view">
-  <div className="vista-selector">
-    <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
-    <button className={`btn-vista ${vista === 'resumida' ? 'activo' : ''}`} onClick={() => setVista('resumida')}>Vista Resumida</button>
-  </div>
-  <div className="vista-info">
-    {vista === 'detallada' ? (<p>📝 Vista completa con todos los campos editables organizados verticalmente</p>) : (<p>📋 Vista compacta con campos organizados en grillas para edición rápida</p>)}
-  </div>
-
-  {isLoading ? (
-    <div className="spinner-container"><div className="spinner"></div><p>Generando nueva versión...</p></div>
-  ) : (
-    <div>
-      {vista === 'detallada' ? (
-        // --- VISTA DETALLADA (CORREGIDA Y COMPLETA) ---
-        <div>
-          <label className="editor-label">Nombre del Curso</label>
-          <textarea name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
-          
-          <label className="editor-label">Descripción General</label>
-          <textarea name="descripcion_general" value={temario.descripcion_general || ''} onChange={handleInputChange} className="textarea-descripcion" />
-          
-          <label className="editor-label">Audiencia</label>
-          <textarea name="audiencia" value={temario.audiencia || ''} onChange={handleInputChange} className="textarea-descripcion" />
-          
-          <label className="editor-label">Prerrequisitos</label>
-          <textarea name="prerrequisitos" value={Array.isArray(temario.prerrequisitos) ? temario.prerrequisitos.join('\n') : temario.prerrequisitos || ''} onChange={(e) => handleInputChange({ target: { name: 'prerrequisitos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un prerrequisito por línea"/>
-          
-          <label className="editor-label">Objetivos Generales</label>
-          <textarea name="objetivos" value={Array.isArray(temario.objetivos) ? temario.objetivos.join('\n') : temario.objetivos || ''} onChange={(e) => handleInputChange({ target: { name: 'objetivos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un objetivo por línea" />
-
-          <h3>Temario Detallado</h3>
-          {(temario.temario || []).map((cap, capIndex) => (
-            <div key={capIndex} className="capitulo-editor">
-              <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
-              
-              <div className="info-grid-capitulo">
-                  <div className="info-item">
-                      <label>Duración (min)</label>
-                      <input type="number" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} className="input-info-small"/>
-                  </div>
-              </div>
-
-              <div className="objetivos-capitulo">
-                  <label>Objetivos del Capítulo</label>
-                  <textarea value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} className="textarea-objetivos-capitulo" placeholder="Un objetivo por línea"/>
-              </div>
-              
-              <ul>
-                {(cap.subcapitulos || []).map((sub, subIndex) => {
-                  const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-                  return (
-                    <li key={subIndex}>
-                      <div className="subcapitulo-item-detallado">
-                          <input value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} className="input-subcapitulo" placeholder="Nombre del subcapítulo"/>
-                          <div className="subcapitulo-meta-inputs">
-                              <input type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min"/>
-                              <input type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión"/>
-                          </div>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      ) : (
-        // --- VISTA RESUMIDA (CORREGIDA Y COMPLETA) ---
-        <div className="vista-resumida-editable">
-          <input name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
-          
-          <h3>Temario Detallado</h3>
-          {(temario.temario || []).map((cap, capIndex) => (
-            <div key={capIndex} className="capitulo-resumido">
-              <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
-              
-              <div className="info-grid-capitulo">
-                <div className="info-item">
-                  <label>Duración Total (min)</label>
-                  <input type="number" className="input-info-small" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} />
+                    <div className="objetivos-capitulo">
+                        <label>Objetivos del Capítulo</label>
+                        <textarea value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} className="textarea-objetivos-capitulo" placeholder="Un objetivo por línea"/>
+                    </div>
+                    
+                    <ul>
+                        {/* <-- AJUSTE: El bucle ahora recibe el índice */}
+                        {(cap.subcapitulos || []).map((sub, subIndex) => {
+                        const subObj = typeof sub === 'object' ? sub : { nombre: sub };
+                        return (
+                            <li key={subIndex}>
+                            <div className="subcapitulo-item-detallado">
+                                {/* <-- AJUSTE: Se añade la numeración al subtema */}
+                                <span className="subcapitulo-numero">{capIndex + 1}.{subIndex + 1}</span>
+                                <input value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} className="input-subcapitulo" placeholder="Nombre del subcapítulo"/>
+                                <div className="subcapitulo-meta-inputs">
+                                    <input type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min"/>
+                                    <input type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión"/>
+                                </div>
+                            </div>
+                            </li>
+                        )
+                        })}
+                    </ul>
+                    </div>
+                ))}
                 </div>
-              </div>
+            ) : (
+                <div className="vista-resumida-editable">
+                <input name="nombre_curso" value={temario.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
+                
+                <h3>Temario Detallado</h3>
+                {/* <-- AJUSTE: El bucle ahora recibe el índice */}
+                {(temario.temario || []).map((cap, capIndex) => (
+                    <div key={capIndex} className="capitulo-resumido">
+                    {/* <-- AJUSTE: Se añade la numeración al capítulo */}
+                    <div className="capitulo-titulo-con-numero">
+                        <h4>Capítulo {capIndex + 1}:</h4>
+                        <input value={cap.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
+                    </div>
+                    
+                    <div className="info-grid-capitulo">
+                        <div className="info-item">
+                        <label>Duración Total (min)</label>
+                        <input type="number" className="input-info-small" value={cap.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} />
+                        </div>
+                    </div>
 
-              <div className="objetivos-capitulo-resumido">
-                <label>Objetivos del Capítulo</label>
-                <textarea className="textarea-objetivos-resumido" value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} />
-              </div>
+                    <div className="objetivos-capitulo-resumido">
+                        <label>Objetivos del Capítulo</label>
+                        <textarea className="textarea-objetivos-resumido" value={Array.isArray(cap.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} />
+                    </div>
 
-              <div className="subcapitulos-resumidos">
-                {(cap.subcapitulos || []).map((sub, subIndex) => {
-                    const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-                    return (
-                      <div key={subIndex} className="subcapitulo-item">
-                          <input className="input-subcapitulo-resumido" value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} placeholder="Nombre del subcapítulo" />
-                          <div className="subcapitulo-tiempos">
-                              <input className="input-tiempo-sub" type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min" />
-                              <input className="input-sesion-sub" type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión" />
-                          </div>
-                      </div>
-                    )
-                })}
-              </div>
+                    <div className="subcapitulos-resumidos">
+                        {/* <-- AJUSTE: El bucle ahora recibe el índice */}
+                        {(cap.subcapitulos || []).map((sub, subIndex) => {
+                            const subObj = typeof sub === 'object' ? sub : { nombre: sub };
+                            return (
+                            <div key={subIndex} className="subcapitulo-item">
+                                {/* <-- AJUSTE: Se añade la numeración al subtema */}
+                                <span className="subcapitulo-numero">{capIndex + 1}.{subIndex + 1}</span>
+                                <input className="input-subcapitulo-resumido" value={subObj.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} placeholder="Nombre del subcapítulo" />
+                                <div className="subcapitulo-tiempos">
+                                    <input className="input-tiempo-sub" type="number" value={subObj.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min" />
+                                    <input className="input-sesion-sub" type="number" value={subObj.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión" />
+                                </div>
+                            </div>
+                            )
+                        })}
+                    </div>
+                    </div>
+                ))}
+                </div>
+            )}
             </div>
-          ))}
+        )}
         </div>
-      )}
-    </div>
-  )}
-</div>
 
       <div className="acciones-footer">
         <button onClick={() => setMostrarFormRegenerar(prev => !prev)}>Ajustar y Regenerar</button>
@@ -445,8 +505,4 @@ const exportarPDF = async () => {
 }
 
 export default EditorDeTemario;
-
-
-
-
 
