@@ -150,7 +150,7 @@ const exportarPDF = async () => {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         
-        const margin = { top: 200, bottom: 100, left: 40, right: 40 };
+        const margin = { top: 210, bottom: 100, left: 40, right: 40 };
         const contentWidth = pageWidth - margin.left - margin.right;
         
         const encabezadoDataUrl = await toDataURL(encabezadoImagen);
