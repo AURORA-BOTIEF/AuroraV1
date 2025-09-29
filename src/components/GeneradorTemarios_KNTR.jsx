@@ -16,7 +16,7 @@ function GeneradorTemarios() {
     nivel_dificultad: 'basico',
     sector: '',
     enfoque: '',
-    horas_por_sesion: 7,
+    horas_por_sesion: 4,
     numero_sesiones_por_semana: 1,
     objetivo_tipo: 'saber_hacer',
     codigo_certificacion: ''
@@ -110,16 +110,16 @@ const handleParamChange = (e) => {
             </select>
           </div>
           <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
+            <label>Número de Sesiones (1-3)</label> // Modificacion para cursos tipo Knowledge Transfer
             <div className='slider-container'>
-              <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
+              <input name="numero_sesiones_por_semana" type="range" min="1" max="3" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
               <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
             </div>
           </div>
           <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
+            <label>Horas por Sesión (3-7)</label> // Modificacion para cursos tipo Knowledge Transfer
             <div className='slider-container'>
-              <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
+              <input name="horas_por_sesion" type="range" min="3" max="7" value={params.horas_por_sesion} onChange={handleParamChange} />
               <span>{params.horas_por_sesion} horas</span>
             </div>
           </div>
