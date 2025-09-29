@@ -1,4 +1,5 @@
 // Generador de temarios para KNOWLEDGE TRANSFER (KNTR)
+// Prueba David ...
 
 import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
