@@ -109,7 +109,7 @@ function GeneradorTemarios() {
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
-            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} placeholder="Ej: Juan Pérez" />
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange}/>
           </div>
           <div className="form-group">
             <label>Asesor(a) Comercial Asociado</label>

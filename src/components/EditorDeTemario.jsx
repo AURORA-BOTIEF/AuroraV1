@@ -103,34 +103,25 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     setMostrarFormRegenerar(false);
   };
 
+// <-- AJUSTE CLAVE: Esta función ahora se comunica con el componente padre (GeneradorTemarios)
   const handleSaveClick = async () => {
     setErrorUi("");
     setOkUi("");
-    if (!API_BASE) {
-      setErrorUi("Falta configurar VITE_TEMARIOS_API.");
-      return;
+    setGuardando(true);
+
+    const nota = window.prompt("Escribe una nota para esta versión (opcional):", `Guardado ${nowIso()}`) || "";
+
+    // Llama a la función 'onSave' que viene como prop desde GeneradorTemarios
+    const resultado = await onSave(temario, nota);
+
+    // Muestra el mensaje de éxito o error que devuelve el padre
+    if (resultado.success) {
+      setOkUi(resultado.message);
+    } else {
+      setErrorUi(resultado.message);
     }
-    try {
-      setGuardando(true);
-      const cursoId = slugify(temario?.nombre_curso || params?.tema_curso || "curso");
-      const nota =
-        window.prompt("Escribe una nota para esta versión (opcional):", `Guardado ${nowIso()}`) ||
-        "";
-      const token = localStorage.getItem("id_token") || "";
-      const res = await fetch(`${API_BASE.replace(/\/$/, "")}/temarios`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ cursoId, contenido: temario, nota })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al guardar versión");
-      setOkUi(`Versión guardada ✔ (versionId: ${data.versionId || "N/A"})`);
-    } catch (err) {
-      console.error(err);
-      setErrorUi(err.message || "Error al guardar versión");
-    } finally {
-      setGuardando(false);
-    }
+    
+    setGuardando(false);
   };
 
 // --- FUNCIÓN PROFESIONAL PARA EXPORTAR PDF (VERSIÓN CON NUMERACIÓN) ---
