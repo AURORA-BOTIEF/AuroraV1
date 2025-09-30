@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
-    "aws-amplify": "^4.3.46",
+    "aws-amplify": "^6.15.7",
     "buffer": "^6.0.3",
     "dompurify": "^3.2.6",
     "jwt-decode": "^4.0.0",
