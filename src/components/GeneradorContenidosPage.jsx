@@ -29,13 +29,13 @@ function GeneradorContenidosPage() {
             </div>
           </Link> {/* <-- CORRECCIÓN: La etiqueta <Link> ahora se cierra aquí --> */}
           
-          <div to="curso-estándar" className="opcion-menu">
+          <Link to="curso-estándar" className="opcion-menu">
             <div className="icono">🧠</div>
             <div className="texto">
               <h3>Generador de Temario Knowledge Transfer</h3>
               <p>Crea un temario enfocado a 100% teoría</p>
             </div>
-          </div>
+          </Link>
           
           <div className="opcion-menu disabled">
             <div className="icono">🛠️</div>
