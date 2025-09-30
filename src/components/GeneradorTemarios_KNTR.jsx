@@ -110,14 +110,14 @@ const handleParamChange = (e) => {
             </select>
           </div>
           <div className="form-group">
-            <label>Número de Sesiones (1-3)</label> // Modificacion para cursos tipo Knowledge Transfer
+            <label>Número de Sesiones (1-3)</label> 
             <div className='slider-container'>
               <input name="numero_sesiones_por_semana" type="range" min="1" max="3" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
               <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
             </div>
           </div>
           <div className="form-group">
-            <label>Horas por Sesión (3-7)</label> // Modificacion para cursos tipo Knowledge Transfer
+            <label>Horas por Sesión (3-7)</label> 
             <div className='slider-container'>
               <input name="horas_por_sesion" type="range" min="3" max="7" value={params.horas_por_sesion} onChange={handleParamChange} />
               <span>{params.horas_por_sesion} horas</span>
