@@ -16,6 +16,7 @@ import ExamenesPage from './components/ExamenesPage';
 import AdminPage from './components/AdminPage';
 import GeneradorContenidosPage from './components/GeneradorContenidosPage';
 import GeneradorTemarios from './components/GeneradorTemarios'; // <-- IMPORTA EL NUEVO COMPONENTE
+import GeneradorTemarios_KNTR from './components/GeneradorTemarios_KNTR'; // <-- IMPORTA EL NUEVO COMPONENTE -> KNOWNLEDGE TRANSFER
 
 // Estilos y Assets
 import './index.css';
@@ -195,6 +196,7 @@ function App() {
                 <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
                   {/* Esta ruta ahora está anidada y se renderizará en el <Outlet> */}
                   <Route path="curso-estandar" element={<GeneradorTemarios />} />
+                  <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />  
                 </Route>
                 {/* --- FIN DE LA CORRECCIÓN --- */}
                 
