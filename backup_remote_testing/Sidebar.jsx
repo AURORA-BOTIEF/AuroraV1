@@ -13,15 +13,13 @@ const DOMINIOS_PERMITIDOS = new Set([
   'netec.com.pe', 'netec.com.cl', 'netec.com.es', 'netec.com.pr'
 ]);
 
-export default function Sidebar({ email = '', nombre, grupo = '' }) {
+export default function Sidebar({ email = '', nombre, grupo = '', token }) {
   const [avatar, setAvatar] = useState(null);
   const [colapsado, setColapsado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [estado, setEstado] = useState('');
   const [error, setError] = useState('');
   const [pickerAbierto, setPickerAbierto] = useState(false);
-  const [authHeader, setAuthHeader] = useState({});
-  const [tokenLoaded, setTokenLoaded] = useState(false);
 
   // Pinta inmediatamente desde localStorage
   useEffect(() => {
@@ -29,7 +27,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     try {
       const prev = localStorage.getItem(`app_avatar_url:${(email || 'anon')}`);
       if (prev && !cancelled) setAvatar(prev);
-    } catch { }
+    } catch {}
     return () => { cancelled = true; };
   }, [email]);
 
@@ -43,7 +41,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           if (!cancelled) setAvatar(pic);
           return;
         }
-      } catch { }
+      } catch {}
       try {
         if (!API_BASE) return;
         const idt = localStorage.getItem('id_token');
@@ -52,7 +50,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         if (!r.ok) return;
         const d = await r.json();
         if (!cancelled && d?.photoUrl) setAvatar(d.photoUrl);
-      } catch { }
+      } catch {}
     }
     pintarFoto();
     const onUpd = (e) => {
@@ -69,21 +67,14 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   const dominio = useMemo(() => (email.split('@')[1] || '').toLowerCase(), [email]);
   const esNetec = DOMINIOS_PERMITIDOS.has(dominio);
 
-  useEffect(() => {
-    Auth.currentSession()
-      .then(session => {
-        const idToken = session.getIdToken().getJwtToken();
-        setAuthHeader({ Authorization: `Bearer ${idToken}` });
-        setTokenLoaded(true);
-      })
-      .catch(() => {
-        setAuthHeader({});
-        setTokenLoaded(true);
-      });
-  }, []);
+  const authHeader = useMemo(() => {
+    if (!token) return {};
+    const v = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    return { Authorization: v };
+  }, [token]);
 
   useEffect(() => {
-    if (!API_BASE || !email || !esNetec || !tokenLoaded) return;
+    if (!API_BASE || !email || !esNetec) return;
     const fetchEstado = async () => {
       setError('');
       try {
@@ -143,16 +134,16 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
 
   const rolTexto =
     grupo === 'admin' ? 'Administrador' :
-      grupo === 'creador' ? 'Creador' :
-        grupo === 'participant' ? 'Participante' :
-          'Sin grupo';
+    grupo === 'creador' ? 'Creador' :
+    grupo === 'participant' ? 'Participante' :
+    'Sin grupo';
 
   const disabled = estado === 'pendiente' || estado === 'aprobado' || enviando;
 
   const label =
-    estado === 'aprobado' ? '✅ Ya eres Creador'
-      : estado === 'pendiente' ? '⏳ Solicitud enviada'
-        : '📩 Solicitar rol de Creador';
+    estado === 'aprobado'  ? '✅ Ya eres Creador'
+  : estado === 'pendiente' ? '⏳ Solicitud enviada'
+  : '📩 Solicitar rol de Creador';
 
   return (
     <div id="barraLateral" className={`sidebar ${colapsado ? 'sidebar--colapsado' : ''}`}>
@@ -197,7 +188,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
               </button>
               {!!error && <div className="solicitar-creador-error">❌ {error}</div>}
               {estado === 'rechazado' && (
-                <div className="solicitar-creador-error" style={{ color: '#ffd18a' }}>
+                <div className="solicitar-creador-error" style={{color:'#ffd18a'}}>
                   ❗ Tu última solicitud fue rechazada. Puedes volver a intentarlo.
                 </div>
               )}

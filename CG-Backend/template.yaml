@@ -1,0 +1,529 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: NETEC Course Generator with YAML Structure Integration
+Parameters:
+  ECRRepository:
+    Type: String
+    Default: crewai-course-generator
+    Description: ECR repository name
+  GoogleApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Google API Key for Gemini image generation (NoEcho hides this value in the console)
+  AccountId:
+    Type: String
+    Default: '746434296869'
+    Description: AWS Account ID
+Globals:
+  Api:
+    Cors:
+      AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
+    Auth:
+      ApiKeyRequired: false
+Resources:
+  CrewaiContentGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Generates structured course content following YAML outline requirements
+      PackageType: Image
+      ImageUri: crewai-course_gen:latest
+      ImageConfig:
+        Command:
+        - content_gen.lambda_handler
+      Environment:
+        Variables:
+          OUTPUT_S3_BUCKET: crewai-course-artifacts
+          BEDROCK_API_KEY: ABSKSnVhbkRhdmlkLWF0LTc0NjQzNDI5Njg2OTpLRjhMV0Erd2tjVDhKRmllbXVtbysyRnN1MHVoeXpzWWoveFYvOWpwS1UvTTBDbXN6Mk0xV001UzN2ND0=
+          YAML_STRUCTURE_ENABLED: 'true'
+      Timeout: 900
+      MemorySize: 2048
+      Architectures:
+      - x86_64
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          - bedrock:InvokeModelWithResponseStream
+          Resource: '*'
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:PutObject
+          - s3:PutObjectAcl
+          - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+    Metadata:
+      DockerContext: /home/juan/netec-cg
+      DockerTag: latest
+      Dockerfile: Dockerfile
+      SamResourceId: CrewaiContentGen
+  CrewaiVisualPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Generates visual planning prompts from course content
+      PackageType: Image
+      ImageUri: crewai-course_gen:latest
+      ImageConfig:
+        Command:
+        - visual_planner.lambda_handler
+      Environment:
+        Variables:
+          OUTPUT_S3_BUCKET: crewai-course-artifacts
+          BEDROCK_API_KEY: ABSKSnVhbkRhdmlkLWF0LTc0NjQzNDI5Njg2OTpLRjhMV0Erd2tjVDhKRmllbXVtbysyRnN1MHVoeXpzWWoveFYvOWpwS1UvTTBDbXN6Mk0xV001UzN2ND0=
+          YAML_STRUCTURE_ENABLED: 'true'
+      Timeout: 900
+      MemorySize: 2048
+      Architectures:
+      - x86_64
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          - bedrock:InvokeModelWithResponseStream
+          Resource: '*'
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:PutObject
+          - s3:PutObjectAcl
+          - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+    Metadata:
+      DockerContext: /home/juan/netec-cg
+      DockerTag: latest
+      Dockerfile: Dockerfile
+      SamResourceId: CrewaiVisualPlanner
+  CrewaiImagesGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Generates images from visual prompts using Google Gemini
+      PackageType: Image
+      ImageUri: crewai-course_gen:latest
+      ImageConfig:
+        Command:
+        - images_gen.lambda_handler
+      Environment:
+        Variables:
+          OUTPUT_S3_BUCKET: crewai-course-artifacts
+          GOOGLE_API_KEY: !Ref GoogleApiKey
+          YAML_STRUCTURE_ENABLED: 'true'
+      Timeout: 900
+      MemorySize: 2048
+      Architectures:
+      - x86_64
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:PutObject
+          - s3:PutObjectAcl
+          - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+    Metadata:
+      DockerContext: /home/juan/netec-cg
+      DockerTag: latest
+      Dockerfile: Dockerfile
+      SamResourceId: CrewaiImagesGen
+  # Starter API - starts Step Functions execution
+  StarterApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: API endpoint to start the ContentGen -> VisualPlanner state machine
+      Handler: starter_api.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          # STATE_MACHINE_ARN will be set to the state machine resource ref below
+          STATE_MACHINE_ARN: !GetAtt CourseGeneratorStateMachine.Arn
+          SKIP_S3_HEAD_CHECK: 'true'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !GetAtt CourseGeneratorStateMachine.Arn
+            - Effect: Allow
+              Action:
+                - s3:HeadObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        StartJobApi:
+          Type: Api
+          Properties:
+            Path: /start-job
+            Method: post
+
+  # Presign endpoint - issues presigned URLs for S3 uploads
+  PresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Issues presigned URLs for outline uploads
+      Handler: presign.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          UPLOAD_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts/uploads/*
+      Events:
+        PresignApi:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: post
+            
+
+  # Exec status endpoint - query Step Functions for execution status
+  ExecStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Returns Step Functions execution status for a given arn
+      Handler: exec_status.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 10
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+              Resource:
+                # Narrow the permission to executions of our state machine only.
+                # Use the state machine's name to construct execution ARNs: arn:aws:states:<region>:<account>:execution:<stateMachineName>:*
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${CourseGeneratorStateMachine.Name}:*"
+      Events:
+        ExecStatusApi:
+          Type: Api
+          Properties:
+            Path: /exec-status
+            Method: get
+            
+
+  # IAM Role for Step Functions to invoke Lambdas
+  CourseGeneratorStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: InvokeContentAndPlanner
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt CrewaiContentGen.Arn
+                  - !GetAtt CrewaiVisualPlanner.Arn
+                  - !GetAtt CrewaiImagesGen.Arn
+
+  # Step Functions state machine (native CloudFormation resource)
+  CourseGeneratorStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      RoleArn: !GetAtt CourseGeneratorStateMachineRole.Arn
+      StateMachineName: CourseGeneratorStateMachine
+      DefinitionString: !Sub |
+        {
+          "Comment": "Orchestrate ContentGen -> VisualPlanner -> ImagesGen for a single lesson",
+          "StartAt": "InvokeContentGen",
+          "States": {
+            "InvokeContentGen": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CrewaiContentGen.Arn}",
+                "Payload.$": "$"
+              },
+              "ResultPath": "$.contentgen_response",
+              "Retry": [{ "ErrorEquals": ["Lambda.ServiceException","Lambda.AWSLambdaException","Lambda.SdkClientException"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2.0 }],
+              "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailState" }],
+              "Next": "NormalizeContentGenPayload"
+            },
+            "NormalizeContentGenPayload": {
+              "Type": "Pass",
+              "Parameters": {
+                "lesson_key.$": "$.contentgen_response.Payload.lesson_key",
+                "course_bucket.$": "$.contentgen_response.Payload.course_bucket",
+                "project_folder.$": "$.contentgen_response.Payload.project_folder",
+                "payload.$": "$.contentgen_response.Payload",
+                "original.$": "$.original",
+                "model_provider.$": "$.model_provider",
+                "performance_mode.$": "$.performance_mode",
+                "content_source.$": "$.content_source"
+              },
+              "ResultPath": "$.Payload",
+              "Next": "ParseContentGenResult"
+            },
+            "ParseContentGenResult": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.contentgen_response.Payload.model_provider",
+                  "IsPresent": true,
+                  "Next": "ParseContentGenResultFromPayload"
+                }
+              ],
+              "Default": "ParseContentGenResultFromInput"
+            },
+            "ParseContentGenResultFromPayload": {
+              "Type": "Pass",
+              "Parameters": {
+                "lesson_key.$": "$.contentgen_response.Payload.lesson_key",
+                "course_bucket.$": "$.contentgen_response.Payload.course_bucket",
+                "project_folder.$": "$.contentgen_response.Payload.project_folder",
+                "payload.$": "$.contentgen_response.Payload",
+                "original.$": "$.original",
+                "model_provider.$": "$.contentgen_response.Payload.model_provider",
+                "performance_mode.$": "$.contentgen_response.Payload.performance_mode",
+                "content_source.$": "$.contentgen_response.Payload.content_source"
+              },
+              "Next": "ResolveEffectiveMaxImages"
+            },
+            "ParseContentGenResultFromInput": {
+              "Type": "Pass",
+              "Parameters": {
+                "lesson_key.$": "$.contentgen_response.Payload.lesson_key",
+                "course_bucket.$": "$.contentgen_response.Payload.course_bucket",
+                "project_folder.$": "$.contentgen_response.Payload.project_folder",
+                "payload.$": "$.contentgen_response.Payload",
+                "original.$": "$.original",
+                "model_provider": "bedrock",
+                "performance_mode": "standard",
+                "content_source": "llm"
+              },
+              "Next": "ResolveEffectiveMaxImages"
+            },
+            "ResolveEffectiveMaxImages": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.original.max_images",
+                  "IsPresent": true,
+                  "Next": "SetEffectiveFromOriginal"
+                }
+              ],
+              "Default": "TopLevelHasMaxImages"
+            },
+            "TopLevelHasMaxImages": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.max_images",
+                  "IsPresent": true,
+                  "Next": "SetEffectiveFromRoot"
+                }
+              ],
+              "Default": "SetEffectiveDefault"
+            },
+            "SetEffectiveFromOriginal": {
+              "Type": "Pass",
+              "Parameters": {
+                "effective_max_images.$": "$.original.max_images"
+              },
+              "ResultPath": "$.effective",
+              "Next": "InvokeVisualPlanner"
+            },
+            "SetEffectiveFromRoot": {
+              "Type": "Pass",
+              "Parameters": {
+                "effective_max_images.$": "$.max_images"
+              },
+              "ResultPath": "$.effective",
+              "Next": "InvokeVisualPlanner"
+            },
+            "SetEffectiveDefault": {
+              "Type": "Pass",
+              "Parameters": {
+                "effective_max_images": 4
+              },
+              "ResultPath": "$.effective",
+              "Next": "InvokeVisualPlanner"
+            },
+            "InvokeVisualPlanner": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CrewaiVisualPlanner.Arn}",
+                "Payload": {
+                  "course_bucket.$": "$.course_bucket",
+                  "lesson_key.$": "$.lesson_key",
+                  "project_folder.$": "$.project_folder",
+                  "model_provider.$": "$.model_provider",
+                  "performance_mode.$": "$.performance_mode",
+                  "content_source.$": "$.content_source",
+                  "original.$": "$.original"
+                }
+              },
+              "ResultPath": "$.visual_response",
+              "Retry": [{ "ErrorEquals": ["Lambda.ServiceException","Lambda.AWSLambdaException","Lambda.SdkClientException"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2.0 }],
+              "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailState" }],
+              "Next": "PrepareImagesInput"
+            },
+            "InvokeImagesGen": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CrewaiImagesGen.Arn}",
+                "Payload": {
+                  "course_bucket.$": "$.prepared.course_bucket",
+                  "project_folder.$": "$.prepared.project_folder",
+                  "prompts.$": "$.prepared.generated_prompts",
+                  "max_images.$": "$.prepared.max_images",
+                  "original.$": "$.prepared.original"
+                }
+              },
+              "Retry": [{ "ErrorEquals": ["Lambda.ServiceException","Lambda.AWSLambdaException","Lambda.SdkClientException"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2.0 }],
+              "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailState" }],
+              "Next": "SuccessState"
+            },
+            "PrepareImagesInput": {
+              "Type": "Pass",
+              "Parameters": {
+                "course_bucket.$": "$.visual_response.Payload.bucket",
+                "prompts_s3_prefix.$": "$.visual_response.Payload.prompts_s3_prefix",
+                "project_folder.$": "$.visual_response.Payload.project_folder",
+                "generated_prompts.$": "$.visual_response.Payload.generated_prompts",
+                "original.$": "$.original",
+                "visual_payload.$": "$.visual_response.Payload"
+              },
+              "ResultPath": "$.prepared",
+              "Next": "EnsureMaxImages"
+            },
+            "EnsureMaxImages": {
+              "Type": "Pass",
+              "Parameters": {
+                "max_images.$": "$.effective.effective_max_images",
+                "max_images_default": 4
+              },
+              "ResultPath": "$.prepared.max_images_temp",
+              "Next": "NormalizeMaxImages"
+            },
+            "NormalizeMaxImages": {
+              "Type": "Pass",
+              "Parameters": {
+                "course_bucket.$": "$.prepared.course_bucket",
+                "prompts_s3_prefix.$": "$.prepared.prompts_s3_prefix",
+                "project_folder.$": "$.prepared.project_folder",
+                "generated_prompts.$": "$.prepared.generated_prompts",
+                "original.$": "$.prepared.original",
+                "max_images.$": "$.prepared.max_images_temp.max_images"
+              },
+              "ResultPath": "$.prepared",
+              "Next": "HasPromptsChoice"
+            },
+            "HasPromptsChoice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.prepared.generated_prompts[0]",
+                  "IsPresent": true,
+                  "Next": "InvokeImagesGen"
+                }
+              ],
+              "Default": "NoPromptsState"
+            },
+            "NoPromptsState": { "Type": "Succeed" },
+            "FailState": { "Type": "Fail", "Cause": "TaskFailed", "Error": "OrchestrationFailed" },
+            "SuccessState": { "Type": "Succeed" }
+          }
+        }
+
+Outputs:
+  ContentGenerationFunction:
+    Description: Content Generation Lambda Function ARN with YAML Structure Integration
+    Value:
+      Fn::GetAtt:
+      - CrewaiContentGen
+      - Arn
+  VisualPlannerFunction:
+    Description: Visual Planning Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - CrewaiVisualPlanner
+      - Arn
+  ImagesGenFunction:
+    Description: Image Generation Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - CrewaiImagesGen
+      - Arn
+  StarterApiFunction:
+    Description: Starter API Lambda ARN
+    Value:
+      Fn::GetAtt:
+      - StarterApiFunction
+      - Arn
+  PresignFunction:
+    Description: Presign Lambda ARN
+    Value:
+      Fn::GetAtt:
+      - PresignFunction
+      - Arn
+  ExecStatusFunction:
+    Description: ExecStatus Lambda ARN
+    Value:
+      Fn::GetAtt:
+      - ExecStatusFunction
+      - Arn
+  CourseGeneratorStateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value: !Ref CourseGeneratorStateMachine
+  ApiBaseUrl:
+    Description: API Gateway base URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  PresignEndpoint:
+    Description: Presign endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presign"
+  StartJobEndpoint:
+    Description: Start job endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/start-job"
+  ExecStatusEndpoint:
+    Description: Execution status endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/exec-status"

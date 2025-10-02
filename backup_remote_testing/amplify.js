@@ -9,14 +9,12 @@ import { Amplify } from 'aws-amplify';
  * - (opcional) VITE_AWS_REGION; si falta, se deriva del dominio
  * - VITE_REDIRECT_URI y/o VITE_REDIRECT_URI_TESTING
  */
-const domainRaw = import.meta.env.VITE_COGNITO_DOMAIN || '';
-const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
+const domainRaw  = import.meta.env.VITE_COGNITO_DOMAIN || '';
+const clientId   = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
 const userPoolId =
   import.meta.env.VITE_COGNITO_USER_POOL_ID ||
   import.meta.env.VITE_USER_POOL_ID ||
   '';
-
-const identityPoolId = import.meta.env.VITE_IDENTITY_POOL_ID || '';
 
 const derivedRegion = (() => {
   const m = String(domainRaw).match(/auth\.([a-z0-9-]+)\.amazoncognito\.com/i);
@@ -33,7 +31,7 @@ const redirectSignOut = redirectSignIn;
 const domain = String(domainRaw).replace(/^https?:\/\//, '');
 
 const missing = [];
-if (!domain) missing.push('VITE_COGNITO_DOMAIN');
+if (!domain)   missing.push('VITE_COGNITO_DOMAIN');
 if (!clientId) missing.push('VITE_COGNITO_CLIENT_ID');
 if (!userPoolId) {
   // No rompemos, pero avisamos. Con fallback manual igual funcionará el login.
