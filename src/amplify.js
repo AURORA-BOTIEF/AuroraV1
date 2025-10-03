@@ -57,6 +57,15 @@ if (missing.length) {
         responseType: 'code',
       },
     },
+    API: {
+      endpoints: [
+        {
+          name: "CourseGeneratorAPI",
+          endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod",
+          region: region
+        }
+      ]
+    }
   });
 }
 

@@ -23,9 +23,43 @@ try:
 except Exception:
     genai = None
 
+def get_secret(secret_name, region_name="us-east-1"):
+    """Retrieve a secret from AWS Secrets Manager."""
+    import boto3
+    from botocore.exceptions import ClientError
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        raise e
+
+    # Decrypts secret using the associated KMS key.
+    secret = get_secret_value_response['SecretString']
+    return json.loads(secret)
+
 # Read API key but don't raise at import time. The lambda will return a clear error
 # message if the key is required but missing at runtime.
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+try:
+    # Try to get Google API key from Secrets Manager
+    google_secret = get_secret("aurora/google-api-key")
+    GOOGLE_API_KEY = google_secret.get('api_key')
+    print("Retrieved Google API key from Secrets Manager")
+except Exception as e:
+    print(f"Failed to retrieve Google API key from Secrets Manager: {e}")
+    # Fallback to environment variable
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    print("Using Google API key from environment variable")
 
 def test_gemini_image_generation(prompt_text, prompt_id, model_name='models/gemini-2.5-flash-image-preview'):
     """Test Gemini image generation for a single prompt"""

@@ -338,36 +338,56 @@ def lambda_handler(event, context):
 
         if model_provider == 'openai':
             # --- Configure OpenAI ---
-            openai_key = os.getenv('OPENAI_API_KEY')
+            try:
+                # Try to get OpenAI API key from Secrets Manager
+                openai_secret = get_secret("aurora/openai-api-key")
+                openai_key = openai_secret.get('api_key')
+                print("Retrieved OpenAI API key from Secrets Manager")
+            except Exception as e:
+                print(f"Failed to retrieve OpenAI API key from Secrets Manager: {e}")
+                # Fallback to environment variable
+                openai_key = os.getenv('OPENAI_API_KEY')
+                print("Using OpenAI API key from environment variable")
+            
             print(f"OPENAI_API_KEY found: {openai_key is not None}")
             if openai_key:
                 if len(openai_key) > 20:
                     print(f"OPENAI_API_KEY value: {openai_key[:10]}...{openai_key[-10:]}")
                 else:
                     print(f"OPENAI_API_KEY value: {openai_key}")
-
+            
             if not openai_key:
-                raise ValueError("OPENAI_API_KEY environment variable is required when using OpenAI provider")
-
+                raise ValueError("OPENAI_API_KEY not found in Secrets Manager or environment variable")
+            
             # Use GPT-5 model (now available as of September 2025)
             model_name = "gpt-5"
             model_arn = f"openai/{model_name}"
-
+            
             print(f"Using OpenAI model: {model_name}")
             print(f"Model ARN: {model_arn}")
 
         else:  # Default to Bedrock
             # --- Configure Bedrock ---
-            bedrock_key = os.getenv('BEDROCK_API_KEY')
+            try:
+                # Try to get Bedrock API key from Secrets Manager
+                bedrock_secret = get_secret("aurora/bedrock-api-key")
+                bedrock_key = bedrock_secret.get('api_key')
+                print("Retrieved Bedrock API key from Secrets Manager")
+            except Exception as e:
+                print(f"Failed to retrieve Bedrock API key from Secrets Manager: {e}")
+                # Fallback to environment variable
+                bedrock_key = os.getenv('BEDROCK_API_KEY')
+                print("Using Bedrock API key from environment variable")
+            
             print(f"BEDROCK_API_KEY found: {bedrock_key is not None}")
             if bedrock_key:
                 if len(bedrock_key) > 20:
                     print(f"BEDROCK_API_KEY value: {bedrock_key[:10]}...{bedrock_key[-10:]}")
                 else:
                     print(f"BEDROCK_API_KEY value: {bedrock_key}")
-
+            
             if not bedrock_key:
-                raise ValueError("BEDROCK_API_KEY environment variable is required when using Bedrock provider")
+                raise ValueError("BEDROCK_API_KEY not found in Secrets Manager or environment variable")
 
             # PERFORMANCE OPTIMIZATION: Choose model based on performance mode
             if performance_mode == 'ultra_fast':
@@ -797,6 +817,32 @@ def lambda_handler(event, context):
             "error": error_msg,
             "request_id": request_id
         }
+
+
+def get_secret(secret_name, region_name="us-east-1"):
+    """Retrieve a secret from AWS Secrets Manager."""
+    import boto3
+    from botocore.exceptions import ClientError
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        raise e
+
+    # Decrypts secret using the associated KMS key.
+    secret = get_secret_value_response['SecretString']
+    return json.loads(secret)
 
 
 if __name__ == '__main__':
