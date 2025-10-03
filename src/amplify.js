@@ -48,9 +48,10 @@ if (missing.length) {
       region,
       userPoolId,
       userPoolWebClientId: clientId,
+      identityPoolId,
       oauth: {
         domain,
-        scope: ['openid', 'email', 'profile'],
+        scope: ['openid', 'email', 'profile', 'aws.cognito.signin.user.admin'],
         redirectSignIn,
         redirectSignOut,
         responseType: 'code',
