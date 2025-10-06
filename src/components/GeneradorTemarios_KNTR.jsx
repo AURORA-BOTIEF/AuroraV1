@@ -22,7 +22,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  const apiUrl = "https://z7yly6lylc.execute-api.us-east-1.amazonaws.com/default/pruebaTEM_knowledge_transfer";
+  const apiUrl = "https://qwnbjbnyr8.execute-api.us-east-1.amazonaws.com/default/pruebaTEM_knowledge_transfer";
 
 // CÓDIGO CORREGIDO
 const handleParamChange = (e) => {
