@@ -41,10 +41,14 @@ def lambda_handler(event, context):
         print("--- Starting Course Generation API ---")
         print(f"Event: {json.dumps(event, indent=2)}")
 
-        # Extract user information from Cognito claims
+        # Extract user information from IAM identity (when using IAM auth)
+        # or from Cognito claims (when using Cognito auth)
+        identity = event.get('requestContext', {}).get('identity', {})
         claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-        user_id = claims.get('sub', 'unknown-user')
-        user_email = claims.get('email', 'unknown@example.com')
+        
+        # Try IAM identity first, then Cognito claims
+        user_id = identity.get('userArn', '').split('/')[-1] or claims.get('sub', 'unknown-user')
+        user_email = identity.get('userArn', '').split('/')[-1] + '@iam.amazonaws.com' or claims.get('email', 'unknown@example.com')
 
         print(f"User: {user_email} ({user_id})")
 
@@ -56,28 +60,33 @@ def lambda_handler(event, context):
 
         print(f"Request body: {json.dumps(body, indent=2)}")
 
-        # Validate required parameters
+        # Validate required parameters - accept either course_topic or outline_s3_key
         course_topic = body.get('course_topic')
-        if not course_topic:
+        outline_s3_key = body.get('outline_s3_key')
+        
+        if not course_topic and not outline_s3_key:
             return {
                 "statusCode": 400,
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256",
                     "Access-Control-Allow-Methods": "OPTIONS,POST"
                 },
                 "body": json.dumps({
-                    "error": "course_topic is required"
+                    "error": "Either course_topic or outline_s3_key is required"
                 })
             }
 
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
         module_to_generate = body.get('module_to_generate', 1)  # Default to module 1
+        lesson_to_generate = body.get('lesson_to_generate')  # Optional: generate specific lesson
         performance_mode = body.get('performance_mode', 'balanced')
         model_provider = body.get('model_provider', 'bedrock')
         max_images = body.get('max_images', 4)
+        course_bucket = body.get('course_bucket')
+        project_folder = body.get('project_folder')
 
         # Get environment variables
         state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
@@ -100,16 +109,33 @@ def lambda_handler(event, context):
 
         # Prepare input for Step Functions
         execution_input = {
-            "course_topic": course_topic,
+            "course_topic": course_topic or "Custom Course",
             "course_duration_hours": course_duration_hours,
             "module_to_generate": module_to_generate,
+            "lesson_to_generate": lesson_to_generate,
             "performance_mode": performance_mode,
             "model_provider": model_provider,
             "max_images": max_images,
             "user_id": user_id,
             "user_email": user_email,
             "request_timestamp": datetime.now().isoformat(),
-            "content_source": "local"  # Use local YAML outline
+            "content_source": "s3" if outline_s3_key else "local",
+            "outline_s3_key": outline_s3_key,
+            "course_bucket": course_bucket,
+            "project_folder": project_folder,
+            # Include original request parameters for Step Functions
+            "original": {
+                "course_topic": course_topic,
+                "course_duration_hours": course_duration_hours,
+                "module_to_generate": module_to_generate,
+                "lesson_to_generate": lesson_to_generate,
+                "performance_mode": performance_mode,
+                "model_provider": model_provider,
+                "max_images": max_images,
+                "course_bucket": course_bucket,
+                "project_folder": project_folder,
+                "outline_s3_key": outline_s3_key
+            }
         }
 
         print(f"Starting Step Functions execution with input: {json.dumps(execution_input, indent=2)}")

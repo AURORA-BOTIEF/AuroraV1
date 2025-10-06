@@ -1,0 +1,258 @@
+/* src/components/BookEditor.css */
+.book-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #f5f5f5;
+}
+
+.book-editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: white;
+    border-bottom: 1px solid #ddd;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.book-editor-header h2 {
+    margin: 0;
+    color: #333;
+}
+
+.book-editor-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.book-editor-actions button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.book-editor-actions button:hover {
+    background: #f0f0f0;
+}
+
+.book-editor-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.version-history {
+    background: white;
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.version-history h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.version-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.version-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fafafa;
+}
+
+.version-item.current {
+    border-color: #007bff;
+    background: #e7f3ff;
+}
+
+.save-version {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.save-version input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.book-editor-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.lesson-navigator {
+    width: 250px;
+    background: white;
+    border-right: 1px solid #ddd;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.lesson-navigator h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.lesson-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.lesson-item {
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fafafa;
+}
+
+.lesson-item:hover {
+    background: #f0f0f0;
+}
+
+.lesson-item.active {
+    border-color: #007bff;
+    background: #e7f3ff;
+    color: #007bff;
+}
+
+.lesson-editor {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: white;
+    overflow: hidden;
+}
+
+.editor-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+    background: #f8f9fa;
+}
+
+.editor-toolbar button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.editor-toolbar button:hover {
+    background: #e9ecef;
+}
+
+.lesson-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+    background: #f8f9fa;
+}
+
+.lesson-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.lesson-stats {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.content-editor {
+    flex: 1;
+    padding: 1rem;
+    overflow-y: auto;
+    outline: none;
+    line-height: 1.6;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.content-editor h1,
+.content-editor h2,
+.content-editor h3,
+.content-editor h4,
+.content-editor h5,
+.content-editor h6 {
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: #333;
+}
+
+.content-editor p {
+    margin-bottom: 1rem;
+}
+
+.content-editor img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 1rem 0;
+}
+
+.content-editor strong {
+    font-weight: bold;
+}
+
+.content-editor em {
+    font-style: italic;
+}
+
+.book-editor-loading,
+.book-editor-error {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 1.2rem;
+    color: #666;
+}
+
+.book-editor-error {
+    color: #dc3545;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .book-editor-content {
+        flex-direction: column;
+    }
+
+    .lesson-navigator {
+        width: 100%;
+        height: 200px;
+        border-right: none;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .editor-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .lesson-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+}

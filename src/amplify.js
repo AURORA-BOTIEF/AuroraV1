@@ -43,6 +43,13 @@ if (!userPoolId) {
 if (missing.length) {
   console.error('[Amplify] Faltan variables VITE_ requeridas:', missing);
 } else {
+  console.log('[Amplify] Configuring with:', {
+    region,
+    userPoolId,
+    identityPoolId: identityPoolId || '(not set)',
+    apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://648uy54fs1.execute-api.us-east-1.amazonaws.com/Prod"
+  });
+
   Amplify.configure({
     Auth: {
       region,
@@ -61,7 +68,7 @@ if (missing.length) {
       endpoints: [
         {
           name: "CourseGeneratorAPI",
-          endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod",
+          endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://648uy54fs1.execute-api.us-east-1.amazonaws.com/Prod",
           region: region
         }
       ]

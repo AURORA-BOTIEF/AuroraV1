@@ -23,6 +23,10 @@ import ExamenesPage from './components/ExamenesPage.jsx';
 import AdminPage from './components/AdminPage.jsx';
 import GeneradorContenidosPage from './components/GeneradorContenidosPage.jsx';
 import GeneradorContenido from './components/GeneradorContenido.jsx';
+import GeneradorTemarios from './components/GeneradorTemarios.jsx';
+import GeneradorTemarios_KNTR from './components/GeneradorTemarios_KNTR.jsx';
+import GeneradorCursos from './components/GeneradorCursos.jsx';
+import BookBuilderPage from './components/BookBuilderPage.jsx';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -134,6 +138,7 @@ function App() {
                   <Route path="curso-estandar" element={<GeneradorTemarios />} />
                   <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
                   <Route path="generador-cursos" element={<GeneradorCursos />} />
+                  <Route path="book-builder" element={<BookBuilderPage />} />
                   <Route path="generador-contenido" element={<GeneradorContenido />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

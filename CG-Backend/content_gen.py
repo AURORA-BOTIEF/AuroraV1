@@ -551,27 +551,33 @@ def parse_markdown_to_json_structure(markdown_text):
 
     return {"modules": modules}
 
-def get_course_outline_from_s3(s3_client, bucket_name: str) -> str:
-    """Download the most recent course outline from S3."""
+def get_course_outline_from_s3(s3_client, bucket_name: str, outline_s3_key: str = None) -> str:
+    """Download the most recent course outline from S3, or a specific outline if outline_s3_key is provided."""
     try:
-        # List all outline files
-        response = s3_client.list_objects_v2(
-            Bucket=bucket_name,
-            Prefix='outlines/'
-        )
-        
-        if 'Contents' not in response:
-            raise Exception("No outline files found in S3 bucket")
-        
-        # Get the most recent file
-        outline_files = sorted(response['Contents'], key=lambda x: x['LastModified'], reverse=True)
-        latest_outline_key = outline_files[0]['Key']
-        
-        print(f"--- Using outline file: {latest_outline_key} ---")
-        
-        # Download the file
-        response = s3_client.get_object(Bucket=bucket_name, Key=latest_outline_key)
-        return response['Body'].read().decode('utf-8')
+        if outline_s3_key:
+            # Use the specific outline key provided
+            print(f"--- Using specific outline file: {outline_s3_key} ---")
+            response = s3_client.get_object(Bucket=bucket_name, Key=outline_s3_key)
+            return response['Body'].read().decode('utf-8')
+        else:
+            # Fallback to searching for the most recent file in outlines/ prefix
+            response = s3_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix='outlines/'
+            )
+            
+            if 'Contents' not in response:
+                raise Exception("No outline files found in S3 bucket")
+            
+            # Get the most recent file
+            outline_files = sorted(response['Contents'], key=lambda x: x['LastModified'], reverse=True)
+            latest_outline_key = outline_files[0]['Key']
+            
+            print(f"--- Using outline file: {latest_outline_key} ---")
+            
+            # Download the file
+            response = s3_client.get_object(Bucket=bucket_name, Key=latest_outline_key)
+            return response['Body'].read().decode('utf-8')
         
     except Exception as e:
         raise Exception(f"Failed to get course outline from S3: {str(e)}")
@@ -797,8 +803,8 @@ def lambda_handler(event, context):
                 else:
                     print(f"BEDROCK_API_KEY value: {bedrock_key}")
             
-            if not bedrock_key:
-                raise ValueError("BEDROCK_API_KEY not found in Secrets Manager or environment variable")
+            # Note: Bedrock uses IAM authentication, so API key is not required
+            # We keep the check for backward compatibility but don't fail if not found
             
             # PERFORMANCE OPTIMIZATION: Choose model based on performance mode
             if performance_mode == 'ultra_fast':
@@ -859,7 +865,7 @@ def lambda_handler(event, context):
         # Enforce single-lesson per Lambda execution to fit reliably within Lambda timeouts.
         # Even if the caller asks for more, we override here to keep executions short.
         max_lessons_per_execution = 1
-        request_id = context.aws_request_id
+        request_id = getattr(context, 'aws_request_id', 'unknown') if context else 'unknown'
 
         # Force single-agent (streamlined) mode in Lambda to reduce API calls and runtime
         performance_mode = 'fast'
@@ -913,7 +919,8 @@ def lambda_handler(event, context):
 
             # Get course outline from S3
             print(f"--- Retrieving course outline from S3 ---")
-            outline_content = get_course_outline_from_s3(s3_client, course_bucket)
+            outline_s3_key = event.get('outline_s3_key')
+            outline_content = get_course_outline_from_s3(s3_client, course_bucket, outline_s3_key)
             # Parse the YAML outline
             print(f"--- Parsing course outline ---")
             course_data = yaml.safe_load(outline_content)
@@ -1308,10 +1315,11 @@ These tags are essential for the visual planning pipeline and must be included. 
     except Exception as e:
         error_msg = f"Error in module content generation: {str(e)}"
         print(f"ERROR: {error_msg}")
+        request_id = getattr(context, 'aws_request_id', 'unknown') if context else 'unknown'
         return {
             "statusCode": 500,
             "error": error_msg,
-            "request_id": context.aws_request_id if context else "unknown"
+            "request_id": request_id
         }
 
 

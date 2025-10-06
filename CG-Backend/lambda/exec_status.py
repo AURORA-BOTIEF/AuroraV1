@@ -9,6 +9,7 @@ Returns the current status and results of a course generation execution.
 import json
 import boto3
 import os
+from urllib.parse import unquote
 from botocore.exceptions import ClientError
 
 def lambda_handler(event, context):
@@ -63,8 +64,12 @@ def lambda_handler(event, context):
                 })
             }
 
+        # URL decode the execution ARN in case it's encoded
+        execution_arn = unquote(execution_arn)
+        print(f"Decoded execution ARN: {execution_arn}")
+
         # Extract query parameters
-        query_params = event.get('queryStringParameters', {})
+        query_params = event.get('queryStringParameters') or {}
         include_history = query_params.get('include_history', 'false').lower() == 'true'
 
         print(f"Checking execution: {execution_arn}")
