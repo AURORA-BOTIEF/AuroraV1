@@ -22,7 +22,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // API nueva AAAA
+  // API nueva AAAAAss
   const apiUrl = "https://qwnbjbnyr8.execute-api.us-east-1.amazonaws.com/default/pruebaTEM_knowledge_transfer";
 
 // CÓDIGO CORREGIDO
