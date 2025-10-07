@@ -22,8 +22,8 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // API nueva AAAAAss
-  const apiUrl = "https://qwnbjbnyr8.execute-api.us-east-1.amazonaws.com/default/pruebaTEM_knowledge_transfer";
+  // API nuevaaaAAAAA
+  const apiUrl = "https://ld35qaq5w0.execute-api.us-east-1.amazonaws.com/default/tem_knowledge_transfer_openai";
 
 // CÓDIGO CORREGIDO
 const handleParamChange = (e) => {
