@@ -20,7 +20,7 @@ function GeneradorContenidosPage() {
       {/* --- RENDERIZADO CONDICIONAL DEL MENÚ --- */}
       {mostrarMenu ? (
         <div className="menu-contenidos">
-          
+
           <Link to="curso-estandar" className="opcion-menu">
             <div className="icono">📚</div>
             <div className="texto">
@@ -28,23 +28,31 @@ function GeneradorContenidosPage() {
               <p>Genera aquí tu propuesta de temario</p>
             </div>
           </Link> {/* <-- CORRECCIÓN: La etiqueta <Link> ahora se cierra aquí --> */}
-          
-          <Link to="curso-KNTR" className="opcion-menu">
-            <div className="icono">🧠</div>
+
+          <Link to="generador-cursos" className="opcion-menu">
+            <div className="icono">🎓</div>
             <div className="texto">
-              <h3>Generador de Temario Knowledge Transfer</h3>
-              <p>Crea un temario enfocado a 100% teoría</p>
+              <h3>Generador de Cursos</h3>
+              <p>Sube outline y genera lecciones con CrewAI</p>
             </div>
           </Link>
-          
+
+          <Link to="generador-contenido" className="opcion-menu">
+            <div className="icono">🤖</div>
+            <div className="texto">
+              <h3>Generador de Contenido IA</h3>
+              <p>Genera contenido completo con lecciones, diagramas e imágenes usando Step Functions</p>
+            </div>
+          </Link>
+
           <div className="opcion-menu disabled">
             <div className="icono">🛠️</div>
             <div className="texto">
               <h3>Generador Temario Taller Práctico</h3>
               <p>Crea un temario 100% enfocado en "hands-on labs" y ejercicios.</p>
             </div>
-          </div> 
-          
+          </div>
+
           <div className="opcion-menu disabled">
             <div className="icono">👥</div>
             <div className="texto">
@@ -52,7 +60,7 @@ function GeneradorContenidosPage() {
               <p>Diseña un temario para sesiones cortas, charlas,conferencias, divulgación.</p>
             </div>
           </div>
-          
+
           <div className="opcion-menu disabled">
             <div className="icono">🧪</div>
             <div className="texto">
@@ -60,7 +68,7 @@ function GeneradorContenidosPage() {
               <p>Realiza aquí tu guía de laboratorios.</p>
             </div>
           </div>
-          
+
           <div className="opcion-menu disabled">
             <div className="icono">📊</div>
             <div className="texto">
@@ -68,7 +76,7 @@ function GeneradorContenidosPage() {
               <p>Realiza aquí la PPT del curso.</p>
             </div>
           </div>
-          
+
           <div className="opcion-menu disabled">
             <div className="icono">💻</div>
             <div className="texto">
@@ -86,7 +94,7 @@ function GeneradorContenidosPage() {
       )}
 
       <div className="contenido-generador">
-        <Outlet /> 
+        <Outlet />
       </div>
 
       <BotonVersionesTemario

@@ -1,0 +1,9 @@
+{
+    "course_bucket": "crewai-course-artifacts",
+    "project_folder": "manual-test-09",
+    "content_source": "s3",
+    "model_provider": "bedrock",
+    "performance_mode": "ultra_fast",
+    "module_to_generate": 1,
+    "lesson_key": "manual-test-09/lessons/01-01-Course_overview_manual-test-09.md"
+}
