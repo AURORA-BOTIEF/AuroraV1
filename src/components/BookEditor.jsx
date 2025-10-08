@@ -271,7 +271,10 @@ function BookEditor({ projectFolder, onClose }) {
             .replace(/<h3>(.*?)<\/h3>/g, '### $1\n')
             .replace(/<strong>(.*?)<\/strong>/g, '**$1**')
             .replace(/<em>(.*?)<\/em>/g, '*$1*')
-            .replace(/<img alt="([^"]*)" src="([^"]*)"[^>]*>/g, '![$1]($2)')
+            // Convert images back to markdown with double brackets if they have VISUAL in alt
+            .replace(/<img[^>]*alt="(\[?VISUAL[^\]"]*\]?)"[^>]*src="([^"]*)"[^>]*>/gi, '![[$1]]($2)')
+            // Convert other images to normal markdown
+            .replace(/<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[^>]*>/gi, '![$1]($2)')
             .replace(/<\/p><p>/g, '\n\n')
             .replace(/<br\s*\/?>/g, '\n')
             .replace(/<[^>]+>/g, ''); // Remove remaining HTML tags
@@ -386,15 +389,25 @@ function BookEditor({ projectFolder, onClose }) {
 
 function formatContentForEditing(content) {
     // Convert markdown to basic HTML for editing
-    return content
+    let html = content
         .replace(/^### (.*$)/gim, '<h3>$1</h3>')
         .replace(/^## (.*$)/gim, '<h2>$1</h2>')
         .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-        .replace(/\*(.*)\*/gim, '<em>$1</em>')
-        .replace(/!\[([^\]]*)\]\(([^)]*)\)/gim, '<img alt="$1" src="$2" />')
+        .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+        // Handle images with double brackets: ![[VISUAL: desc]](url)
+        .replace(/!\[\[([^\]]*)\]\]\(([^)]*)\)/gim, '<img alt="$1" src="$2" style="max-width: 100%; height: auto; display: block; margin: 20px auto;" />')
+        // Handle normal markdown images: ![alt](url)
+        .replace(/!\[([^\]]*)\]\(([^)]*)\)/gim, '<img alt="$1" src="$2" style="max-width: 100%; height: auto; display: block; margin: 20px auto;" />')
         .replace(/\n\n/gim, '</p><p>')
         .replace(/\n/gim, '<br/>');
+
+    // Wrap in paragraph tags if not already wrapped
+    if (!html.startsWith('<')) {
+        html = '<p>' + html + '</p>';
+    }
+
+    return html;
 }
 
 export default BookEditor;
