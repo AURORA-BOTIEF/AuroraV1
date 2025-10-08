@@ -1,25 +1,14 @@
+// src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
+// Lista de asesores comerciales (ordenada alfabéticamente)
 const asesoresComerciales = [
-  "Alejandra Galvez",
-  "Ana Aragón",
-  "Arely Alvarez",
-  "Benjamin Araya",
-  "Carolina Aguilar",
-  "Cristian Centeno",
-  "Elizabeth Navia",
-  "Eonice Garfías",
-  "Guadalupe Agiz",
-  "Jazmin Soriano",
-  "Lezly Durán",
-  "Lusdey Trujillo",
-  "Natalia García",
-  "Natalia Gomez",
-  "Vianey Miranda",
+  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya", "Carolina Aguilar",
+  "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías", "Guadalupe Agiz", "Jazmin Soriano",
+  "Lezly Durán", "Lusdey Trujillo", "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
-
 
 function GeneradorTemarios() {
   const [temarioGenerado, setTemarioGenerado] = useState(null);
@@ -40,29 +29,34 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
+  // 🔹 Endpoint del generador de temarios (IA Bedrock)
   const apiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
+  // 🔹 Endpoint del guardado de versiones (S3 + DynamoDB)
+  const saveUrl = "https://wng2h5l0cd.execute-api.us-east-1.amazonaws.com/versiones/guardarVersionTemario";
 
+  // Maneja los cambios en los campos del formulario
   const handleParamChange = (e) => {
     const { name, value } = e.target;
     let valorFinal = value;
     if (name === 'horas_por_sesion' || name === 'numero_sesiones_por_semana') {
-        valorFinal = parseInt(value, 10);
+      valorFinal = parseInt(value, 10);
     }
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
+  // Genera el temario usando la API Bedrock
   const handleGenerar = async (nuevosParams = params) => {
     if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor, completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
     }
+
     setIsLoading(true);
     setError('');
     setTemarioGenerado(null);
 
     try {
       const payload = { ...nuevosParams };
-
       if (payload.objetivo_tipo !== 'certificacion') {
         delete payload.codigo_certificacion;
       }
@@ -72,21 +66,19 @@ function GeneradorTemarios() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
-      
-      const data = await response.json();
 
+      const data = await response.json();
       if (!response.ok) {
         const errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
         throw new Error(errorMessage || "Ocurrió un error en el servidor.");
       }
-      
+
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
-      
     } catch (err) {
       console.error("Error al generar el temario:", err);
       setError(err.message);
@@ -95,29 +87,58 @@ function GeneradorTemarios() {
     }
   };
 
+  // Guarda la versión actual del temario en S3 + DynamoDB
   const handleSave = async (temarioParaGuardar) => {
-    console.log("Guardando esta versión del temario:", temarioParaGuardar);
-    alert("Funcionalidad de guardado en desarrollo.");
+    try {
+      console.log("Guardando esta versión del temario:", temarioParaGuardar);
+      const token = localStorage.getItem("id_token");
+
+      const res = await fetch(saveUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token
+        },
+        body: JSON.stringify({
+          contenido: temarioParaGuardar,
+          nota: `Guardado el ${new Date().toLocaleString()}`
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Error al guardar el temario");
+
+      alert(`✅ Versión guardada correctamente. ID: ${data.versionId}`);
+
+      // 🔄 Emitimos un evento global para refrescar el historial
+      window.dispatchEvent(new Event("temarioGuardado"));
+
+    } catch (error) {
+      console.error("Error al guardar el temario:", error);
+      alert("❌ No se pudo guardar el temario: " + error.message);
+    }
   };
 
   return (
     <div className="generador-temarios-container">
       <h2>Generador de Temarios a la Medida</h2>
-      <p>Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.</p>
+      <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
+      {/* Formulario inicial */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
-            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange}/>
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
           </div>
           <div className="form-group">
             <label>Asesor(a) Comercial Asociado</label>
             <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
-                <option value="">Selecciona un asesor(a)</option>
-                {asesoresComerciales.map(nombre => (
-                    <option key={nombre} value={nombre}>{nombre}</option>
-                ))}
+              <option value="">Selecciona un asesor(a)</option>
+              {asesoresComerciales.map(nombre => (
+                <option key={nombre} value={nombre}>{nombre}</option>
+              ))}
             </select>
           </div>
           <div className="form-group">
@@ -151,25 +172,26 @@ function GeneradorTemarios() {
             </div>
           </div>
         </div>
+
         <div className="form-group">
           <label>Tipo de Objetivo</label>
           <div className="radio-group">
-              <label>
-                  <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
-                  Saber Hacer (Enfocado en habilidades)
-              </label>
-              <label>
-                  <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
-                  Certificación (Enfocado en examen)
-              </label>
+            <label>
+              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
+              Saber Hacer (Enfocado en habilidades)
+            </label>
+            <label>
+              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
+              Certificación (Enfocado en examen)
+            </label>
           </div>
         </div>
 
         {params.objetivo_tipo === 'certificacion' && (
-            <div className="form-group">
-                <label>Código de Certificación</label>
-                <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleParamChange} placeholder="Ej: AWS CLF-C02, AZ-900" />
-            </div>
+          <div className="form-group">
+            <label>Código de Certificación</label>
+            <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleParamChange} placeholder="Ej: AWS CLF-C02, AZ-900" />
+          </div>
         )}
 
         <div className="form-group">
@@ -180,7 +202,7 @@ function GeneradorTemarios() {
           <label>Enfoque Adicional (Opcional)</label>
           <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
         </div>
-        
+
         <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
           {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
         </button>
@@ -192,7 +214,7 @@ function GeneradorTemarios() {
         <EditorDeTemario
           temarioInicial={temarioGenerado}
           onRegenerate={handleGenerar}
-          onSave={handleSave}
+          onSave={handleSave} // 🔹 Aquí conectamos el guardado real
           isLoading={isLoading}
         />
       )}
@@ -201,4 +223,5 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
