@@ -33,7 +33,7 @@ function GeneradorCursos() {
     useEffect(() => {
         const checkAuth = async () => {
             try {
-                const user = await Auth.currentAuthenticatedUser();
+                const user = await getCurrentUser();
                 setIsAuthenticated(true);
                 console.log('User is authenticated:', user.username);
             } catch (e) {
@@ -52,11 +52,11 @@ function GeneradorCursos() {
 
         // Log credentials to debug IAM signing
         try {
-            const credentials = await Auth.currentCredentials();
+            const session = await fetchAuthSession();
             console.log('AWS Credentials:', {
-                accessKeyId: credentials.accessKeyId ? '***' + credentials.accessKeyId.slice(-4) : 'missing',
-                authenticated: credentials.authenticated,
-                expiration: credentials.expiration,
+                accessKeyId: session.credentials?.accessKeyId ? '***' + session.credentials.accessKeyId.slice(-4) : 'missing',
+                authenticated: !!session.credentials,
+                expiration: session.credentials?.expiration,
             });
         } catch (credError) {
             console.error('Failed to get credentials:', credError);
@@ -81,33 +81,47 @@ function GeneradorCursos() {
             // Use Amplify API with explicit IAM signing
             let response;
             if (options.method === 'POST') {
-                response = await API.post(API_NAME, path, {
-                    body: apiOptions.body,
-                    headers: apiOptions.headers,
+                const restOperation = post({
+                    apiName: API_NAME,
+                    path,
+                    options: {
+                        body: apiOptions.body,
+                        headers: apiOptions.headers,
+                    }
                 });
+                response = await restOperation.response;
+                const data = await response.body.json();
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(data),
+                    status: response.statusCode,
+                };
             } else {
-                response = await API.get(API_NAME, path, {
-                    headers: apiOptions.headers,
+                const restOperation = get({
+                    apiName: API_NAME,
+                    path,
+                    options: {
+                        headers: apiOptions.headers,
+                    }
                 });
+                response = await restOperation.response;
+                const data = await response.body.json();
+                return {
+                    ok: true,
+                    json: () => Promise.resolve(data),
+                    status: response.statusCode,
+                };
             }
-            console.log('API response:', response);
-            // Amplify returns the response data directly on success
-            return {
-                ok: true,
-                json: () => Promise.resolve(response),
-                status: 200,
-            };
         } catch (error) {
             console.error('API request failed:', error);
             console.error('Error response:', error.response);
-            console.error('Error status:', error.response?.status);
-            console.error('Error data:', error.response?.data);
-            // Amplify throws exceptions on error
+            console.error('Error status:', error.response?.statusCode);
+            // Amplify v6 throws exceptions on error
             return {
                 ok: false,
-                status: error.response?.status || 500,
+                status: error.response?.statusCode || 500,
                 statusText: error.message || 'Request failed',
-                json: () => Promise.resolve(error.response?.data || { error: error.message }),
+                json: () => Promise.resolve(error.response?.body || { error: error.message }),
             };
         }
     };
@@ -130,14 +144,10 @@ function GeneradorCursos() {
         setUploadStatus('Getting credentials...');
 
         try {
-            const credentials = await Auth.currentCredentials();
+            const session = await fetchAuthSession();
             const s3Client = new S3Client({
                 region: 'us-east-1',
-                credentials: {
-                    accessKeyId: credentials.accessKeyId,
-                    secretAccessKey: credentials.secretAccessKey,
-                    sessionToken: credentials.sessionToken,
-                },
+                credentials: session.credentials,
             });
 
             setUploadStatus('Uploading...');

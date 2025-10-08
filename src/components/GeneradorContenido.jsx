@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { API } from 'aws-amplify';
+import { get, post } from 'aws-amplify/api';
 import './GeneradorContenido.css';
 
 const GeneradorContenido = () => {
@@ -42,12 +42,18 @@ const GeneradorContenido = () => {
 
         try {
             // Call the start-job API using Amplify API with IAM authorization
-            const response = await API.post('CourseGeneratorAPI', '/start-job', {
-                body: params,
-                headers: {
-                    'Content-Type': 'application/json'
+            const restOperation = post({
+                apiName: 'CourseGeneratorAPI',
+                path: '/start-job',
+                options: {
+                    body: params,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
                 }
             });
+            const { body } = await restOperation.response;
+            const response = await body.json();
 
             console.log('Course generation started:', response);
 
@@ -70,7 +76,12 @@ const GeneradorContenido = () => {
 
         const poll = async () => {
             try {
-                const response = await API.get('CourseGeneratorAPI', `/exec-status/${encodeURIComponent(executionArn)}`, {});
+                const restOperation = get({
+                    apiName: 'CourseGeneratorAPI',
+                    path: `/exec-status/${encodeURIComponent(executionArn)}`
+                });
+                const { body } = await restOperation.response;
+                const response = await body.json();
 
                 setExecutionStatus(response);
 

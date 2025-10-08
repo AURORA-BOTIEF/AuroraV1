@@ -1,6 +1,6 @@
 // src/components/BookEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Auth } from 'aws-amplify';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { SignatureV4 } from '@aws-sdk/signature-v4';
 import { Sha256 } from '@aws-crypto/sha256-js';
@@ -28,13 +28,9 @@ function BookEditor({ projectFolder, onClose }) {
     }, [projectFolder]);
 
     const makeSignedRequest = async (url, options = {}) => {
-        const credentials = await Auth.currentCredentials();
+        const session = await fetchAuthSession();
         const signer = new SignatureV4({
-            credentials: {
-                accessKeyId: credentials.accessKeyId,
-                secretAccessKey: credentials.secretAccessKey,
-                sessionToken: credentials.sessionToken,
-            },
+            credentials: session.credentials,
             region: 'us-east-1',
             service: 'execute-api',
             sha256: Sha256,
@@ -139,14 +135,10 @@ function BookEditor({ projectFolder, onClose }) {
 
     const loadVersions = async () => {
         try {
-            const credentials = await Auth.currentCredentials();
+            const session = await fetchAuthSession();
             const s3Client = new S3Client({
                 region: 'us-east-1',
-                credentials: {
-                    accessKeyId: credentials.accessKeyId,
-                    secretAccessKey: credentials.secretAccessKey,
-                    sessionToken: credentials.sessionToken,
-                },
+                credentials: session.credentials,
             });
 
             // List version files

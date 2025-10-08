@@ -1,7 +1,8 @@
 // src/App.jsx (Corrected to use AWS Amplify Auth for proper session management and IAM credentials)
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { fetchAuthSession, signOut } from 'aws-amplify/auth';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
 import { hostedUiAuthorizeUrl } from './amplify.js';
 // Image assets
 import logoImg from './assets/Netec.png';
@@ -41,7 +42,36 @@ function App() {
   const mexicoFlag = mexicoFlagImg;
   const espanaFlag = espanaFlagImg;
 
+  // Check for OAuth callback and fetch session
   useEffect(() => {
+    // Listen for auth events
+    const hubListener = Hub.listen('auth', ({ payload }) => {
+      console.log('Auth event:', payload.event);
+      if (payload.event === 'signedIn' || payload.event === 'tokenRefresh') {
+        checkAuthSession();
+      } else if (payload.event === 'signedOut') {
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
+    // Check if we're returning from OAuth (code in URL)
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+
+    if (code) {
+      console.log('OAuth code detected, clearing URL...');
+      // Clear the code from URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    // Check current auth session
+    checkAuthSession();
+
+    return () => hubListener();
+  }, []);
+
+  const checkAuthSession = () => {
     fetchAuthSession()
       .then((session) => {
         const idToken = session.tokens?.idToken;
@@ -56,11 +86,12 @@ function App() {
         setUser({ attributes, groups });
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.log('No authenticated session:', err);
         setUser(null);
         setLoading(false);
       });
-  }, []);
+  };
 
   const handleLogout = () => {
     signOut();
@@ -96,12 +127,7 @@ function App() {
                 <img src={previewImg} alt="Ilustración" className="preview-image" />
               </div>
               <button className="login-button" onClick={() => {
-                const url = hostedUiAuthorizeUrl();
-                if (url) {
-                  window.location.href = url;
-                } else {
-                  console.error('No login URL available');
-                }
+                signInWithRedirect({ provider: 'Cognito' });
               }}>
                 🚀 Comenzar Ahora
               </button>

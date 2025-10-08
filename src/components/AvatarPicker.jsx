@@ -50,7 +50,7 @@ export default function AvatarPicker({ isOpen, onClose, email, onSaved }) {
       if (flag === "true") {
         await updateUserAttribute({ userAttribute: { attributeKey: 'picture', value: "" } });
       }
-    } catch {}
+    } catch { }
     window.dispatchEvent(new CustomEvent("profilePhotoUpdated", { detail: { photoUrl: "" } }));
     onSaved?.("");
     onClose?.();

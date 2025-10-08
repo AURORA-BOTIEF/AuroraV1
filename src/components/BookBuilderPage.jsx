@@ -1,6 +1,6 @@
 // src/components/BookBuilderPage.jsx
 import React, { useState, useEffect } from 'react';
-import { Auth } from 'aws-amplify';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import { SignatureV4 } from '@aws-sdk/signature-v4';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import BookEditor from './BookEditor';
@@ -20,13 +20,9 @@ function BookBuilderPage() {
     }, []);
 
     const makeSignedRequest = async (url, options = {}) => {
-        const credentials = await Auth.currentCredentials();
+        const session = await fetchAuthSession();
         const signer = new SignatureV4({
-            credentials: {
-                accessKeyId: credentials.accessKeyId,
-                secretAccessKey: credentials.secretAccessKey,
-                sessionToken: credentials.sessionToken,
-            },
+            credentials: session.credentials,
             region: 'us-east-1',
             service: 'execute-api',
             sha256: Sha256,
