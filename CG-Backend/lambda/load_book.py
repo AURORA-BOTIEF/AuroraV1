@@ -135,3 +135,4 @@ def lambda_handler(event, context):
                 "request_id": context.aws_request_id if context else "unknown"
             })
         }
+

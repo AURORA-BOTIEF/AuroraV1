@@ -1,7 +1,6 @@
 // src/components/BookEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchAuthSession } from 'aws-amplify/auth';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoader';
 import './BookEditor.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
@@ -9,6 +8,7 @@ const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 function BookEditor({ projectFolder, onClose }) {
     const [bookData, setBookData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadingImages, setLoadingImages] = useState(false);
     const [saving, setSaving] = useState(false);
     const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
@@ -27,6 +27,7 @@ function BookEditor({ projectFolder, onClose }) {
     const loadBook = async () => {
         try {
             setLoading(true);
+            setLoadingImages(true);
 
             const response = await fetch(`${API_BASE}/load-book/${projectFolder}`, {
                 method: 'GET',
@@ -43,18 +44,33 @@ function BookEditor({ projectFolder, onClose }) {
 
             const data = await response.json();
 
+            let bookToSet = null;
+
             if (data.bookData) {
-                setBookData(data.bookData);
+                // Process images in bookData lessons
+                console.log('Loading images from S3...');
+                for (let lesson of data.bookData.lessons) {
+                    if (lesson.content) {
+                        lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                    }
+                }
+                bookToSet = data.bookData;
             } else if (data.bookContent) {
-                // Parse markdown into book structure
-                const parsedBook = parseMarkdownToBook(data.bookContent);
-                setBookData(parsedBook);
+                // Replace S3 URLs with data URLs before parsing
+                console.log('Loading images from S3...');
+                const contentWithImages = await replaceS3UrlsWithDataUrls(data.bookContent);
+                const parsedBook = parseMarkdownToBook(contentWithImages);
+                bookToSet = parsedBook;
             } else {
                 throw new Error('No hay datos del libro disponibles');
             }
+
+            setBookData(bookToSet);
+            setLoadingImages(false);
         } catch (error) {
             console.error('Error al cargar libro:', error);
             alert('Error al cargar libro: ' + error.message);
+            setLoadingImages(false);
         } finally {
             setLoading(false);
         }
@@ -281,7 +297,12 @@ function BookEditor({ projectFolder, onClose }) {
     };
 
     if (loading) {
-        return <div className="book-editor-loading">Cargando libro...</div>;
+        return (
+            <div className="book-editor-loading">
+                <p>Cargando libro...</p>
+                {loadingImages && <p style={{ fontSize: '0.9em', opacity: 0.7 }}>Cargando imágenes desde S3...</p>}
+            </div>
+        );
     }
 
     if (!bookData) {
