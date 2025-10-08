@@ -3,11 +3,11 @@ import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
-// Lista de asesores comerciales (ordenada alfabéticamente)
 const asesoresComerciales = [
-  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya", "Carolina Aguilar",
-  "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías", "Guadalupe Agiz", "Jazmin Soriano",
-  "Lezly Durán", "Lusdey Trujillo", "Natalia García", "Natalia Gomez", "Vianey Miranda",
+  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
+  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
+  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
+  "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
 function GeneradorTemarios() {
@@ -29,12 +29,9 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // 🔹 Endpoint del generador de temarios (IA Bedrock)
-  const apiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
-  // 🔹 Endpoint del guardado de versiones (S3 + DynamoDB)
-  const saveUrl = "https://wng2h5l0cd.execute-api.us-east-1.amazonaws.com/versiones/guardarVersionTemario";
+  // 🔗 URL correcta de tu API Gateway (etapa /versiones)
+  const apiUrl = "https://wng2h5l0cd.execute-api.us-east-1.amazonaws.com/versiones";
 
-  // Maneja los cambios en los campos del formulario
   const handleParamChange = (e) => {
     const { name, value } = e.target;
     let valorFinal = value;
@@ -44,10 +41,10 @@ function GeneradorTemarios() {
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
-  // Genera el temario usando la API Bedrock
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
-      setError("Por favor, completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
+        !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
+      setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
     }
 
@@ -57,28 +54,24 @@ function GeneradorTemarios() {
 
     try {
       const payload = { ...nuevosParams };
-      if (payload.objetivo_tipo !== 'certificacion') {
-        delete payload.codigo_certificacion;
-      }
+      if (payload.objetivo_tipo !== 'certificacion') delete payload.codigo_certificacion;
 
       const token = localStorage.getItem("id_token");
-      const response = await fetch(apiUrl, {
+      const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
+          "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        const errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
-        throw new Error(errorMessage || "Ocurrió un error en el servidor.");
-      }
+      if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
 
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
+
     } catch (err) {
       console.error("Error al generar el temario:", err);
       setError(err.message);
@@ -87,36 +80,32 @@ function GeneradorTemarios() {
     }
   };
 
-  // Guarda la versión actual del temario en S3 + DynamoDB
+  // ✅ Guardar la versión del temario en DynamoDB + S3 vía Lambda
   const handleSave = async (temarioParaGuardar) => {
+    console.log("Guardando esta versión del temario:", temarioParaGuardar);
+
     try {
-      console.log("Guardando esta versión del temario:", temarioParaGuardar);
       const token = localStorage.getItem("id_token");
 
-      const res = await fetch(saveUrl, {
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token
+          "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({
           contenido: temarioParaGuardar,
-          nota: `Guardado el ${new Date().toLocaleString()}`
+          nota: `Guardado ${new Date().toLocaleString()}`
         })
       });
 
-      const data = await res.json();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al guardar la versión del temario.");
 
-      if (!res.ok) throw new Error(data.error || "Error al guardar el temario");
-
-      alert(`✅ Versión guardada correctamente. ID: ${data.versionId}`);
-
-      // 🔄 Emitimos un evento global para refrescar el historial
-      window.dispatchEvent(new Event("temarioGuardado"));
-
+      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
       console.error("Error al guardar el temario:", error);
-      alert("❌ No se pudo guardar el temario: " + error.message);
+      alert("❌ No se pudo guardar el temario. Revisa la consola.");
     }
   };
 
@@ -125,13 +114,14 @@ function GeneradorTemarios() {
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-      {/* Formulario inicial */}
+      {/* Formulario principal */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
             <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
           </div>
+
           <div className="form-group">
             <label>Asesor(a) Comercial Asociado</label>
             <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
@@ -141,14 +131,17 @@ function GeneradorTemarios() {
               ))}
             </select>
           </div>
+
           <div className="form-group">
             <label>Tecnología</label>
             <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
           </div>
+
           <div className="form-group">
             <label>Tema Principal del Curso</label>
             <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
           </div>
+
           <div className="form-group">
             <label>Nivel de Dificultad</label>
             <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
@@ -157,32 +150,35 @@ function GeneradorTemarios() {
               <option value="avanzado">Avanzado</option>
             </select>
           </div>
+
           <div className="form-group">
             <label>Número de Sesiones (1-7)</label>
-            <div className='slider-container'>
+            <div className="slider-container">
               <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
               <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
             </div>
           </div>
+
           <div className="form-group">
             <label>Horas por Sesión (4-12)</label>
-            <div className='slider-container'>
+            <div className="slider-container">
               <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
               <span>{params.horas_por_sesion} horas</span>
             </div>
           </div>
         </div>
 
+        {/* Objetivo */}
         <div className="form-group">
           <label>Tipo de Objetivo</label>
           <div className="radio-group">
             <label>
               <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
-              Saber Hacer (Enfocado en habilidades)
+              Saber Hacer (enfocado en habilidades)
             </label>
             <label>
               <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
-              Certificación (Enfocado en examen)
+              Certificación (enfocado en examen)
             </label>
           </div>
         </div>
@@ -198,6 +194,7 @@ function GeneradorTemarios() {
           <label>Sector / Audiencia</label>
           <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
         </div>
+
         <div className="form-group">
           <label>Enfoque Adicional (Opcional)</label>
           <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
@@ -214,7 +211,7 @@ function GeneradorTemarios() {
         <EditorDeTemario
           temarioInicial={temarioGenerado}
           onRegenerate={handleGenerar}
-          onSave={handleSave} // 🔹 Aquí conectamos el guardado real
+          onSave={handleSave}
           isLoading={isLoading}
         />
       )}
