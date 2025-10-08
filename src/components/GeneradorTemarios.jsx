@@ -1,4 +1,3 @@
-// src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
@@ -29,8 +28,8 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // 🔗 URL correcta de tu API Gateway (etapa /versiones)
-  const apiUrl = "https://wng2h5l0cd.execute-api.us-east-1.amazonaws.com/versiones";
+  // 🔗 URL de tu nueva API Gateway (etapa /versiones)
+  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -80,7 +79,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar la versión del temario en DynamoDB + S3 vía Lambda
+  // ✅ Guardar la versión del temario en DynamoDB vía Lambda
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
@@ -95,7 +94,8 @@ function GeneradorTemarios() {
         },
         body: JSON.stringify({
           contenido: temarioParaGuardar,
-          nota: `Guardado ${new Date().toLocaleString()}`
+          nota: `Guardado ${new Date().toLocaleString()}`,
+          autor: token ? "Usuario autenticado" : "Anónimo"
         })
       });
 
@@ -106,6 +106,27 @@ function GeneradorTemarios() {
     } catch (error) {
       console.error("Error al guardar el temario:", error);
       alert("❌ No se pudo guardar el temario. Revisa la consola.");
+    }
+  };
+
+  // ✅ Nueva función: obtener versiones guardadas (GET)
+  const handleListarVersiones = async () => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
+      console.log("📦 Versiones guardadas:", data);
+      alert(`Se encontraron ${data.length} versiones en la base de datos (ver consola).`);
+    } catch (error) {
+      console.error("Error al obtener versiones:", error);
+      alert("❌ No se pudieron obtener las versiones. Revisa la consola.");
     }
   };
 
@@ -200,9 +221,15 @@ function GeneradorTemarios() {
           <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
         </div>
 
-        <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
-          {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
-        </button>
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
+            {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
+          </button>
+
+          <button className="btn-generar-principal" style={{ backgroundColor: "#45ab9f" }} onClick={handleListarVersiones}>
+            Ver Versiones Guardadas
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-mensaje">{error}</div>}
