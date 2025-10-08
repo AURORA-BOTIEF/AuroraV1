@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import './Sidebar.css';
 import defaultFoto from '../assets/default.jpg';
 import { useEffect, useMemo, useState } from 'react';
-import { Auth } from 'aws-amplify';
+import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 import AvatarPicker from './AvatarPicker';
 
 const API_BASE = 'https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2';
@@ -37,8 +37,9 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     let cancelled = false;
     async function pintarFoto() {
       try {
-        const u = await Auth.currentAuthenticatedUser({ bypassCache: true });
-        const pic = u?.attributes?.picture || '';
+        const u = await getCurrentUser();
+        const session = await fetchAuthSession();
+        const pic = session.tokens?.idToken?.payload?.picture || '';
         if (/^https?:\/\//i.test(pic)) {
           if (!cancelled) setAvatar(pic);
           return;
@@ -70,10 +71,12 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   const esNetec = DOMINIOS_PERMITIDOS.has(dominio);
 
   useEffect(() => {
-    Auth.currentSession()
+    fetchAuthSession()
       .then(session => {
-        const idToken = session.getIdToken().getJwtToken();
-        setAuthHeader({ Authorization: `Bearer ${idToken}` });
+        const idToken = session.tokens?.idToken;
+        if (idToken) {
+          setAuthHeader({ Authorization: `Bearer ${idToken.toString()}` });
+        }
         setTokenLoaded(true);
       })
       .catch(() => {

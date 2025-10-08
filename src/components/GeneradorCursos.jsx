@@ -1,9 +1,9 @@
 // src/components/GeneradorCursos.jsx
 import React, { useState, useEffect } from 'react';
-import { Auth } from 'aws-amplify';
+import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { API } from 'aws-amplify';
+import { get, post } from 'aws-amplify/api';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 const PRESIGN_ENDPOINT = `${API_BASE}/presign`;

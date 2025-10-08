@@ -1,7 +1,7 @@
 // src/App.jsx (Corrected to use AWS Amplify Auth for proper session management and IAM credentials)
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Auth } from 'aws-amplify';
+import { fetchAuthSession, signOut } from 'aws-amplify/auth';
 import { hostedUiAuthorizeUrl } from './amplify.js';
 // Image assets
 import logoImg from './assets/Netec.png';
@@ -42,10 +42,13 @@ function App() {
   const espanaFlag = espanaFlagImg;
 
   useEffect(() => {
-    Auth.currentSession()
+    fetchAuthSession()
       .then((session) => {
-        const idToken = session.getIdToken();
-        const accessToken = session.getAccessToken();
+        const idToken = session.tokens?.idToken;
+        const accessToken = session.tokens?.accessToken;
+        if (!idToken || !accessToken) {
+          throw new Error('No tokens available');
+        }
         const attributes = idToken.payload;
         const groups = accessToken.payload['cognito:groups'] || [];
         console.log('Access Token payload:', JSON.stringify(accessToken.payload, null, 2));
@@ -60,7 +63,7 @@ function App() {
   }, []);
 
   const handleLogout = () => {
-    Auth.signOut();
+    signOut();
   };
 
   const email = user?.attributes?.email || '';
