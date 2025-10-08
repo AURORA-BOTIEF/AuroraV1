@@ -14,8 +14,7 @@ const GeneradorContenido = () => {
         course_duration_hours: 40,
         module_to_generate: 1,
         performance_mode: 'balanced',
-        model_provider: 'bedrock',
-        max_images: 4
+        model_provider: 'bedrock'
     });
 
     const handleParamChange = (e) => {
@@ -161,18 +160,6 @@ const GeneradorContenido = () => {
                             <option value="bedrock">AWS Bedrock (Claude)</option>
                             <option value="openai">OpenAI (GPT)</option>
                         </select>
-                    </div>
-
-                    <div className="form-group">
-                        <label>Máximo de Imágenes</label>
-                        <input
-                            name="max_images"
-                            type="number"
-                            min="0"
-                            max="10"
-                            value={params.max_images}
-                            onChange={handleParamChange}
-                        />
                     </div>
                 </div>
 

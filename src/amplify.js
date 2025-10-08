@@ -47,7 +47,7 @@ if (missing.length) {
     region,
     userPoolId,
     identityPoolId: identityPoolId || '(not set)',
-    apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://648uy54fs1.execute-api.us-east-1.amazonaws.com/Prod"
+    apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod"
   });
 
   Amplify.configure({
@@ -68,7 +68,7 @@ if (missing.length) {
       endpoints: [
         {
           name: "CourseGeneratorAPI",
-          endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://648uy54fs1.execute-api.us-east-1.amazonaws.com/Prod",
+          endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
           region: region
         }
       ]

@@ -14,6 +14,7 @@ function BookEditor({ projectFolder, onClose }) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
+    const [isEditing, setIsEditing] = useState(false);
     const [versions, setVersions] = useState([]);
     const [showVersionHistory, setShowVersionHistory] = useState(false);
     const [newVersionName, setNewVersionName] = useState('');
@@ -73,7 +74,7 @@ function BookEditor({ projectFolder, onClose }) {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to load book data');
+                throw new Error('No se pudo cargar los datos del libro');
             }
 
             const data = await response.json();
@@ -85,11 +86,11 @@ function BookEditor({ projectFolder, onClose }) {
                 const parsedBook = parseMarkdownToBook(data.bookContent);
                 setBookData(parsedBook);
             } else {
-                throw new Error('No book data available');
+                throw new Error('No hay datos del libro disponibles');
             }
         } catch (error) {
-            console.error('Error loading book:', error);
-            alert('Error loading book: ' + error.message);
+            console.error('Error al cargar libro:', error);
+            alert('Error al cargar libro: ' + error.message);
         } finally {
             setLoading(false);
         }
@@ -157,10 +158,10 @@ function BookEditor({ projectFolder, onClose }) {
             // For now, we'll create a simple version list
             // In a real implementation, you'd list S3 objects with version prefix
             setVersions([
-                { name: 'Current', timestamp: new Date().toISOString(), isCurrent: true }
+                { name: 'Actual', timestamp: new Date().toISOString(), isCurrent: true }
             ]);
         } catch (error) {
-            console.error('Error loading versions:', error);
+            console.error('Error al cargar versiones:', error);
         }
     };
 
@@ -179,14 +180,14 @@ function BookEditor({ projectFolder, onClose }) {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to save book');
+                throw new Error('No se pudo guardar el libro');
             }
 
             const result = await response.json();
-            alert('Book saved successfully!');
+            alert('¡Libro guardado exitosamente!');
         } catch (error) {
-            console.error('Error saving book:', error);
-            alert('Error saving book: ' + error.message);
+            console.error('Error al guardar libro:', error);
+            alert('Error al guardar libro: ' + error.message);
         } finally {
             setSaving(false);
         }
@@ -219,7 +220,7 @@ function BookEditor({ projectFolder, onClose }) {
 
     const saveVersion = async () => {
         if (!newVersionName.trim()) {
-            alert('Please enter a version name');
+            alert('Por favor ingresa un nombre para la versión');
             return;
         }
 
@@ -242,7 +243,7 @@ function BookEditor({ projectFolder, onClose }) {
             });
 
             if (!presignResponse.ok) {
-                throw new Error('Failed to get upload URL');
+                throw new Error('No se pudo obtener la URL de carga');
             }
 
             const { uploadUrl } = await presignResponse.json();
@@ -257,7 +258,7 @@ function BookEditor({ projectFolder, onClose }) {
             });
 
             if (!uploadResponse.ok) {
-                throw new Error('Failed to upload version');
+                throw new Error('No se pudo cargar la versión');
             }
 
             setVersions(prev => [...prev, {
@@ -267,10 +268,10 @@ function BookEditor({ projectFolder, onClose }) {
             }]);
 
             setNewVersionName('');
-            alert('Version saved successfully!');
+            alert('¡Versión guardada exitosamente!');
         } catch (error) {
-            console.error('Error saving version:', error);
-            alert('Error saving version: ' + error.message);
+            console.error('Error al guardar versión:', error);
+            alert('Error al guardar versión: ' + error.message);
         }
     };
 
@@ -287,35 +288,35 @@ function BookEditor({ projectFolder, onClose }) {
         });
     };
 
-    const addTextBlock = () => {
-        const currentLesson = bookData.lessons[currentLessonIndex];
-        const newContent = currentLesson.content + '\n\n## New Section\n\nAdd your content here...\n\n';
-        updateLessonContent(currentLessonIndex, newContent);
-    };
-
-    const addImagePlaceholder = () => {
-        const currentLesson = bookData.lessons[currentLessonIndex];
-        const newContent = currentLesson.content + '\n\n![Image Description](image-url-here)\n\n';
-        updateLessonContent(currentLessonIndex, newContent);
-    };
-
-    const removeContent = () => {
-        const selection = window.getSelection();
-        if (selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            range.deleteContents();
-            const currentLesson = bookData.lessons[currentLessonIndex];
-            const newContent = editorRef.current.innerHTML;
-            updateLessonContent(currentLessonIndex, newContent);
+    const handleContentChange = (e) => {
+        if (isEditing) {
+            // Convert HTML back to markdown
+            const htmlContent = e.target.innerHTML;
+            const markdownContent = convertHtmlToMarkdown(htmlContent);
+            updateLessonContent(currentLessonIndex, markdownContent);
         }
     };
 
+    const convertHtmlToMarkdown = (html) => {
+        // Basic HTML to Markdown conversion
+        return html
+            .replace(/<h1>(.*?)<\/h1>/g, '# $1\n')
+            .replace(/<h2>(.*?)<\/h2>/g, '## $1\n')
+            .replace(/<h3>(.*?)<\/h3>/g, '### $1\n')
+            .replace(/<strong>(.*?)<\/strong>/g, '**$1**')
+            .replace(/<em>(.*?)<\/em>/g, '*$1*')
+            .replace(/<img alt="([^"]*)" src="([^"]*)"[^>]*>/g, '![$1]($2)')
+            .replace(/<\/p><p>/g, '\n\n')
+            .replace(/<br\s*\/?>/g, '\n')
+            .replace(/<[^>]+>/g, ''); // Remove remaining HTML tags
+    };
+
     if (loading) {
-        return <div className="book-editor-loading">Loading book...</div>;
+        return <div className="book-editor-loading">Cargando libro...</div>;
     }
 
     if (!bookData) {
-        return <div className="book-editor-error">No book data found for this project.</div>;
+        return <div className="book-editor-error">No se encontraron datos del libro para este proyecto.</div>;
     }
 
     const currentLesson = bookData.lessons[currentLessonIndex];
@@ -325,42 +326,48 @@ function BookEditor({ projectFolder, onClose }) {
             <div className="book-editor-header">
                 <h2>{bookData.metadata.title}</h2>
                 <div className="book-editor-actions">
-                    <button onClick={saveBook} disabled={saving}>
-                        {saving ? 'Saving...' : 'Save Book'}
+                    <button
+                        className={isEditing ? 'btn-editing' : 'btn-edit'}
+                        onClick={() => setIsEditing(!isEditing)}
+                    >
+                        {isEditing ? '✓ Finalizar Edición' : '✏️ Editar'}
+                    </button>
+                    <button onClick={saveBook} disabled={saving || !isEditing}>
+                        {saving ? 'Guardando...' : '💾 Guardar Libro'}
                     </button>
                     <button onClick={() => setShowVersionHistory(!showVersionHistory)}>
-                        Versions ({versions.length})
+                        📋 Versiones ({versions.length})
                     </button>
-                    <button onClick={onClose}>Close</button>
+                    <button onClick={onClose} className="btn-close">✕ Cerrar</button>
                 </div>
             </div>
 
             {showVersionHistory && (
                 <div className="version-history">
-                    <h3>Version History</h3>
+                    <h3>Historial de Versiones</h3>
                     <div className="version-list">
                         {versions.map((version, index) => (
                             <div key={index} className={`version-item ${version.isCurrent ? 'current' : ''}`}>
                                 <span>{version.name}</span>
-                                <span>{new Date(version.timestamp).toLocaleString()}</span>
+                                <span>{new Date(version.timestamp).toLocaleString('es-ES')}</span>
                             </div>
                         ))}
                     </div>
                     <div className="save-version">
                         <input
                             type="text"
-                            placeholder="Version name"
+                            placeholder="Nombre de la versión"
                             value={newVersionName}
                             onChange={(e) => setNewVersionName(e.target.value)}
                         />
-                        <button onClick={saveVersion}>Save Version</button>
+                        <button onClick={saveVersion}>Guardar Versión</button>
                     </div>
                 </div>
             )}
 
             <div className="book-editor-content">
                 <div className="lesson-navigator">
-                    <h3>Lessons</h3>
+                    <h3>Lecciones</h3>
                     <div className="lesson-list">
                         {bookData.lessons.map((lesson, index) => (
                             <div
@@ -368,33 +375,43 @@ function BookEditor({ projectFolder, onClose }) {
                                 className={`lesson-item ${index === currentLessonIndex ? 'active' : ''}`}
                                 onClick={() => setCurrentLessonIndex(index)}
                             >
-                                {lesson.title}
+                                <span className="lesson-number">{index + 1}</span>
+                                <span className="lesson-title">{lesson.title}</span>
                             </div>
                         ))}
                     </div>
                 </div>
 
                 <div className="lesson-editor">
-                    <div className="editor-toolbar">
-                        <button onClick={addTextBlock}>Add Text Block</button>
-                        <button onClick={addImagePlaceholder}>Add Image</button>
-                        <button onClick={removeContent}>Remove Selected</button>
-                    </div>
+                    {isEditing && (
+                        <div className="editor-toolbar">
+                            <div className="toolbar-info">
+                                <span>💡 Edita el contenido directamente. Puedes agregar o eliminar texto e imágenes como en un editor de documentos.</span>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="lesson-header">
                         <h3>{currentLesson.title}</h3>
                         <div className="lesson-stats">
-                            {currentLesson.content.split(/\s+/).length} words
+                            {currentLesson.content.split(/\s+/).length} palabras
                         </div>
                     </div>
 
                     <div
-                        className="content-editor"
+                        className={`content-editor ${isEditing ? 'editing-mode' : 'reading-mode'}`}
                         ref={editorRef}
-                        contentEditable
+                        contentEditable={isEditing}
+                        suppressContentEditableWarning={true}
+                        onInput={handleContentChange}
                         dangerouslySetInnerHTML={{ __html: formatContentForEditing(currentLesson.content) }}
-                        onInput={(e) => updateLessonContent(currentLessonIndex, e.target.innerHTML)}
                     />
+
+                    {!isEditing && (
+                        <div className="edit-hint">
+                            <p>👆 Haz clic en "Editar" para modificar el contenido</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

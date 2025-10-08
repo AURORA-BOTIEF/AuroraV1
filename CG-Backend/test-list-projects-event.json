@@ -1,7 +1,0 @@
-{
-    "httpMethod": "GET",
-    "path": "/list-projects",
-    "headers": {
-        "Content-Type": "application/json"
-    }
-}

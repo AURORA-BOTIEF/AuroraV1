@@ -3,6 +3,7 @@
 
 """
 Test script for Gemini image generation without AWS dependencies
+Updated: 2025-10-06 15:45 - Fixed image mappings for BookBuilder
 """
 
 import os
@@ -61,12 +62,16 @@ except Exception as e:
     GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
     print("Using Google API key from environment variable")
 
-def test_gemini_image_generation(prompt_text, prompt_id, model_name='models/gemini-2.5-flash-image-preview'):
+def test_gemini_image_generation(prompt_text, prompt_id, model_name='models/gemini-2.5-flash-image'):
     """Test Gemini image generation for a single prompt"""
     print(f"--- Testing Gemini for prompt: {prompt_id} ---")
     print(f"Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}")
 
     try:
+        # Configure genai if not already configured
+        if GOOGLE_API_KEY:
+            genai.configure(api_key=GOOGLE_API_KEY)
+        
         # Initialize Gemini model
         model = genai.GenerativeModel(model_name)
 
@@ -87,7 +92,57 @@ def test_gemini_image_generation(prompt_text, prompt_id, model_name='models/gemi
                     for part_idx, part in enumerate(candidate.content.parts):
                         print(f"Checking part {part_idx}, type: {type(part)}")
 
-                        # Check for text parts first
+                        # Check for inline_data (image) first
+                        if hasattr(part, 'inline_data'):
+                            print(f"Found inline_data in part {part_idx}")
+                            image_data = part.inline_data
+                            image_bytes = image_data.data
+                            mime_type = image_data.mime_type
+
+                            print(f"Image data type: {type(image_bytes)}, size: {len(image_bytes) if hasattr(image_bytes, '__len__') else 'unknown'}")
+                            print(f"MIME type: {mime_type}")
+
+                            # Check if we have image data
+                            if not image_bytes or len(image_bytes) == 0:
+                                print(f"Empty image data for {prompt_id}")
+                                continue  # Skip this part, check others
+
+                            # Additional validation
+                            if len(image_bytes) < 1000:  # Reasonable minimum size for an image
+                                print(f"Image data too small ({len(image_bytes)} bytes), skipping")
+                                continue
+
+                            # Decode base64 if needed
+                            if isinstance(image_bytes, str):
+                                print("Decoding base64 image data")
+                                image_bytes = base64.b64decode(image_bytes)
+
+                            # Try to create PIL Image
+                            print("Creating PIL Image")
+                            try:
+                                image = Image.open(BytesIO(image_bytes))
+                                print(f"Success! Image size: {image.size}, mode: {image.mode}, format: {image.format}")
+                                return True
+                            except Exception as pil_error:
+                                print(f"PIL Error: {pil_error}")
+
+                                # Inspect the bytes
+                                first_bytes = image_bytes[:20] if len(image_bytes) > 20 else image_bytes
+                                print(f"First 20 bytes: {first_bytes}")
+
+                                # Try different formats
+                                if image_bytes.startswith(b'\xff\xd8\xff'):
+                                    print("Detected JPEG signature")
+                                elif image_bytes.startswith(b'\x89PNG'):
+                                    print("Detected PNG signature")
+                                elif image_bytes.startswith(b'RIFF') and b'WEBP' in image_bytes[:20]:
+                                    print("Detected WebP signature")
+                                else:
+                                    print("Unknown format signature")
+
+                                continue  # Try next part
+
+                        # Check for text parts (but don't skip image processing)
                         if hasattr(part, 'text'):
                             text_content = part.text
                             print(f"Found text part: {text_content[:200]}...")
@@ -96,9 +151,7 @@ def test_gemini_image_generation(prompt_text, prompt_id, model_name='models/gemi
                             if any(keyword in text_content.lower() for keyword in ['cannot', 'unable', 'error', 'sorry']):
                                 print(f"Gemini returned error: {text_content[:100]}...")
                                 return False
-                            continue
-
-                        if hasattr(part, 'inline_data'):
+                            # Don't continue here - let it check other parts for images
                             print(f"Found inline_data in part {part_idx}")
                             image_data = part.inline_data
                             image_bytes = image_data.data
@@ -112,14 +165,16 @@ def test_gemini_image_generation(prompt_text, prompt_id, model_name='models/gemi
                                 print(f"Empty image data for {prompt_id}")
                                 return False
 
-                            # Try to detect if this is text
-                            try:
-                                text_check = image_bytes.decode('utf-8', errors='ignore')
-                                if len(text_check) > 0 and not text_check.startswith('\x89PNG') and not text_check.startswith('\xff\xd8'):
-                                    print(f"Image data appears to be text: {text_check[:200]}...")
-                                    return False
-                            except:
-                                pass
+                            # Basic validation: check size and MIME type
+                            if mime_type and mime_type.startswith('image/') and len(image_bytes) > 1000:
+                                print(f"✅ Valid image data: {mime_type}, {len(image_bytes)} bytes")
+                                # Additional check for PNG signature if it's PNG
+                                if mime_type == 'image/png' and not image_bytes.startswith(b'\x89PNG'):
+                                    print("⚠️  PNG MIME type but no PNG signature")
+                                    continue
+                            else:
+                                print(f"❌ Invalid image: mime_type={mime_type}, size={len(image_bytes)}")
+                                continue
 
                             # Decode base64 if needed
                             if isinstance(image_bytes, str):
@@ -214,6 +269,7 @@ def test_specific_prompting_for_2_5():
 def test_different_models():
     """Test different Gemini models for image generation"""
     models_to_test = [
+        'models/gemini-2.5-flash-image',
         'models/gemini-2.5-flash-image-preview',
         'models/gemini-1.5-pro',
         'models/gemini-1.5-flash',
@@ -293,8 +349,8 @@ def test_improved_gemini_generation(prompt_text, prompt_id):
     print(f"Original prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}")
 
     try:
-        # Initialize Gemini model
-        model = genai.GenerativeModel('models/gemini-2.5-flash-image-preview')
+                # Initialize Gemini model
+        model = genai.GenerativeModel('models/gemini-2.5-flash-image')
 
         # Try multiple prompt styles
         prompt_styles = [
@@ -381,6 +437,19 @@ def lambda_handler(event, context):
         except Exception:
             requested_max_images = None
         
+        # Check for required parameters
+        if not course_bucket or not project_folder:
+            print(f"Missing required parameters: course_bucket={course_bucket}, project_folder={project_folder}")
+            return {
+                "statusCode": 200,
+                "message": "Skipped image generation: missing bucket or project folder",
+                "generated_images": [],
+                "bucket": course_bucket,
+                "project_folder": project_folder,
+                "lesson_keys": [],
+                "image_mappings": {}
+            }
+        
         # Initialize S3
         s3_client = boto3.client('s3')
 
@@ -410,7 +479,7 @@ def lambda_handler(event, context):
             print(f"Failed to configure genai: {e}")
             return {"statusCode": 500, "error": f"Failed to configure genai: {e}"}
 
-        model = genai.GenerativeModel('models/gemini-2.5-flash-image-preview')
+        model = genai.GenerativeModel('models/gemini-2.5-flash-image')
 
         # Backend hard cap to avoid runaway expensive runs
         BACKEND_MAX = int(os.getenv('IMAGES_BACKEND_MAX', '50'))
@@ -421,6 +490,32 @@ def lambda_handler(event, context):
         generated_images = []
 
         if prompts_from_input and isinstance(prompts_from_input, list):
+            # Check if prompts list is empty
+            if len(prompts_from_input) == 0:
+                print("Received empty prompts list; skipping image generation")
+                # Discover lessons for BookBuilder even without images
+                lessons_prefix = f"{project_folder}/lessons/"
+                lesson_keys = []
+                try:
+                    list_response = s3_client.list_objects_v2(
+                        Bucket=course_bucket,
+                        Prefix=lessons_prefix
+                    )
+                    if 'Contents' in list_response:
+                        lesson_keys = [obj['Key'] for obj in list_response['Contents'] if obj['Key'].endswith('.md')]
+                except Exception as e:
+                    print(f"Error listing lessons: {e}")
+                
+                return {
+                    "statusCode": 200,
+                    "message": "No visual prompts to process",
+                    "generated_images": [],
+                    "bucket": course_bucket,
+                    "project_folder": project_folder,
+                    "lesson_keys": lesson_keys,
+                    "image_mappings": {}
+                }
+            
             print(f"Received {len(prompts_from_input)} prompts in input; processing up to backend cap {BACKEND_MAX}")
             # Truncate if over backend cap
             if len(prompts_from_input) > BACKEND_MAX:
@@ -436,6 +531,16 @@ def lambda_handler(event, context):
                 prompt_text = prompt_obj.get('description', '')
                 # Allow an optional s3_key (useful if VisualPlanner wrote more metadata)
                 prompt_s3_key = prompt_obj.get('s3_key')
+                
+                # Skip if prompt_text is None or empty
+                if not prompt_text:
+                    print(f"Skipping prompt {prompt_id}: no description provided")
+                    generated_images.append({
+                        'id': prompt_id,
+                        'status': 'skipped',
+                        'error': 'no description'
+                    })
+                    continue
 
                 try:
                     print(f"Processing prompt {prompt_id}")
@@ -444,22 +549,49 @@ def lambda_handler(event, context):
 
                     saved = False
                     if response and hasattr(response, 'candidates'):
-                        for candidate in response.candidates:
+                        print(f"Response has {len(response.candidates)} candidates")
+                        for candidate_idx, candidate in enumerate(response.candidates):
+                            print(f"Processing candidate {candidate_idx}")
                             if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                                for part in candidate.content.parts:
-                                    if hasattr(part, 'inline_data') and part.inline_data:
+                                print(f"Candidate has {len(candidate.content.parts)} parts")
+                                for part_idx, part in enumerate(candidate.content.parts):
+                                    print(f"Processing part {part_idx}: {type(part)}")
+                                    
+                                    # Check for inline_data (image) first
+                                    if hasattr(part, 'inline_data'):
+                                        print(f"Found inline_data in part {part_idx}")
                                         image_data = part.inline_data
-                                        if hasattr(image_data, 'data') and image_data.data:
+                                        image_bytes = image_data.data
+                                        mime_type = image_data.mime_type
+
+                                        print(f"Image data type: {type(image_bytes)}, size: {len(image_bytes) if hasattr(image_bytes, '__len__') else 'unknown'}")
+                                        print(f"MIME type: {mime_type}")
+
+                                        # Check if we have image data
+                                        if not image_bytes or len(image_bytes) == 0:
+                                            print(f"Empty image data for {prompt_id}")
+                                            continue  # Skip this part, check others
+
+                                        # Additional validation
+                                        if len(image_bytes) < 1000:  # Reasonable minimum size for an image
+                                            print(f"Image data too small ({len(image_bytes)} bytes), skipping")
+                                            continue
+
+                                        # Decode base64 if needed
+                                        if isinstance(image_bytes, str):
+                                            print("Decoding base64 image data")
+                                            image_bytes = base64.b64decode(image_bytes)
+
+                                        # Try to create PIL Image
+                                        print("Creating PIL Image")
+                                        try:
+                                            image = Image.open(BytesIO(image_bytes))
+                                            print(f"Success! Image size: {image.size}, mode: {image.mode}, format: {image.format}")
+                                            
                                             # Save to S3 using deterministic filename (prompt id)
                                             image_filename = f"{prompt_id}.png"
                                             images_key = f"{project_folder}/images/{image_filename}"
 
-                                            image_bytes = image_data.data
-                                            if isinstance(image_bytes, str):
-                                                import base64
-                                                image_bytes = base64.b64decode(image_bytes)
-
-                                            image = Image.open(BytesIO(image_bytes))
                                             output_buffer = BytesIO()
                                             image.save(output_buffer, format='PNG')
 
@@ -476,18 +608,44 @@ def lambda_handler(event, context):
                                                 's3_key': images_key,
                                                 'status': 'ok'
                                             })
-                                            print(f"✅ Generated: {images_key}")
+                                            print(f"✅ Generated and saved: {images_key}")
                                             saved = True
                                             break
+                                        except Exception as pil_error:
+                                            print(f"PIL Error: {pil_error}")
+                                            # Inspect the bytes
+                                            first_bytes = image_bytes[:20] if len(image_bytes) > 20 else image_bytes
+                                            print(f"First 20 bytes: {first_bytes}")
+                                            continue  # Try next part
+
+                                    # Check for text parts (but don't skip image processing)
+                                    if hasattr(part, 'text'):
+                                        text_content = part.text
+                                        print(f"Found text part: {text_content[:200]}...")
+
+                                        # Check if this is an error message
+                                        if any(keyword in text_content.lower() for keyword in ['cannot', 'unable', 'error', 'sorry', 'failed', 'not available']):
+                                            print(f"Gemini returned error: {text_content[:100]}...")
+                                            # Don't break here - let it check other parts for images
+                                
                                 if saved:
                                     break
+                            else:
+                                print(f"❌ Candidate {candidate_idx} has no valid content")
+                        
+                        if not saved:
+                            print("❌ No valid image data found in any candidate")
+                    else:
+                        print(f"❌ Invalid response structure: {type(response)}")
+                        if hasattr(response, 'text'):
+                            print(f"Response text: {response.text}")
 
                     if not saved:
                         print(f"No image data returned for prompt {prompt_id}")
                         generated_images.append({
                             'id': prompt_id,
                             'status': 'failed',
-                            'error': 'no image data from model'
+                            'error': 'No candidates with image data found'
                         })
 
                     # Small delay between requests
@@ -555,26 +713,49 @@ def lambda_handler(event, context):
 
                     saved = False
                     if response and hasattr(response, 'candidates'):
-                        for candidate in response.candidates:
+                        print(f"Response has {len(response.candidates)} candidates")
+                        for candidate_idx, candidate in enumerate(response.candidates):
+                            print(f"Processing candidate {candidate_idx}")
                             if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                                for part in candidate.content.parts:
-                                    if hasattr(part, 'inline_data') and part.inline_data:
+                                print(f"Candidate has {len(candidate.content.parts)} parts")
+                                for part_idx, part in enumerate(candidate.content.parts):
+                                    print(f"Processing part {part_idx}: {type(part)}")
+                                    
+                                    # Check for inline_data (image) first
+                                    if hasattr(part, 'inline_data'):
+                                        print(f"Found inline_data in part {part_idx}")
                                         image_data = part.inline_data
-                                        if hasattr(image_data, 'data') and image_data.data:
-                                            # Save to S3
+                                        image_bytes = image_data.data
+                                        mime_type = image_data.mime_type
+
+                                        print(f"Image data type: {type(image_bytes)}, size: {len(image_bytes) if hasattr(image_bytes, '__len__') else 'unknown'}")
+                                        print(f"MIME type: {mime_type}")
+
+                                        # Check if we have image data
+                                        if not image_bytes or len(image_bytes) == 0:
+                                            print(f"Empty image data for {prompt_id}")
+                                            continue  # Skip this part, check others
+
+                                        # Additional validation
+                                        if len(image_bytes) < 1000:  # Reasonable minimum size for an image
+                                            print(f"Image data too small ({len(image_bytes)} bytes), skipping")
+                                            continue
+
+                                        # Decode base64 if needed
+                                        if isinstance(image_bytes, str):
+                                            print("Decoding base64 image data")
+                                            image_bytes = base64.b64decode(image_bytes)
+
+                                        # Try to create PIL Image
+                                        print("Creating PIL Image")
+                                        try:
+                                            image = Image.open(BytesIO(image_bytes))
+                                            print(f"Success! Image size: {image.size}, mode: {image.mode}, format: {image.format}")
+                                            
+                                            # Save to S3 using deterministic filename (prompt id)
                                             image_filename = f"{prompt_id}.png"
                                             images_key = f"{project_folder}/images/{image_filename}"
 
-                                            # Handle the image data
-                                            image_bytes = image_data.data
-                                            if isinstance(image_bytes, str):
-                                                import base64
-                                                image_bytes = base64.b64decode(image_bytes)
-
-                                            # Create PIL image
-                                            image = Image.open(BytesIO(image_bytes))
-
-                                            # Save to S3
                                             output_buffer = BytesIO()
                                             image.save(output_buffer, format='PNG')
 
@@ -595,15 +776,41 @@ def lambda_handler(event, context):
                                             print(f"✅ Generated: {images_key}")
                                             saved = True
                                             break
+                                        except Exception as pil_error:
+                                            print(f"PIL Error: {pil_error}")
+                                            # Inspect the bytes
+                                            first_bytes = image_bytes[:20] if len(image_bytes) > 20 else image_bytes
+                                            print(f"First 20 bytes: {first_bytes}")
+                                            continue  # Try next part
+
+                                    # Check for text parts (but don't skip image processing)
+                                    if hasattr(part, 'text'):
+                                        text_content = part.text
+                                        print(f"Found text part: {text_content[:200]}...")
+
+                                        # Check if this is an error message
+                                        if any(keyword in text_content.lower() for keyword in ['cannot', 'unable', 'error', 'sorry', 'failed', 'not available']):
+                                            print(f"Gemini returned error: {text_content[:100]}...")
+                                            # Don't break here - let it check other parts for images
+                                
                                 if saved:
                                     break
+                            else:
+                                print(f"❌ Candidate {candidate_idx} has no valid content")
+                        
+                        if not saved:
+                            print("❌ No valid image data found in any candidate")
+                    else:
+                        print(f"❌ Invalid response structure: {type(response)}")
+                        if hasattr(response, 'text'):
+                            print(f"Response text: {response.text}")
 
                     if not saved:
                         print(f"No image data returned for {prompt_key}")
                         generated_images.append({
                             'id': prompt_id,
                             'status': 'failed',
-                            'error': 'no image data from model'
+                            'error': 'No candidates with image data found'
                         })
 
                     # Rate limiting
@@ -618,10 +825,36 @@ def lambda_handler(event, context):
                         'error': str(e)
                     })
         
+        # Build image mappings for BookBuilder
+        # Map visual tags to generated image S3 keys
+        image_mappings = {}
+        lesson_keys = []
+        
+        # Discover lessons in the project folder
+        lessons_prefix = f"{project_folder}/lessons/"
+        list_response = s3_client.list_objects_v2(
+            Bucket=course_bucket,
+            Prefix=lessons_prefix
+        )
+        
+        if 'Contents' in list_response:
+            lesson_keys = [obj['Key'] for obj in list_response['Contents'] if obj['Key'].endswith('.md')]
+        
+        # Create mappings for each generated image
+        for img_data in generated_images:
+            if img_data.get('status') == 'ok' and 's3_key' in img_data:
+                # Map the visual ID to the S3 key
+                visual_tag = f"[VISUAL: {img_data['id']}]"
+                image_mappings[visual_tag] = img_data['s3_key']
+        
         return {
             "statusCode": 200,
             "message": f"Generated {len(generated_images)} images",
-            "generated_images": generated_images
+            "generated_images": generated_images,
+            "bucket": course_bucket,
+            "project_folder": project_folder,
+            "lesson_keys": lesson_keys,
+            "image_mappings": image_mappings
         }
         
     except Exception as e:
@@ -631,3 +864,5 @@ if __name__ == '__main__':
     # For testing
     print("Simple Image Generation Script")
     print("Use SAM CLI to test: sam local invoke")
+# Updated: Mon Oct  6 16:28:27 -05 2025
+

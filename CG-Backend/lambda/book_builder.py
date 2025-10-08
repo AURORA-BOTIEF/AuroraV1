@@ -76,6 +76,31 @@ def lambda_handler(event, context):
                 print(f"No lesson files found in {lessons_prefix}")
                 lesson_keys = []
 
+        # If no image_mappings provided, scan for existing images and create mappings
+        if not image_mappings:
+            print("No image_mappings provided, scanning for existing images...")
+            images_prefix = f"{project_folder}/images/"
+            try:
+                images_response = s3_client.list_objects_v2(
+                    Bucket=course_bucket,
+                    Prefix=images_prefix
+                )
+                if 'Contents' in images_response:
+                    for img_obj in images_response['Contents']:
+                        img_key = img_obj['Key']
+                        if img_key.endswith('.png'):
+                            # Extract ID from filename (e.g., "01-01-0001.png" -> "[VISUAL: 01-01-0001]")
+                            img_filename = img_key.split('/')[-1]
+                            img_id = img_filename.replace('.png', '')
+                            visual_tag = f"[VISUAL: {img_id}]"
+                            image_mappings[visual_tag] = img_key
+                            print(f"✅ Found existing image mapping: {visual_tag} -> {img_key}")
+                print(f"Created {len(image_mappings)} image mappings from existing images")
+            except Exception as e:
+                print(f"Warning: Could not scan existing images: {e}")
+        
+        print(f"Using {len(image_mappings)} image mappings for visual tag replacement")
+
         # Collect all lessons content
         book_content = []
         toc_entries = []
@@ -91,8 +116,7 @@ def lambda_handler(event, context):
                 lesson_title = extract_lesson_title(lesson_content, lesson_filename)
 
                 # Replace visual tags with images for this lesson
-                lesson_mappings = image_mappings.get(lesson_filename, {})
-                processed_content = replace_visual_tags(lesson_content, lesson_mappings, course_bucket)
+                processed_content = replace_visual_tags(lesson_content, image_mappings, course_bucket)
 
                 book_content.append({
                     'title': lesson_title,

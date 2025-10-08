@@ -134,14 +134,14 @@ function BookBuilderPage() {
     return (
         <div className="book-builder-page">
             <div className="page-header">
-                <h1>Book Builder</h1>
-                <p>Create and edit complete course books with text and images</p>
+                <h1>Editor de Libros</h1>
+                <p>Visualiza y edita los libros completos de tus cursos con texto e imágenes</p>
             </div>
 
             <div className="search-section">
                 <input
                     type="text"
-                    placeholder="Search projects..."
+                    placeholder="Buscar proyectos..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="search-input"
@@ -149,7 +149,7 @@ function BookBuilderPage() {
             </div>
 
             {loading ? (
-                <div className="loading">Loading projects...</div>
+                <div className="loading">Cargando proyectos...</div>
             ) : (
                 <div className="projects-grid">
                     {filteredProjects.map((project) => (
@@ -162,9 +162,9 @@ function BookBuilderPage() {
                             <div className="project-info">
                                 <p>{project.description}</p>
                                 <div className="project-stats">
-                                    <span>{project.lessonCount} lessons</span>
+                                    <span>{project.lessonCount} lecciones</span>
                                     {project.created && (
-                                        <span>Created: {new Date(project.created).toLocaleDateString()}</span>
+                                        <span>Creado: {new Date(project.created).toLocaleDateString('es-ES')}</span>
                                     )}
                                 </div>
                             </div>
@@ -175,31 +175,21 @@ function BookBuilderPage() {
                                         className="btn-primary"
                                         onClick={() => openBookEditor(project)}
                                     >
-                                        Edit Book
+                                        Editar Libro
                                     </button>
                                 ) : (
-                                    <button
-                                        className="btn-secondary"
-                                        onClick={() => buildBook(project.folder)}
-                                    >
-                                        Build Book
-                                    </button>
+                                    <div className="no-book-message">
+                                        <span>📖 El libro se generará automáticamente con el curso</span>
+                                    </div>
                                 )}
-
-                                <button
-                                    className="btn-outline"
-                                    onClick={() => openBookEditor(project)}
-                                >
-                                    Open Editor
-                                </button>
                             </div>
                         </div>
                     ))}
 
                     {filteredProjects.length === 0 && (
                         <div className="no-projects">
-                            <h3>No projects found</h3>
-                            <p>Generate some courses first to create books from them.</p>
+                            <h3>No se encontraron proyectos</h3>
+                            <p>Primero genera algunos cursos para poder crear libros a partir de ellos.</p>
                         </div>
                     )}
                 </div>

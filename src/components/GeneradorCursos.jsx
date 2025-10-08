@@ -26,8 +26,7 @@ function GeneradorCursos() {
     const [projectFolder, setProjectFolder] = useState('');
     const [moduleNum, setModuleNum] = useState(3);
     const [lessonNum, setLessonNum] = useState(1);
-    const [maxImages, setMaxImages] = useState(3);
-    const [modelProvider, setModelProvider] = useState('openai');
+    const [modelProvider, setModelProvider] = useState('bedrock');
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
     // Check authentication status on mount
@@ -173,8 +172,7 @@ function GeneradorCursos() {
             project_folder: projectFolder,
             module_to_generate: moduleNum,
             lesson_to_generate: lessonNum,
-            model_provider: modelProvider,
-            max_images: maxImages
+            model_provider: modelProvider
         };
         console.log('Sending request body:', JSON.stringify(body, null, 2));
         try {
@@ -276,8 +274,6 @@ function GeneradorCursos() {
                 <label>Module #: <input type="number" value={moduleNum} onChange={e => setModuleNum(parseInt(e.target.value))} disabled={!isAuthenticated} /></label>
                 <br />
                 <label>Lesson #: <input type="number" value={lessonNum} onChange={e => setLessonNum(parseInt(e.target.value))} disabled={!isAuthenticated} /></label>
-                <br />
-                <label>Max images: <input type="number" value={maxImages} onChange={e => setMaxImages(parseInt(e.target.value))} min="0" max="50" disabled={!isAuthenticated} /></label>
                 <br />
                 <label>Model provider:
                     <select value={modelProvider} onChange={e => setModelProvider(e.target.value)} disabled={!isAuthenticated}>

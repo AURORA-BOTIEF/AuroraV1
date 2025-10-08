@@ -94,9 +94,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-3-7-sonnet-20250219-v1:0
-          OPENAI_API_KEY: ""  # Will be set via environment or Secrets Manager
-          UPDATED_AT: "2025-10-08-14:47"
+          BEDROCK_MODEL: us.anthropic.claude-3-5-sonnet-20241022-v2:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -116,11 +114,6 @@ Resources:
                 - arn:aws:s3:::crewai-course-artifacts/*
                 - arn:aws:s3:::netec-course-generator-content
                 - arn:aws:s3:::netec-course-generator-content/*
-            - Effect: Allow
-              Action:
-                - secretsmanager:GetSecretValue
-              Resource:
-                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   StrandsVisualPlanner:
     Type: AWS::Serverless::Function
@@ -139,7 +132,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-3-7-sonnet-20250219-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-3-5-sonnet-20241022-v2:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -159,11 +152,6 @@ Resources:
                 - arn:aws:s3:::crewai-course-artifacts/*
                 - arn:aws:s3:::netec-course-generator-content
                 - arn:aws:s3:::netec-course-generator-content/*
-            - Effect: Allow
-              Action:
-                - secretsmanager:GetSecretValue
-              Resource:
-                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   ImagesGen:
     Type: AWS::Serverless::Function
@@ -462,7 +450,6 @@ Resources:
               FunctionName: !GetAtt StrandsContentGen.Arn
               Payload.$: "$"
             Retry:
-              # Retry for Lambda service errors only
               - ErrorEquals:
                   - Lambda.ServiceException
                   - Lambda.AWSLambdaException
@@ -475,28 +462,18 @@ Resources:
                   - States.ALL
                 ResultPath: $.error
                 Next: FailState
-            Next: CheckContentGenResult
-          CheckContentGenResult:
-            Type: Choice
-            Choices:
-              - Variable: $.Payload.statusCode
-                NumericEquals: 200
-                Next: ParseContentGenResult
-              - Variable: $.Payload.statusCode
-                NumericEquals: 500
-                Next: FailState
-            Default: FailState
+            Next: ParseContentGenResult
           ParseContentGenResult:
             Type: Pass
             Parameters:
               lesson_key.$: $.Payload.lesson_key
-              course_bucket.$: $.Payload.bucket
+              course_bucket.$: $.Payload.course_bucket
               project_folder.$: $.Payload.project_folder
               payload.$: $.Payload
               original.$: "$"
-              model_provider.$: $$.Execution.Input.model_provider
-              performance_mode.$: $$.Execution.Input.performance_mode
-              content_source.$: $$.Execution.Input.content_source
+              model_provider: "bedrock"
+              performance_mode: "balanced"
+              content_source: "local"
             Next: InvokeVisualPlanner
           InvokeVisualPlanner:
             Type: Task
@@ -512,7 +489,6 @@ Resources:
                 content_source.$: $.content_source
                 original.$: "$"
             Retry:
-              # Retry for Lambda service errors only
               - ErrorEquals:
                   - Lambda.ServiceException
                   - Lambda.AWSLambdaException
@@ -534,22 +510,16 @@ Resources:
               Payload:
                 course_bucket.$: $.Payload.bucket
                 project_folder.$: $.Payload.project_folder
-                prompts_prefix.$: $.Payload.prompts_s3_prefix
+                prompts_s3_prefix.$: $.Payload.prompts_s3_prefix
+                max_images.$: $$.Execution.Input.max_images
                 original.$: "$"
             Retry:
-              # Retry for Lambda service errors
               - ErrorEquals:
                   - Lambda.ServiceException
                   - Lambda.AWSLambdaException
                   - Lambda.SdkClientException
                 IntervalSeconds: 5
                 MaxAttempts: 2
-                BackoffRate: 2.0
-              # Retry for Gemini API errors (rate limits, timeouts)
-              - ErrorEquals:
-                  - States.TaskFailed
-                IntervalSeconds: 10
-                MaxAttempts: 3
                 BackoffRate: 2.0
             Catch:
               - ErrorEquals:
@@ -570,7 +540,6 @@ Resources:
                 book_title.$: $$.Execution.Input.course_topic
                 original.$: "$"
             Retry:
-              # Retry for Lambda service errors
               - ErrorEquals:
                   - Lambda.ServiceException
                   - Lambda.AWSLambdaException
@@ -578,12 +547,6 @@ Resources:
                 IntervalSeconds: 5
                 MaxAttempts: 2
                 BackoffRate: 2.0
-              # Retry for S3 errors
-              - ErrorEquals:
-                  - States.TaskFailed
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 1.5
             Catch:
               - ErrorEquals:
                   - States.ALL
