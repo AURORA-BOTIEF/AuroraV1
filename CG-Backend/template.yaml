@@ -235,6 +235,8 @@ Resources:
           Properties:
             Path: /build-book
             Method: post
+            Auth:
+              Authorizer: NONE
 
   ListProjectsFunction:
     Type: AWS::Serverless::Function
@@ -266,6 +268,8 @@ Resources:
           Properties:
             Path: /list-projects
             Method: get
+            Auth:
+              Authorizer: NONE
 
   LoadBookFunction:
     Type: AWS::Serverless::Function
@@ -285,6 +289,7 @@ Resources:
         - Effect: Allow
           Action:
             - s3:GetObject
+            - s3:ListBucket
           Resource:
           - arn:aws:s3:::crewai-course-artifacts
           - arn:aws:s3:::crewai-course-artifacts/*
@@ -296,6 +301,8 @@ Resources:
           Properties:
             Path: /load-book/{projectFolder}
             Method: get
+            Auth:
+              Authorizer: NONE
 
   SaveBookFunction:
     Type: AWS::Serverless::Function
@@ -326,6 +333,8 @@ Resources:
           Properties:
             Path: /save-book
             Method: post
+            Auth:
+              Authorizer: NONE
 
   # ======================================
   # API ENDPOINTS
@@ -351,6 +360,41 @@ Resources:
           Type: Api
           Properties:
             Path: /exec-status/{executionArn}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ListProjectsOptions:
+          Type: Api
+          Properties:
+            Path: /list-projects
+            Method: options
+            Auth:
+              Authorizer: NONE
+        LoadBookOptions:
+          Type: Api
+          Properties:
+            Path: /load-book/{projectFolder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        SaveBookOptions:
+          Type: Api
+          Properties:
+            Path: /save-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        BuildBookOptions:
+          Type: Api
+          Properties:
+            Path: /build-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PresignOptions:
+          Type: Api
+          Properties:
+            Path: /presign
             Method: options
             Auth:
               Authorizer: NONE

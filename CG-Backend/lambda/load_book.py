@@ -44,23 +44,41 @@ def lambda_handler(event, context):
         book_data = None
         book_content = None
 
-        # Try to load book JSON data first
+        # Try to load book JSON data first (look for any _data.json file)
         try:
-            book_json_key = f"{project_folder}/book/Generated_Course_Book_data.json"
-            response = s3_client.get_object(Bucket=bucket_name, Key=book_json_key)
-            book_data = json.loads(response['Body'].read().decode('utf-8'))
-            print(f"Loaded book JSON data from: {book_json_key}")
+            # List files in the book folder
+            book_prefix = f"{project_folder}/book/"
+            response = s3_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=book_prefix,
+                MaxKeys=50
+            )
+            
+            book_json_key = None
+            book_md_key = None
+            
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    key = obj['Key']
+                    if key.endswith('_data.json'):
+                        book_json_key = key
+                    elif key.endswith('_complete.md'):
+                        book_md_key = key
+            
+            # Load JSON data if found
+            if book_json_key:
+                response = s3_client.get_object(Bucket=bucket_name, Key=book_json_key)
+                book_data = json.loads(response['Body'].read().decode('utf-8'))
+                print(f"Loaded book JSON data from: {book_json_key}")
+            
+            # Load markdown content if found
+            if book_md_key:
+                response = s3_client.get_object(Bucket=bucket_name, Key=book_md_key)
+                book_content = response['Body'].read().decode('utf-8')
+                print(f"Loaded book markdown from: {book_md_key}")
+                
         except Exception as e:
-            print(f"Book JSON not found: {str(e)}")
-
-        # Try to load book markdown content
-        try:
-            book_md_key = f"{project_folder}/book/Generated_Course_Book_complete.md"
-            response = s3_client.get_object(Bucket=bucket_name, Key=book_md_key)
-            book_content = response['Body'].read().decode('utf-8')
-            print(f"Loaded book markdown from: {book_md_key}")
-        except Exception as e:
-            print(f"Book markdown not found: {str(e)}")
+            print(f"Error loading book files: {str(e)}")
 
         # If neither exists, return error
         if not book_data and not book_content:

@@ -2,12 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { SignatureV4 } from '@aws-sdk/signature-v4';
-import { Sha256 } from '@aws-crypto/sha256-js';
 import './BookEditor.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
-const BOOK_API_ENDPOINT = `${API_BASE}/book`;
 
 function BookEditor({ projectFolder, onClose }) {
     const [bookData, setBookData] = useState(null);
@@ -27,50 +24,21 @@ function BookEditor({ projectFolder, onClose }) {
         }
     }, [projectFolder]);
 
-    const makeSignedRequest = async (url, options = {}) => {
-        const session = await fetchAuthSession();
-        const signer = new SignatureV4({
-            credentials: session.credentials,
-            region: 'us-east-1',
-            service: 'execute-api',
-            sha256: Sha256,
-        });
-
-        const urlObj = new URL(url);
-        const request = {
-            method: options.method || 'GET',
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            protocol: urlObj.protocol,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
-        };
-
-        if (options.body) {
-            request.body = options.body;
-            request.headers['Content-Type'] = 'application/json';
-        }
-
-        const signedRequest = await signer.sign(request);
-        return fetch(url, {
-            method: signedRequest.method,
-            headers: signedRequest.headers,
-            body: options.body,
-        });
-    };
-
     const loadBook = async () => {
         try {
             setLoading(true);
 
-            const response = await makeSignedRequest(`${API_BASE}/load-book/${projectFolder}`, {
-                method: 'GET'
+            const response = await fetch(`${API_BASE}/load-book/${projectFolder}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
             });
 
             if (!response.ok) {
-                throw new Error('No se pudo cargar los datos del libro');
+                const errorText = await response.text();
+                console.error('Load book error:', errorText);
+                throw new Error(`No se pudo cargar los datos del libro: ${response.status}`);
             }
 
             const data = await response.json();
@@ -163,8 +131,11 @@ function BookEditor({ projectFolder, onClose }) {
         try {
             setSaving(true);
 
-            const response = await makeSignedRequest(`${API_BASE}/save-book`, {
+            const response = await fetch(`${API_BASE}/save-book`, {
                 method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({
                     projectFolder: projectFolder,
                     bookData: bookData
@@ -172,11 +143,14 @@ function BookEditor({ projectFolder, onClose }) {
             });
 
             if (!response.ok) {
-                throw new Error('No se pudo guardar el libro');
+                const errorText = await response.text();
+                console.error('Save book error:', errorText);
+                throw new Error(`No se pudo guardar el libro: ${response.status}`);
             }
 
             const result = await response.json();
             alert('¡Libro guardado exitosamente!');
+            setIsEditing(false);
         } catch (error) {
             console.error('Error al guardar libro:', error);
             alert('Error al guardar libro: ' + error.message);

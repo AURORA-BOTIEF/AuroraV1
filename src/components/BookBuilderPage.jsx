@@ -1,8 +1,5 @@
 // src/components/BookBuilderPage.jsx
 import React, { useState, useEffect } from 'react';
-import { fetchAuthSession } from 'aws-amplify/auth';
-import { SignatureV4 } from '@aws-sdk/signature-v4';
-import { Sha256 } from '@aws-crypto/sha256-js';
 import BookEditor from './BookEditor';
 import './BookBuilderPage.css';
 
@@ -19,50 +16,21 @@ function BookBuilderPage() {
         loadProjects();
     }, []);
 
-    const makeSignedRequest = async (url, options = {}) => {
-        const session = await fetchAuthSession();
-        const signer = new SignatureV4({
-            credentials: session.credentials,
-            region: 'us-east-1',
-            service: 'execute-api',
-            sha256: Sha256,
-        });
-
-        const urlObj = new URL(url);
-        const request = {
-            method: options.method || 'GET',
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            protocol: urlObj.protocol,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
-        };
-
-        if (options.body) {
-            request.body = options.body;
-            request.headers['Content-Type'] = 'application/json';
-        }
-
-        const signedRequest = await signer.sign(request);
-        return fetch(url, {
-            method: signedRequest.method,
-            headers: signedRequest.headers,
-            body: options.body,
-        });
-    };
-
     const loadProjects = async () => {
         try {
             setLoading(true);
 
-            const response = await makeSignedRequest(`${API_BASE}/list-projects`, {
-                method: 'GET'
+            const response = await fetch(`${API_BASE}/list-projects`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
             });
 
             if (!response.ok) {
-                throw new Error('Failed to load projects');
+                const errorText = await response.text();
+                console.error('Response error:', errorText);
+                throw new Error(`Failed to load projects: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
@@ -82,13 +50,18 @@ function BookBuilderPage() {
                 course_bucket: 'crewai-course-artifacts'
             };
 
-            const response = await makeSignedRequest(`${API_BASE}/build-book`, {
+            const response = await fetch(`${API_BASE}/build-book`, {
                 method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify(body)
             });
 
             if (!response.ok) {
-                throw new Error('Failed to build book');
+                const errorText = await response.text();
+                console.error('Build book error:', errorText);
+                throw new Error(`Failed to build book: ${response.status}`);
             }
 
             const result = await response.json();
