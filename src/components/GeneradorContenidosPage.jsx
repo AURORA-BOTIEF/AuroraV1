@@ -45,6 +45,14 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
+          <Link to="curso-KNTR" className="opcion-menu">
+            <div className="icono">🦉</div>
+            <div className="texto">
+              <h3>Generador Temario: Knowledge Transfer </h3>
+              <p>Diseña un temario 100% teórico.</p>
+            </div>
+          </Link>
+
           <div className="opcion-menu disabled">
             <div className="icono">🛠️</div>
             <div className="texto">
