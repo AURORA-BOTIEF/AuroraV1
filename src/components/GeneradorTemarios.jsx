@@ -1,5 +1,6 @@
+// src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario';
+import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
 const asesoresComerciales = [
@@ -28,8 +29,8 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ URL correcta de tu API Gateway (ruta raíz)
-  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
+  // ✅ CORRECCIÓN 1: URL correcta (raíz de la etapa)
+  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/";
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -40,9 +41,8 @@ function GeneradorTemarios() {
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
-  // 🔹 Generar temario (Bedrock)
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -68,8 +68,10 @@ function GeneradorTemarios() {
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
+
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
+
     } catch (err) {
       console.error("Error al generar el temario:", err);
       setError(err.message);
@@ -78,12 +80,13 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión del temario en DynamoDB vía Lambda
+  // ✅ CORRECCIÓN 2: Agregar campo cursoId
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
-    const token = localStorage.getItem("id_token");
 
     try {
+      const token = localStorage.getItem("id_token");
+
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
@@ -91,22 +94,12 @@ function GeneradorTemarios() {
           "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({
-          cursoId: temarioParaGuardar.tema_curso || "Curso sin nombre",
+          cursoId: temarioParaGuardar.tema_curso || "SinNombre",
           contenido: temarioParaGuardar,
-          autor: "gabriel.guerrero@netec.com",
-          nota: `Guardado ${new Date().toLocaleString()}`
+          nota: `Guardado ${new Date().toLocaleString()}`,
+          autor: token ? "Usuario autenticado" : "Anónimo"
         })
       });
-
-      if (response.status === 403) {
-        alert("🚫 No tienes permisos para guardar. Verifica tu rol en Cognito.");
-        return;
-      }
-
-      if (response.status === 404) {
-        alert("⚠️ Revisa que la ruta en API Gateway sea raíz `/`, no `/versiones`.");
-        return;
-      }
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al guardar la versión del temario.");
@@ -118,7 +111,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Obtener versiones guardadas (GET)
+  // 🔹 Opción de listar versiones (GET)
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -130,16 +123,11 @@ function GeneradorTemarios() {
         }
       });
 
-      if (response.status === 404) {
-        alert("⚠️ Verifica que la ruta sea `/` en API Gateway.");
-        return;
-      }
-
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
 
       console.log("📦 Versiones guardadas:", data);
-      alert(`✅ Se encontraron ${data.length} versiones en DynamoDB. (Ver consola)`);
+      alert(`Se encontraron ${data.length} versiones (ver consola).`);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
       alert("❌ No se pudieron obtener las versiones. Revisa la consola.");
@@ -151,9 +139,9 @@ function GeneradorTemarios() {
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
+      {/* Formulario principal */}
       <div className="formulario-inicial">
         <div className="form-grid">
-          {/* Campos */}
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
             <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
@@ -187,12 +175,60 @@ function GeneradorTemarios() {
               <option value="avanzado">Avanzado</option>
             </select>
           </div>
+
+          <div className="form-group">
+            <label>Número de Sesiones (1-7)</label>
+            <div className="slider-container">
+              <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
+              <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Horas por Sesión (4-12)</label>
+            <div className="slider-container">
+              <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
+              <span>{params.horas_por_sesion} horas</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label>Tipo de Objetivo</label>
+          <div className="radio-group">
+            <label>
+              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
+              Saber Hacer (enfocado en habilidades)
+            </label>
+            <label>
+              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
+              Certificación (enfocado en examen)
+            </label>
+          </div>
+        </div>
+
+        {params.objetivo_tipo === 'certificacion' && (
+          <div className="form-group">
+            <label>Código de Certificación</label>
+            <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleParamChange} placeholder="Ej: AWS CLF-C02, AZ-900" />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label>Sector / Audiencia</label>
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
+        </div>
+
+        <div className="form-group">
+          <label>Enfoque Adicional (Opcional)</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
           <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
             {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
           </button>
+
           <button className="btn-generar-principal" style={{ backgroundColor: "#45ab9f" }} onClick={handleListarVersiones}>
             Ver Versiones Guardadas
           </button>
