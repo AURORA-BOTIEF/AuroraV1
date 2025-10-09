@@ -1,7 +1,8 @@
 // src/App.jsx (Corrected to use AWS Amplify Auth for proper session management and IAM credentials)
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Auth } from 'aws-amplify';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
 import { hostedUiAuthorizeUrl } from './amplify.js';
 // Image assets
 import logoImg from './assets/Netec.png';
@@ -23,6 +24,10 @@ import ExamenesPage from './components/ExamenesPage.jsx';
 import AdminPage from './components/AdminPage.jsx';
 import GeneradorContenidosPage from './components/GeneradorContenidosPage.jsx';
 import GeneradorContenido from './components/GeneradorContenido.jsx';
+import GeneradorTemarios from './components/GeneradorTemarios.jsx';
+import GeneradorTemarios_KNTR from './components/GeneradorTemarios_KNTR.jsx';
+import GeneradorCursos from './components/GeneradorCursos.jsx';
+import BookBuilderPage from './components/BookBuilderPage.jsx';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -37,11 +42,43 @@ function App() {
   const mexicoFlag = mexicoFlagImg;
   const espanaFlag = espanaFlagImg;
 
+  // Check for OAuth callback and fetch session
   useEffect(() => {
-    Auth.currentSession()
+    // Listen for auth events
+    const hubListener = Hub.listen('auth', ({ payload }) => {
+      console.log('Auth event:', payload.event);
+      if (payload.event === 'signedIn' || payload.event === 'tokenRefresh') {
+        checkAuthSession();
+      } else if (payload.event === 'signedOut') {
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
+    // Check if we're returning from OAuth (code in URL)
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+
+    if (code) {
+      console.log('OAuth code detected, clearing URL...');
+      // Clear the code from URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    // Check current auth session
+    checkAuthSession();
+
+    return () => hubListener();
+  }, []);
+
+  const checkAuthSession = () => {
+    fetchAuthSession()
       .then((session) => {
-        const idToken = session.getIdToken();
-        const accessToken = session.getAccessToken();
+        const idToken = session.tokens?.idToken;
+        const accessToken = session.tokens?.accessToken;
+        if (!idToken || !accessToken) {
+          throw new Error('No tokens available');
+        }
         const attributes = idToken.payload;
         const groups = accessToken.payload['cognito:groups'] || [];
         console.log('Access Token payload:', JSON.stringify(accessToken.payload, null, 2));
@@ -49,14 +86,15 @@ function App() {
         setUser({ attributes, groups });
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.log('No authenticated session:', err);
         setUser(null);
         setLoading(false);
       });
-  }, []);
+  };
 
   const handleLogout = () => {
-    Auth.signOut();
+    signOut();
   };
 
   const email = user?.attributes?.email || '';
@@ -89,12 +127,7 @@ function App() {
                 <img src={previewImg} alt="Ilustración" className="preview-image" />
               </div>
               <button className="login-button" onClick={() => {
-                const url = hostedUiAuthorizeUrl();
-                if (url) {
-                  window.location.href = url;
-                } else {
-                  console.error('No login URL available');
-                }
+                signInWithRedirect({ provider: 'Cognito' });
               }}>
                 🚀 Comenzar Ahora
               </button>
@@ -134,6 +167,7 @@ function App() {
                   <Route path="curso-estandar" element={<GeneradorTemarios />} />
                   <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
                   <Route path="generador-cursos" element={<GeneradorCursos />} />
+                  <Route path="book-builder" element={<BookBuilderPage />} />
                   <Route path="generador-contenido" element={<GeneradorContenido />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

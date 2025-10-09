@@ -1,8 +1,0 @@
-{
-    "course_bucket": "crewai-course-artifacts",
-    "project_folder": "250916-kubernetes-for-devops-engineers-06",
-    "module_to_generate": 3,
-    "model_provider": "openai",
-    "performance_mode": "balanced",
-    "content_source": "s3"
-}

@@ -1,6 +1,6 @@
 // src/components/AvatarPicker.jsx
 import { useEffect, useState } from "react";
-import { Auth } from "aws-amplify";
+import { getCurrentUser, fetchUserAttributes, updateUserAttribute } from "aws-amplify/auth";
 
 // Carga todas las imágenes del folder avatars (minús./MAYÚS.)
 const avatarModules = import.meta.glob("../assets/avatars/*.{png,PNG,jpg,JPG,jpeg,JPEG,webp,WEBP,svg,SVG}", {
@@ -30,8 +30,7 @@ export default function AvatarPicker({ isOpen, onClose, email, onSaved }) {
     try {
       const flag = String(import.meta.env.VITE_AVATAR_SYNC_COGNITO || "true");
       if (flag === "true") {
-        const user = await Auth.currentAuthenticatedUser({ bypassCache: true });
-        await Auth.updateUserAttributes(user, { picture: selected });
+        await updateUserAttribute({ userAttribute: { attributeKey: 'picture', value: selected } });
       }
     } catch (err) {
       console.log("No se pudo sincronizar avatar con Cognito (ok):", err?.message || err);
@@ -49,10 +48,9 @@ export default function AvatarPicker({ isOpen, onClose, email, onSaved }) {
     try {
       const flag = String(import.meta.env.VITE_AVATAR_SYNC_COGNITO || "true");
       if (flag === "true") {
-        const user = await Auth.currentAuthenticatedUser({ bypassCache: true });
-        await Auth.updateUserAttributes(user, { picture: "" });
+        await updateUserAttribute({ userAttribute: { attributeKey: 'picture', value: "" } });
       }
-    } catch {}
+    } catch { }
     window.dispatchEvent(new CustomEvent("profilePhotoUpdated", { detail: { photoUrl: "" } }));
     onSaved?.("");
     onClose?.();

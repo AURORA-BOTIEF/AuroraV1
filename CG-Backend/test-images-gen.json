@@ -1,7 +1,0 @@
-{
-    "course_bucket": "crewai-course-artifacts",
-    "project_folder": "250916-kubernetes-for-devops-engineers-06",
-    "model_provider": "gemini",
-    "max_images": 100,
-    "prompts_prefix": "prompts/"
-}

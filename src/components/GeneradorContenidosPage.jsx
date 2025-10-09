@@ -37,11 +37,11 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
-          <Link to="generador-contenido" className="opcion-menu">
-            <div className="icono">🤖</div>
+          <Link to="book-builder" className="opcion-menu">
+            <div className="icono">📖</div>
             <div className="texto">
-              <h3>Generador de Contenido IA</h3>
-              <p>Genera contenido completo con lecciones, diagramas e imágenes usando Step Functions</p>
+              <h3>Editor de Libros</h3>
+              <p>Visualiza y edita libros completos con texto e imágenes</p>
             </div>
           </Link>
 

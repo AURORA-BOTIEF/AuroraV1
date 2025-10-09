@@ -30,3 +30,23 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Backend artifacts
+CG-Backend-Backup/
+*.zip
+CG-Backend/lambda/strands_hello_world/
+CG-Backend/lambda-layers/strands-layer/
+CG-Backend/lambda-layers/gemini-layer/
+CG-Backend/lambda-layers/*.zip
+
+# SAM build artifacts
+.aws-sam/

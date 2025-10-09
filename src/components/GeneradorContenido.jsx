@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { API } from 'aws-amplify';
+import { get, post } from 'aws-amplify/api';
 import './GeneradorContenido.css';
 
 const GeneradorContenido = () => {
@@ -14,8 +14,7 @@ const GeneradorContenido = () => {
         course_duration_hours: 40,
         module_to_generate: 1,
         performance_mode: 'balanced',
-        model_provider: 'bedrock',
-        max_images: 4
+        model_provider: 'bedrock'
     });
 
     const handleParamChange = (e) => {
@@ -43,12 +42,18 @@ const GeneradorContenido = () => {
 
         try {
             // Call the start-job API using Amplify API with IAM authorization
-            const response = await API.post('CourseGeneratorAPI', '/start-job', {
-                body: params,
-                headers: {
-                    'Content-Type': 'application/json'
+            const restOperation = post({
+                apiName: 'CourseGeneratorAPI',
+                path: '/start-job',
+                options: {
+                    body: params,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
                 }
             });
+            const { body } = await restOperation.response;
+            const response = await body.json();
 
             console.log('Course generation started:', response);
 
@@ -71,7 +76,12 @@ const GeneradorContenido = () => {
 
         const poll = async () => {
             try {
-                const response = await API.get('CourseGeneratorAPI', `/exec-status/${encodeURIComponent(executionArn)}`, {});
+                const restOperation = get({
+                    apiName: 'CourseGeneratorAPI',
+                    path: `/exec-status/${encodeURIComponent(executionArn)}`
+                });
+                const { body } = await restOperation.response;
+                const response = await body.json();
 
                 setExecutionStatus(response);
 
@@ -161,18 +171,6 @@ const GeneradorContenido = () => {
                             <option value="bedrock">AWS Bedrock (Claude)</option>
                             <option value="openai">OpenAI (GPT)</option>
                         </select>
-                    </div>
-
-                    <div className="form-group">
-                        <label>Máximo de Imágenes</label>
-                        <input
-                            name="max_images"
-                            type="number"
-                            min="0"
-                            max="10"
-                            value={params.max_images}
-                            onChange={handleParamChange}
-                        />
                     </div>
                 </div>
 
