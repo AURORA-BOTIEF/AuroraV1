@@ -29,8 +29,8 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ CORRECCIÓN 1: URL correcta (raíz de la etapa)
-  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/";
+  // ✅ URL correcta a tu API Gateway
+  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -59,6 +59,7 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
+        mode: "cors", // ✅ agregado
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -80,7 +81,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ CORRECCIÓN 2: Agregar campo cursoId
+  // ✅ Corrección mínima: solo se ajustó el endpoint y CORS
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
@@ -89,6 +90,7 @@ function GeneradorTemarios() {
 
       const response = await fetch(apiUrl, {
         method: "POST",
+        mode: "cors", // ✅ habilita preflight correcto
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -111,12 +113,13 @@ function GeneradorTemarios() {
     }
   };
 
-  // 🔹 Opción de listar versiones (GET)
+  // 🔹 GET versiones
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
       const response = await fetch(apiUrl, {
         method: "GET",
+        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
