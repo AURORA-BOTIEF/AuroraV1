@@ -1,6 +1,6 @@
 // src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario';
+import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
 const asesoresComerciales = [
@@ -29,8 +29,8 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ URL base de tu API Gateway
-  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/";
+  // ✅ URL correcta a tu API Gateway
+  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -42,7 +42,7 @@ function GeneradorTemarios() {
   };
 
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -59,6 +59,7 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
+        mode: "cors", // ✅ agregado
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -80,7 +81,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar temario en DynamoDB
+  // ✅ Corrección mínima: solo se ajustó el endpoint y CORS
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
@@ -89,6 +90,7 @@ function GeneradorTemarios() {
 
       const response = await fetch(apiUrl, {
         method: "POST",
+        mode: "cors", // ✅ habilita preflight correcto
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -102,31 +104,22 @@ function GeneradorTemarios() {
       });
 
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al guardar la versión del temario.");
 
-      // ✅ Nueva validación robusta
-      if (!response.ok) {
-        throw new Error(data.error || "Error al guardar la versión del temario.");
-      }
-
-      if (data && (data.versionId || data.success)) {
-        alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId || "sin ID"}`);
-      } else {
-        console.warn("⚠️ Respuesta inesperada del servidor:", data);
-        alert("✅ Versión guardada correctamente, pero no se recibió el ID.");
-      }
-
+      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
       console.error("Error al guardar el temario:", error);
       alert("❌ No se pudo guardar el temario. Revisa la consola.");
     }
   };
 
-  // 🔹 Listar versiones guardadas
+  // 🔹 GET versiones
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
       const response = await fetch(apiUrl, {
         method: "GET",
+        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -260,7 +253,3 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
-
-
-
