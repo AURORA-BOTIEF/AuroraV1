@@ -57,7 +57,164 @@ function GeneradorTemarios() {
       if (payload.objetivo_tipo !== 'certificacion') delete payload.codigo_certificacion;
 
       const token = localStorage.getItem("id_token");
-      const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.co
+      const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
+      const temarioCompleto = { ...data, ...nuevosParams };
+      setTemarioGenerado(temarioCompleto);
+    } catch (err) {
+      console.error("Error al generar el temario:", err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ✅ Guardar versión del temario en DynamoDB vía Lambda
+  const handleSave = async (temarioParaGuardar) => {
+    console.log("Guardando esta versión del temario:", temarioParaGuardar);
+    const token = localStorage.getItem("id_token");
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          cursoId: temarioParaGuardar.tema_curso || "Curso sin nombre",
+          contenido: temarioParaGuardar,
+          autor: "gabriel.guerrero@netec.com",
+          nota: `Guardado ${new Date().toLocaleString()}`
+        })
+      });
+
+      if (response.status === 403) {
+        alert("🚫 No tienes permisos para guardar. Verifica tu rol en Cognito.");
+        return;
+      }
+
+      if (response.status === 404) {
+        alert("⚠️ Revisa que la ruta en API Gateway sea raíz `/`, no `/versiones`.");
+        return;
+      }
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al guardar la versión del temario.");
+
+      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
+    } catch (error) {
+      console.error("Error al guardar el temario:", error);
+      alert("❌ No se pudo guardar el temario. Revisa la consola.");
+    }
+  };
+
+  // ✅ Obtener versiones guardadas (GET)
+  const handleListarVersiones = async () => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (response.status === 404) {
+        alert("⚠️ Verifica que la ruta sea `/` en API Gateway.");
+        return;
+      }
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
+
+      console.log("📦 Versiones guardadas:", data);
+      alert(`✅ Se encontraron ${data.length} versiones en DynamoDB. (Ver consola)`);
+    } catch (error) {
+      console.error("Error al obtener versiones:", error);
+      alert("❌ No se pudieron obtener las versiones. Revisa la consola.");
+    }
+  };
+
+  return (
+    <div className="generador-temarios-container">
+      <h2>Generador de Temarios a la Medida</h2>
+      <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
+
+      <div className="formulario-inicial">
+        <div className="form-grid">
+          {/* Campos */}
+          <div className="form-group">
+            <label>Nombre Preventa Asociado</label>
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
+          </div>
+
+          <div className="form-group">
+            <label>Asesor(a) Comercial Asociado</label>
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
+              <option value="">Selecciona un asesor(a)</option>
+              {asesoresComerciales.map(nombre => (
+                <option key={nombre} value={nombre}>{nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Tecnología</label>
+            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
+          </div>
+
+          <div className="form-group">
+            <label>Tema Principal del Curso</label>
+            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
+          </div>
+
+          <div className="form-group">
+            <label>Nivel de Dificultad</label>
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
+              <option value="basico">Básico</option>
+              <option value="intermedio">Intermedio</option>
+              <option value="avanzado">Avanzado</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
+            {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
+          </button>
+          <button className="btn-generar-principal" style={{ backgroundColor: "#45ab9f" }} onClick={handleListarVersiones}>
+            Ver Versiones Guardadas
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="error-mensaje">{error}</div>}
+
+      {temarioGenerado && (
+        <EditorDeTemario
+          temarioInicial={temarioGenerado}
+          onRegenerate={handleGenerar}
+          onSave={handleSave}
+          isLoading={isLoading}
+        />
+      )}
+    </div>
+  );
+}
+
+export default GeneradorTemarios;
+
 
 
 
