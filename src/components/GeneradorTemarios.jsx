@@ -15,11 +15,7 @@ function GeneradorTemarios() {
   const [error, setError] = useState('');
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
-  const [filtros, setFiltros] = useState({
-    tecnologia: '',
-    asesor_comercial: '',
-    nombre_curso: ''
-  });
+  const [filtros, setFiltros] = useState({ tecnologia: '', asesor_comercial: '', nombre_curso: '' });
   const [exportarDesdeVersion, setExportarDesdeVersion] = useState(null);
 
   const [params, setParams] = useState({
@@ -65,21 +61,15 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload)
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
 
-      const temarioCompleto = { ...data, ...nuevosParams };
-      setTemarioGenerado(temarioCompleto);
-
+      setTemarioGenerado({ ...data, ...nuevosParams });
     } catch (err) {
-      console.error("Error al generar el temario:", err);
       setError(err.message);
     } finally {
       setIsLoading(false);
@@ -104,10 +94,7 @@ function GeneradorTemarios() {
 
       const response = await fetch(apiUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(bodyData)
       });
 
@@ -116,14 +103,8 @@ function GeneradorTemarios() {
 
       alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
-      console.error("Error al guardar el temario:", error);
       alert("❌ No se pudo guardar el temario.");
     }
-  };
-
-  const handleFiltroChange = (e) => {
-    const { name, value } = e.target;
-    setFiltros(prev => ({ ...prev, [name]: value }));
   };
 
   const handleListarVersiones = async () => {
@@ -131,28 +112,22 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch(apiUrl, {
         method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
-
       setVersiones(data);
       setMostrarModal(true);
     } catch (error) {
-      console.error("Error al obtener versiones:", error);
       alert("❌ No se pudieron obtener las versiones.");
     }
   };
 
-  // 👉 Nuevo: función para abrir el modal de exportación ya existente
   const handleExportarVersion = (version) => {
     setExportarDesdeVersion(version);
     setMostrarModal(false);
-    setTemarioGenerado(version.contenido || version);
+    setTimeout(() => setTemarioGenerado(version.contenido || version), 300);
   };
 
   const versionesFiltradas = versiones.filter(v =>
@@ -164,22 +139,19 @@ function GeneradorTemarios() {
   return (
     <div className="generador-temarios-container">
       <h2>Generador de Temarios a la Medida</h2>
-      <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
-            <label>Nombre Preventa Asociado</label>
+            <label>Nombre Preventa</label>
             <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
           </div>
 
           <div className="form-group">
-            <label>Asesor(a) Comercial Asociado</label>
+            <label>Asesor(a) Comercial</label>
             <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
               <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map(nombre => (
-                <option key={nombre} value={nombre}>{nombre}</option>
-              ))}
+              {asesoresComerciales.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
 
@@ -189,14 +161,14 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Tema Principal del Curso</label>
+            <label>Tema del Curso</label>
             <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
           </div>
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
           <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
-            {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
+            {isLoading ? 'Generando...' : 'Generar Temario'}
           </button>
 
           <button className="btn-generar-principal" style={{ backgroundColor: "#45ab9f" }} onClick={handleListarVersiones}>
@@ -207,13 +179,13 @@ function GeneradorTemarios() {
 
       {error && <div className="error-mensaje">{error}</div>}
 
-      {/* 👇 Aquí se usa el mismo componente EditorDeTemario, incluso si viene desde versiones */}
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
           onRegenerate={handleGenerar}
           onSave={handleSave}
           isLoading={isLoading}
+          autoAbrirExportar={!!exportarDesdeVersion} // 👈 NUEVO
         />
       )}
 
@@ -226,18 +198,6 @@ function GeneradorTemarios() {
             </div>
 
             <div className="modal-body">
-              <div className="filtros-versiones">
-                <input type="text" name="tecnologia" placeholder="Filtrar por tecnología..." value={filtros.tecnologia} onChange={handleFiltroChange} />
-                <select name="asesor_comercial" value={filtros.asesor_comercial} onChange={handleFiltroChange}>
-                  <option value="">Todos los asesores</option>
-                  {asesoresComerciales.map(nombre => (
-                    <option key={nombre} value={nombre}>{nombre}</option>
-                  ))}
-                </select>
-                <input type="text" name="nombre_curso" placeholder="Buscar curso..." value={filtros.nombre_curso} onChange={handleFiltroChange} />
-                <button className="btn-lupa" title="Buscar" onClick={handleListarVersiones}>🔍</button>
-              </div>
-
               {versionesFiltradas.length === 0 ? (
                 <p>No hay versiones guardadas todavía.</p>
               ) : (
@@ -261,11 +221,7 @@ function GeneradorTemarios() {
                         <td>{v.fecha_creacion ? new Date(v.fecha_creacion).toLocaleString("es-MX") : "Sin fecha"}</td>
                         <td>{v.autor}</td>
                         <td>
-                          <button
-                            className="btn-exportar-version"
-                            title="Exportar esta versión"
-                            onClick={() => handleExportarVersion(v)}
-                          >
+                          <button className="btn-exportar-version" title="Exportar esta versión" onClick={() => handleExportarVersion(v)}>
                             📤 Exportar...
                           </button>
                         </td>
@@ -283,8 +239,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
-
 
 
 
