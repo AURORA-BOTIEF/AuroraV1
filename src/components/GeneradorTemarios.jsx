@@ -1,241 +1,240 @@
 // src/components/GeneradorTemarios.jsx
-import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario'; 
-import './GeneradorTemarios.css';
+import React, { useState } from "react";
+import EditorDeTemario from "./EditorDeTemario";
+import "./GeneradorTemarios.css";
 
-const asesoresComerciales = [
-  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
-  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
-  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
-  "Natalia García", "Natalia Gomez", "Vianey Miranda",
-].sort();
+const API_BASE = import.meta.env.VITE_TEMARIOS_API || "";
 
 function GeneradorTemarios() {
+  const [tecnologia, setTecnologia] = useState("");
+  const [temaCurso, setTemaCurso] = useState("");
+  const [nivel, setNivel] = useState("Básico");
+  const [nombrePreventa, setNombrePreventa] = useState("");
+  const [asesorComercial, setAsesorComercial] = useState("");
+  const [enfoque, setEnfoque] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(false);
 
-  const [params, setParams] = useState({
-    nombre_preventa: '',
-    asesor_comercial: '',
-    tecnologia: '',
-    tema_curso: '',
-    nivel_dificultad: 'basico',
-    sector: '',
-    enfoque: '',
-    horas_por_sesion: 7,
-    numero_sesiones_por_semana: 1,
-    objetivo_tipo: 'saber_hacer',
-    codigo_certificacion: ''
-  });
+  // 🔹 Estados nuevos para las versiones guardadas
+  const [versionesGuardadas, setVersionesGuardadas] = useState([]);
+  const [mostrarModalVersiones, setMostrarModalVersiones] = useState(false);
+  const [cargandoVersiones, setCargandoVersiones] = useState(false);
 
-  const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
-
-  const handleParamChange = (e) => {
-    const { name, value } = e.target;
-    let valorFinal = value;
-    if (name === 'horas_por_sesion' || name === 'numero_sesiones_por_semana') {
-      valorFinal = parseInt(value, 10);
-    }
-    setParams(prev => ({ ...prev, [name]: valorFinal }));
-  };
-
-  const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
-        !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
-      setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
+  // --- Generar nuevo temario ---
+  const handleGenerarTemario = async () => {
+    if (!nombrePreventa || !asesorComercial || !tecnologia || !temaCurso) {
+      alert("Por favor completa todos los campos requeridos.");
       return;
     }
 
-    setIsLoading(true);
-    setError('');
-    setTemarioGenerado(null);
-
+    setCargando(true);
     try {
-      const payload = { ...nuevosParams };
-      if (payload.objetivo_tipo !== 'certificacion') delete payload.codigo_certificacion;
-
-      const token = localStorage.getItem("id_token");
-      const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
+      const response = await fetch(`${API_BASE}/PruebadeTEMAR`, {
         method: "POST",
-        mode: "cors",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tecnologia,
+          tema_curso: temaCurso,
+          nivel_dificultad: nivel.toLowerCase(),
+          nombre_preventa: nombrePreventa,
+          asesor_comercial: asesorComercial,
+          enfoque,
+        }),
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
-
-      const temarioCompleto = { ...data, ...nuevosParams };
-      setTemarioGenerado(temarioCompleto);
-
-    } catch (err) {
-      console.error("Error al generar el temario:", err);
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ✅ SOLO ESTA PARTE ESTÁ MEJORADA (todo lo demás es igual que el original)
-  const handleSave = async (temarioParaGuardar) => {
-    console.log("Guardando esta versión del temario:", temarioParaGuardar);
-
-    try {
-      const token = localStorage.getItem("id_token");
-
-      const bodyData = {
-        cursoId: temarioParaGuardar.tema_curso || params.tema_curso || "SinNombre",
-        contenido: temarioParaGuardar,
-        autor: token ? "anette.flores@netec.com.mx" : "Anónimo",
-        asesor_comercial: params.asesor_comercial || "No asignado",
-        nombre_preventa: params.nombre_preventa || "No especificado",
-        nombre_curso: params.tema_curso || "Sin nombre",
-        tecnologia: params.tecnologia || "No especificada",
-        nota_version: `Guardado el ${new Date().toLocaleString()}`,
-        fecha_creacion: new Date().toISOString(),
-        s3_path: `s3://temarios/${(params.tema_curso || "SinNombre").replace(/\s+/g, "_")}_${new Date().toISOString()}.json`
-      };
-
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        mode: "cors",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(bodyData)
-      });
-
-      const data = await response.json();
-      console.log("✅ Respuesta de la API:", data);
-
-      if (!response.ok || !data.success) {
-        console.error("❌ Error en la respuesta de la API:", data);
-        throw new Error(data.error || "Error al guardar la versión del temario.");
+      if (data.success) {
+        setTemarioGenerado(data.temario);
+      } else {
+        alert("No se pudo generar el temario.");
       }
-
-      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
-      console.error("Error al guardar el temario:", error);
-      alert("❌ No se pudo guardar el temario. Revisa la consola.");
+      console.error("❌ Error:", error);
+      alert("Error al generar el temario.");
+    } finally {
+      setCargando(false);
     }
   };
 
-  const handleListarVersiones = async () => {
+  // --- Ver versiones guardadas (nuevo botón) ---
+  const handleVerVersionesGuardadas = async () => {
+    setCargandoVersiones(true);
     try {
-      const token = localStorage.getItem("id_token");
-      const response = await fetch(apiUrl, {
+      const response = await fetch(`${API_BASE}/obtener-temarios`, {
         method: "GET",
-        mode: "cors",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { "Content-Type": "application/json" },
       });
+      if (!response.ok) throw new Error("Error al obtener versiones");
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
-
-      console.log("📦 Versiones guardadas:", data);
-      alert(`Se encontraron ${data.length} versiones (ver consola).`);
+      setVersionesGuardadas(data.items || []);
+      setMostrarModalVersiones(true);
     } catch (error) {
-      console.error("Error al obtener versiones:", error);
-      alert("❌ No se pudieron obtener las versiones. Revisa la consola.");
+      console.error("❌ Error al obtener versiones:", error);
+      alert("No se pudieron cargar las versiones guardadas.");
+    } finally {
+      setCargandoVersiones(false);
+    }
+  };
+
+  // --- Guardar versión actual ---
+  const handleGuardarTemario = async (temario, nota) => {
+    try {
+      const response = await fetch(`${API_BASE}/GuardarTemario`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre_curso: temario.nombre_curso,
+          tecnologia,
+          nota_version: nota,
+          temario_json: temario,
+        }),
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error("❌ Error al guardar:", error);
+      return { success: false, message: "Error al guardar" };
     }
   };
 
   return (
-    <div className="generador-temarios-container">
+    <div className="generador-container">
       <h2>Generador de Temarios a la Medida</h2>
-      <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-      <div className="formulario-inicial">
-        <div className="form-grid">
-          <div className="form-group">
+      {!temarioGenerado && (
+        <div className="formulario-temario">
+          <div className="campo">
             <label>Nombre Preventa Asociado</label>
-            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
+            <input
+              value={nombrePreventa}
+              onChange={(e) => setNombrePreventa(e.target.value)}
+              placeholder="Ejemplo: Carolina Aguilar"
+            />
           </div>
 
-          <div className="form-group">
+          <div className="campo">
             <label>Asesor(a) Comercial Asociado</label>
-            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
-              <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map(nombre => (
-                <option key={nombre} value={nombre}>{nombre}</option>
-              ))}
-            </select>
+            <input
+              value={asesorComercial}
+              onChange={(e) => setAsesorComercial(e.target.value)}
+              placeholder="Ejemplo: Natalia García"
+            />
           </div>
 
-          <div className="form-group">
+          <div className="campo">
             <label>Tecnología</label>
-            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
+            <input
+              value={tecnologia}
+              onChange={(e) => setTecnologia(e.target.value)}
+              placeholder="Ejemplo: AWS, Azure, Python"
+            />
           </div>
 
-          <div className="form-group">
+          <div className="campo">
             <label>Tema Principal del Curso</label>
-            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
+            <input
+              value={temaCurso}
+              onChange={(e) => setTemaCurso(e.target.value)}
+              placeholder="Ejemplo: Amazon CloudWatch"
+            />
           </div>
 
-          <div className="form-group">
+          <div className="campo">
             <label>Nivel de Dificultad</label>
-            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
-              <option value="basico">Básico</option>
-              <option value="intermedio">Intermedio</option>
-              <option value="avanzado">Avanzado</option>
+            <select value={nivel} onChange={(e) => setNivel(e.target.value)}>
+              <option>Básico</option>
+              <option>Intermedio</option>
+              <option>Avanzado</option>
             </select>
           </div>
 
-          <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
-            <div className="slider-container">
-              <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
-              <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
-            </div>
+          <div className="campo">
+            <label>Enfoque Adicional (Opcional)</label>
+            <textarea
+              value={enfoque}
+              onChange={(e) => setEnfoque(e.target.value)}
+              placeholder="Ejemplo: orientado a auditores"
+            ></textarea>
           </div>
 
-          <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
-            <div className="slider-container">
-              <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
-              <span>{params.horas_por_sesion} horas</span>
-            </div>
+          <div className="acciones">
+            <button
+              className="btn-principal"
+              onClick={handleGenerarTemario}
+              disabled={cargando}
+            >
+              {cargando ? "Generando..." : "Generar Propuesta de Temario"}
+            </button>
+
+            {/* Botón nuevo */}
+            <button
+              className="btn-secundario"
+              onClick={handleVerVersionesGuardadas}
+              disabled={cargandoVersiones}
+            >
+              {cargandoVersiones ? "Cargando..." : "Ver Versiones Guardadas"}
+            </button>
           </div>
         </div>
-
-        <div className="form-group">
-          <label>Sector / Audiencia</label>
-          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..." />
-        </div>
-
-        <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
-        </div>
-
-        <div style={{ display: "flex", gap: "1rem" }}>
-          <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
-            {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
-          </button>
-
-          <button className="btn-generar-principal" style={{ backgroundColor: "#45ab9f" }} onClick={handleListarVersiones}>
-            Ver Versiones Guardadas
-          </button>
-        </div>
-      </div>
-
-      {error && <div className="error-mensaje">{error}</div>}
+      )}
 
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
-          onRegenerate={handleGenerar}
-          onSave={handleSave}
-          isLoading={isLoading}
+          onRegenerate={handleGenerarTemario}
+          onSave={handleGuardarTemario}
+          isLoading={cargando}
         />
+      )}
+
+      {/* ✅ Modal de versiones guardadas */}
+      {mostrarModalVersiones && (
+        <div className="modal-overlay" onClick={() => setMostrarModalVersiones(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📚 Versiones Guardadas</h3>
+              <button className="modal-close" onClick={() => setMostrarModalVersiones(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {versionesGuardadas.length === 0 ? (
+                <p>No hay versiones guardadas todavía.</p>
+              ) : (
+                <table className="tabla-versiones">
+                  <thead>
+                    <tr>
+                      <th>Curso</th>
+                      <th>Tecnología</th>
+                      <th>Fecha de Guardado</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versionesGuardadas.map((v, i) => (
+                      <tr key={i}>
+                        <td>{v.nombre_curso}</td>
+                        <td>{v.tecnologia}</td>
+                        <td>{new Date(v.fecha_guardado).toLocaleString()}</td>
+                        <td>
+                          <button
+                            className="btn-guardar"
+                            onClick={() => {
+                              const parsed = v.temario_json ? JSON.parse(v.temario_json) : v;
+                              setTemarioGenerado(parsed);
+                              setMostrarModalVersiones(false);
+                            }}
+                          >
+                            Ver Detalles
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
