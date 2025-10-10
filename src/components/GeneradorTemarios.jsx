@@ -16,6 +16,11 @@ function GeneradorTemarios() {
   const [error, setError] = useState('');
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [filtros, setFiltros] = useState({
+    tecnologia: '',
+    asesor_comercial: '',
+    nombre_curso: ''
+  });
 
   const [params, setParams] = useState({
     nombre_preventa: '',
@@ -31,6 +36,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
+  // 👉 API Gateway URL de tu Lambda versiones
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -119,11 +125,22 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Mostrar versiones guardadas en modal
+  // ✅ Listar versiones con filtros
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+    setFiltros(prev => ({ ...prev, [name]: value }));
+  };
+
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
-      const response = await fetch(apiUrl, {
+      const queryParams = new URLSearchParams({
+        tecnologia: filtros.tecnologia,
+        asesor_comercial: filtros.asesor_comercial,
+        nombre_curso: filtros.nombre_curso
+      });
+
+      const response = await fetch(`${apiUrl}?${queryParams.toString()}`, {
         method: "GET",
         mode: "cors",
         headers: {
@@ -183,22 +200,6 @@ function GeneradorTemarios() {
               <option value="avanzado">Avanzado</option>
             </select>
           </div>
-
-          <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
-            <div className="slider-container">
-              <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
-              <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
-            <div className="slider-container">
-              <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
-              <span>{params.horas_por_sesion} horas</span>
-            </div>
-          </div>
         </div>
 
         <div className="form-group">
@@ -208,7 +209,7 @@ function GeneradorTemarios() {
 
         <div className="form-group">
           <label>Enfoque Adicional (Opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a buenas prácticas, con énfasis en casos prácticos" />
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -233,7 +234,7 @@ function GeneradorTemarios() {
         />
       )}
 
-      {/* 🔹 Modal de versiones guardadas */}
+      {/* 🔹 Modal con filtros */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -242,6 +243,33 @@ function GeneradorTemarios() {
               <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
             <div className="modal-body">
+              <div className="filtros-versiones">
+                <input
+                  type="text"
+                  name="tecnologia"
+                  placeholder="Filtrar por tecnología..."
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+                <input
+                  type="text"
+                  name="asesor_comercial"
+                  placeholder="Filtrar por asesor..."
+                  value={filtros.asesor_comercial}
+                  onChange={handleFiltroChange}
+                />
+                <input
+                  type="text"
+                  name="nombre_curso"
+                  placeholder="Buscar curso..."
+                  value={filtros.nombre_curso}
+                  onChange={handleFiltroChange}
+                />
+                <button className="btn-generar-principal" onClick={handleListarVersiones}>
+                  Buscar
+                </button>
+              </div>
+
               {versiones.length === 0 ? (
                 <p>No hay versiones guardadas todavía.</p>
               ) : (
@@ -250,6 +278,7 @@ function GeneradorTemarios() {
                     <tr>
                       <th>Curso</th>
                       <th>Tecnología</th>
+                      <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
                     </tr>
@@ -259,6 +288,7 @@ function GeneradorTemarios() {
                       <tr key={i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
+                        <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString("es-MX")}</td>
                         <td>{v.autor}</td>
                       </tr>
@@ -275,5 +305,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
