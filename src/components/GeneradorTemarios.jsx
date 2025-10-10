@@ -29,7 +29,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ URL correcta
+  // ✅ URL correcta (etapa: versiones)
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -81,7 +81,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Bloque corregido de guardado
+  // ✅ handleSave corregido definitivamente
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
@@ -103,29 +103,33 @@ function GeneradorTemarios() {
         })
       });
 
-      // ✅ Procesa respuesta de forma segura
-      const text = await response.text();
-      let data = {};
+      // ✅ Manejo robusto de respuesta
+      const raw = await response.text();
+      let data;
+
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(raw);
       } catch {
-        console.warn("⚠️ La respuesta no era JSON válido:", text);
+        console.warn("⚠️ Respuesta no JSON:", raw);
+        data = { message: raw };
       }
 
       console.log("✅ Respuesta de la API:", data);
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Error al guardar el temario.");
+      // ✅ Validar éxito aunque no exista 'success'
+      const isSuccess = response.ok && (data.success === true || data.message?.includes("guardado"));
+      if (!isSuccess) {
+        throw new Error(data.error || data.message || "Error al guardar el temario.");
       }
 
-      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
+      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId || "N/A"}`);
     } catch (error) {
       console.error("❌ Error al guardar el temario:", error);
       alert("❌ No se pudo guardar el temario. Revisa la consola.");
     }
   };
 
-  // 🔹 GET versiones
+  // ✅ GET versiones
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -265,5 +269,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
