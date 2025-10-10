@@ -20,6 +20,7 @@ function GeneradorTemarios() {
     asesor_comercial: '',
     nombre_curso: ''
   });
+  const [exportarDesdeVersion, setExportarDesdeVersion] = useState(null);
 
   const [params, setParams] = useState({
     nombre_preventa: '',
@@ -147,6 +148,13 @@ function GeneradorTemarios() {
     }
   };
 
+  // 👉 Nuevo: función para abrir el modal de exportación ya existente
+  const handleExportarVersion = (version) => {
+    setExportarDesdeVersion(version);
+    setMostrarModal(false);
+    setTemarioGenerado(version.contenido || version);
+  };
+
   const versionesFiltradas = versiones.filter(v =>
     (!filtros.tecnologia || v.tecnologia?.toLowerCase().includes(filtros.tecnologia.toLowerCase())) &&
     (!filtros.asesor_comercial || v.asesor_comercial === filtros.asesor_comercial) &&
@@ -199,6 +207,7 @@ function GeneradorTemarios() {
 
       {error && <div className="error-mensaje">{error}</div>}
 
+      {/* 👇 Aquí se usa el mismo componente EditorDeTemario, incluso si viene desde versiones */}
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
@@ -240,6 +249,7 @@ function GeneradorTemarios() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
+                      <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -250,6 +260,15 @@ function GeneradorTemarios() {
                         <td>{v.asesor_comercial}</td>
                         <td>{v.fecha_creacion ? new Date(v.fecha_creacion).toLocaleString("es-MX") : "Sin fecha"}</td>
                         <td>{v.autor}</td>
+                        <td>
+                          <button
+                            className="btn-exportar-version"
+                            title="Exportar esta versión"
+                            onClick={() => handleExportarVersion(v)}
+                          >
+                            📤 Exportar...
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -264,7 +283,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
 
 
 
