@@ -29,7 +29,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ Endpoint correcto (tu etapa y ruta)
+  // ✅ URL correcta
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -59,7 +59,7 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
-        mode: "cors", // ✅ habilita CORS correctamente
+        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -81,7 +81,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ CORREGIDO: Maneja correctamente el JSON anidado de la Lambda
+  // ✅ Bloque corregido de guardado
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
@@ -103,24 +103,29 @@ function GeneradorTemarios() {
         })
       });
 
-      // ✅ Corrección: el body llega anidado como string
-      const raw = await response.json();
-      const data = typeof raw.body === "string" ? JSON.parse(raw.body) : raw;
-
-      if (!response.ok || !data.success) {
-        console.error("❌ Error en la respuesta de la API:", raw);
-        throw new Error(data.error || "Error al guardar la versión del temario.");
+      // ✅ Procesa respuesta de forma segura
+      const text = await response.text();
+      let data = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.warn("⚠️ La respuesta no era JSON válido:", text);
       }
 
       console.log("✅ Respuesta de la API:", data);
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Error al guardar el temario.");
+      }
+
       alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
-      console.error("Error al guardar el temario:", error);
+      console.error("❌ Error al guardar el temario:", error);
       alert("❌ No se pudo guardar el temario. Revisa la consola.");
     }
   };
 
-  // 🔹 GET versiones desde DynamoDB
+  // 🔹 GET versiones
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -133,9 +138,7 @@ function GeneradorTemarios() {
         }
       });
 
-      const raw = await response.json();
-      const data = typeof raw.body === "string" ? JSON.parse(raw.body) : raw;
-
+      const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
 
       console.log("📦 Versiones guardadas:", data);
@@ -262,4 +265,5 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
