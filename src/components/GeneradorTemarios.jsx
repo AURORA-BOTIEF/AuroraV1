@@ -1,6 +1,6 @@
 // src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario'; 
+import EditorDeTemario from './EditorDeTemario';
 import './GeneradorTemarios.css';
 
 const asesoresComerciales = [
@@ -36,7 +36,6 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // 👉 API Gateway URL de tu Lambda versiones
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -48,8 +47,9 @@ function GeneradorTemarios() {
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
+  // ✅ Generar temario con IA
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -79,7 +79,6 @@ function GeneradorTemarios() {
 
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
-
     } catch (err) {
       console.error("Error al generar el temario:", err);
       setError(err.message);
@@ -88,7 +87,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión del temario
+  // ✅ Guardar versión en DynamoDB
   const handleSave = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -134,10 +133,11 @@ function GeneradorTemarios() {
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
-      const queryParams = new URLSearchParams({
-        tecnologia: filtros.tecnologia,
-        asesor_comercial: filtros.asesor_comercial,
-        nombre_curso: filtros.nombre_curso
+
+      // 🚀 No incluir filtros vacíos en la URL
+      const queryParams = new URLSearchParams();
+      Object.entries(filtros).forEach(([key, val]) => {
+        if (val.trim() !== "") queryParams.append(key, val);
       });
 
       const response = await fetch(`${apiUrl}?${queryParams.toString()}`, {
@@ -160,11 +160,17 @@ function GeneradorTemarios() {
     }
   };
 
+  const handleCerrarModal = () => {
+    setMostrarModal(false);
+    setFiltros({ tecnologia: "", asesor_comercial: "", nombre_curso: "" });
+  };
+
   return (
     <div className="generador-temarios-container">
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
+      {/* === FORMULARIO PRINCIPAL === */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
@@ -234,40 +240,21 @@ function GeneradorTemarios() {
         />
       )}
 
-      {/* 🔹 Modal con filtros */}
+      {/* === MODAL CON FILTROS === */}
       {mostrarModal && (
-        <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
+        <div className="modal-overlay" onClick={handleCerrarModal}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>📚 Versiones Guardadas</h3>
-              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
+              <button className="modal-close" onClick={handleCerrarModal}>✕</button>
             </div>
+
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input
-                  type="text"
-                  name="tecnologia"
-                  placeholder="Filtrar por tecnología..."
-                  value={filtros.tecnologia}
-                  onChange={handleFiltroChange}
-                />
-                <input
-                  type="text"
-                  name="asesor_comercial"
-                  placeholder="Filtrar por asesor..."
-                  value={filtros.asesor_comercial}
-                  onChange={handleFiltroChange}
-                />
-                <input
-                  type="text"
-                  name="nombre_curso"
-                  placeholder="Buscar curso..."
-                  value={filtros.nombre_curso}
-                  onChange={handleFiltroChange}
-                />
-                <button className="btn-generar-principal" onClick={handleListarVersiones}>
-                  Buscar
-                </button>
+                <input type="text" name="tecnologia" placeholder="Filtrar por tecnología..." value={filtros.tecnologia} onChange={handleFiltroChange} />
+                <input type="text" name="asesor_comercial" placeholder="Filtrar por asesor..." value={filtros.asesor_comercial} onChange={handleFiltroChange} />
+                <input type="text" name="nombre_curso" placeholder="Buscar curso..." value={filtros.nombre_curso} onChange={handleFiltroChange} />
+                <button className="btn-generar-principal" onClick={handleListarVersiones}>Buscar</button>
               </div>
 
               {versiones.length === 0 ? (
@@ -289,7 +276,7 @@ function GeneradorTemarios() {
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
-                        <td>{new Date(v.fecha_creacion).toLocaleString("es-MX")}</td>
+                        <td>{v.fecha_creacion ? new Date(v.fecha_creacion).toLocaleString("es-MX") : "Sin fecha"}</td>
                         <td>{v.autor}</td>
                       </tr>
                     ))}
@@ -305,6 +292,7 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
 
