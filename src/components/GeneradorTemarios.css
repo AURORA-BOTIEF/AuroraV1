@@ -1,4 +1,4 @@
-/* ======= CONTENEDOR PRINCIPAL ======= */
+/* ===== CONTENEDOR ===== */
 .generador-temarios-container {
   padding: 2rem;
   background-color: #f9fafb;
@@ -17,7 +17,7 @@
   color: #555;
 }
 
-/* ======= FORMULARIO ======= */
+/* ===== FORMULARIO ===== */
 .formulario-inicial {
   background: #fff;
   border-radius: 12px;
@@ -57,7 +57,7 @@
   border-color: #035b6e;
 }
 
-/* ======= BOTONES ======= */
+/* ===== BOTONES ===== */
 button {
   cursor: pointer;
   border: none;
@@ -93,7 +93,7 @@ button {
   transform: translateY(-1px);
 }
 
-/* ======= MENSAJE DE ERROR ======= */
+/* ===== MENSAJE DE ERROR ===== */
 .error-mensaje {
   background: #ffe2e2;
   color: #a73200;
@@ -103,7 +103,7 @@ button {
   border-radius: 6px;
 }
 
-/* ======= MODAL ======= */
+/* ===== MODAL ===== */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -157,7 +157,7 @@ button {
   color: #a73200;
 }
 
-/* ======= FILTROS ======= */
+/* ===== FILTROS ===== */
 .filtros-versiones {
   display: flex;
   gap: 0.6rem;
@@ -217,7 +217,7 @@ button {
   opacity: 1;
 }
 
-/* ======= TABLA ======= */
+/* ===== TABLA ===== */
 .tabla-versiones {
   width: 100%;
   border-collapse: collapse;
@@ -240,7 +240,7 @@ button {
   background-color: #f5f9fa;
 }
 
-/* ======= RESPONSIVE ======= */
+/* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .form-grid {
     grid-template-columns: 1fr;
