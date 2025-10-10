@@ -2,8 +2,8 @@
 
 **Project:** Aurora - AI-Powered Course Generation Platform  
 **Organization:** NETEC  
-**Last Updated:** October 8, 2025  
-**Version:** 1.0  
+**Last Updated:** October 10, 2025  
+**Version:** 1.1  
 **Repository:** AuroraV1 (Branch: testing)
 
 ---
@@ -1832,11 +1832,253 @@ aws stepfunctions describe-execution --execution-arn <arn>
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** October 8, 2025  
-**Authors:** System Analysis Team  
+**Document Version:** 1.1  
+**Last Updated:** October 10, 2025  
+**Authors:** System Analysis Team, Juan Ossa (Book Editor Implementation)  
 **Next Review:** Q1 2026
 
 ---
 
 *This architecture document is a living document and should be updated as the system evolves.*
+
+## 2025-10-10: Book Editor - Final Implementation
+
+### Summary
+
+The Book Editor has been completely redesigned to provide a robust WYSIWYG editing experience with comprehensive version management, image handling, and formatting capabilities. The editor now uses a ContentEditable-based approach that provides seamless switching between view and edit modes while maintaining full visual fidelity.
+
+### Key Features Implemented
+
+#### 1. **WYSIWYG Editor with ContentEditable**
+- **Read-Only Mode**: Displays formatted content using custom markdown-to-HTML converter
+- **Edit Mode**: Uses native ContentEditable API for direct HTML manipulation
+- **Visual Parity**: Both modes render identical HTML structure (headings, lists, images, formatting)
+- **Live Updates**: Changes reflect immediately without page refresh
+
+#### 2. **Advanced Image Handling**
+- **Paste Support**: Images pasted from clipboard are automatically uploaded to S3
+- **Blob Preview**: Immediate visual feedback with local blob URL during upload
+- **S3 Integration**: Uploaded images stored with canonical S3 URLs
+- **Data URL Processing**: Converts between data URLs, blob URLs, and S3 URLs seamlessly
+- **Private Bucket Support**: Uses Cognito IAM credentials for authenticated access
+- **Image Display**: Special handling for both `![alt](url)` and `![[VISUAL]](url)` formats
+
+#### 3. **Comprehensive Version Management**
+- **Original Version**: Automatically preserved from initial book load (deep copy)
+- **Named Versions**: Manual save with custom version names
+- **Filename Format**: `{originalname}_{versionname}.json` (includes original filename)
+- **Dual Format**: Saves both JSON (structured data) and Markdown (readable snapshot)
+- **Version History UI**: 
+  - View any version (read-only)
+  - Edit any version (creates new working copy)
+  - Delete versions (removes both JSON and MD files)
+- **Override Support**: Confirm dialog when overwriting existing version names
+
+#### 4. **Rich Text Formatting**
+- **Toolbar Features**:
+  - Bold (**B**) and Italic (*I*) with visual emphasis
+  - Text alignment: Left (←≡), Center (≡), Right (≡→)
+  - Color picker: 8 colors (Negro, Rojo, Verde, Azul, Naranja, Morado, Rosa, Azul claro)
+  - Font size: Increase (A+) and Decrease (A-)
+  - Format Copy (📋): Copy formatting from selected text
+  - Format Apply (🖌️): Apply copied formatting to selection
+- **Format Persistence**: Styles saved as HTML spans in markdown for cross-session persistence
+- **Visual Feedback**: Alert messages confirm format copy/apply operations
+
+### Technical Implementation
+
+#### Architecture Pattern
+```
+User Interaction → ContentEditable → HTML State → Markdown Conversion → S3 Storage
+                                   ↓
+                            Visual Rendering (both modes)
+```
+
+#### Key Functions
+
+**`formatContentForEditing(markdown)`**
+- Converts markdown to HTML for display
+- Handles headings (h1-h6), lists (ul/ol), images, blockquotes
+- Processes inline formatting (bold, italic, styles)
+- Special image detection for long data URLs
+- Preserves HTML spans with inline styles
+
+**`convertHtmlToMarkdown(html)`**
+- Converts editor HTML back to markdown
+- Extracts S3 URLs from `data-s3-url` attributes
+- Preserves styled spans as HTML within markdown
+- Handles font tags and inline styles
+- Maintains image references with proper markdown syntax
+
+**`finalizeEditing()`**
+- Processes images: converts S3 URLs to blob URLs for display
+- Updates lesson content in bookData
+- Forces re-render for proper image display
+- Exits edit mode cleanly
+
+**`saveVersion(versionName)`**
+- Validates version name (no empty names)
+- Checks for existing versions (override prompt)
+- Processes current edits before saving
+- Uploads images to S3 first
+- Saves JSON and Markdown files
+- Updates version history list
+
+#### Image Upload Flow
+```
+1. User pastes image
+   ↓
+2. Create local blob URL (immediate preview)
+   ↓
+3. Insert img tag with blob URL
+   ↓
+4. Upload file to S3 (background)
+   ↓
+5. Fetch uploaded S3 object as blob URL
+   ↓
+6. Replace img src with blob URL
+   ↓
+7. Store original S3 URL in data-s3-url attribute
+   ↓
+8. On save: extract S3 URLs from data-s3-url attributes
+```
+
+#### S3 Storage Structure
+```
+crewai-course-artifacts/
+├── {project_folder}/
+│   ├── book/
+│   │   ├── course_book_data.json       # Main book file
+│   │   └── Course_Book_complete.md     # Markdown snapshot
+│   ├── versions/
+│   │   ├── course_book_data_Original.json     # Original version (preserved)
+│   │   ├── course_book_data_Original.md
+│   │   ├── course_book_data_v1.json           # Named versions
+│   │   ├── course_book_data_v1.md
+│   │   └── ...
+│   └── images/
+│       ├── pasted_image_abc123.png     # User-uploaded images
+│       ├── visual_def456.png           # AI-generated images
+│       └── ...
+```
+
+### Security & Authentication
+
+**Cognito Integration:**
+- All S3 operations use temporary IAM credentials from Cognito Identity Pools
+- `fetchAuthSession()` provides credentials for each request
+- No presigned URLs for uploads (direct PutObject with IAM)
+- Session auto-refresh handled by Amplify SDK
+
+**Required IAM Permissions:**
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:PutObjectAcl",
+    "s3:DeleteObject",
+    "s3:ListBucket"
+  ],
+  "Resource": [
+    "arn:aws:s3:::crewai-course-artifacts",
+    "arn:aws:s3:::crewai-course-artifacts/*"
+  ]
+}
+```
+
+### User Experience Improvements
+
+**Visual Clarity:**
+- Bold and italic buttons use styled text (**B**, *I*)
+- Alignment icons use standard symbols (←≡, ≡, ≡→)
+- Color dropdown with emoji indicators (🎨 🔴 🟢 🔵 etc.)
+- Format buttons with clear icons (📋 copy, 🖌️ apply)
+
+**Feedback Mechanisms:**
+- Alert messages for format operations
+- Loading overlay when loading versions
+- Spinner animation during version loads
+- Word count display per lesson
+- Version count badge in header
+
+**Responsive Layout:**
+- Split view: lesson list + editor
+- Scrollable lesson navigator
+- Full-height editor container
+- Inline version save form in edit mode
+- Modal version history panel
+
+### Files Modified
+
+**Core Editor:**
+- `src/components/BookEditor.jsx` (1,348 lines)
+  - Complete editor implementation
+  - Version management logic
+  - Image handling utilities
+  - Toolbar and formatting functions
+
+**Utilities:**
+- `src/utils/s3ImageLoader.js`
+  - `uploadImageToS3()` - Upload with Cognito credentials
+  - `replaceS3UrlsWithDataUrls()` - Convert for display
+  - `replaceDataUrlsWithS3Urls()` - Upload before save
+  - `getBlobUrlForS3Object()` - Fetch private objects
+
+**Styles:**
+- `src/components/BookEditor.css`
+  - Editor layout and responsive design
+  - Toolbar styling
+  - Version history panel
+  - Loading overlays
+
+### Testing & Validation
+
+**Validated Scenarios:**
+✅ Images paste and display correctly  
+✅ Images persist after "Finalizar Edición"  
+✅ Version filenames include original name  
+✅ Multiple colors available in toolbar  
+✅ Format copy/paste works correctly  
+✅ Alignment icons are clear and recognizable  
+✅ Font formatting persists in markdown  
+✅ Version override confirmation works  
+✅ Original version is preserved and accessible  
+
+### Performance Considerations
+
+**Optimization Strategies:**
+- Local blob URLs for immediate feedback (no S3 fetch delays)
+- Background image uploads (non-blocking UI)
+- Efficient markdown parsing (single pass)
+- Minimal re-renders (targeted state updates)
+- Lazy loading of version content
+
+**Memory Management:**
+- Blob URLs should be revoked after use (future improvement)
+- Deep copy for original version (one-time cost)
+- Efficient DOM manipulation with ContentEditable
+
+### Future Enhancements
+
+**Planned Improvements:**
+- [ ] Migrate to Lexical editor plugins for better structure
+- [ ] Add undo/redo functionality
+- [ ] Implement collaborative editing (multi-user)
+- [ ] Add spell check and grammar suggestions
+- [ ] Support for tables and advanced markdown
+- [ ] Video embedding support
+- [ ] Export to additional formats (Word, PDF)
+- [ ] Version comparison diff view
+- [ ] Auto-save drafts (optional)
+
+### Known Limitations
+
+1. **Browser Compatibility**: ContentEditable behavior varies slightly across browsers
+2. **Large Documents**: Performance may degrade with 50+ lessons (pagination planned)
+3. **Image Formats**: Supports common formats (PNG, JPG, GIF) but not all formats
+4. **Concurrent Editing**: No conflict resolution for simultaneous edits
+5. **Mobile Experience**: Optimized for desktop, mobile usability can be improved
+
+---

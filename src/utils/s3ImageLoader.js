@@ -1,6 +1,6 @@
 // src/utils/s3ImageLoader.js
 import { fetchAuthSession } from 'aws-amplify/auth';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const BUCKET_NAME = 'crewai-course-artifacts';
 const REGION = 'us-east-1';
@@ -103,9 +103,7 @@ export async function uploadImageToS3(file, projectFolder) {
             throw new Error('No AWS credentials available');
         }
 
-        // Create S3 client with user's IAM credentials
-        const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
-
+        // Create S3 client with user's IAM credentials (Cognito identity)
         const s3Client = new S3Client({
             region: REGION,
             credentials: session.credentials
@@ -121,7 +119,10 @@ export async function uploadImageToS3(file, projectFolder) {
         // Read file as array buffer
         const arrayBuffer = await file.arrayBuffer();
 
-        // Upload to S3
+        // Upload to S3 using the authenticated credentials. Objects are written
+        // with the provided key and will be accessible later by the app using
+        // authenticated SDK calls (we do NOT return a presigned URL here since
+        // authentication is handled by Cognito/IAM credentials).
         const command = new PutObjectCommand({
             Bucket: BUCKET_NAME,
             Key: s3Key,
@@ -130,12 +131,13 @@ export async function uploadImageToS3(file, projectFolder) {
         });
 
         await s3Client.send(command);
-
-        // Return the S3 URL
-        const s3Url = `https://${BUCKET_NAME}.s3.amazonaws.com/${s3Key}`;
+        // Return the canonical S3 object URL (not presigned). The frontend
+        // may need authenticated SDK calls to fetch the object if the bucket
+        // is private; but using Cognito/IAM we rely on the app to fetch when
+        // necessary. For immediate preview we recommend inserting a local
+        // blob URL and swapping to this URL after the upload completes.
         console.log(`✓ Uploaded image: ${s3Key}`);
-
-        return s3Url;
+        return `https://${BUCKET_NAME}.s3.amazonaws.com/${s3Key}`;
     } catch (error) {
         console.error('Failed to upload image:', error);
         throw error;
@@ -216,4 +218,52 @@ export async function replaceDataUrlsWithS3Urls(content, projectFolder) {
 
     await Promise.all(imgPromises);
     return updated;
+}
+
+/**
+ * Fetch a private S3 object using Cognito-authenticated credentials and return
+ * a local blob URL suitable for immediate <img src="..."> display in the browser.
+ * Accepts either a full S3 URL (https://bucket.s3.amazonaws.com/key) or an S3 key.
+ */
+export async function getBlobUrlForS3Object(s3PathOrUrl) {
+    try {
+        // Determine key
+        let s3Key = s3PathOrUrl;
+        if (s3PathOrUrl.startsWith('http')) {
+            const parts = s3PathOrUrl.split('.s3.amazonaws.com/');
+            if (parts.length === 2) s3Key = parts[1];
+            else {
+                // fallback: try to extract path component
+                const url = new URL(s3PathOrUrl);
+                s3Key = url.pathname.replace(/^\//, '');
+            }
+        }
+
+        const session = await fetchAuthSession();
+        if (!session || !session.credentials) throw new Error('No AWS credentials available');
+
+        const s3Client = new S3Client({ region: REGION, credentials: session.credentials });
+        const cmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+        const resp = await s3Client.send(cmd);
+
+        // resp.Body may be a stream/array; convert to byte array then blob
+        let byteArray;
+        if (resp.Body && typeof resp.Body.transformToByteArray === 'function') {
+            byteArray = await resp.Body.transformToByteArray();
+        } else if (resp.Body && typeof resp.Body.arrayBuffer === 'function') {
+            const ab = await resp.Body.arrayBuffer();
+            byteArray = new Uint8Array(ab);
+        } else {
+            // Try Response approach
+            const buffer = await new Response(resp.Body).arrayBuffer();
+            byteArray = new Uint8Array(buffer);
+        }
+
+        const blob = new Blob([byteArray], { type: resp.ContentType || 'application/octet-stream' });
+        const blobUrl = URL.createObjectURL(blob);
+        return blobUrl;
+    } catch (e) {
+        console.error('Failed to fetch S3 object as blob URL', e);
+        throw e;
+    }
 }

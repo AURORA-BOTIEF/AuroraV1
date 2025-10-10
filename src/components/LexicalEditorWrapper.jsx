@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
-import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { $getRoot, $getSelection, $isRangeSelection } from 'lexical';
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from '@lexical/html';
@@ -20,45 +19,60 @@ const editorConfig = {
 
 export default function LexicalEditorWrapper({ initialHtml = '', readOnly = false, onChange, projectFolder }) {
     const [html, setHtml] = useState(initialHtml);
+    const [displayHtml, setDisplayHtml] = useState(initialHtml);
     const composerConfig = { ...editorConfig };
-
-    const handleChange = useCallback((editorState) => {
-        try {
-            let out = '';
-            editorState.read(() => {
-                // Generate HTML from nodes for a richer serialization
-                out = $generateHtmlFromNodes(editorState);
-            });
-            setHtml(out);
-            onChange && onChange(out);
-        } catch (e) {
-            console.error('Lexical onChange conversion failed:', e);
-        }
-    }, [onChange]);
 
     // We'll use the editor instance to insert image nodes. Use a child to get the editor.
     const EditorInitializer = ({ }) => {
         const [editor] = useLexicalComposerContext();
 
-        // Set initial HTML if provided
+        // Register an update listener so we can serialize HTML using the editor instance
         useEffect(() => {
-            if (!initialHtml) return;
+            const unregister = editor.registerUpdateListener(({ editorState }) => {
+                try {
+                    editorState.read(() => {
+                        try {
+                            const out = $generateHtmlFromNodes(editor);
+                            setHtml(out);
+                            onChange && onChange(out);
+                        } catch (e) {
+                            // serialization may fail for some node types; keep going
+                            console.error('Lexical onChange conversion failed:', e);
+                        }
+                    });
+                } catch (e) {
+                    console.error('Error in update listener:', e);
+                }
+            });
+            return () => unregister();
+        }, [editor, onChange]);
+
+        // Set initial HTML if provided. Wrap the content in a container so plain text
+        // becomes an element and @lexical/html generates element nodes that can be
+        // appended to the root (root only accepts element/decorator nodes).
+        // Re-inject initialHtml whenever it changes so switching into edit mode
+        // or loading a new lesson/version applies the latest HTML (including <img>
+        // tags) into the editor. Previously this only ran on mount which meant
+        // edits after initial render showed the raw markdown or empty content.
+        useEffect(() => {
             try {
+                const wrapped = `<div>${initialHtml || ''}</div>`;
                 const parser = new DOMParser();
-                const dom = parser.parseFromString(initialHtml, 'text/html');
+                const dom = parser.parseFromString(wrapped, 'text/html');
                 editor.update(() => {
-                    const nodes = $generateNodesFromDOM(editor, dom);
+                    const nodes = $generateNodesFromDOM(editor, dom.body);
                     const root = $getRoot();
                     root.clear();
                     for (const node of nodes) {
                         root.append(node);
                     }
                 });
+                // keep a copy for the read-only renderer
+                setDisplayHtml(initialHtml || '');
             } catch (e) {
                 console.warn('Failed to set initial HTML in Lexical editor:', e);
             }
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-        }, []);
+        }, [initialHtml, editor]);
 
         // Paste handler scoped to document but uses editor.update to insert nodes
         useEffect(() => {
@@ -75,8 +89,8 @@ export default function LexicalEditorWrapper({ initialHtml = '', readOnly = fals
                                 const s3Url = await uploadImageToS3(file, projectFolder);
                                 editor.update(() => {
                                     const parser = new DOMParser();
-                                    const dom = parser.parseFromString(`<img src="${s3Url}" alt="pasted-image" />`, 'text/html');
-                                    const nodes = $generateNodesFromDOM(editor, dom);
+                                    const dom = parser.parseFromString(`<div><img src="${s3Url}" alt="pasted-image" /></div>`, 'text/html');
+                                    const nodes = $generateNodesFromDOM(editor, dom.body);
                                     const selection = $getSelection();
                                     if ($isRangeSelection(selection)) {
                                         selection.insertNodes(nodes);
@@ -97,11 +111,12 @@ export default function LexicalEditorWrapper({ initialHtml = '', readOnly = fals
                         e.preventDefault();
                         try {
                             const updated = await replaceDataUrlsWithS3Urls(htmlData, projectFolder);
-                            // Convert updated HTML into nodes and insert at selection
+                            // Convert updated HTML into nodes and insert at selection; wrap in container
+                            const wrapped = `<div>${updated}</div>`;
                             const parser = new DOMParser();
-                            const dom = parser.parseFromString(updated, 'text/html');
+                            const dom = parser.parseFromString(wrapped, 'text/html');
                             editor.update(() => {
-                                const nodes = $generateNodesFromDOM(editor, dom);
+                                const nodes = $generateNodesFromDOM(editor, dom.body);
                                 const selection = $getSelection();
                                 if ($isRangeSelection(selection)) {
                                     selection.insertNodes(nodes);
@@ -127,16 +142,25 @@ export default function LexicalEditorWrapper({ initialHtml = '', readOnly = fals
     };
 
     return (
-        <LexicalComposer initialConfig={composerConfig}>
-            <div className="lexical-wrapper">
-                <RichTextPlugin
-                    contentEditable={<ContentEditable className="lexical-content-editable" />}
-                    placeholder={<div className="lexical-placeholder">Escribe aquí...</div>}
-                />
-                <OnChangePlugin onChange={handleChange} />
-                <HistoryPlugin />
-                <EditorInitializer />
-            </div>
-        </LexicalComposer>
+        // If caller requested read-only rendering, show rendered HTML directly so
+        // images and the markdown->HTML conversion are preserved exactly as the
+        // book author expected. This avoids requiring extra Lexical node plugins
+        // for images and ensures the read-only view is identical to the prior
+        // editor's rendered output.
+        readOnly ? (
+            <div className="lexical-readonly" dangerouslySetInnerHTML={{ __html: displayHtml }} />
+        ) : (
+            <LexicalComposer initialConfig={composerConfig}>
+                <div className="lexical-wrapper">
+                    <RichTextPlugin
+                        contentEditable={<ContentEditable className="lexical-content-editable" />}
+                        placeholder={<div className="lexical-placeholder">Escribe aquí...</div>}
+                    />
+                    {/* We use a registered update listener (in EditorInitializer) to serialize changes */}
+                    <HistoryPlugin />
+                    <EditorInitializer />
+                </div>
+            </LexicalComposer>
+        )
     );
 }

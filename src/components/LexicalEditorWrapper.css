@@ -12,3 +12,18 @@
 .lexical-placeholder {
     color: #999;
 }
+
+/* Read-only rendering used for previewing the saved book content */
+.lexical-readonly {
+    border: 1px solid transparent;
+    padding: 12px;
+    max-height: 62vh;
+    /* allow scrolling within the layout */
+    overflow-y: auto;
+}
+
+/* Ensure editable area is comfortable for typing and scrolls internally */
+.lexical-content-editable {
+    max-height: 62vh;
+    overflow-y: auto;
+}
