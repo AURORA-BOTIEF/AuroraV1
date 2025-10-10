@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario';
 import './GeneradorTemarios.css';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -52,7 +49,7 @@ function GeneradorTemarios() {
   const handleGenerar = async (nuevosParams = params) => {
     if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
-      setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
+      setError("Por favor completa todos los campos requeridos.");
       return;
     }
 
@@ -67,7 +64,6 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
-        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -107,7 +103,6 @@ function GeneradorTemarios() {
 
       const response = await fetch(apiUrl, {
         method: "POST",
-        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -116,12 +111,12 @@ function GeneradorTemarios() {
       });
 
       const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || "Error al guardar la versión del temario.");
+      if (!response.ok || !data.success) throw new Error(data.error || "Error al guardar la versión.");
 
       alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
       console.error("Error al guardar el temario:", error);
-      alert("❌ No se pudo guardar el temario. Revisa la consola.");
+      alert("❌ No se pudo guardar el temario.");
     }
   };
 
@@ -135,7 +130,6 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch(apiUrl, {
         method: "GET",
-        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -149,27 +143,8 @@ function GeneradorTemarios() {
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
-      alert("❌ No se pudieron obtener las versiones. Revisa la consola.");
+      alert("❌ No se pudieron obtener las versiones.");
     }
-  };
-
-  // 🔽 Exportar Excel
-  const exportarExcel = (item) => {
-    const hoja = XLSX.utils.json_to_sheet([item]);
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, "Versión");
-    XLSX.writeFile(libro, `${item.nombre_curso || 'temario'}.xlsx`);
-  };
-
-  // 🔽 Exportar PDF
-  const exportarPDF = (item) => {
-    const doc = new jsPDF();
-    doc.text(`Versión del curso: ${item.nombre_curso}`, 10, 10);
-    doc.autoTable({
-      head: [["Campo", "Valor"]],
-      body: Object.entries(item).map(([k, v]) => [k, v]),
-    });
-    doc.save(`${item.nombre_curso || 'temario'}.pdf`);
   };
 
   const versionesFiltradas = versiones.filter(v =>
@@ -233,7 +208,6 @@ function GeneradorTemarios() {
         />
       )}
 
-      {/* 🔹 Modal con filtros, lupa y descargas */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -244,30 +218,14 @@ function GeneradorTemarios() {
 
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input
-                  type="text"
-                  name="tecnologia"
-                  placeholder="Filtrar por tecnología..."
-                  value={filtros.tecnologia}
-                  onChange={handleFiltroChange}
-                />
-                <select
-                  name="asesor_comercial"
-                  value={filtros.asesor_comercial}
-                  onChange={handleFiltroChange}
-                >
+                <input type="text" name="tecnologia" placeholder="Filtrar por tecnología..." value={filtros.tecnologia} onChange={handleFiltroChange} />
+                <select name="asesor_comercial" value={filtros.asesor_comercial} onChange={handleFiltroChange}>
                   <option value="">Todos los asesores</option>
                   {asesoresComerciales.map(nombre => (
                     <option key={nombre} value={nombre}>{nombre}</option>
                   ))}
                 </select>
-                <input
-                  type="text"
-                  name="nombre_curso"
-                  placeholder="Buscar curso..."
-                  value={filtros.nombre_curso}
-                  onChange={handleFiltroChange}
-                />
+                <input type="text" name="nombre_curso" placeholder="Buscar curso..." value={filtros.nombre_curso} onChange={handleFiltroChange} />
                 <button className="btn-lupa" title="Buscar" onClick={handleListarVersiones}>🔍</button>
               </div>
 
@@ -282,7 +240,6 @@ function GeneradorTemarios() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
-                      <th>Descargar</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -293,12 +250,6 @@ function GeneradorTemarios() {
                         <td>{v.asesor_comercial}</td>
                         <td>{v.fecha_creacion ? new Date(v.fecha_creacion).toLocaleString("es-MX") : "Sin fecha"}</td>
                         <td>{v.autor}</td>
-                        <td>
-                          <div className="btn-descargar">
-                            <button title="Exportar Excel" onClick={() => exportarExcel(v)}>📊</button>
-                            <button title="Exportar PDF" onClick={() => exportarPDF(v)}>📄</button>
-                          </div>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -313,6 +264,7 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
 
