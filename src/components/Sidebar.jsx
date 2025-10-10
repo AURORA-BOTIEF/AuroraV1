@@ -220,9 +220,13 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           <div className="step"><div className="circle">🔬</div>{!colapsado && <span>Examen</span>}</div>
         </Link>
 
-        {esAdmin && (
+        {/* ✅ Corregido: ahora Anette también ve el ícono de configuración */}
+        {(esAdmin || esAdminPrincipal) && (
           <Link to="/admin" className="nav-link" title="Panel de administración">
-            <div className="step"><div className="circle">⚙️</div>{!colapsado && <span>Admin</span>}</div>
+            <div className="step">
+              <div className="circle">⚙️</div>
+              {!colapsado && <span>Admin</span>}
+            </div>
           </Link>
         )}
 

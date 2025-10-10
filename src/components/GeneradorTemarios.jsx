@@ -14,6 +14,13 @@ function GeneradorTemarios() {
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [versiones, setVersiones] = useState([]);
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [filtros, setFiltros] = useState({
+    tecnologia: '',
+    asesor_comercial: '',
+    nombre_curso: ''
+  });
 
   const [params, setParams] = useState({
     nombre_preventa: '',
@@ -29,7 +36,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ URL correcta a tu API Gateway
+  // 👉 API Gateway URL de tu Lambda versiones
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -59,7 +66,7 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
-        mode: "cors", // ✅ agregado
+        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -81,30 +88,35 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Corrección mínima: solo se ajustó el endpoint y CORS
+  // ✅ Guardar versión del temario
   const handleSave = async (temarioParaGuardar) => {
-    console.log("Guardando esta versión del temario:", temarioParaGuardar);
-
     try {
       const token = localStorage.getItem("id_token");
+      const bodyData = {
+        cursoId: temarioParaGuardar.tema_curso || params.tema_curso || "SinNombre",
+        contenido: temarioParaGuardar,
+        autor: token ? "anette.flores@netec.com.mx" : "Anónimo",
+        asesor_comercial: params.asesor_comercial || "No asignado",
+        nombre_preventa: params.nombre_preventa || "No especificado",
+        nombre_curso: params.tema_curso || "Sin nombre",
+        tecnologia: params.tecnologia || "No especificada",
+        nota_version: `Guardado el ${new Date().toLocaleString()}`,
+        fecha_creacion: new Date().toISOString(),
+        s3_path: `s3://temarios/${(params.tema_curso || "SinNombre").replace(/\s+/g, "_")}_${new Date().toISOString()}.json`
+      };
 
       const response = await fetch(apiUrl, {
         method: "POST",
-        mode: "cors", // ✅ habilita preflight correcto
+        mode: "cors",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({
-          cursoId: temarioParaGuardar.tema_curso || "SinNombre",
-          contenido: temarioParaGuardar,
-          nota: `Guardado ${new Date().toLocaleString()}`,
-          autor: token ? "Usuario autenticado" : "Anónimo"
-        })
+        body: JSON.stringify(bodyData)
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Error al guardar la versión del temario.");
+      if (!response.ok || !data.success) throw new Error(data.error || "Error al guardar la versión del temario.");
 
       alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
@@ -113,11 +125,22 @@ function GeneradorTemarios() {
     }
   };
 
-  // 🔹 GET versiones
+  // ✅ Listar versiones con filtros
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+    setFiltros(prev => ({ ...prev, [name]: value }));
+  };
+
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
-      const response = await fetch(apiUrl, {
+      const queryParams = new URLSearchParams({
+        tecnologia: filtros.tecnologia,
+        asesor_comercial: filtros.asesor_comercial,
+        nombre_curso: filtros.nombre_curso
+      });
+
+      const response = await fetch(`${apiUrl}?${queryParams.toString()}`, {
         method: "GET",
         mode: "cors",
         headers: {
@@ -129,8 +152,8 @@ function GeneradorTemarios() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
 
-      console.log("📦 Versiones guardadas:", data);
-      alert(`Se encontraron ${data.length} versiones (ver consola).`);
+      setVersiones(data);
+      setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
       alert("❌ No se pudieron obtener las versiones. Revisa la consola.");
@@ -142,7 +165,6 @@ function GeneradorTemarios() {
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-      {/* Formulario principal */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
@@ -178,53 +200,16 @@ function GeneradorTemarios() {
               <option value="avanzado">Avanzado</option>
             </select>
           </div>
-
-          <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
-            <div className="slider-container">
-              <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
-              <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
-            <div className="slider-container">
-              <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
-              <span>{params.horas_por_sesion} horas</span>
-            </div>
-          </div>
         </div>
-
-        <div className="form-group">
-          <label>Tipo de Objetivo</label>
-          <div className="radio-group">
-            <label>
-              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === 'saber_hacer'} onChange={handleParamChange} />
-              Saber Hacer (enfocado en habilidades)
-            </label>
-            <label>
-              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === 'certificacion'} onChange={handleParamChange} />
-              Certificación (enfocado en examen)
-            </label>
-          </div>
-        </div>
-
-        {params.objetivo_tipo === 'certificacion' && (
-          <div className="form-group">
-            <label>Código de Certificación</label>
-            <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleParamChange} placeholder="Ej: AWS CLF-C02, AZ-900" />
-          </div>
-        )}
 
         <div className="form-group">
           <label>Sector / Audiencia</label>
-          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..." />
         </div>
 
         <div className="form-group">
           <label>Enfoque Adicional (Opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a buenas prácticas, con énfasis en casos prácticos" />
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -248,8 +233,78 @@ function GeneradorTemarios() {
           isLoading={isLoading}
         />
       )}
+
+      {/* 🔹 Modal con filtros */}
+      {mostrarModal && (
+        <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📚 Versiones Guardadas</h3>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="filtros-versiones">
+                <input
+                  type="text"
+                  name="tecnologia"
+                  placeholder="Filtrar por tecnología..."
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+                <input
+                  type="text"
+                  name="asesor_comercial"
+                  placeholder="Filtrar por asesor..."
+                  value={filtros.asesor_comercial}
+                  onChange={handleFiltroChange}
+                />
+                <input
+                  type="text"
+                  name="nombre_curso"
+                  placeholder="Buscar curso..."
+                  value={filtros.nombre_curso}
+                  onChange={handleFiltroChange}
+                />
+                <button className="btn-generar-principal" onClick={handleListarVersiones}>
+                  Buscar
+                </button>
+              </div>
+
+              {versiones.length === 0 ? (
+                <p>No hay versiones guardadas todavía.</p>
+              ) : (
+                <table className="tabla-versiones">
+                  <thead>
+                    <tr>
+                      <th>Curso</th>
+                      <th>Tecnología</th>
+                      <th>Asesor</th>
+                      <th>Fecha</th>
+                      <th>Autor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versiones.map((v, i) => (
+                      <tr key={i}>
+                        <td>{v.nombre_curso}</td>
+                        <td>{v.tecnologia}</td>
+                        <td>{v.asesor_comercial}</td>
+                        <td>{new Date(v.fecha_creacion).toLocaleString("es-MX")}</td>
+                        <td>{v.autor}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default GeneradorTemarios;
+
+
+
