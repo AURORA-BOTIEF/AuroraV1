@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario'; 
+import EditorDeTemario from './EditorDeTemario';
 import './GeneradorTemarios.css';
-import { Download, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -51,7 +50,7 @@ function GeneradorTemarios() {
   };
 
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -154,13 +153,15 @@ function GeneradorTemarios() {
     }
   };
 
+  // 🔽 Exportar Excel
   const exportarExcel = (item) => {
     const hoja = XLSX.utils.json_to_sheet([item]);
     const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, "Version");
+    XLSX.utils.book_append_sheet(libro, hoja, "Versión");
     XLSX.writeFile(libro, `${item.nombre_curso || 'temario'}.xlsx`);
   };
 
+  // 🔽 Exportar PDF
   const exportarPDF = (item) => {
     const doc = new jsPDF();
     doc.text(`Versión del curso: ${item.nombre_curso}`, 10, 10);
@@ -221,6 +222,8 @@ function GeneradorTemarios() {
         </div>
       </div>
 
+      {error && <div className="error-mensaje">{error}</div>}
+
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
@@ -230,7 +233,7 @@ function GeneradorTemarios() {
         />
       )}
 
-      {/* 🔹 Modal con filtros, botón de lupa y descargas */}
+      {/* 🔹 Modal con filtros, lupa y descargas */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -265,13 +268,7 @@ function GeneradorTemarios() {
                   value={filtros.nombre_curso}
                   onChange={handleFiltroChange}
                 />
-                <button
-                  className="btn-lupa"
-                  title="Buscar"
-                  onClick={handleListarVersiones}
-                >
-                  <Search size={18} />
-                </button>
+                <button className="btn-lupa" title="Buscar" onClick={handleListarVersiones}>🔍</button>
               </div>
 
               {versionesFiltradas.length === 0 ? (
@@ -316,6 +313,7 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
 
