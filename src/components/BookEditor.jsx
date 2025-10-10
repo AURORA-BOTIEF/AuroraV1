@@ -27,6 +27,7 @@ function BookEditor({ projectFolder, onClose }) {
     const lastAppliedLessonRef = useRef({ index: null, content: null, isEditing: null });
     const [editingHtml, setEditingHtml] = useState(null);
     const selectionRef = useRef(null);
+    // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     useEffect(() => {
         if (projectFolder) {
@@ -34,6 +35,28 @@ function BookEditor({ projectFolder, onClose }) {
             loadVersions();
         }
     }, [projectFolder]);
+
+    // ReactQuill removed; lexical is preferred
+
+    // Dynamically import Lexical editor wrapper (preferred editor)
+    const [LexicalEditorWrapper, setLexicalEditorWrapper] = React.useState(null);
+    const [useLexical, setUseLexical] = React.useState(false);
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const mod = await import('./LexicalEditorWrapper');
+                if (mounted) {
+                    setLexicalEditorWrapper(() => mod.default);
+                    setUseLexical(true);
+                }
+            } catch (e) {
+                console.warn('Lexical dynamic import failed, falling back to other editors:', e);
+                setUseLexical(false);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
 
     const loadBook = async () => {
         try {
@@ -247,6 +270,8 @@ function BookEditor({ projectFolder, onClose }) {
             alert('Error al cargar versión para editar: ' + String(e));
         }
     };
+
+    // No Quill-specific paste handler; Lexical wrapper handles its own paste behavior.
 
     const saveBook = async () => {
         if (!bookData) return;
@@ -804,14 +829,33 @@ function BookEditor({ projectFolder, onClose }) {
                         <h3>{currentLesson.title}</h3>
                         <div className="lesson-stats">Palabras: {currentLesson.content.split(/\s+/).filter(Boolean).length}</div>
                     </div>
-                    <div
-                        ref={editorRef}
-                        className="content-editor"
-                        contentEditable={isEditing}
-                        suppressContentEditableWarning={true}
-                        onInput={handleContentChange}
-                        onPaste={handlePaste}
-                    />
+                    <div className="editor-container">
+                        {useLexical && LexicalEditorWrapper ? (
+                            <LexicalEditorWrapper
+                                initialHtml={editingHtml ?? formatContentForEditing(currentLesson.content)}
+                                readOnly={!isEditing}
+                                onChange={(html) => setEditingHtml(html)}
+                                projectFolder={projectFolder}
+                            />
+                        ) : useQuillEditor && ReactQuill ? (
+                            <ReactQuill
+                                ref={quillRef}
+                                theme="snow"
+                                value={editingHtml ?? formatContentForEditing(currentLesson.content)}
+                                readOnly={!isEditing}
+                                onChange={(html) => { setEditingHtml(html); }}
+                            />
+                        ) : (
+                            <div
+                                ref={editorRef}
+                                className="content-editor"
+                                contentEditable={isEditing}
+                                suppressContentEditableWarning={true}
+                                onInput={handleContentChange}
+                                onPaste={handlePaste}
+                            />
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,0 +1,14 @@
+.lexical-wrapper {
+    border: 1px solid #ddd;
+    padding: 8px;
+    min-height: 200px;
+}
+
+.lexical-content-editable {
+    min-height: 180px;
+    outline: none;
+}
+
+.lexical-placeholder {
+    color: #999;
+}
