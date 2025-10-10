@@ -81,12 +81,23 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ handleSave corregido definitivamente
+  // ✅ handleSave actualizado para guardar email del autor
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
     try {
       const token = localStorage.getItem("id_token");
+
+      // ✅ Decodificar el JWT para obtener el correo
+      let autor = "Anónimo";
+      try {
+        if (token) {
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          autor = payload.email || payload["cognito:username"] || "Usuario autenticado";
+        }
+      } catch (err) {
+        console.warn("⚠️ No se pudo decodificar el token:", err);
+      }
 
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -99,11 +110,11 @@ function GeneradorTemarios() {
           cursoId: temarioParaGuardar.tema_curso || "SinNombre",
           contenido: temarioParaGuardar,
           nota: `Guardado ${new Date().toLocaleString()}`,
-          autor: token ? "Usuario autenticado" : "Anónimo"
+          autor // ✅ Guarda el email o username del usuario
         })
       });
 
-      // ✅ Manejo robusto de respuesta
+      // ✅ Manejo robusto de la respuesta
       const raw = await response.text();
       let data;
 
@@ -116,7 +127,6 @@ function GeneradorTemarios() {
 
       console.log("✅ Respuesta de la API:", data);
 
-      // ✅ Validar éxito aunque no exista 'success'
       const isSuccess = response.ok && (data.success === true || data.message?.includes("guardado"));
       if (!isSuccess) {
         throw new Error(data.error || data.message || "Error al guardar el temario.");
