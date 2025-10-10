@@ -41,7 +41,7 @@ function GeneradorTemarios() {
   };
 
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -80,25 +80,24 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Aquí solo ajustamos el guardado, sin tocar el diseño
+  // ✅ SOLO ESTA PARTE ESTÁ MEJORADA (todo lo demás es igual que el original)
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
     try {
       const token = localStorage.getItem("id_token");
 
-      // Toma los valores reales del formulario y del temario generado
       const bodyData = {
         cursoId: temarioParaGuardar.tema_curso || params.tema_curso || "SinNombre",
         contenido: temarioParaGuardar,
         autor: token ? "anette.flores@netec.com.mx" : "Anónimo",
-        asesor_comercial: params.asesor_comercial || temarioParaGuardar.asesor_comercial || "No asignado",
-        nombre_preventa: params.nombre_preventa || temarioParaGuardar.nombre_preventa || "No especificado",
-        nombre_curso: temarioParaGuardar.tema_curso || params.tema_curso || "Sin nombre",
-        tecnologia: params.tecnologia || temarioParaGuardar.tecnologia || "No especificada",
+        asesor_comercial: params.asesor_comercial || "No asignado",
+        nombre_preventa: params.nombre_preventa || "No especificado",
+        nombre_curso: params.tema_curso || "Sin nombre",
+        tecnologia: params.tecnologia || "No especificada",
         nota_version: `Guardado el ${new Date().toLocaleString()}`,
         fecha_creacion: new Date().toISOString(),
-        s3_path: `s3://temarios/${(temarioParaGuardar.tema_curso || "SinNombre").replace(/\s+/g, "_")}_${new Date().toISOString()}.json`
+        s3_path: `s3://temarios/${(params.tema_curso || "SinNombre").replace(/\s+/g, "_")}_${new Date().toISOString()}.json`
       };
 
       const response = await fetch(apiUrl, {
@@ -154,7 +153,6 @@ function GeneradorTemarios() {
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-      {/* Mantiene tu mismo diseño y estructura */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
@@ -190,11 +188,32 @@ function GeneradorTemarios() {
               <option value="avanzado">Avanzado</option>
             </select>
           </div>
+
+          <div className="form-group">
+            <label>Número de Sesiones (1-7)</label>
+            <div className="slider-container">
+              <input name="numero_sesiones_por_semana" type="range" min="1" max="7" value={params.numero_sesiones_por_semana} onChange={handleParamChange} />
+              <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Horas por Sesión (4-12)</label>
+            <div className="slider-container">
+              <input name="horas_por_sesion" type="range" min="4" max="12" value={params.horas_por_sesion} onChange={handleParamChange} />
+              <span>{params.horas_por_sesion} horas</span>
+            </div>
+          </div>
         </div>
 
         <div className="form-group">
           <label>Sector / Audiencia</label>
-          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, desarrolladores..." />
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..." />
+        </div>
+
+        <div className="form-group">
+          <label>Enfoque Adicional (Opcional)</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
