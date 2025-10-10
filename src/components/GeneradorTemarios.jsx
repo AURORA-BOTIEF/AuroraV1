@@ -29,7 +29,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ URL correcta (etapa: versiones)
+  // ✅ Endpoint correcto (etapa "versiones")
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -81,14 +81,14 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ handleSave actualizado para guardar email del autor
+  // ✅ handleSave actualizado con todos los campos requeridos
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
     try {
       const token = localStorage.getItem("id_token");
 
-      // ✅ Decodificar el JWT para obtener el correo
+      // ✅ Decodificar token para obtener correo
       let autor = "Anónimo";
       try {
         if (token) {
@@ -99,6 +99,24 @@ function GeneradorTemarios() {
         console.warn("⚠️ No se pudo decodificar el token:", err);
       }
 
+      // ✅ Construir los campos a guardar
+      const fechaActual = new Date().toISOString();
+      const nota_version = `Versión guardada el ${new Date().toLocaleString()}`;
+      const s3_path = `s3://temarios/${temarioParaGuardar.tema_curso?.replace(/\s+/g, "_")}_${fechaActual}.json`;
+
+      const payload = {
+        cursoId: temarioParaGuardar.tema_curso || "SinNombre",
+        contenido: temarioParaGuardar,
+        autor,
+        asesor_comercial: temarioParaGuardar.asesor_comercial || "No asignado",
+        nombre_preventa: temarioParaGuardar.nombre_preventa || "No especificado",
+        nombre_curso: temarioParaGuardar.tema_curso || "Sin nombre",
+        tecnologia: temarioParaGuardar.tecnologia || "No especificada",
+        nota_version,
+        fecha_creacion: fechaActual,
+        s3_path
+      };
+
       const response = await fetch(apiUrl, {
         method: "POST",
         mode: "cors",
@@ -106,12 +124,7 @@ function GeneradorTemarios() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({
-          cursoId: temarioParaGuardar.tema_curso || "SinNombre",
-          contenido: temarioParaGuardar,
-          nota: `Guardado ${new Date().toLocaleString()}`,
-          autor // ✅ Guarda el email o username del usuario
-        })
+        body: JSON.stringify(payload)
       });
 
       // ✅ Manejo robusto de la respuesta
