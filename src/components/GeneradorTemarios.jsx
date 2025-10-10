@@ -1,7 +1,10 @@
-// src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario';
+import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
+import { Download, Search } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -47,9 +50,8 @@ function GeneradorTemarios() {
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
-  // ✅ Generar temario con IA
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -79,6 +81,7 @@ function GeneradorTemarios() {
 
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
+
     } catch (err) {
       console.error("Error al generar el temario:", err);
       setError(err.message);
@@ -87,7 +90,6 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión en DynamoDB
   const handleSave = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -124,7 +126,6 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Listar versiones con filtros
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros(prev => ({ ...prev, [name]: value }));
@@ -133,14 +134,7 @@ function GeneradorTemarios() {
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
-
-      // 🚀 No incluir filtros vacíos en la URL
-      const queryParams = new URLSearchParams();
-      Object.entries(filtros).forEach(([key, val]) => {
-        if (val.trim() !== "") queryParams.append(key, val);
-      });
-
-      const response = await fetch(`${apiUrl}?${queryParams.toString()}`, {
+      const response = await fetch(apiUrl, {
         method: "GET",
         mode: "cors",
         headers: {
@@ -160,17 +154,34 @@ function GeneradorTemarios() {
     }
   };
 
-  const handleCerrarModal = () => {
-    setMostrarModal(false);
-    setFiltros({ tecnologia: "", asesor_comercial: "", nombre_curso: "" });
+  const exportarExcel = (item) => {
+    const hoja = XLSX.utils.json_to_sheet([item]);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Version");
+    XLSX.writeFile(libro, `${item.nombre_curso || 'temario'}.xlsx`);
   };
+
+  const exportarPDF = (item) => {
+    const doc = new jsPDF();
+    doc.text(`Versión del curso: ${item.nombre_curso}`, 10, 10);
+    doc.autoTable({
+      head: [["Campo", "Valor"]],
+      body: Object.entries(item).map(([k, v]) => [k, v]),
+    });
+    doc.save(`${item.nombre_curso || 'temario'}.pdf`);
+  };
+
+  const versionesFiltradas = versiones.filter(v =>
+    (!filtros.tecnologia || v.tecnologia?.toLowerCase().includes(filtros.tecnologia.toLowerCase())) &&
+    (!filtros.asesor_comercial || v.asesor_comercial === filtros.asesor_comercial) &&
+    (!filtros.nombre_curso || v.nombre_curso?.toLowerCase().includes(filtros.nombre_curso.toLowerCase()))
+  );
 
   return (
     <div className="generador-temarios-container">
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-      {/* === FORMULARIO PRINCIPAL === */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
@@ -197,25 +208,6 @@ function GeneradorTemarios() {
             <label>Tema Principal del Curso</label>
             <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
           </div>
-
-          <div className="form-group">
-            <label>Nivel de Dificultad</label>
-            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
-              <option value="basico">Básico</option>
-              <option value="intermedio">Intermedio</option>
-              <option value="avanzado">Avanzado</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="form-group">
-          <label>Sector / Audiencia</label>
-          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..." />
-        </div>
-
-        <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a buenas prácticas, con énfasis en casos prácticos" />
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -229,8 +221,6 @@ function GeneradorTemarios() {
         </div>
       </div>
 
-      {error && <div className="error-mensaje">{error}</div>}
-
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
@@ -240,24 +230,51 @@ function GeneradorTemarios() {
         />
       )}
 
-      {/* === MODAL CON FILTROS === */}
+      {/* 🔹 Modal con filtros, botón de lupa y descargas */}
       {mostrarModal && (
-        <div className="modal-overlay" onClick={handleCerrarModal}>
+        <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>📚 Versiones Guardadas</h3>
-              <button className="modal-close" onClick={handleCerrarModal}>✕</button>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
 
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input type="text" name="tecnologia" placeholder="Filtrar por tecnología..." value={filtros.tecnologia} onChange={handleFiltroChange} />
-                <input type="text" name="asesor_comercial" placeholder="Filtrar por asesor..." value={filtros.asesor_comercial} onChange={handleFiltroChange} />
-                <input type="text" name="nombre_curso" placeholder="Buscar curso..." value={filtros.nombre_curso} onChange={handleFiltroChange} />
-                <button className="btn-generar-principal" onClick={handleListarVersiones}>Buscar</button>
+                <input
+                  type="text"
+                  name="tecnologia"
+                  placeholder="Filtrar por tecnología..."
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+                <select
+                  name="asesor_comercial"
+                  value={filtros.asesor_comercial}
+                  onChange={handleFiltroChange}
+                >
+                  <option value="">Todos los asesores</option>
+                  {asesoresComerciales.map(nombre => (
+                    <option key={nombre} value={nombre}>{nombre}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  name="nombre_curso"
+                  placeholder="Buscar curso..."
+                  value={filtros.nombre_curso}
+                  onChange={handleFiltroChange}
+                />
+                <button
+                  className="btn-lupa"
+                  title="Buscar"
+                  onClick={handleListarVersiones}
+                >
+                  <Search size={18} />
+                </button>
               </div>
 
-              {versiones.length === 0 ? (
+              {versionesFiltradas.length === 0 ? (
                 <p>No hay versiones guardadas todavía.</p>
               ) : (
                 <table className="tabla-versiones">
@@ -268,16 +285,23 @@ function GeneradorTemarios() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
+                      <th>Descargar</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {versiones.map((v, i) => (
+                    {versionesFiltradas.map((v, i) => (
                       <tr key={i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{v.fecha_creacion ? new Date(v.fecha_creacion).toLocaleString("es-MX") : "Sin fecha"}</td>
                         <td>{v.autor}</td>
+                        <td>
+                          <div className="btn-descargar">
+                            <button title="Exportar Excel" onClick={() => exportarExcel(v)}>📊</button>
+                            <button title="Exportar PDF" onClick={() => exportarPDF(v)}>📄</button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
