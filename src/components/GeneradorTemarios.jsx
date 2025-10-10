@@ -1,6 +1,6 @@
 // src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario';
+import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
 const asesoresComerciales = [
@@ -29,7 +29,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ Endpoint correcto (etapa versiones)
+  // ✅ URL correcta a tu API Gateway (Lambda de versiones)
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -41,9 +41,9 @@ function GeneradorTemarios() {
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
-  // ✅ Generar temario con IA
+  // ✅ Generar propuesta de temario
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -71,7 +71,6 @@ function GeneradorTemarios() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
 
-      // ✅ Se guarda todo lo que eligió el usuario
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
 
@@ -83,52 +82,27 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión en DynamoDB (basado en lo seleccionado)
+  // ✅ Guardar versión del temario
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
     try {
       const token = localStorage.getItem("id_token");
 
-      // ✅ Decodificar el JWT para obtener el correo real del usuario
-      let autor = "Anónimo";
-      try {
-        if (token) {
-          const payload = JSON.parse(atob(token.split(".")[1]));
-          autor = payload.email || payload["cognito:username"] || "Usuario autenticado";
-        }
-      } catch (err) {
-        console.warn("⚠️ No se pudo decodificar el token:", err);
-      }
-
-      // ✅ Obtener los datos seleccionados al generar el temario
-      const {
-        tema_curso,
-        nombre_preventa,
-        asesor_comercial,
-        tecnologia
-      } = temarioParaGuardar;
-
-      // ✅ Generar metadatos adicionales
-      const fecha_creacion = new Date().toISOString();
-      const nota_version = `Versión guardada el ${new Date().toLocaleString()}`;
-      const s3_path = `s3://temarios/${tema_curso?.replace(/\s+/g, "_")}_${fecha_creacion}.json`;
-
-      // ✅ Construir payload completo
-      const payload = {
-        cursoId: tema_curso || "SinNombre",
+      // Construye el cuerpo completo con todos los campos esperados por la Lambda
+      const bodyData = {
+        cursoId: temarioParaGuardar.tema_curso || "SinNombre",
         contenido: temarioParaGuardar,
-        autor,
-        asesor_comercial: asesor_comercial || "No asignado",
-        nombre_preventa: nombre_preventa || "No especificado",
-        nombre_curso: tema_curso || "Sin nombre",
-        tecnologia: tecnologia || "No especificada",
-        nota_version,
-        fecha_creacion,
-        s3_path
+        autor: token ? "Usuario autenticado" : "Anónimo",
+        asesor_comercial: temarioParaGuardar.asesor_comercial || "No asignado",
+        nombre_preventa: temarioParaGuardar.nombre_preventa || "No especificado",
+        nombre_curso: temarioParaGuardar.tema_curso || "Sin nombre",
+        tecnologia: temarioParaGuardar.tecnologia || "No especificada",
+        nota_version: `Guardado el ${new Date().toLocaleString()}`,
+        fecha_creacion: new Date().toISOString(),
+        s3_path: `s3://temarios/${(temarioParaGuardar.tema_curso || "SinNombre").replace(/\s+/g, "_")}_${new Date().toISOString()}.json`
       };
 
-      // ✅ Enviar a Lambda
       const response = await fetch(apiUrl, {
         method: "POST",
         mode: "cors",
@@ -136,36 +110,25 @@ function GeneradorTemarios() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(bodyData)
       });
 
-      // ✅ Procesar respuesta
-      const raw = await response.text();
-      let data;
-
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        console.warn("⚠️ Respuesta no JSON:", raw);
-        data = { message: raw };
-      }
-
+      const data = await response.json();
       console.log("✅ Respuesta de la API:", data);
 
-      const isSuccess = response.ok && (data.success === true || data.message?.includes("guardado"));
-      if (!isSuccess) {
-        throw new Error(data.error || data.message || "Error al guardar el temario.");
+      if (!response.ok || !data.success) {
+        console.error("❌ Error en la respuesta de la API:", data);
+        throw new Error(data.error || "Error al guardar la versión del temario.");
       }
 
-      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId || "N/A"}`);
-
+      alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
-      console.error("❌ Error al guardar el temario:", error);
+      console.error("Error al guardar el temario:", error);
       alert("❌ No se pudo guardar el temario. Revisa la consola.");
     }
   };
 
-  // ✅ Listar versiones
+  // ✅ Listar versiones guardadas (GET)
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -305,6 +268,7 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
 
