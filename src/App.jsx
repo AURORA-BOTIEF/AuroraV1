@@ -1,10 +1,11 @@
-// src/App.jsx (Corrected to use AWS Amplify Auth for proper session management and IAM credentials)
+// src/App.jsx (corregido y funcional)
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
-import { hostedUiAuthorizeUrl } from './amplify.js';
-// Image assets
+import './App.css'; // si tienes estilos globales
+
+// Imagenes
 import logoImg from './assets/Netec.png';
 import previewImgSrc from './assets/Preview.png';
 import chileFlagImg from './assets/chile.png';
@@ -13,7 +14,7 @@ import colombiaFlagImg from './assets/colombia.png';
 import mexicoFlagImg from './assets/mexico.png';
 import espanaFlagImg from './assets/espana.png';
 
-// Actual component imports
+// Componentes principales
 import Sidebar from './components/Sidebar.jsx';
 import ProfileModal from './components/ProfileModal.jsx';
 import ChatModal from './components/ChatModal.jsx';
@@ -33,7 +34,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Image variables
+  // Imágenes para pantalla de inicio
   const logo = logoImg;
   const previewImg = previewImgSrc;
   const chileFlag = chileFlagImg;
@@ -42,9 +43,9 @@ function App() {
   const mexicoFlag = mexicoFlagImg;
   const espanaFlag = espanaFlagImg;
 
-  // Check for OAuth callback and fetch session
+  // ======== Autenticación Amplify ========
   useEffect(() => {
-    // Listen for auth events
+    // Escucha eventos de autenticación
     const hubListener = Hub.listen('auth', ({ payload }) => {
       console.log('Auth event:', payload.event);
       if (payload.event === 'signedIn' || payload.event === 'tokenRefresh') {
@@ -55,17 +56,15 @@ function App() {
       }
     });
 
-    // Check if we're returning from OAuth (code in URL)
+    // Si viene de OAuth (código en URL)
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
-
     if (code) {
       console.log('OAuth code detected, clearing URL...');
-      // Clear the code from URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    // Check current auth session
+    // Verificar sesión actual
     checkAuthSession();
 
     return () => hubListener();
@@ -79,10 +78,16 @@ function App() {
         if (!idToken || !accessToken) {
           throw new Error('No tokens available');
         }
+
         const attributes = idToken.payload;
         const groups = accessToken.payload['cognito:groups'] || [];
         console.log('Access Token payload:', JSON.stringify(accessToken.payload, null, 2));
         console.log('Groups found:', groups);
+
+        // Guarda tokens localmente para otras llamadas (AdminPage, Sidebar)
+        localStorage.setItem('id_token', idToken.toString());
+        localStorage.setItem('access_token', accessToken.toString());
+
         setUser({ attributes, groups });
         setLoading(false);
       })
@@ -97,9 +102,11 @@ function App() {
     signOut();
   };
 
+  // ======== Roles y permisos ========
   const email = user?.attributes?.email || '';
   const groups = user?.groups || [];
   let rol = '';
+
   if (groups.includes('Administrador')) {
     rol = 'admin';
   } else if (groups.includes('Creador')) {
@@ -107,16 +114,19 @@ function App() {
   } else if (groups.includes('Participante')) {
     rol = 'participant';
   }
-  const adminAllowed = email === 'anette@netec.com' || rol === 'admin';
+
+  // ✅ Solo Anette o usuarios con rol "admin" pueden ver /admin
+  const adminAllowed = email === 'anette.flores@netec.com.mx' || rol === 'admin';
 
   if (loading) {
     return <div>Loading...</div>;
   }
 
+  // ======== Pantalla principal ========
   return (
     <>
       {!user ? (
-        // Authentication screen
+        // === Pantalla de inicio (no autenticado) ===
         <div id="paginaInicio">
           <div className="header-bar">
             <img className="logo-left" src={logo} alt="Logo Netec" />
@@ -126,11 +136,15 @@ function App() {
               <div className="illustration-centered">
                 <img src={previewImg} alt="Ilustración" className="preview-image" />
               </div>
-              <button className="login-button" onClick={() => {
-                signInWithRedirect({ provider: 'Cognito' });
-              }}>
+              <button
+                className="login-button"
+                onClick={() => {
+                  signInWithRedirect({ provider: 'Cognito' });
+                }}
+              >
                 🚀 Comenzar Ahora
               </button>
+
               <div className="country-flags">
                 {[
                   { flag: chileFlag, label: 'Chile', url: 'https://www.netec.com/cursos-ti-chile' },
@@ -149,7 +163,7 @@ function App() {
           </div>
         </div>
       ) : (
-        // Main app
+        // === Aplicación principal (usuario autenticado) ===
         <Router>
           <div id="contenidoPrincipal">
             <Sidebar email={email} grupo={rol} />
@@ -162,7 +176,13 @@ function App() {
                 <Route path="/actividades" element={<ActividadesPage />} />
                 <Route path="/resumenes" element={<ResumenesPage />} />
                 <Route path="/examenes" element={<ExamenesPage />} />
-                <Route path="/admin" element={adminAllowed ? <AdminPage /> : <Navigate to="/" replace />} />
+
+                {/* ✅ Solo Anette o admins pueden acceder */}
+                <Route
+                  path="/admin"
+                  element={adminAllowed ? <AdminPage /> : <Navigate to="/" replace />}
+                />
+
                 <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
                   <Route path="curso-estandar" element={<GeneradorTemarios />} />
                   <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
@@ -170,10 +190,14 @@ function App() {
                   <Route path="book-builder" element={<BookBuilderPage />} />
                   <Route path="generador-contenido" element={<GeneradorContenido />} />
                 </Route>
+
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
-            <button id="logout" onClick={handleLogout}>Cerrar sesión</button>
+
+            <button id="logout" onClick={handleLogout}>
+              Cerrar sesión
+            </button>
           </div>
         </Router>
       )}
