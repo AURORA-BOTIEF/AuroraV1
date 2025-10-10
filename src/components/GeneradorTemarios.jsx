@@ -1,6 +1,6 @@
 // src/components/GeneradorTemarios.jsx
 import React, { useState } from 'react';
-import EditorDeTemario from './EditorDeTemario';
+import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
 const asesoresComerciales = [
@@ -29,7 +29,7 @@ function GeneradorTemarios() {
     codigo_certificacion: ''
   });
 
-  // ✅ URL correcta de tu API Gateway (versión estable)
+  // ✅ Endpoint correcto (tu etapa y ruta)
   const apiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   const handleParamChange = (e) => {
@@ -42,7 +42,7 @@ function GeneradorTemarios() {
   };
 
   const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
+    if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial || 
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
       setError("Por favor completa todos los campos requeridos: Preventa, Asesor, Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
@@ -59,7 +59,7 @@ function GeneradorTemarios() {
       const token = localStorage.getItem("id_token");
       const response = await fetch("https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR", {
         method: "POST",
-        mode: "cors", // ✅ mantiene CORS activo
+        mode: "cors", // ✅ habilita CORS correctamente
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -81,7 +81,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Corrección final: Lambda devuelve un body JSON anidado, lo parseamos correctamente
+  // ✅ CORREGIDO: Maneja correctamente el JSON anidado de la Lambda
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
@@ -103,14 +103,16 @@ function GeneradorTemarios() {
         })
       });
 
-      // ✅ Nueva lógica de parseo
-      const rawData = await response.json();
-      const data = typeof rawData.body === "string" ? JSON.parse(rawData.body) : rawData;
+      // ✅ Corrección: el body llega anidado como string
+      const raw = await response.json();
+      const data = typeof raw.body === "string" ? JSON.parse(raw.body) : raw;
 
       if (!response.ok || !data.success) {
+        console.error("❌ Error en la respuesta de la API:", raw);
         throw new Error(data.error || "Error al guardar la versión del temario.");
       }
 
+      console.log("✅ Respuesta de la API:", data);
       alert(`✅ Versión guardada correctamente\nVersion ID: ${data.versionId}`);
     } catch (error) {
       console.error("Error al guardar el temario:", error);
@@ -118,7 +120,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // 🔹 GET versiones (para listar desde DynamoDB)
+  // 🔹 GET versiones desde DynamoDB
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -131,8 +133,8 @@ function GeneradorTemarios() {
         }
       });
 
-      const rawData = await response.json();
-      const data = typeof rawData.body === "string" ? JSON.parse(rawData.body) : rawData;
+      const raw = await response.json();
+      const data = typeof raw.body === "string" ? JSON.parse(raw.body) : raw;
 
       if (!response.ok) throw new Error(data.error || "Error al obtener versiones.");
 
@@ -260,3 +262,4 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
