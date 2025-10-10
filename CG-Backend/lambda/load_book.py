@@ -40,11 +40,23 @@ def lambda_handler(event, context):
 
         # Initialize S3 client
         s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
+        cw_client = boto3.client('cloudwatch', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
 
         book_data = None
         book_content = None
 
-        # Try to load book JSON data first (look for any _data.json file)
+        # Prepare response data early so we can add presigned URLs without reassigning
+        response_data = {
+            "projectFolder": project_folder,
+            "bucket": bucket_name,
+            "hasBookData": False,
+            "hasBookContent": False
+        }
+
+        # Try to discover book JSON/markdown keys in S3, but avoid returning large
+        # object bodies directly (Lambda response size limit ~6MB). If an object
+        # is small we'll inline it; otherwise we return a short presigned URL so
+        # the client can download it directly from S3.
         try:
             # List files in the book folder
             book_prefix = f"{project_folder}/book/"
@@ -53,35 +65,107 @@ def lambda_handler(event, context):
                 Prefix=book_prefix,
                 MaxKeys=50
             )
-            
+
             book_json_key = None
             book_md_key = None
-            
+
             if 'Contents' in response:
                 for obj in response['Contents']:
                     key = obj['Key']
-                    if key.endswith('_data.json'):
+                    if key.endswith('_data.json') and not book_json_key:
                         book_json_key = key
-                    elif key.endswith('_complete.md'):
+                    elif key.endswith('_complete.md') and not book_md_key:
                         book_md_key = key
-            
-            # Load JSON data if found
-            if book_json_key:
-                response = s3_client.get_object(Bucket=bucket_name, Key=book_json_key)
-                book_data = json.loads(response['Body'].read().decode('utf-8'))
-                print(f"Loaded book JSON data from: {book_json_key}")
-            
-            # Load markdown content if found
-            if book_md_key:
-                response = s3_client.get_object(Bucket=bucket_name, Key=book_md_key)
-                book_content = response['Body'].read().decode('utf-8')
-                print(f"Loaded book markdown from: {book_md_key}")
-                
+
+            # Helper to decide whether to inline or presign
+            def prepare_object(key):
+                """Return either {'inline': parsed_json} or {'presignedUrl': url, 'key': key}
+                depending on object size."""
+                if not key:
+                    return None
+                try:
+                    head = s3_client.head_object(Bucket=bucket_name, Key=key)
+                    size = head.get('ContentLength', 0)
+                    # If object is less than 800KB, inline it safely; otherwise presign
+                    if size and size < 800_000:
+                        obj = s3_client.get_object(Bucket=bucket_name, Key=key)
+                        body = obj['Body'].read()
+                        # If JSON, parse; if markdown, return text
+                        if key.endswith('_data.json'):
+                            try:
+                                return {'inline': json.loads(body.decode('utf-8'))}
+                            except Exception:
+                                return {'presignedUrl': s3_client.generate_presigned_url('get_object', Params={'Bucket': bucket_name, 'Key': key}, ExpiresIn=900), 'key': key}
+                        else:
+                            return {'inline': body.decode('utf-8')}
+                    else:
+                        url = s3_client.generate_presigned_url('get_object', Params={'Bucket': bucket_name, 'Key': key}, ExpiresIn=900)
+                        return {'presignedUrl': url, 'key': key}
+                except Exception as e:
+                    print(f"Error preparing object {key}: {str(e)}")
+                    return None
+
+            # Prepare JSON and markdown entries
+            json_entry = prepare_object(book_json_key)
+            md_entry = prepare_object(book_md_key)
+
+            if json_entry:
+                if 'inline' in json_entry:
+                    book_data = json_entry['inline']
+                    print(f"Loaded book JSON data from: {book_json_key} (inlined)")
+                else:
+                    response_data['bookJsonKey'] = book_json_key
+                    response_data['bookJsonUrl'] = json_entry.get('presignedUrl')
+                    # Emit CloudWatch metric indicating we returned a presigned URL
+                    try:
+                        cw_client.put_metric_data(
+                            Namespace='Aurora/LoadBook',
+                            MetricData=[
+                                {
+                                    'MetricName': 'PresignedUrlsReturned',
+                                    'Dimensions': [
+                                        {'Name': 'Type', 'Value': 'JSON'}
+                                    ],
+                                    'Value': 1.0,
+                                    'Unit': 'Count'
+                                }
+                            ]
+                        )
+                    except Exception as me:
+                        print(f"Failed to emit CloudWatch metric for JSON presign: {str(me)}")
+                    print(f"Provided presigned URL for JSON: {book_json_key}")
+
+            if md_entry:
+                if 'inline' in md_entry:
+                    book_content = md_entry['inline']
+                    print(f"Loaded book markdown from: {book_md_key} (inlined)")
+                else:
+                    response_data['bookMdKey'] = book_md_key
+                    response_data['bookMdUrl'] = md_entry.get('presignedUrl')
+                    # Emit CloudWatch metric indicating we returned a presigned URL
+                    try:
+                        cw_client.put_metric_data(
+                            Namespace='Aurora/LoadBook',
+                            MetricData=[
+                                {
+                                    'MetricName': 'PresignedUrlsReturned',
+                                    'Dimensions': [
+                                        {'Name': 'Type', 'Value': 'Markdown'}
+                                    ],
+                                    'Value': 1.0,
+                                    'Unit': 'Count'
+                                }
+                            ]
+                        )
+                    except Exception as me:
+                        print(f"Failed to emit CloudWatch metric for Markdown presign: {str(me)}")
+                    print(f"Provided presigned URL for markdown: {book_md_key}")
+
         except Exception as e:
             print(f"Error loading book files: {str(e)}")
 
         # If neither exists, return error
-        if not book_data and not book_content:
+        if not book_data and not book_content and not response_data.get('bookJsonUrl') and not response_data.get('bookMdUrl'):
             return {
                 "statusCode": 404,
                 "headers": {
@@ -95,12 +179,9 @@ def lambda_handler(event, context):
                 })
             }
 
-        response_data = {
-            "projectFolder": project_folder,
-            "bucket": bucket_name,
-            "hasBookData": book_data is not None,
-            "hasBookContent": book_content is not None
-        }
+        # Update presence flags and include inlined content if available
+        response_data['hasBookData'] = book_data is not None
+        response_data['hasBookContent'] = book_content is not None
 
         if book_data:
             response_data["bookData"] = book_data

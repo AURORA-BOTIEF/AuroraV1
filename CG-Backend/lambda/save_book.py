@@ -22,7 +22,6 @@ def lambda_handler(event, context):
             body = event.get('body', {})
 
         project_folder = body.get('projectFolder')
-        book_data = body.get('bookData')
 
         if not project_folder:
             return {
@@ -37,6 +36,58 @@ def lambda_handler(event, context):
                     "error": "projectFolder is required"
                 })
             }
+        # Get bucket name from environment or default
+        bucket_name = os.getenv('COURSE_BUCKET', 'crewai-course-artifacts')
+
+        # Initialize S3 client
+        s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
+
+        # Support two modes: (A) client uploaded book JSON to S3 and sent bookS3Key
+        #                  (B) client sent bookData in request body (legacy)
+        book_data = None
+        book_json_key = None
+
+        print(f"Incoming body keys: {list(body.keys())}")
+
+        if 'bookS3Key' in body and body.get('bookS3Key'):
+            # Load book JSON from S3 key provided by client
+            try:
+                raw_key = body['bookS3Key']
+                # If a full S3 URL was provided, extract the key portion
+                if isinstance(raw_key, str) and raw_key.startswith('http'):
+                    # URL format: https://{bucket}.s3.{region}.amazonaws.com/{key}
+                    try:
+                        from urllib.parse import urlparse
+                        p = urlparse(raw_key)
+                        # strip leading slash
+                        book_json_key = p.path.lstrip('/')
+                    except Exception:
+                        book_json_key = raw_key
+                else:
+                    book_json_key = raw_key
+
+                print(f"Reading book JSON from S3 key: {book_json_key}")
+                obj = s3_client.get_object(Bucket=bucket_name, Key=book_json_key)
+                payload = obj['Body'].read()
+                # payload could be bytes
+                if isinstance(payload, bytes):
+                    payload = payload.decode('utf-8')
+                book_data = json.loads(payload)
+            except Exception as e:
+                print(f"ERROR: failed to read book from S3 key {body.get('bookS3Key')}: {e}")
+                return {
+                    "statusCode": 500,
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                        "Access-Control-Allow-Methods": "OPTIONS,POST"
+                    },
+                    "body": json.dumps({"error": "Failed to read book content from S3", "detail": str(e)})
+                }
+        else:
+            # Legacy in-body book data
+            book_data = body.get('bookData')
 
         if not book_data:
             return {
@@ -52,20 +103,20 @@ def lambda_handler(event, context):
                 })
             }
 
-        # Get bucket name from environment or default
-        bucket_name = os.getenv('COURSE_BUCKET', 'crewai-course-artifacts')
-
-        # Initialize S3 client
-        s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
-
-        # Save as JSON
-        book_json_key = f"{project_folder}/book/course_book_data.json"
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=book_json_key,
-            Body=json.dumps(book_data, indent=2),
-            ContentType='application/json'
-        )
+        # Support two modes: (A) client sent bookData in request body (legacy)
+        #                  (B) client uploaded book JSON to S3 and sent bookS3Key
+        # If we reached here and the client used the legacy in-body path, we need to
+        # save the JSON to S3 so downstream processes can read it. For the S3-path case
+        # we already loaded book_data from S3 and book_json_key is set.
+        if not book_json_key:
+            # Save as JSON
+            book_json_key = f"{project_folder}/book/course_book_data.json"
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=book_json_key,
+                Body=json.dumps(book_data, indent=2),
+                ContentType='application/json'
+            )
 
         # Generate and save as Markdown
         markdown_content = generate_markdown_from_book(book_data)

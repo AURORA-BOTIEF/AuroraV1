@@ -6,7 +6,6 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { get, post } from 'aws-amplify/api';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
-const PRESIGN_ENDPOINT = `${API_BASE}/presign`;
 const START_JOB_ENDPOINT = `${API_BASE}/start-job`;
 const EXEC_STATUS_ENDPOINT = `${API_BASE}/exec-status`;
 
@@ -152,17 +151,39 @@ function GeneradorCursos() {
 
             setUploadStatus('Uploading...');
             const key = `uploads/${Date.now()}-${f.name}`;
+
+            const bucketName = courseBucket;
+            const fileSize = f.size || 0;
+            const MAX_SINGLE_PUT = 64 * 1024 * 1024;
+
             const upload = new Upload({
                 client: s3Client,
                 params: {
-                    Bucket: courseBucket,
+                    Bucket: bucketName,
                     Key: key,
                     Body: f,
                     ContentType: 'application/x-yaml',
                 },
+                queueSize: 3,
+                partSize: Math.min(MAX_SINGLE_PUT, Math.max(5 * 1024 * 1024, fileSize + 1)),
             });
 
-            await upload.done();
+            try {
+                await upload.done();
+            } catch (err) {
+                console.warn('Upload failed, attempting PutObject fallback:', err && err.message);
+                const msg = String(err && err.message || '').toLowerCase();
+                if (msg.includes('crc32') || msg.includes('checksum')) {
+                    await s3Client.send(new PutObjectCommand({
+                        Bucket: bucketName,
+                        Key: key,
+                        Body: f,
+                        ContentType: 'application/x-yaml',
+                    }));
+                } else {
+                    throw err;
+                }
+            }
             setUploadedKey(key);
             setUploadStatus('Uploaded: ' + key);
         } catch (e) {
