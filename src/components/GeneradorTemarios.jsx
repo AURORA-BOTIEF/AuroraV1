@@ -40,7 +40,6 @@ function GeneradorTemarios() {
     setParams(prev => ({ ...prev, [name]: valorFinal }));
   };
 
-  // ✅ Generar temario con IA
   const handleGenerar = async (nuevosParams = params) => {
     if (!nuevosParams.nombre_preventa || !nuevosParams.asesor_comercial ||
         !nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
@@ -70,7 +69,6 @@ function GeneradorTemarios() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar el temario.");
 
-      // ✅ Une la respuesta del temario generado con los datos del formulario
       const temarioCompleto = { ...data, ...nuevosParams };
       setTemarioGenerado(temarioCompleto);
 
@@ -82,18 +80,18 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión en DynamoDB
+  // ✅ Aquí solo ajustamos el guardado, sin tocar el diseño
   const handleSave = async (temarioParaGuardar) => {
     console.log("Guardando esta versión del temario:", temarioParaGuardar);
 
     try {
       const token = localStorage.getItem("id_token");
 
-      // ✅ Usa los valores reales que el usuario seleccionó (desde params)
+      // Toma los valores reales del formulario y del temario generado
       const bodyData = {
         cursoId: temarioParaGuardar.tema_curso || params.tema_curso || "SinNombre",
         contenido: temarioParaGuardar,
-        autor: token ? "anette.flores@netec.com.mx" : "Anónimo", // 🔹 Puedes obtenerlo dinámicamente del token si lo prefieres
+        autor: token ? "anette.flores@netec.com.mx" : "Anónimo",
         asesor_comercial: params.asesor_comercial || temarioParaGuardar.asesor_comercial || "No asignado",
         nombre_preventa: params.nombre_preventa || temarioParaGuardar.nombre_preventa || "No especificado",
         nombre_curso: temarioParaGuardar.tema_curso || params.tema_curso || "Sin nombre",
@@ -156,7 +154,7 @@ function GeneradorTemarios() {
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-      {/* Formulario principal */}
+      {/* Mantiene tu mismo diseño y estructura */}
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
@@ -194,6 +192,11 @@ function GeneradorTemarios() {
           </div>
         </div>
 
+        <div className="form-group">
+          <label>Sector / Audiencia</label>
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Sector financiero, desarrolladores..." />
+        </div>
+
         <div style={{ display: "flex", gap: "1rem" }}>
           <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
             {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
@@ -220,7 +223,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
 
 
 
