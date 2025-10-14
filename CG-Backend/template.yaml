@@ -600,14 +600,17 @@ Resources:
             Type: Choice
             Comment: "Route based on content_type: theory, labs, or both"
             Choices:
-              - Variable: $.content_type
-                StringEquals: "theory"
-                Next: TheoryOnlyBranch
-              - Variable: $.content_type
-                StringEquals: "labs"
+              - And:
+                  - Variable: $.content_type
+                    IsPresent: true
+                  - Variable: $.content_type
+                    StringEquals: "labs"
                 Next: LabsOnlyBranch
-              - Variable: $.content_type
-                StringEquals: "both"
+              - And:
+                  - Variable: $.content_type
+                    IsPresent: true
+                  - Variable: $.content_type
+                    StringEquals: "both"
                 Next: BothTheoryAndLabsBranch
             Default: TheoryOnlyBranch
           
