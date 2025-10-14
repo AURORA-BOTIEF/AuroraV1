@@ -187,6 +187,9 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
+        # Lab generation parameters
+        content_type = body.get('content_type', 'theory')  # 'theory', 'labs', or 'both'
+        lab_requirements = body.get('lab_requirements')  # Optional additional requirements for labs
 
         # Get environment variables
         state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
@@ -223,11 +226,14 @@ def lambda_handler(event, context):
             "course_bucket": course_bucket,
             "project_folder": project_folder,
             "allow_openai_fallback": allow_openai_fallback,
+            "content_type": content_type,  # 'theory', 'labs', or 'both'
         }
         
-        # Only include max_images if it was provided
+        # Only include optional parameters if they were provided
         if max_images is not None:
             execution_input["max_images"] = max_images
+        if lab_requirements is not None:
+            execution_input["lab_requirements"] = lab_requirements
 
         print(f"Starting Step Functions execution with input: {json.dumps(execution_input, indent=2)}")
 
