@@ -116,30 +116,54 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     setMostrarFormRegenerar(false);
   };
 
-  // Guardar versión (se comunica con el padre)
-  const handleSaveClick = async () => {
-    setErrorUi("");
-    setOkUi("");
-    setGuardando(true);
+// Guardar versión (se comunica con el padre)
+// MOD: añadimos normalización del contrato de respuesta para tolerar distintos retornos.
+// Acepta: true | string | { success, message }
+const normalizeSaveResult = (resultado) => {
+// MOD: compatibilidad hacia atrás
+if (resultado === true) return { success: true, message: 'Versión guardada' };
+if (typeof resultado === 'string') return { success: true, message: resultado };
+if (typeof resultado === 'object' && resultado) {
+const { success = false, message = success ? 'Versión guardada' : 'Error al guardar' } = resultado;
+return { success, message };
+}
+// Si no retorna nada, lo consideramos error controlado
+return { success: false, message: 'Respuesta vacía del onSave' };
+};
 
-    const nota = window.prompt(
-      "Escribe una nota para esta versión (opcional):",
-      `Guardado ${nowIso()}`
-    ) || "";
 
-    try {
-      const resultado = await onSave?.(temario, nota);
-      if (resultado?.success) {
-        setOkUi(resultado.message || "Versión guardada");
-      } else {
-        setErrorUi(resultado?.message || "Error al guardar");
-      }
-    } catch (err) {
-      setErrorUi("No se pudo guardar la versión");
-    } finally {
-      setGuardando(false);
-    }
-  };
+const handleSaveClick = async () => {
+setErrorUi("");
+setOkUi("");
+setGuardando(true);
+
+
+const nota = window.prompt(
+"Escribe una nota para esta versión (opcional):",
+`Guardado ${nowIso()}`
+) || "";
+
+
+try {
+const resultado = await onSave?.(temario, nota);
+
+
+// MOD: usamos la normalización para decidir qué mostrar en UI
+const { success, message } = normalizeSaveResult(resultado);
+
+
+if (success) {
+setOkUi(message);
+} else {
+setErrorUi(message);
+}
+} catch (err) {
+console.error('onSave error:', err); // MOD: log de diagnóstico
+setErrorUi("No se pudo guardar la versión");
+} finally {
+setGuardando(false);
+}
+};
 
   // --- EXPORTACIÓN PDF (profesional con numeración y metadatos) ---
   const exportarPDF = async () => {
@@ -516,3 +540,4 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
 }
 
 export default EditorDeTemario;
+
