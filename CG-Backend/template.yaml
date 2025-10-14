@@ -762,7 +762,15 @@ Resources:
                           - States.ALL
                         ResultPath: $.error
                         Next: LabsFailState
-                    Next: InvokeLabWriter
+                    Next: CheckLabPlannerResult
+                  CheckLabPlannerResult:
+                    Type: Choice
+                    Comment: "Check if LabPlanner succeeded (statusCode 200)"
+                    Choices:
+                      - Variable: $.Payload.statusCode
+                        NumericEquals: 200
+                        Next: InvokeLabWriter
+                    Default: LabsFailState
                   InvokeLabWriter:
                     Type: Task
                     Resource: arn:aws:states:::lambda:invoke
@@ -916,7 +924,15 @@ Resources:
                         IntervalSeconds: 5
                         MaxAttempts: 2
                         BackoffRate: 2.0
-                    Next: InvokeLabWriterBoth
+                    Next: CheckLabPlannerResultBoth
+                  CheckLabPlannerResultBoth:
+                    Type: Choice
+                    Comment: "Check if LabPlanner succeeded (statusCode 200)"
+                    Choices:
+                      - Variable: $.Payload.statusCode
+                        NumericEquals: 200
+                        Next: InvokeLabWriterBoth
+                    Default: LabPlannerFailedBoth
                   InvokeLabWriterBoth:
                     Type: Task
                     Resource: arn:aws:states:::lambda:invoke
@@ -935,6 +951,10 @@ Resources:
                         IntervalSeconds: 5
                         MaxAttempts: 2
                         BackoffRate: 2.0
+                    End: true
+                  LabPlannerFailedBoth:
+                    Type: Pass
+                    Comment: "Lab planner failed but theory succeeded - continue with theory only"
                     End: true
             Next: SuccessState
           
