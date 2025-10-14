@@ -189,7 +189,7 @@ def lambda_handler(event, context):
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
         # Lab generation parameters
         content_type = body.get('content_type', 'theory')  # 'theory', 'labs', or 'both'
-        lab_requirements = body.get('lab_requirements')  # Optional additional requirements for labs
+        lab_requirements = body.get('lab_requirements', '')  # Optional additional requirements for labs (default to empty string)
 
         # Get environment variables
         state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
@@ -227,13 +227,12 @@ def lambda_handler(event, context):
             "project_folder": project_folder,
             "allow_openai_fallback": allow_openai_fallback,
             "content_type": content_type,  # 'theory', 'labs', or 'both'
+            "lab_requirements": lab_requirements,  # Always include (empty string if not provided)
         }
         
         # Only include optional parameters if they were provided
         if max_images is not None:
             execution_input["max_images"] = max_images
-        if lab_requirements is not None:
-            execution_input["lab_requirements"] = lab_requirements
 
         print(f"Starting Step Functions execution with input: {json.dumps(execution_input, indent=2)}")
 
