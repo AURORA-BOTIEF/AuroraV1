@@ -15,6 +15,8 @@ function GeneradorCursos() {
     const [moduleInput, setModuleInput] = useState('1');
     const [generateFullCourse, setGenerateFullCourse] = useState(false);
     const [modelProvider, setModelProvider] = useState('bedrock');
+    const [contentType, setContentType] = useState('theory'); // 'theory', 'labs', 'both'
+    const [labRequirements, setLabRequirements] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
@@ -136,6 +138,8 @@ function GeneradorCursos() {
                 project_folder: projectFolder,
                 module_number: modules, // For single module or first module
                 model_provider: modelProvider,
+                content_type: contentType, // 'theory', 'labs', or 'both'
+                lab_requirements: labRequirements.trim() || undefined, // Optional
                 // Note: NOT sending lesson_number = MODULE mode
             };
 
@@ -213,7 +217,10 @@ function GeneradorCursos() {
             if (generateFullCourse) {
                 setStatusMessage('🚀 Iniciando generación de curso completo...');
                 await startGeneration(uploadedKey, 'all'); // Future: will generate all modules
-                setSuccessMessage('✅ Generación de curso completo iniciada exitosamente');
+                const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
+                    contentType === 'labs' ? 'guía de laboratorios' :
+                        'contenido teórico y guía de laboratorios';
+                setSuccessMessage(`✅ Generación de ${contentTypeText} del curso completo iniciada exitosamente`);
             } else {
                 const modules = parseModules(moduleInput);
                 console.log('Módulos a generar:', modules);
@@ -223,10 +230,14 @@ function GeneradorCursos() {
                 // For now, generate first module (later will handle multiple)
                 await startGeneration(uploadedKey, modules[0]);
 
+                const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
+                    contentType === 'labs' ? 'guía de laboratorios' :
+                        'contenido teórico y guía de laboratorios';
+
                 if (modules.length === 1) {
-                    setSuccessMessage(`✅ Generación del módulo ${modules[0]} iniciada exitosamente`);
+                    setSuccessMessage(`✅ Generación de ${contentTypeText} del módulo ${modules[0]} iniciada exitosamente`);
                 } else {
-                    setSuccessMessage(`✅ Generación de ${modules.length} módulos iniciada exitosamente`);
+                    setSuccessMessage(`✅ Generación de ${contentTypeText} de ${modules.length} módulos iniciada exitosamente`);
                 }
             }
 
@@ -344,6 +355,80 @@ function GeneradorCursos() {
                             </div>
                         </div>
 
+                        {/* Content Type Selection */}
+                        <div className="form-section">
+                            <h3>📝 Tipo de Contenido a Generar</h3>
+
+                            <div className="scope-options">
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={contentType === 'theory'}
+                                        onChange={() => setContentType('theory')}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Solo Contenido Teórico</strong>
+                                        <p>Genera únicamente las lecciones teóricas del curso</p>
+                                    </div>
+                                </label>
+
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={contentType === 'labs'}
+                                        onChange={() => setContentType('labs')}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Solo Guía de Laboratorios</strong>
+                                        <p>Genera únicamente la guía paso a paso de los laboratorios</p>
+                                    </div>
+                                </label>
+
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={contentType === 'both'}
+                                        onChange={() => setContentType('both')}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Teoría y Laboratorios</strong>
+                                        <p>Genera el contenido teórico y la guía de laboratorios completa</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            {/* Additional Requirements for Lab Generation */}
+                            {(contentType === 'labs' || contentType === 'both') && (
+                                <div className="form-group" style={{ marginTop: '1.5rem' }}>
+                                    <label htmlFor="labRequirements">
+                                        Requerimientos Adicionales para Laboratorios (Opcional)
+                                    </label>
+                                    <textarea
+                                        id="labRequirements"
+                                        value={labRequirements}
+                                        onChange={(e) => setLabRequirements(e.target.value)}
+                                        placeholder="Ej: Usar contenedores Docker, enfocarse en servicios AWS, incluir troubleshooting común, considerar ambiente Windows..."
+                                        disabled={isProcessing}
+                                        className="form-input"
+                                        rows="4"
+                                        style={{
+                                            resize: 'vertical',
+                                            fontFamily: 'inherit',
+                                            fontSize: '0.95rem',
+                                            lineHeight: '1.5'
+                                        }}
+                                    />
+                                    <small className="form-hint">
+                                        Especifica requisitos técnicos, plataformas, herramientas específicas,
+                                        o consideraciones especiales que deben incluirse en los laboratorios
+                                    </small>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Generation Scope */}
                         <div className="form-section">
                             <h3>🎯 Alcance de Generación</h3>
@@ -432,9 +517,12 @@ function GeneradorCursos() {
                             <div className="alert alert-success">
                                 <strong>{successMessage}</strong>
                                 <p style={{ marginTop: '0.5rem' }}>
-                                    Su requerimiento está siendo procesado para generar el{' '}
-                                    {generateFullCourse ? 'curso completo' :
-                                        moduleInput.includes(',') || moduleInput.includes('-') ? 'módulos solicitados' : 'módulo'}.
+                                    Su requerimiento está siendo procesado para generar{' '}
+                                    {contentType === 'theory' ? 'el contenido teórico' :
+                                        contentType === 'labs' ? 'la guía de laboratorios' :
+                                            'el contenido teórico y la guía de laboratorios'}{' '}
+                                    {generateFullCourse ? 'del curso completo' :
+                                        moduleInput.includes(',') || moduleInput.includes('-') ? 'de los módulos solicitados' : 'del módulo'}.
                                     Usted recibirá una notificación a su correo electrónico una vez el proceso haya finalizado.
                                 </p>
                             </div>

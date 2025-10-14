@@ -204,6 +204,95 @@ Resources:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
 
   # ======================================
+  # STRANDS AGENTS - LAB GUIDE GENERATION
+  # ======================================
+  StrandsLabPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsLabPlanner
+      Description: Generate master plan for lab guides (Agent 1)
+      Runtime: python3.12
+      Handler: strands_lab_planner.lambda_handler
+      CodeUri: ./lambda/strands_lab_planner/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 600
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  StrandsLabWriter:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsLabWriter
+      Description: Generate detailed step-by-step lab guides (Agent 2)
+      Runtime: python3.12
+      Handler: strands_lab_writer.lambda_handler
+      CodeUri: ./lambda/strands_lab_writer/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  # ======================================
   # SUPPORTING LAMBDAS
   # ======================================
   BookBuilder:
@@ -503,211 +592,350 @@ Resources:
     Properties:
       Name: CourseGeneratorStateMachine
       Definition:
-        Comment: "Orchestrate Module/Lesson ContentGen -> VisualPlanner -> ImagesGen -> BookBuilder using Strands Agents"
-        StartAt: InvokeModuleContentGen
+        Comment: "Orchestrate Theory and/or Lab Guide generation with content_type selector"
+        StartAt: DetermineContentType
         States:
-          InvokeModuleContentGen:
-            Type: Task
-            Resource: arn:aws:states:::lambda:invoke
-            Parameters:
-              FunctionName: !GetAtt StrandsContentGen.Arn
-              Payload.$: "$"
-            Retry:
-              # Retry for Lambda service errors only
-              - ErrorEquals:
-                  - Lambda.ServiceException
-                  - Lambda.AWSLambdaException
-                  - Lambda.SdkClientException
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 2.0
-            Catch:
-              - ErrorEquals:
-                  - States.ALL
-                ResultPath: $.error
-                Next: FailState
-            Next: CheckContentGenResult
-          CheckContentGenResult:
+          # ===== ROUTER: Determine what to generate =====
+          DetermineContentType:
             Type: Choice
+            Comment: "Route based on content_type: theory, labs, or both"
             Choices:
-              - Variable: $.Payload.statusCode
-                NumericEquals: 200
-                Next: DetermineGenerationMode
-              - Variable: $.Payload.statusCode
-                NumericEquals: 500
-                Next: FailState
-            Default: FailState
-          DetermineGenerationMode:
-            Type: Choice
-            Choices:
-              # MODULE mode: has lesson_keys array
-              - Variable: $.Payload.lesson_keys[0]
-                IsPresent: true
-                Next: ParseModuleResult
-              # LESSON mode: has single lesson_key
-              - Variable: $.Payload.lesson_key
-                IsPresent: true
-                Next: ParseLessonResult
-            Default: FailState
-          ParseModuleResult:
-            Type: Pass
-            Comment: "Parse MODULE generation result (multiple lessons)"
-            Parameters:
-              lesson_keys.$: $.Payload.lesson_keys
-              course_bucket.$: $.Payload.bucket
-              project_folder.$: $.Payload.project_folder
-              module_info.$: $.Payload.module_info
-              generation_mode: MODULE
-              model_provider.$: $.Payload.model_provider
-              performance_mode.$: $$.Execution.Input.performance_mode
-              content_source.$: $$.Execution.Input.content_source
-              original_payload.$: $.Payload
-            Next: ProcessLessonsForVisuals
-          ParseLessonResult:
-            Type: Pass
-            Comment: "Parse LESSON generation result (single lesson - backward compatible)"
-            Parameters:
-              lesson_keys.$: States.Array($.Payload.lesson_key)
-              course_bucket.$: $.Payload.bucket
-              project_folder.$: $.Payload.project_folder
-              generation_mode: LESSON
-              model_provider.$: $.Payload.model_provider
-              performance_mode.$: $$.Execution.Input.performance_mode
-              content_source.$: $$.Execution.Input.content_source
-              original_payload.$: $.Payload
-            Next: ProcessLessonsForVisuals
-          ProcessLessonsForVisuals:
-            Type: Map
-            Comment: "Process each lesson through VisualPlanner in parallel"
-            ItemsPath: $.lesson_keys
-            MaxConcurrency: 3
-            Parameters:
-              lesson_key.$: $$.Map.Item.Value
-              course_bucket.$: $.course_bucket
-              project_folder.$: $.project_folder
-              model_provider.$: $.model_provider
-              performance_mode.$: $.performance_mode
-              content_source.$: $.content_source
-            Iterator:
-              StartAt: InvokeVisualPlannerForLesson
-              States:
-                InvokeVisualPlannerForLesson:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt StrandsVisualPlanner.Arn
-                    Payload:
+              - Variable: $$.Execution.Input.content_type
+                StringEquals: "theory"
+                Next: TheoryOnlyBranch
+              - Variable: $$.Execution.Input.content_type
+                StringEquals: "labs"
+                Next: LabsOnlyBranch
+              - Variable: $$.Execution.Input.content_type
+                StringEquals: "both"
+                Next: BothTheoryAndLabsBranch
+            Default: TheoryOnlyBranch
+          
+          # ===== THEORY ONLY BRANCH =====
+          TheoryOnlyBranch:
+            Type: Parallel
+            Comment: "Generate only theory content"
+            Branches:
+              - StartAt: InvokeTheoryContentGen
+                States:
+                  InvokeTheoryContentGen:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsContentGen.Arn
+                      Payload.$: "$"
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    Catch:
+                      - ErrorEquals:
+                          - States.ALL
+                        ResultPath: $.error
+                        Next: TheoryFailState
+                    Next: ProcessTheoryContent
+                  ProcessTheoryContent:
+                    Type: Pass
+                    Comment: "Parse theory generation result"
+                    Parameters:
+                      lesson_keys.$: $.Payload.lesson_keys
+                      course_bucket.$: $.Payload.bucket
+                      project_folder.$: $.Payload.project_folder
+                      model_provider.$: $.Payload.model_provider
+                    Next: ProcessVisualsForTheory
+                  ProcessVisualsForTheory:
+                    Type: Map
+                    ItemsPath: $.lesson_keys
+                    MaxConcurrency: 3
+                    Parameters:
+                      lesson_key.$: $$.Map.Item.Value
                       course_bucket.$: $.course_bucket
-                      lesson_key.$: $.lesson_key
                       project_folder.$: $.project_folder
                       model_provider.$: $.model_provider
-                      performance_mode.$: $.performance_mode
-                      content_source.$: $.content_source
-                  Retry:
-                    - ErrorEquals:
-                        - Lambda.ServiceException
-                        - Lambda.AWSLambdaException
-                        - Lambda.SdkClientException
-                      IntervalSeconds: 5
-                      MaxAttempts: 2
-                      BackoffRate: 2.0
-                  Catch:
-                    - ErrorEquals:
-                        - States.ALL
-                      ResultPath: $.error
-                      Next: VisualPlannerFailed
-                  Next: VisualPlannerSuccess
-                VisualPlannerFailed:
-                  Type: Fail
-                  Cause: VisualPlannerTaskFailed
-                  Error: VisualPlannerOrchestrationFailed
-                VisualPlannerSuccess:
-                  Type: Pass
-                  OutputPath: $.Payload
-                  End: true
-            ResultPath: $.visual_planner_results
-            Next: AggregateVisualPrompts
-          AggregateVisualPrompts:
-            Type: Pass
-            Comment: "Aggregate all prompts from all lessons"
-            Parameters:
-              course_bucket.$: $.course_bucket
-              project_folder.$: $.project_folder
-              lesson_keys.$: $.lesson_keys
-              generation_mode.$: $.generation_mode
-              # Extract the prompts_s3_prefix from first result (all should be same prefix)
-              prompts_prefix.$: $.visual_planner_results[0].prompts_s3_prefix
-              # Keep track of all visual planner results for image mapping
-              all_visual_results.$: $.visual_planner_results
-            Next: InvokeImagesGen
-          InvokeImagesGen:
-            Type: Task
-            Resource: arn:aws:states:::lambda:invoke
-            Parameters:
-              FunctionName: !GetAtt ImagesGen.Arn
-              Payload:
-                course_bucket.$: $.course_bucket
-                project_folder.$: $.project_folder
-                prompts_prefix.$: $.prompts_prefix
-            Retry:
-              # Retry for Lambda service errors
-              - ErrorEquals:
-                  - Lambda.ServiceException
-                  - Lambda.AWSLambdaException
-                  - Lambda.SdkClientException
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 2.0
-              # Retry for Gemini API errors (rate limits, timeouts)
-              - ErrorEquals:
-                  - States.TaskFailed
-                IntervalSeconds: 10
-                MaxAttempts: 3
-                BackoffRate: 2.0
-            Catch:
-              - ErrorEquals:
-                  - States.ALL
-                ResultPath: $.error
-                Next: FailState
-            ResultPath: $.images_gen_result
-            Next: InvokeBookBuilder
-          InvokeBookBuilder:
-            Type: Task
-            Resource: arn:aws:states:::lambda:invoke
-            Parameters:
-              FunctionName: !GetAtt BookBuilder.Arn
-              Payload:
-                course_bucket.$: $.course_bucket
-                project_folder.$: $.project_folder
-                lesson_keys.$: $.lesson_keys
-                image_mappings.$: $.images_gen_result.Payload.image_mappings
-                book_title.$: $$.Execution.Input.course_topic
-                generation_mode.$: $.generation_mode
-            Retry:
-              # Retry for Lambda service errors
-              - ErrorEquals:
-                  - Lambda.ServiceException
-                  - Lambda.AWSLambdaException
-                  - Lambda.SdkClientException
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 2.0
-              # Retry for S3 errors
-              - ErrorEquals:
-                  - States.TaskFailed
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 1.5
-            Catch:
-              - ErrorEquals:
-                  - States.ALL
-                ResultPath: $.error
-                Next: FailState
+                    Iterator:
+                      StartAt: InvokeVisualPlanner
+                      States:
+                        InvokeVisualPlanner:
+                          Type: Task
+                          Resource: arn:aws:states:::lambda:invoke
+                          Parameters:
+                            FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                            Payload:
+                              course_bucket.$: $.course_bucket
+                              lesson_key.$: $.lesson_key
+                              project_folder.$: $.project_folder
+                              model_provider.$: $.model_provider
+                          Retry:
+                            - ErrorEquals:
+                                - Lambda.ServiceException
+                                - Lambda.AWSLambdaException
+                                - Lambda.SdkClientException
+                              IntervalSeconds: 5
+                              MaxAttempts: 2
+                              BackoffRate: 2.0
+                          Next: VisualPlannerSuccess
+                        VisualPlannerSuccess:
+                          Type: Pass
+                          OutputPath: $.Payload
+                          End: true
+                    ResultPath: $.visual_results
+                    Next: InvokeImagesGen
+                  InvokeImagesGen:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt ImagesGen.Arn
+                      Payload:
+                        course_bucket.$: $.course_bucket
+                        project_folder.$: $.project_folder
+                        prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    ResultPath: $.images_result
+                    Next: InvokeBookBuilder
+                  InvokeBookBuilder:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt BookBuilder.Arn
+                      Payload:
+                        course_bucket.$: $.course_bucket
+                        project_folder.$: $.project_folder
+                        lesson_keys.$: $.lesson_keys
+                        image_mappings.$: $.images_result.Payload.image_mappings
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    End: true
+                  TheoryFailState:
+                    Type: Fail
+                    Cause: TheoryGenerationFailed
+                    Error: TheoryGenerationError
             Next: SuccessState
-          FailState:
-            Type: Fail
-            Cause: TaskFailed
-            Error: OrchestrationFailed
+          
+          # ===== LABS ONLY BRANCH =====
+          LabsOnlyBranch:
+            Type: Parallel
+            Comment: "Generate only lab guides"
+            Branches:
+              - StartAt: InvokeLabPlanner
+                States:
+                  InvokeLabPlanner:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsLabPlanner.Arn
+                      Payload:
+                        course_bucket.$: $$.Execution.Input.course_bucket
+                        outline_s3_key.$: $$.Execution.Input.outline_s3_key
+                        project_folder.$: $$.Execution.Input.project_folder
+                        model_provider.$: $$.Execution.Input.model_provider
+                        lab_requirements.$: $$.Execution.Input.lab_requirements
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    Catch:
+                      - ErrorEquals:
+                          - States.ALL
+                        ResultPath: $.error
+                        Next: LabsFailState
+                    Next: InvokeLabWriter
+                  InvokeLabWriter:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsLabWriter.Arn
+                      Payload:
+                        course_bucket.$: $.Payload.bucket
+                        master_plan_key.$: $.Payload.master_plan_key
+                        project_folder.$: $.Payload.project_folder
+                        model_provider.$: $.Payload.model_provider
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    End: true
+                  LabsFailState:
+                    Type: Fail
+                    Cause: LabGenerationFailed
+                    Error: LabGenerationError
+            Next: SuccessState
+          
+          # ===== BOTH THEORY AND LABS BRANCH =====
+          BothTheoryAndLabsBranch:
+            Type: Parallel
+            Comment: "Generate both theory and lab guides in parallel"
+            Branches:
+              # Theory Branch
+              - StartAt: InvokeTheoryContentGenBoth
+                States:
+                  InvokeTheoryContentGenBoth:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsContentGen.Arn
+                      Payload.$: "$"
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    Next: ProcessTheoryContentBoth
+                  ProcessTheoryContentBoth:
+                    Type: Pass
+                    Parameters:
+                      lesson_keys.$: $.Payload.lesson_keys
+                      course_bucket.$: $.Payload.bucket
+                      project_folder.$: $.Payload.project_folder
+                      model_provider.$: $.Payload.model_provider
+                    Next: ProcessVisualsForTheoryBoth
+                  ProcessVisualsForTheoryBoth:
+                    Type: Map
+                    ItemsPath: $.lesson_keys
+                    MaxConcurrency: 3
+                    Parameters:
+                      lesson_key.$: $$.Map.Item.Value
+                      course_bucket.$: $.course_bucket
+                      project_folder.$: $.project_folder
+                      model_provider.$: $.model_provider
+                    Iterator:
+                      StartAt: InvokeVisualPlannerBoth
+                      States:
+                        InvokeVisualPlannerBoth:
+                          Type: Task
+                          Resource: arn:aws:states:::lambda:invoke
+                          Parameters:
+                            FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                            Payload:
+                              course_bucket.$: $.course_bucket
+                              lesson_key.$: $.lesson_key
+                              project_folder.$: $.project_folder
+                              model_provider.$: $.model_provider
+                          Retry:
+                            - ErrorEquals:
+                                - Lambda.ServiceException
+                                - Lambda.AWSLambdaException
+                                - Lambda.SdkClientException
+                              IntervalSeconds: 5
+                              MaxAttempts: 2
+                              BackoffRate: 2.0
+                          Next: VisualPlannerSuccessBoth
+                        VisualPlannerSuccessBoth:
+                          Type: Pass
+                          OutputPath: $.Payload
+                          End: true
+                    ResultPath: $.visual_results
+                    Next: InvokeImagesGenBoth
+                  InvokeImagesGenBoth:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt ImagesGen.Arn
+                      Payload:
+                        course_bucket.$: $.course_bucket
+                        project_folder.$: $.project_folder
+                        prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    ResultPath: $.images_result
+                    Next: InvokeBookBuilderBoth
+                  InvokeBookBuilderBoth:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt BookBuilder.Arn
+                      Payload:
+                        course_bucket.$: $.course_bucket
+                        project_folder.$: $.project_folder
+                        lesson_keys.$: $.lesson_keys
+                        image_mappings.$: $.images_result.Payload.image_mappings
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    End: true
+              # Lab Branch
+              - StartAt: InvokeLabPlannerBoth
+                States:
+                  InvokeLabPlannerBoth:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsLabPlanner.Arn
+                      Payload:
+                        course_bucket.$: $$.Execution.Input.course_bucket
+                        outline_s3_key.$: $$.Execution.Input.outline_s3_key
+                        project_folder.$: $$.Execution.Input.project_folder
+                        model_provider.$: $$.Execution.Input.model_provider
+                        lab_requirements.$: $$.Execution.Input.lab_requirements
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    Next: InvokeLabWriterBoth
+                  InvokeLabWriterBoth:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsLabWriter.Arn
+                      Payload:
+                        course_bucket.$: $.Payload.bucket
+                        master_plan_key.$: $.Payload.master_plan_key
+                        project_folder.$: $.Payload.project_folder
+                        model_provider.$: $.Payload.model_provider
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    End: true
+            Next: SuccessState
+          
+          # ===== SUCCESS STATE =====
           SuccessState:
             Type: Succeed
       Type: STANDARD
@@ -722,9 +950,11 @@ Resources:
                 - !GetAtt StrandsVisualPlanner.Arn
                 - !GetAtt ImagesGen.Arn
                 - !GetAtt BookBuilder.Arn
+                - !GetAtt StrandsLabPlanner.Arn
+                - !GetAtt StrandsLabWriter.Arn
 
 Outputs:
-  # Strands Agents Lambdas
+  # Strands Agents Lambdas - Theory Generation
   StrandsContentGenArn:
     Description: Strands Content Generator Lambda ARN
     Value: !GetAtt StrandsContentGen.Arn
@@ -736,6 +966,15 @@ Outputs:
   ImagesGenArn:
     Description: Images Generation Lambda ARN
     Value: !GetAtt ImagesGen.Arn
+  
+  # Strands Agents Lambdas - Lab Guide Generation
+  StrandsLabPlannerArn:
+    Description: Strands Lab Planner Lambda ARN
+    Value: !GetAtt StrandsLabPlanner.Arn
+  
+  StrandsLabWriterArn:
+    Description: Strands Lab Writer Lambda ARN
+    Value: !GetAtt StrandsLabWriter.Arn
 
   # Supporting Lambdas
   BookBuilderFunction:
