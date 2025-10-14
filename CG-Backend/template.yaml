@@ -600,13 +600,13 @@ Resources:
             Type: Choice
             Comment: "Route based on content_type: theory, labs, or both"
             Choices:
-              - Variable: $$.Execution.Input.content_type
+              - Variable: $.content_type
                 StringEquals: "theory"
                 Next: TheoryOnlyBranch
-              - Variable: $$.Execution.Input.content_type
+              - Variable: $.content_type
                 StringEquals: "labs"
                 Next: LabsOnlyBranch
-              - Variable: $$.Execution.Input.content_type
+              - Variable: $.content_type
                 StringEquals: "both"
                 Next: BothTheoryAndLabsBranch
             Default: TheoryOnlyBranch
@@ -741,11 +741,11 @@ Resources:
                     Parameters:
                       FunctionName: !GetAtt StrandsLabPlanner.Arn
                       Payload:
-                        course_bucket.$: $$.Execution.Input.course_bucket
-                        outline_s3_key.$: $$.Execution.Input.outline_s3_key
-                        project_folder.$: $$.Execution.Input.project_folder
-                        model_provider.$: $$.Execution.Input.model_provider
-                        lab_requirements.$: $$.Execution.Input.lab_requirements
+                        course_bucket.$: $.course_bucket
+                        outline_s3_key.$: $.outline_s3_key
+                        project_folder.$: $.project_folder
+                        model_provider.$: $.model_provider
+                        lab_requirements.$: $.lab_requirements
                     Retry:
                       - ErrorEquals:
                           - Lambda.ServiceException
@@ -900,11 +900,11 @@ Resources:
                     Parameters:
                       FunctionName: !GetAtt StrandsLabPlanner.Arn
                       Payload:
-                        course_bucket.$: $$.Execution.Input.course_bucket
-                        outline_s3_key.$: $$.Execution.Input.outline_s3_key
-                        project_folder.$: $$.Execution.Input.project_folder
-                        model_provider.$: $$.Execution.Input.model_provider
-                        lab_requirements.$: $$.Execution.Input.lab_requirements
+                        course_bucket.$: $.course_bucket
+                        outline_s3_key.$: $.outline_s3_key
+                        project_folder.$: $.project_folder
+                        model_provider.$: $.model_provider
+                        lab_requirements.$: $.lab_requirements
                     Retry:
                       - ErrorEquals:
                           - Lambda.ServiceException
