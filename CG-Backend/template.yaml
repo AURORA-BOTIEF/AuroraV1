@@ -94,9 +94,9 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-3-7-sonnet-20250219-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
           OPENAI_API_KEY: ""  # Will be set via environment or Secrets Manager
-          UPDATED_AT: "2025-10-08-14:47"
+          UPDATED_AT: "2025-10-12-16:45"
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -139,7 +139,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-3-7-sonnet-20250219-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -503,10 +503,10 @@ Resources:
     Properties:
       Name: CourseGeneratorStateMachine
       Definition:
-        Comment: "Orchestrate ContentGen -> VisualPlanner -> ImagesGen -> BookBuilder using Strands Agents"
-        StartAt: InvokeContentGen
+        Comment: "Orchestrate Module/Lesson ContentGen -> VisualPlanner -> ImagesGen -> BookBuilder using Strands Agents"
+        StartAt: InvokeModuleContentGen
         States:
-          InvokeContentGen:
+          InvokeModuleContentGen:
             Type: Task
             Resource: arn:aws:states:::lambda:invoke
             Parameters:
@@ -532,50 +532,113 @@ Resources:
             Choices:
               - Variable: $.Payload.statusCode
                 NumericEquals: 200
-                Next: ParseContentGenResult
+                Next: DetermineGenerationMode
               - Variable: $.Payload.statusCode
                 NumericEquals: 500
                 Next: FailState
             Default: FailState
-          ParseContentGenResult:
+          DetermineGenerationMode:
+            Type: Choice
+            Choices:
+              # MODULE mode: has lesson_keys array
+              - Variable: $.Payload.lesson_keys[0]
+                IsPresent: true
+                Next: ParseModuleResult
+              # LESSON mode: has single lesson_key
+              - Variable: $.Payload.lesson_key
+                IsPresent: true
+                Next: ParseLessonResult
+            Default: FailState
+          ParseModuleResult:
             Type: Pass
+            Comment: "Parse MODULE generation result (multiple lessons)"
             Parameters:
-              lesson_key.$: $.Payload.lesson_key
+              lesson_keys.$: $.Payload.lesson_keys
               course_bucket.$: $.Payload.bucket
               project_folder.$: $.Payload.project_folder
-              payload.$: $.Payload
-              original.$: "$"
-              model_provider.$: $$.Execution.Input.model_provider
+              module_info.$: $.Payload.module_info
+              generation_mode: MODULE
+              model_provider.$: $.Payload.model_provider
               performance_mode.$: $$.Execution.Input.performance_mode
               content_source.$: $$.Execution.Input.content_source
-            Next: InvokeVisualPlanner
-          InvokeVisualPlanner:
-            Type: Task
-            Resource: arn:aws:states:::lambda:invoke
+              original_payload.$: $.Payload
+            Next: ProcessLessonsForVisuals
+          ParseLessonResult:
+            Type: Pass
+            Comment: "Parse LESSON generation result (single lesson - backward compatible)"
             Parameters:
-              FunctionName: !GetAtt StrandsVisualPlanner.Arn
-              Payload:
-                course_bucket.$: $.course_bucket
-                lesson_key.$: $.lesson_key
-                project_folder.$: $.project_folder
-                model_provider.$: $.model_provider
-                performance_mode.$: $.performance_mode
-                content_source.$: $.content_source
-                original.$: "$"
-            Retry:
-              # Retry for Lambda service errors only
-              - ErrorEquals:
-                  - Lambda.ServiceException
-                  - Lambda.AWSLambdaException
-                  - Lambda.SdkClientException
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 2.0
-            Catch:
-              - ErrorEquals:
-                  - States.ALL
-                ResultPath: $.error
-                Next: FailState
+              lesson_keys.$: States.Array($.Payload.lesson_key)
+              course_bucket.$: $.Payload.bucket
+              project_folder.$: $.Payload.project_folder
+              generation_mode: LESSON
+              model_provider.$: $.Payload.model_provider
+              performance_mode.$: $$.Execution.Input.performance_mode
+              content_source.$: $$.Execution.Input.content_source
+              original_payload.$: $.Payload
+            Next: ProcessLessonsForVisuals
+          ProcessLessonsForVisuals:
+            Type: Map
+            Comment: "Process each lesson through VisualPlanner in parallel"
+            ItemsPath: $.lesson_keys
+            MaxConcurrency: 3
+            Parameters:
+              lesson_key.$: $$.Map.Item.Value
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              model_provider.$: $.model_provider
+              performance_mode.$: $.performance_mode
+              content_source.$: $.content_source
+            Iterator:
+              StartAt: InvokeVisualPlannerForLesson
+              States:
+                InvokeVisualPlannerForLesson:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                    Payload:
+                      course_bucket.$: $.course_bucket
+                      lesson_key.$: $.lesson_key
+                      project_folder.$: $.project_folder
+                      model_provider.$: $.model_provider
+                      performance_mode.$: $.performance_mode
+                      content_source.$: $.content_source
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: VisualPlannerFailed
+                  Next: VisualPlannerSuccess
+                VisualPlannerFailed:
+                  Type: Fail
+                  Cause: VisualPlannerTaskFailed
+                  Error: VisualPlannerOrchestrationFailed
+                VisualPlannerSuccess:
+                  Type: Pass
+                  OutputPath: $.Payload
+                  End: true
+            ResultPath: $.visual_planner_results
+            Next: AggregateVisualPrompts
+          AggregateVisualPrompts:
+            Type: Pass
+            Comment: "Aggregate all prompts from all lessons"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              lesson_keys.$: $.lesson_keys
+              generation_mode.$: $.generation_mode
+              # Extract the prompts_s3_prefix from first result (all should be same prefix)
+              prompts_prefix.$: $.visual_planner_results[0].prompts_s3_prefix
+              # Keep track of all visual planner results for image mapping
+              all_visual_results.$: $.visual_planner_results
             Next: InvokeImagesGen
           InvokeImagesGen:
             Type: Task
@@ -583,10 +646,9 @@ Resources:
             Parameters:
               FunctionName: !GetAtt ImagesGen.Arn
               Payload:
-                course_bucket.$: $.Payload.bucket
-                project_folder.$: $.Payload.project_folder
-                prompts_prefix.$: $.Payload.prompts_s3_prefix
-                original.$: "$"
+                course_bucket.$: $.course_bucket
+                project_folder.$: $.project_folder
+                prompts_prefix.$: $.prompts_prefix
             Retry:
               # Retry for Lambda service errors
               - ErrorEquals:
@@ -607,6 +669,7 @@ Resources:
                   - States.ALL
                 ResultPath: $.error
                 Next: FailState
+            ResultPath: $.images_gen_result
             Next: InvokeBookBuilder
           InvokeBookBuilder:
             Type: Task
@@ -614,12 +677,12 @@ Resources:
             Parameters:
               FunctionName: !GetAtt BookBuilder.Arn
               Payload:
-                course_bucket.$: $.Payload.bucket
-                project_folder.$: $.Payload.project_folder
-                lesson_keys.$: $.Payload.lesson_keys
-                image_mappings.$: $.Payload.image_mappings
+                course_bucket.$: $.course_bucket
+                project_folder.$: $.project_folder
+                lesson_keys.$: $.lesson_keys
+                image_mappings.$: $.images_gen_result.Payload.image_mappings
                 book_title.$: $$.Execution.Input.course_topic
-                original.$: "$"
+                generation_mode.$: $.generation_mode
             Retry:
               # Retry for Lambda service errors
               - ErrorEquals:

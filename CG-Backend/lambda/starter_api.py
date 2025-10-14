@@ -148,6 +148,13 @@ def lambda_handler(event, context):
 
         print(f"Request body: {json.dumps(body, indent=2)}")
 
+        # Debug: Log the module parameter extraction
+        module_from_body = body.get('module_number') or body.get('module_to_generate')
+        print(f"🔍 Module parameter debug:")
+        print(f"   - body.get('module_number'): {body.get('module_number')}")
+        print(f"   - body.get('module_to_generate'): {body.get('module_to_generate')}")
+        print(f"   - Final value: {module_from_body}")
+
         # Validate required parameters - accept either course_topic or outline_s3_key
         course_topic = body.get('course_topic')
         outline_s3_key = body.get('outline_s3_key')
@@ -168,7 +175,10 @@ def lambda_handler(event, context):
 
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
-        module_to_generate = body.get('module_to_generate', 1)  # Default to module 1
+        # Support both 'module_number' (from GeneradorCursos) and 'module_to_generate' (from GeneradorContenido)
+        module_to_generate = body.get('module_number')
+        if module_to_generate is None:
+            module_to_generate = body.get('module_to_generate', 1)  # Default to module 1
         lesson_to_generate = body.get('lesson_to_generate')  # Optional: generate specific lesson
         performance_mode = body.get('performance_mode', 'balanced')
         model_provider = body.get('model_provider', 'bedrock')
