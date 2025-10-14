@@ -148,6 +148,13 @@ def lambda_handler(event, context):
 
         print(f"Request body: {json.dumps(body, indent=2)}")
 
+        # Debug: Log the module parameter extraction
+        module_from_body = body.get('module_number') or body.get('module_to_generate')
+        print(f"🔍 Module parameter debug:")
+        print(f"   - body.get('module_number'): {body.get('module_number')}")
+        print(f"   - body.get('module_to_generate'): {body.get('module_to_generate')}")
+        print(f"   - Final value: {module_from_body}")
+
         # Validate required parameters - accept either course_topic or outline_s3_key
         course_topic = body.get('course_topic')
         outline_s3_key = body.get('outline_s3_key')
@@ -168,7 +175,10 @@ def lambda_handler(event, context):
 
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
-        module_to_generate = body.get('module_to_generate', 1)  # Default to module 1
+        # Support both 'module_number' (from GeneradorCursos) and 'module_to_generate' (from GeneradorContenido)
+        module_to_generate = body.get('module_number')
+        if module_to_generate is None:
+            module_to_generate = body.get('module_to_generate', 1)  # Default to module 1
         lesson_to_generate = body.get('lesson_to_generate')  # Optional: generate specific lesson
         performance_mode = body.get('performance_mode', 'balanced')
         model_provider = body.get('model_provider', 'bedrock')
@@ -177,6 +187,9 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
+        # Lab generation parameters
+        content_type = body.get('content_type', 'theory')  # 'theory', 'labs', or 'both'
+        lab_requirements = body.get('lab_requirements', '')  # Optional additional requirements for labs (default to empty string)
 
         # Get environment variables
         state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
@@ -213,9 +226,11 @@ def lambda_handler(event, context):
             "course_bucket": course_bucket,
             "project_folder": project_folder,
             "allow_openai_fallback": allow_openai_fallback,
+            "content_type": content_type,  # 'theory', 'labs', or 'both'
+            "lab_requirements": lab_requirements,  # Always include (empty string if not provided)
         }
         
-        # Only include max_images if it was provided
+        # Only include optional parameters if they were provided
         if max_images is not None:
             execution_input["max_images"] = max_images
 

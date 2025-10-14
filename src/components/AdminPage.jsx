@@ -7,7 +7,6 @@ const ADMIN_EMAIL = 'anette.flores@netec.com.mx';
 const API_BASE = 'https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2';
 
 function AdminPage() {
-  // 🔒 Evitar render fuera de /admin
   const { pathname } = useLocation();
   if (!pathname.startsWith('/admin')) return null;
 
@@ -15,25 +14,23 @@ function AdminPage() {
   const [email, setEmail] = useState('');
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
-  const [enviando, setEnviando] = useState(''); // correo en proceso
+  const [enviando, setEnviando] = useState('');
 
-  // Filtros y “vista” de rol
   const [filtroTexto, setFiltroTexto] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('all'); // all | pendiente | aprobado | rechazado
+  const [filtroEstado, setFiltroEstado] = useState('all');
   const [vistaRol, setVistaRol] = useState(
     () => localStorage.getItem('ui_role_preview') || 'Administrador'
   );
 
   const token = localStorage.getItem('id_token');
 
-  // auth header
+  // ✅ auth header con Bearer
   const authHeader = useMemo(() => {
     if (!token) return {};
-    // En tu backend aceptas el raw token, así que lo dejamos igual
-    return { Authorization: token };
+    return { Authorization: `Bearer ${token}` };
   }, [token]);
 
-  // Decodificar token simple para email
+  // Extraer email del token
   useEffect(() => {
     if (!token) return;
     try {
@@ -52,6 +49,7 @@ function AdminPage() {
         method: 'GET',
         headers: { ...authHeader },
       });
+      if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
       const data = await res.json().catch(() => ({}));
       setSolicitudes(Array.isArray(data?.solicitudes) ? data.solicitudes : []);
     } catch (e) {
@@ -63,13 +61,12 @@ function AdminPage() {
   };
 
   useEffect(() => {
-    cargarSolicitudes();
+    if (token) cargarSolicitudes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const puedeGestionar = email === ADMIN_EMAIL;
+  const puedeGestionar = email.toLowerCase() === ADMIN_EMAIL;
 
-  // helper para forzar refresh de atributos en los clientes
   const pokeClientsToRefresh = () => {
     try {
       localStorage.setItem('force_attr_refresh', '1');
@@ -86,12 +83,11 @@ function AdminPage() {
           'Content-Type': 'application/json',
           ...authHeader,
         },
-        body: JSON.stringify({ correo, accion }), // 'aprobar' | 'rechazar' | 'revocar'
+        body: JSON.stringify({ correo, accion }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Error en la acción');
 
-      // Refrescar clientes
       pokeClientsToRefresh();
 
       setSolicitudes((prev) =>
@@ -123,7 +119,6 @@ function AdminPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Error al eliminar');
 
-      // Forzar refresh en clientes (revierte a rol base por dominio y quita del grupo)
       pokeClientsToRefresh();
 
       setSolicitudes((prev) => prev.filter((s) => s.correo !== correo));
@@ -136,7 +131,6 @@ function AdminPage() {
     }
   };
 
-  // Filtrado en memoria
   const solicitudesFiltradas = useMemo(() => {
     const txt = filtroTexto.trim().toLowerCase();
     return solicitudes.filter((s) => {
@@ -148,7 +142,6 @@ function AdminPage() {
     });
   }, [solicitudes, filtroTexto, filtroEstado]);
 
-  // Guardar "vista" de rol (solo UI / demo)
   useEffect(() => {
     localStorage.setItem('ui_role_preview', vistaRol);
   }, [vistaRol]);
@@ -173,25 +166,22 @@ function AdminPage() {
           value={filtroTexto}
           onChange={(e) => setFiltroTexto(e.target.value)}
         />
-
         <select
           className="select-estado"
           value={filtroEstado}
           onChange={(e) => setFiltroEstado(e.target.value)}
-          title="Filtrar por estado"
         >
           <option value="all">Todos los estados</option>
           <option value="pendiente">Pendiente</option>
           <option value="aprobado">Aprobado</option>
           <option value="rechazado">Rechazado</option>
         </select>
-
         <button className="btn-recargar" onClick={cargarSolicitudes} disabled={cargando}>
           {cargando ? 'Actualizando…' : '↻ Actualizar'}
         </button>
       </div>
 
-      {/* Vista de rol (solo para probar UI) */}
+      {/* Vista de rol */}
       <div className="rol-preview">
         <label>Tu rol activo:&nbsp;</label>
         <select
@@ -246,7 +236,6 @@ function AdminPage() {
                               className="btn-aprobar"
                               onClick={() => accionSolicitud(correo, 'aprobar')}
                               disabled={enviando === correo}
-                              title="Aprobar"
                             >
                               {enviando === correo ? 'Aplicando…' : '✅ Aprobar'}
                             </button>
@@ -254,7 +243,6 @@ function AdminPage() {
                               className="btn-rechazar"
                               onClick={() => accionSolicitud(correo, 'rechazar')}
                               disabled={enviando === correo}
-                              title="Rechazar"
                             >
                               {enviando === correo ? 'Aplicando…' : '❌ Rechazar'}
                             </button>
@@ -262,7 +250,6 @@ function AdminPage() {
                               className="btn-rechazar"
                               onClick={() => accionSolicitud(correo, 'revocar')}
                               disabled={enviando === correo}
-                              title="Revocar rol"
                               style={{ marginLeft: 8 }}
                             >
                               {enviando === correo ? 'Aplicando…' : '🗑️ Revocar'}
@@ -271,7 +258,6 @@ function AdminPage() {
                               className="btn-rechazar"
                               onClick={() => eliminarSolicitud(correo)}
                               disabled={enviando === correo}
-                              title="Eliminar solicitud (DynamoDB)"
                               style={{ marginLeft: 8 }}
                             >
                               {enviando === correo ? 'Eliminando…' : '🗑️ Eliminar'}

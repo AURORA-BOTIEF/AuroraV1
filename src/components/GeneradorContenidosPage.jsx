@@ -70,14 +70,6 @@ function GeneradorContenidosPage() {
           </div>
 
           <div className="opcion-menu disabled">
-            <div className="icono">🧪</div>
-            <div className="texto">
-              <h3>Laboratorios (Próximamente)</h3>
-              <p>Realiza aquí tu guía de laboratorios.</p>
-            </div>
-          </div>
-
-          <div className="opcion-menu disabled">
             <div className="icono">📊</div>
             <div className="texto">
               <h3>Presentación (Próximamente)</h3>

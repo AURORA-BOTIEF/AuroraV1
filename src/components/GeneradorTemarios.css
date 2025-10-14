@@ -1,37 +1,33 @@
-/* src/components/GeneradorTemarios.css */
-
-/* --- Contenedor Principal --- */
-.generador-temarios-container {
+.contenedor-generador {
   padding: 2rem;
-  background-color: #f9fafb;
-  max-width: 900px;
-  margin: 2rem auto;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-}
-
-.generador-temarios-container h2 {
-  color: #1b5784;
-  font-size: 1.8rem;
-  margin-bottom: 0.5rem;
-}
-
-.generador-temarios-container p {
-  color: #555;
-  margin-bottom: 2rem;
-}
-
-/* --- Formulario --- */
-.formulario-inicial {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  align-items: center;
+}
+
+.card-generador {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 12px;
+  max-width: 1000px;
+  width: 100%;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+}
+
+.card-generador h2 {
+  color: #035b6e;
+  font-weight: 700;
+}
+
+.card-generador p {
+  color: #444;
+  margin-bottom: 1.5rem;
 }
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
 }
 
 .form-group {
@@ -41,169 +37,123 @@
 
 .form-group label {
   font-weight: 600;
-  color: #333;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
-  padding: 0.75rem;
-  border: 1px solid #ddd;
+  border: 1px solid #ccc;
   border-radius: 6px;
-  font-size: 1rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #1b5784;
-  box-shadow: 0 0 0 3px rgba(27, 87, 132, 0.1);
+  padding: 0.5rem;
 }
 
 .form-group textarea {
-  min-height: 80px;
   resize: vertical;
+  min-height: 60px;
 }
-
-/* ============================================================= */
-/* ===== ESTILOS DE SLIDER REEMPLAZADOS POR EL NUEVO DISEÑO ===== */
-/* ============================================================= */
 
 .slider-container {
   display: flex;
   align-items: center;
+  gap: 0.8rem;
+}
+
+.form-group-radio {
+  margin-top: 1rem;
+}
+
+.form-group-radio div {
+  display: flex;
+  gap: 2rem;
+}
+
+.botones {
+  display: flex;
   gap: 1rem;
-  margin-top: 0.25rem;
+  margin-top: 1.5rem;
 }
 
-.slider-container span {
+.btn-generar {
+  background-color: #035b6e;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
   font-weight: 600;
-  color: #1b5784;
-  min-width: 90px;
-  text-align: right;
-  background-color: #f0f5f9;
-  padding: 0.5rem;
-  border-radius: 5px;
-  font-size: 0.9rem;
 }
 
-/* 1. Reset y contenedor del slider */
-input[type="range"] {
-  -webkit-appearance: none; /* Oculta el estilo por defecto en WebKit */
-  appearance: none;
-  width: 100%;
-  background: transparent; /* El fondo es transparente, la barra la dibujamos abajo */
+.btn-versiones {
+  background-color: #45ab9f;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
   cursor: pointer;
+  font-weight: 600;
 }
 
-/* 2. El círculo que se arrastra (Thumb) */
-/* Para Chrome, Safari, Edge */
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  margin-top: -7px; /* Truco para centrar el círculo en la barra */
-  height: 20px;
-  width: 20px;
-  background: #fff;
-  border: 3px solid #1b5784;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  transition: transform 0.1s ease;
-}
-input[type="range"]:active::-webkit-slider-thumb {
-  transform: scale(1.1); /* Se hace un poco más grande al arrastrar */
-}
-/* Para Firefox */
-input[type="range"]::-moz-range-thumb {
-  height: 20px;
-  width: 20px;
-  background: #fff;
-  border: 3px solid #1b5784;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  transition: transform 0.1s ease;
-}
-input[type="range"]:active::-moz-range-thumb {
-  transform: scale(1.1);
+.error {
+  color: #c54b0f;
+  margin-top: 1rem;
 }
 
-/* 3. La barra (Track) */
-/* Para Chrome, Safari, Edge */
-input[type="range"]::-webkit-slider-runnable-track {
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 6px;
-  background: #e0e0e0;
-  border-radius: 3px;
-}
-/* Para Firefox */
-input[type="range"]::-moz-range-track {
-  width: 100%;
-  height: 6px;
-  background: #e0e0e0;
-  border-radius: 3px;
-}
-
-/* ============================================================= */
-/* ===== FIN DE LOS NUEVOS ESTILOS DE SLIDER ===== */
-/* ============================================================= */
-
-
-/* 2. Botones de Radio para el Objetivo */
-.radio-group {
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
-  gap: 1.5rem;
-  margin-top: 0.5rem;
-  background-color: #fff;
-  padding: 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-}
-
-.radio-group label {
-  display: flex;
+  justify-content: center;
   align-items: center;
-  gap: 0.5rem;
+}
+
+.modal {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  max-width: 900px;
+  width: 95%;
+  overflow-y: auto;
+  max-height: 80vh;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
   cursor: pointer;
-  font-weight: 500;
 }
 
-.radio-group input[type="radio"] {
-  accent-color: #035b6e; /* Tu color secundario */
+.tabla-versiones {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
 }
 
-/* --- Botón Principal y Mensajes --- */
-.btn-generar-principal {
-  padding: 0.8rem 1.5rem;
+.tabla-versiones th,
+.tabla-versiones td {
+  padding: 0.6rem;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+.btn-abrir {
+  background-color: #197fa6;
+  color: white;
   border: none;
   border-radius: 6px;
-  background-color: #1b5784; /* Tu color principal */
-  color: white;
-  font-size: 1.1rem;
-  font-weight: 600;
+  padding: 0.4rem 0.8rem;
   cursor: pointer;
-  transition: background-color 0.2s, transform 0.1s;
-  align-self: flex-start; /* Alinear a la izquierda */
 }
 
-.btn-generar-principal:hover {
-  background-color: #164666; /* Un tono más oscuro */
-  transform: translateY(-2px);
-}
-
-.btn-generar-principal:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.error-mensaje {
-  margin-top: 1rem;
-  padding: 1rem;
-  background-color: #fff0f0;
-  color: #d8000c;
-  border: 1px solid #ffd2d2;
-  border-radius: 6px;
-}

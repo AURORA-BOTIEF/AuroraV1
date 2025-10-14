@@ -25,7 +25,13 @@ const GeneradorContenido = () => {
             processedValue = parseInt(value, 10);
         }
 
-        setParams(prev => ({ ...prev, [name]: processedValue }));
+        console.log(`📝 Parameter changed: ${name} = ${processedValue} (type: ${typeof processedValue})`);
+
+        setParams(prev => {
+            const newParams = { ...prev, [name]: processedValue };
+            console.log('📊 Updated params:', newParams);
+            return newParams;
+        });
     };
 
     const handleGenerar = async () => {
@@ -41,6 +47,10 @@ const GeneradorContenido = () => {
         setCurrentExecutionArn(null);
 
         try {
+            // Debug: Log what we're sending
+            console.log('🚀 Frontend sending params:', JSON.stringify(params, null, 2));
+            console.log('📊 module_to_generate value:', params.module_to_generate, 'type:', typeof params.module_to_generate);
+
             // Call the start-job API using Amplify API with IAM authorization
             const restOperation = post({
                 apiName: 'CourseGeneratorAPI',

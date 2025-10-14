@@ -104,20 +104,21 @@ def generate_image(model, prompt_id: str, prompt_text: str) -> tuple:
     Args:
         model: Gemini GenerativeModel instance
         prompt_id: Unique identifier for the prompt
-        prompt_text: Description of image to generate
+        prompt_text: Detailed description/prompt for image generation
         
     Returns:
         tuple: (success: bool, image_bytes: bytes or None, error: str or None)
     """
     try:
         print(f"Generating image for prompt: {prompt_id}")
-        print(f"Description: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}")
+        print(f"Prompt text length: {len(prompt_text)} characters")
+        print(f"Prompt preview: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
         
-        # Generate image using Gemini
-        enhanced_prompt = f"Generate an image: {prompt_text}"
-        print(f"Sending to Gemini: {enhanced_prompt[:100]}{'...' if len(enhanced_prompt) > 100 else ''}")
+        # Use the prompt text directly (it's already enhanced with details)
+        # No need to add "Generate an image:" prefix as the prompt is comprehensive
+        print(f"Sending to Gemini: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
         
-        response = model.generate_content(enhanced_prompt)
+        response = model.generate_content(prompt_text)
         print(f"Gemini response type: {type(response)}")
         
         # Process the response
@@ -356,11 +357,15 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                             prompt_obj = s3_client.get_object(Bucket=course_bucket, Key=prompt_key)
                             prompt_data = json.loads(prompt_obj['Body'].read().decode('utf-8'))
                             
-                            # Only include if it has a description (the actual prompt text)
-                            if 'description' in prompt_data and prompt_data['description']:
+                            # Prefer enhanced_prompt over description for better quality
+                            # enhanced_prompt includes exact text, typography, and detailed specifications
+                            prompt_text = prompt_data.get('enhanced_prompt') or prompt_data.get('description', '')
+                            
+                            # Only include if it has a prompt text
+                            if prompt_text:
                                 prompts_from_input.append({
                                     'id': prompt_data.get('id'),
-                                    'description': prompt_data.get('description'),
+                                    'description': prompt_text,  # Use enhanced prompt as description
                                     's3_key': prompt_key
                                 })
                         except Exception as e:
