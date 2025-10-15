@@ -9,6 +9,7 @@ This replaces the presigned URL approach with direct IAM-authorized API calls.
 import json
 import boto3
 import os
+import yaml
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -62,8 +63,6 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     
     Returns: List[int] sorted module numbers
     """
-    import yaml
-    
     # Handle integer input
     if isinstance(module_input, int):
         return [module_input]
