@@ -58,13 +58,16 @@ def load_outline_from_s3(bucket: str, key: str) -> dict:
         raise
 
 
-def extract_all_labs(outline_data: dict, module_to_generate: str = "all") -> List[Dict[str, Any]]:
+def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> List[Dict[str, Any]]:
     """
-    Extract lab activities from the outline, optionally filtering by module.
+    Extract lab activities from the outline, optionally filtering by modules.
     
     Args:
         outline_data: The course outline dictionary
-        module_to_generate: Module number as string (e.g., "3") or "all" for all modules
+        modules_to_generate: 
+            - "all": Extract from all modules
+            - int (e.g., 3): Single module
+            - list of ints (e.g., [1, 3, 5]): Multiple modules
     
     Returns list of lab info with context:
     [
@@ -85,12 +88,17 @@ def extract_all_labs(outline_data: dict, module_to_generate: str = "all") -> Lis
     labs = []
     
     # Parse module filter
-    target_module = None
-    if module_to_generate and module_to_generate != "all":
+    target_modules = set()
+    if modules_to_generate == "all" or modules_to_generate is None:
+        target_modules = None  # Include all
+    elif isinstance(modules_to_generate, list):
+        target_modules = set(int(m) for m in modules_to_generate)
+    elif isinstance(modules_to_generate, (int, str)):
         try:
-            target_module = int(module_to_generate)
+            target_modules = {int(modules_to_generate)}
         except (ValueError, TypeError):
-            print(f"⚠️  Invalid module_to_generate value: {module_to_generate}, treating as 'all'")
+            print(f"⚠️  Invalid modules_to_generate value: {modules_to_generate}, treating as 'all'")
+            target_modules = None
     
     # Modules can be at top level OR under 'course'
     modules = outline_data.get('modules', [])
@@ -100,15 +108,15 @@ def extract_all_labs(outline_data: dict, module_to_generate: str = "all") -> Lis
     
     print(f"\n{'='*70}")
     print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")
-    if target_module:
-        print(f"🎯 Filtering: Module {target_module} only")
-    else:
+    if target_modules is None:
         print(f"🎯 Filtering: All modules")
+    else:
+        print(f"🎯 Filtering: Modules {sorted(target_modules)} only")
     print(f"{'='*70}")
     
     for mod_idx, module in enumerate(modules, 1):
         # Skip modules that don't match the filter
-        if target_module and mod_idx != target_module:
+        if target_modules is not None and mod_idx not in target_modules:
             continue
             
         module_title = module.get('title', f'Module {mod_idx}')
@@ -449,21 +457,32 @@ def lambda_handler(event, context):
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
         lab_requirements = event.get('lab_requirements')
-        module_to_generate = event.get('module_to_generate', 'all')
+        
+        # Support both old (single module) and new (multiple modules) formats
+        modules_to_generate = event.get('modules_to_generate')
+        if modules_to_generate is None:
+            # Fallback to old single-module parameter
+            module_to_generate = event.get('module_to_generate', 'all')
+            if module_to_generate == 'all':
+                modules_to_generate = 'all'
+            else:
+                modules_to_generate = [int(module_to_generate)]
+        elif not isinstance(modules_to_generate, list):
+            modules_to_generate = [int(modules_to_generate)]
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📄 Outline: {outline_key}")
         print(f"📁 Project: {project_folder}")
         print(f"🤖 Model: {model_provider}")
-        print(f"🎯 Module Scope: {module_to_generate}")
+        print(f"🎯 Module Scope: {modules_to_generate}")
         print(f"📋 Additional Requirements: {lab_requirements if lab_requirements else 'None'}")
         
         # Step 1: Load outline
         outline_data = load_outline_from_s3(course_bucket, outline_key)
         course_info = outline_data.get('course', {})
         
-        # Step 2: Extract labs (filtered by module if specified)
-        labs = extract_all_labs(outline_data, module_to_generate)
+        # Step 2: Extract labs (filtered by modules if specified)
+        labs = extract_all_labs(outline_data, modules_to_generate)
         
         if not labs:
             print("⚠️  No labs found in outline!")
@@ -480,11 +499,13 @@ def lambda_handler(event, context):
             model_provider=model_provider
         )
         
-        # Add metadata
+        # Add metadata (including language for LabWriter)
+        course_language = course_info.get('language', 'en')
         master_plan['metadata'] = {
             'generated_at': datetime.utcnow().isoformat(),
             'model_provider': model_provider,
             'course_title': course_info.get('title', 'Unknown'),
+            'course_language': course_language,  # NEW: Pass language to LabWriter
             'total_labs': len(labs),
             'total_duration_minutes': sum(lab['duration_minutes'] for lab in labs),
             'additional_requirements': lab_requirements

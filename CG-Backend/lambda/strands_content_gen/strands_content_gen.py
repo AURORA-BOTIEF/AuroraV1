@@ -165,6 +165,20 @@ def generate_module_single_call(
     lesson_specs = []
     total_target_words = 0
     
+    # Extract language from course_data
+    course_language = course_data.get('language', 'en').lower()
+    language_names = {
+        'en': 'English',
+        'es': 'Spanish (Español)',
+        'fr': 'French (Français)',
+        'de': 'German (Deutsch)',
+        'pt': 'Portuguese (Português)',
+        'it': 'Italian (Italiano)'
+    }
+    target_language = language_names.get(course_language, 'English')
+    
+    print(f"🌐 Target Language: {target_language} ({course_language})")
+    
     for idx, lesson in enumerate(lessons, 1):
         lesson_title = lesson.get('title', f'Lesson {idx}')
         lesson_duration = lesson.get('duration_minutes', 0)
@@ -238,6 +252,16 @@ Generate COMPLETE educational content for Module {module_number}: {module_title}
 ═══════════════════════════════════════════════════════════════════════════════════
 
 {course_context_str}
+
+════════════════════════════════════════════════════════════════════════
+LANGUAGE REQUIREMENT
+════════════════════════════════════════════════════════════════════════
+**GENERATE ALL CONTENT IN: {target_language}**
+
+- All headings, explanations, examples, and text must be in {target_language}
+- Use proper {target_language} terminology and idioms
+- Code comments should also be in {target_language} where appropriate
+- Maintain technical accuracy while using natural {target_language} expression
 
 ════════════════════════════════════════════════════════════════════════
 MODULE OVERVIEW
@@ -683,7 +707,7 @@ def lambda_handler(event, context):
     
     try:
         print("=" * 70)
-        print("CONTENT GENERATION LAMBDA - SINGLE CALL VERSION")
+        print("CONTENT GENERATION LAMBDA - MULTI-MODULE SUPPORT")
         print("=" * 70)
         
         # Debug: Print full event to see what we're receiving
@@ -693,16 +717,15 @@ def lambda_handler(event, context):
         # Extract parameters from event
         course_topic = event.get('course_topic', 'Custom Course')
         
-        # Support both 'module_to_generate' and 'module_number' (frontend uses module_number)
-        # Use explicit None check instead of 'or' to handle module_number=0 correctly
-        module_to_generate = event.get('module_number')
-        if module_to_generate is None:
-            module_to_generate = event.get('module_to_generate')
-        if module_to_generate is None:
-            module_to_generate = 1  # Default to module 1
-        
-        # Ensure it's an integer
-        module_to_generate = int(module_to_generate)
+        # Support both old (single module) and new (multiple modules) formats
+        modules_to_generate = event.get('modules_to_generate')
+        if modules_to_generate is None:
+            # Fallback to old single-module parameters
+            module_to_generate = event.get('module_number') or event.get('module_to_generate', 1)
+            modules_to_generate = [int(module_to_generate)]
+        elif not isinstance(modules_to_generate, list):
+            # Handle case where it's a single value
+            modules_to_generate = [int(modules_to_generate)]
         
         model_provider = event.get('model_provider', 'bedrock').lower()
         
@@ -715,7 +738,7 @@ def lambda_handler(event, context):
             raise ValueError("Missing required S3 parameters")
         
         print(f"Course: {course_topic}")
-        print(f"Module: {module_to_generate}")
+        print(f"Modules to generate: {modules_to_generate}")
         print(f"Model: {model_provider}")
         print(f"Outline: s3://{course_bucket}/{outline_s3_key}")
         
@@ -729,12 +752,12 @@ def lambda_handler(event, context):
         course_info = outline_data.get('course', outline_data.get('course_metadata', {}))
         modules = outline_data.get('modules', [])
         
-        if module_to_generate > len(modules):
-            raise ValueError(f"Module {module_to_generate} not found (only {len(modules)} modules)")
+        # Validate modules
+        for module_num in modules_to_generate:
+            if module_num > len(modules) or module_num < 1:
+                raise ValueError(f"Module {module_num} not found (outline has {len(modules)} modules)")
         
-        module_data = modules[module_to_generate - 1]
-        
-        # Get OpenAI key if needed
+        # Get OpenAI key if needed (do this once for all modules)
         openai_api_key = None
         if model_provider == 'openai':
             try:
@@ -744,46 +767,63 @@ def lambda_handler(event, context):
                 print(f"⚠️  Could not get OpenAI key: {e}")
                 openai_api_key = os.getenv('OPENAI_API_KEY')
         
-        # Generate module content (SINGLE CALL!)
-        generated_lessons = generate_module_single_call(
-            module_number=module_to_generate,
-            module_data=module_data,
-            course_data=course_info,
-            model_provider=model_provider,
-            openai_api_key=openai_api_key
-        )
+        # GENERATE CONTENT FOR ALL MODULES
+        all_lessons = []
+        all_lesson_keys = []
+        total_word_count = 0
         
-        # Save lessons to S3
-        print(f"\n💾 Saving {len(generated_lessons)} lessons to S3...")
-        
-        for lesson in generated_lessons:
-            lesson_key = f"{project_folder}/lessons/{lesson['filename']}"
+        for module_num in modules_to_generate:
+            print(f"\n{'='*70}")
+            print(f"📚 GENERATING MODULE {module_num}/{len(modules)}")
+            print(f"{'='*70}")
             
-            s3_client.put_object(
-                Bucket=course_bucket,
-                Key=lesson_key,
-                Body=lesson['lesson_content'].encode('utf-8'),
-                ContentType='text/markdown'
+            module_data = modules[module_num - 1]
+            
+            # Generate module content (SINGLE CALL per module!)
+            generated_lessons = generate_module_single_call(
+                module_number=module_num,
+                module_data=module_data,
+                course_data=course_info,
+                model_provider=model_provider,
+                openai_api_key=openai_api_key
             )
             
-            print(f"  ✅ Saved: {lesson_key}")
+            # Save lessons to S3
+            print(f"\n💾 Saving {len(generated_lessons)} lessons to S3...")
+            
+            for lesson in generated_lessons:
+                lesson_key = f"{project_folder}/lessons/{lesson['filename']}"
+                
+                s3_client.put_object(
+                    Bucket=course_bucket,
+                    Key=lesson_key,
+                    Body=lesson['lesson_content'].encode('utf-8'),
+                    ContentType='text/markdown'
+                )
+                
+                print(f"  ✅ Saved: {lesson_key}")
+                all_lesson_keys.append(lesson_key)
+                total_word_count += lesson['word_count']
+            
+            all_lessons.extend(generated_lessons)
         
         # Return success response (compatible with Step Functions state machine)
-        lesson_keys = [f"{project_folder}/lessons/{l['filename']}" for l in generated_lessons]
+        print(f"\n{'='*70}")
+        print(f"✅ COMPLETE: Generated {len(all_lessons)} lessons across {len(modules_to_generate)} module(s)")
+        print(f"📊 Total words: {total_word_count:,}")
+        print(f"{'='*70}")
         
         return {
             'statusCode': 200,
-            'message': 'Module generated successfully',
+            'message': f'Generated {len(modules_to_generate)} module(s) successfully',
             # Step Functions compatibility
-            'lesson_keys': lesson_keys,  # Required by state machine
+            'lesson_keys': all_lesson_keys,  # Required by state machine
             'bucket': course_bucket,
             'project_folder': project_folder,
-            'module_info': {
-                'module_number': module_to_generate,
-                'module_title': module_data.get('title'),
-                'total_lessons': len(generated_lessons),
-                'total_words': sum(l['word_count'] for l in generated_lessons),
-            },
+            'modules_generated': modules_to_generate,
+            'total_lessons': len(all_lessons),
+            'total_words': total_word_count,
+            'model_provider': model_provider,
             # Additional info
             'lessons': [
                 {
@@ -793,9 +833,8 @@ def lambda_handler(event, context):
                     'word_count': l['word_count'],
                     's3_key': f"{project_folder}/lessons/{l['filename']}"
                 }
-                for l in generated_lessons
-            ],
-            'model_provider': model_provider
+                for l in all_lessons
+            ]
         }
     
     except Exception as e:

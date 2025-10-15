@@ -392,6 +392,14 @@ def generate_all_labs_batch(
     prompt = f"""
 You are an expert technical instructor creating detailed, professional laboratory guides.
 
+LANGUAGE REQUIREMENT:
+**GENERATE ALL LAB CONTENT IN: {master_context.get('target_language', 'English')}**
+
+- All headings, instructions, explanations must be in {master_context.get('target_language', 'English')}
+- Use proper {master_context.get('target_language', 'English')} terminology and idioms
+- Command outputs can remain in their original language (usually English)
+- Code comments should be in {master_context.get('target_language', 'English')} where appropriate
+
 MASTER CONTEXT:
 Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}
 
@@ -408,7 +416,7 @@ LABS TO GENERATE ({len(lab_plans)} total):
 {chr(10).join(labs_summary)}
 
 YOUR TASK:
-Generate COMPLETE, DETAILED step-by-step instructions for ALL {len(lab_plans)} labs above.
+Generate COMPLETE, DETAILED step-by-step instructions for ALL {len(lab_plans)} labs above in {master_context.get('target_language', 'English')}.
 
 OUTPUT FORMAT (use delimiters):
 ---LAB_START---
@@ -577,14 +585,28 @@ def lambda_handler(event, context):
                 'error': 'No lab plans found in master plan'
             }
         
-        print(f"\n📊 Total labs to generate: {len(lab_plans)}\n")
+        # Extract language from metadata
+        course_language = master_plan.get('metadata', {}).get('course_language', 'en')
+        language_names = {
+            'en': 'English',
+            'es': 'Spanish (Español)',
+            'fr': 'French (Français)',
+            'de': 'German (Deutsch)',
+            'pt': 'Portuguese (Português)',
+            'it': 'Italian (Italiano)'
+        }
+        target_language = language_names.get(course_language, 'English')
         
-        # Build master context for all labs
+        print(f"\n🌐 Target Language: {target_language} ({course_language})")
+        print(f"📊 Total labs to generate: {len(lab_plans)}\n")
+        
+        # Build master context for all labs (including language)
         master_context = {
             'hardware_requirements': master_plan.get('hardware_requirements', []),
             'software_requirements': master_plan.get('software_requirements', []),
             'special_considerations': master_plan.get('special_considerations', []),
-            'overall_objectives': master_plan.get('overall_objectives', [])
+            'overall_objectives': master_plan.get('overall_objectives', []),
+            'target_language': target_language  # NEW: Pass language to prompt
         }
         
         # Step 2: Generate lab guides in BATCHES (2 labs per API call to avoid token limits)
