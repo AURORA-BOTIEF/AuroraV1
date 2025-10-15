@@ -1,514 +1,68 @@
 """
-Strands Agents Content Generator
-Replaces CrewAI-based content_gen.py with Strands Agents framework.
+Content Generation - Single Call Version
+Generates entire module in ONE LLM call for maximum efficiency.
 
-This Lambda generates course lesson content using Strands Agents multi-agent workflow.
-NO DOCKER required - deploys as standard Python Lambda with Layer.
-
-Migration from CrewAI to Strands Agents - Phase 2
-Updated: 2025-10-08 - Added outline.yaml support
+Performance:
+- Old: 7 calls, 10+ minutes
+- New: 1 call, 1-2 minutes (85% faster)
 """
 
 import os
-import sys
 import json
-import re
 import yaml
 import boto3
-import time
-import random
+from botocore.config import Config
 from datetime import datetime
-from typing import Dict, Any, List, Optional
-from strands import Agent, tool
-from strands.models import BedrockModel
+from typing import Dict, List, Any, Optional
 
-# Try to import OpenAIModel dynamically
-try:
-    from strands.models.openai import OpenAIModel
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OpenAIModel = None
-    OPENAI_AVAILABLE = False
-    print("⚠️  OpenAI model not available in this environment")
+# Configure boto3 with extended timeouts for long-running LLM calls
+boto_config = Config(
+    read_timeout=600,  # 10 minutes read timeout
+    connect_timeout=60,  # 1 minute connection timeout
+    retries={'max_attempts': 3, 'mode': 'adaptive'}
+)
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
+# AWS Clients
+s3_client = boto3.client('s3')
+bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=boto_config)
+secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
-# Model configuration - respects model_provider parameter
-# Bedrock: Claude 3.7 Sonnet (your selected model)
-# OpenAI: GPT-5 (your selected model - keeping as requested)
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+# Model Configuration
+DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 DEFAULT_OPENAI_MODEL = "gpt-5"
 DEFAULT_REGION = "us-east-1"
 
-# ============================================================================
-# CUSTOM TOOLS FOR S3 OPERATIONS
-# ============================================================================
 
-@tool
-def read_s3_file(bucket: str, key: str) -> str:
-    """
-    Read a file from S3 and return its contents as a string.
-    
-    Args:
-        bucket: S3 bucket name
-        key: S3 object key
-        
-    Returns:
-        File contents as string
-    """
+def get_secret(secret_name: str) -> dict:
+    """Retrieve secret from AWS Secrets Manager."""
     try:
-        s3 = boto3.client('s3')
-        response = s3.get_object(Bucket=bucket, Key=key)
-        content = response['Body'].read().decode('utf-8')
-        print(f"✅ Successfully read {key} from S3")
-        return content
+        response = secrets_client.get_secret_value(SecretId=secret_name)
+        return json.loads(response['SecretString'])
     except Exception as e:
-        print(f"❌ Error reading {key} from S3: {e}")
+        print(f"Error retrieving secret {secret_name}: {e}")
         raise
 
 
-@tool
-def write_s3_file(bucket: str, key: str, content: str) -> str:
-    """
-    Write content to an S3 file.
-    
-    Args:
-        bucket: S3 bucket name
-        key: S3 object key
-        content: Content to write
-        
-    Returns:
-        Success message with S3 key
-    """
-    try:
-        s3 = boto3.client('s3')
-        s3.put_object(
-            Bucket=bucket,
-            Key=key,
-            Body=content.encode('utf-8'),
-            ContentType='text/markdown'
-        )
-        print(f"✅ Successfully wrote {key} to S3")
-        return f"Successfully saved to s3://{bucket}/{key}"
-    except Exception as e:
-        print(f"❌ Error writing {key} to S3: {e}")
-        raise
+def format_lesson_filename(module_num: int, lesson_index: int, lesson_title: str) -> str:
+    """Format lesson filename."""
+    safe_title = lesson_title.lower()
+    safe_title = ''.join(c if c.isalnum() or c.isspace() else '' for c in safe_title)
+    safe_title = '-'.join(safe_title.split())
+    return f"module-{module_num}-lesson-{lesson_index + 1}-{safe_title}.md"
 
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-def sanitize_filename(name: str) -> str:
-    """Sanitize a string to be used as a valid filename."""
-    return re.sub(r'[\\/*?:"<>|]', "", name).replace(" ", "_")
-
-
-def format_lesson_filename(module_number: int, lesson_index: int, lesson_title: str) -> str:
-    """Format lesson filename as module-XX-lesson-YY.md"""
-    module_str = f"{module_number:02d}"
-    lesson_str = f"{lesson_index + 1:02d}"
-    sanitized_title = sanitize_filename(lesson_title).lower().replace("_", "-")
-    return f"module-{module_str}-lesson-{lesson_str}.md"
-
-
-def load_outline_from_yaml(yaml_path: str) -> Dict[str, Any]:
-    """Load and parse course outline from YAML file."""
-    with open(yaml_path, 'r') as f:
-        data = yaml.safe_load(f)
-
-    return {
-        'course_metadata': data.get('course_metadata', {}),
-        'modules': data.get('modules', [])
-    }
-
-
-def load_outline_from_s3(s3_client, bucket: str, key: str) -> Dict[str, Any]:
-    """Load and parse course outline from S3."""
-    response = s3_client.get_object(Bucket=bucket, Key=key)
-    content = response['Body'].read().decode('utf-8')
-    data = yaml.safe_load(content)
-
-    return {
-        'course_metadata': data.get('course_metadata', {}),
-        'modules': data.get('modules', [])
-    }
-
-
-def generate_project_folder(course_topic: str, s3_client, bucket: str) -> str:
-    """Generate project folder name: YYMMDD-course-topic"""
-    date_str = datetime.now().strftime("%y%m%d")
-    sanitized_topic = sanitize_filename(course_topic).lower().replace("_", "-")
-
-    # Find existing projects to determine next ID
-    prefix = f"{date_str}-{sanitized_topic}-"
-
-    try:
-        response = s3_client.list_objects_v2(
-            Bucket=bucket,
-            Prefix=prefix,
-            Delimiter='/'
-        )
-
-        existing_ids = []
-        if 'CommonPrefixes' in response:
-            for obj in response['CommonPrefixes']:
-                folder_name = obj['Prefix'].rstrip('/')
-                if folder_name.startswith(prefix):
-                    try:
-                        suffix = folder_name[len(prefix):]
-                        if suffix.isdigit() and len(suffix) == 2:
-                            existing_ids.append(int(suffix))
-                    except:
-                        continue
-
-        next_id = 1 if not existing_ids else max(existing_ids) + 1
-        id_suffix = f"{next_id:02d}"
-
-        return f"{prefix}{id_suffix}"
-
-    except Exception as e:
-        print(f"Warning: Could not check existing projects: {e}")
-        fallback_suffix = f"{int(time.time()) % 100:02d}"
-        return f"{prefix}{fallback_suffix}"
-
-
-def configure_openai_model() -> Any:
-    """
-    Configure OpenAI model with enhanced error handling and fallback options.
-
-    Returns:
-        Configured OpenAIModel instance
-
-    Raises:
-        ValueError: If OpenAI cannot be configured
-    """
-    if not OPENAI_AVAILABLE or OpenAIModel is None:
-        raise ValueError("OpenAI model provider requested but OpenAIModel is not available")
-
-    # Get OpenAI API key
-    openai_key = None
-    try:
-        # Try to get OpenAI API key from Secrets Manager
-        openai_secret = get_secret("aurora/openai-api-key")
-        openai_key = openai_secret.get('api_key')
-        print("Retrieved OpenAI API key from Secrets Manager")
-    except Exception as e:
-        print(f"Failed to retrieve OpenAI API key from Secrets Manager: {e}")
-        # Fallback to environment variable
-        openai_key = os.getenv('OPENAI_API_KEY')
-        print("Using OpenAI API key from environment variable")
-
-    if not openai_key:
-        raise ValueError("OPENAI_API_KEY not found in Secrets Manager or environment variable")
-
-    # Try different configurations to avoid organization verification issues
-    configurations = [
-        # Try with streaming explicitly disabled
-        {"streaming": False},
-        # Try without streaming parameter (let library decide)
-        {},
-        # Try with different model if available
-        {"model_id": "gpt-4o", "streaming": False},
-        {"model_id": "gpt-4o-mini", "streaming": False},
-    ]
-
-    last_error = None
-    for i, config in enumerate(configurations):
-        try:
-            model_kwargs = {
-                "client_args": {"api_key": openai_key},
-                "model_id": config.get("model_id", DEFAULT_OPENAI_MODEL)
-            }
-
-            if "streaming" in config:
-                model_kwargs["streaming"] = config["streaming"]
-
-            model = OpenAIModel(**model_kwargs)
-
-            streaming_status = "disabled" if config.get("streaming") is False else "default"
-            model_name = config.get("model_id", DEFAULT_OPENAI_MODEL)
-            print(f"✅ OpenAI model configured successfully: {model_name} (streaming: {streaming_status})")
-
-            return model
-
-        except Exception as e:
-            error_msg = str(e)
-            last_error = e
-            print(f"⚠️  OpenAI configuration attempt {i+1} failed: {error_msg}")
-
-            # Check for specific organization verification error
-            if "organization" in error_msg.lower() and "verified" in error_msg.lower():
-                raise ValueError(
-                    "OpenAI organization verification required. Please verify your organization at: "
-                    "https://platform.openai.com/settings/organization/general. "
-                    "This may take up to 15 minutes to propagate."
-                ) from e
-
-    # If all configurations failed, raise the last error
-    raise ValueError(f"Failed to initialize OpenAI model after {len(configurations)} attempts: {str(last_error)}") from last_error
-
-
-# ============================================================================
-# STRANDS AGENTS - CONTENT GENERATION WORKFLOW
-# ============================================================================
-
-def create_content_agents(model, target_words: int = 1500) -> Dict[str, Agent]:
-    """
-    Create Strands Agents for content generation workflow.
-    
-    Mimics the CrewAI workflow with three sequential agents:
-    1. Researcher - Gathers information about the topic
-    2. Writer - Creates structured lesson content
-    3. Reviewer - Refines and adds visual placeholders
-    
-    Args:
-        model: Model instance (BedrockModel or OpenAIModel)
-        target_words: Target word count for lessons
-        
-    Returns:
-        Dictionary of agents
-    """
-    
-    # Agent 1: Content Researcher
-    researcher = Agent(
-        model=model,
-        system_prompt=f"""You are a Technical Research Specialist.
-
-Research topics and provide structured notes covering:
-- Key concepts and definitions
-- Technical specifications
-- Best practices
-- Real-world examples
-- Common issues
-
-Output format:
-## Key Concepts
-## Technical Details  
-## Best Practices
-## Real-World Examples
-## Common Issues
-
-Keep research focused and concise for {target_words} word content.
-""",
-        tools=[],  # No tools needed for this agent
-    )
-    
-    # Agent 2: Lesson Writer
-    writer = Agent(
-        model=model,
-        system_prompt=f"""You are an Expert Technical Author.
-
-Write comprehensive lesson content with:
-- Target: {target_words} words
-- Academic yet accessible style
-- Clear sections and structure
-- Theoretical foundations + practical examples
-- Hands-on exercises
-- [VISUAL: description] tags for 3-5 diagrams
-
-Standard Structure:
-## Introduction
-## Theoretical Foundations  
-## Practical Implementation
-## Real-World Applications
-## Hands-On Exercises
-## Summary
-""",
-        tools=[],
-    )
-    
-    # Agent 3: Content Reviewer & Visual Planner
-    reviewer = Agent(
-        model=model,
-        system_prompt="""You are a Content Quality Reviewer.
-
-Review and enhance lesson content:
-1. Check completeness and accuracy
-2. Ensure proper structure and flow
-3. Add 3-5 [VISUAL: description] tags for diagrams
-4. Ensure consistent formatting
-
-Output the complete, polished lesson in Markdown format.
-""",
-        tools=[],
-    )
-    
-    return {
-        'researcher': researcher,
-        'writer': writer,
-        'reviewer': reviewer
-    }
-
-
-def generate_lesson_content(
-    agents: Dict[str, Agent],
-    lesson_title: str,
-    lesson_topics: List[str],
-    course_topic: str,
-    target_words: int = 1500
-) -> str:
-    """
-    Generate lesson content using multi-agent workflow.
-    
-    Workflow:
-    1. Researcher gathers information
-    2. Writer creates structured content
-    3. Reviewer refines and adds visuals
-    
-    Args:
-        agents: Dictionary of Strands Agents
-        lesson_title: Title of the lesson
-        lesson_topics: List of topics to cover
-        course_topic: Overall course topic
-        target_words: Target word count
-        
-    Returns:
-        Complete lesson content in Markdown
-    """
-    
-    print(f"\n{'='*60}")
-    print(f"Generating: {lesson_title}")
-    print(f"{'='*60}")
-    
-    # Step 1: Research
-    print("\n[Step 1/3] 🔍 Researching topic...")
-    topics_str = "\n- ".join(lesson_topics) if lesson_topics else "General overview"
-    
-    research_prompt = f"""Research the following lesson topic for a course on {course_topic}:
-
-Lesson: {lesson_title}
-
-Topics to cover:
-- {topics_str}
-
-Provide comprehensive research notes covering:
-1. Key concepts and definitions
-2. Technical specifications
-3. Best practices
-4. Real-world examples
-5. Common issues and troubleshooting
-
-Make your research thorough enough to support {target_words}+ words of content.
-"""
-    
-    research_notes = agents['researcher'](research_prompt)
-    print(f"✅ Research complete ({len(str(research_notes).split())} words of notes)")
-    
-    # Step 2: Write
-    print("\n[Step 2/3] ✍️  Writing lesson content...")
-    
-    # Summarize research notes to reduce token usage
-    summary_prompt = f"""Summarize the key points from these research notes for lesson '{lesson_title}':
-
-{research_notes}
-
-Provide a concise summary (max 300 words) covering:
-- Main concepts and definitions
-- Key technical details
-- Best practices
-- Important examples
-
-Focus on the most relevant information for creating educational content.
-"""
-    
-    research_summary = agents['researcher'](summary_prompt)
-    print(f"✅ Research summarized ({len(str(research_summary).split())} words)")
-    
-    writing_prompt = f"""Write a comprehensive lesson on '{lesson_title}' for a course about {course_topic}.
-
-SUMMARY OF RESEARCH:
-{research_summary}
-
-REQUIREMENTS:
-- Target: {target_words} words
-- Include: Introduction, Theory, Practice, Examples, Exercises, Summary
-- Add 3-5 [VISUAL: description] tags for diagrams
-- Academic but accessible style
-
-Structure:
-1. Introduction with objectives
-2. Theoretical Foundations  
-3. Practical Implementation
-4. Real-World Applications
-5. Hands-On Exercises
-6. Summary
-
-Write the complete lesson now.
-"""
-    
-    draft_content = agents['writer'](writing_prompt)
-    print(f"✅ Draft complete ({len(str(draft_content).split())} words)")
-    
-    # Step 3: Review and enhance
-    print("\n[Step 3/3] 🔍 Reviewing and enhancing...")
-    
-    review_prompt = f"""Review and enhance this lesson draft:
-
-{draft_content}
-
-Tasks:
-1. Check completeness and accuracy
-2. Ensure proper structure  
-3. Add 3-5 [VISUAL: description] tags for key diagrams
-4. Ensure consistent Markdown formatting
-
-Output the complete, polished lesson.
-"""
-    
-    final_content = agents['reviewer'](review_prompt)
-    final_word_count = len(str(final_content).split())
-    
-    print(f"✅ Review complete")
-    print(f"📊 Final word count: {final_word_count} words")
-    print(f"{'='*60}\n")
-    
-    return str(final_content)
-
-
-def calculate_target_words(lesson_data, module_info):
-    """
-    Calculate target words for a lesson based on duration and complexity.
-    
-    Formula:
-    - Base words per minute: 120 (conservative reading speed for technical content)
-    - Bloom level multiplier: Remember=1.0, Understand=1.1, Apply=1.2, Analyze=1.3, Evaluate=1.4, Create=1.5
-    - Topic complexity: additional 100 words per topic
-    - Minimum: 600 words, Maximum: 1800 words (reduced to prevent token limits)
-    
-    Args:
-        lesson_data: Lesson data from outline
-        module_info: Module information
-        
-    Returns:
-        int: Calculated target words
-    """
-    
-    # Extract lesson duration (default to module duration if not specified)
+def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
+    """Calculate target word count for a lesson."""
     lesson_duration = lesson_data.get('duration_minutes', module_info.get('duration_minutes', 45))
-    
-    # Extract bloom level (default to module level)
     lesson_bloom = lesson_data.get('bloom_level', module_info.get('bloom_level', 'Understand'))
     
-    # Count topics
-    topics = lesson_data.get('topics', [])
-    if topics and isinstance(topics[0], dict):
-        topic_count = len(topics)
-    elif topics and isinstance(topics[0], str):
-        topic_count = len(topics)
-    else:
-        topic_count = 1  # Minimum 1 topic
+    # Handle compound bloom levels
+    if '/' in lesson_bloom:
+        bloom_parts = [b.strip() for b in lesson_bloom.split('/')]
+        bloom_order = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create']
+        lesson_bloom = max(bloom_parts, key=lambda x: bloom_order.index(x) if x in bloom_order else 0)
     
-    # Base calculation: 120 words per minute (conservative for technical content)
-    base_words = lesson_duration * 120
-    
-    # Bloom level multipliers (reduced to prevent excessive token usage)
+    # Bloom multipliers
     bloom_multipliers = {
         'Remember': 1.0,
         'Understand': 1.1,
@@ -518,374 +72,739 @@ def calculate_target_words(lesson_data, module_info):
         'Create': 1.5
     }
     
-    bloom_multiplier = bloom_multipliers.get(lesson_bloom, 1.1)  # Default to Understand
+    bloom_mult = bloom_multipliers.get(lesson_bloom, 1.1)
     
-    # Topic complexity bonus (reduced)
-    topic_bonus = topic_count * 100
+    # Base calculation: 15 words per minute (concise content that teacher expands)
+    base_words = lesson_duration * 15
+    base_words = int(base_words * bloom_mult)
     
-    # Calculate final target
-    calculated_words = int((base_words * bloom_multiplier) + topic_bonus)
+    # Add for topics and labs
+    topics_count = len(lesson_data.get('topics', []))
+    labs_count = len(lesson_data.get('lab_activities', []))
     
-    # Apply bounds (reduced maximum to prevent token limits)
-    target_words = max(600, min(1800, calculated_words))
+    total_words = base_words + (topics_count * 80) + (labs_count * 120)
     
-    print(f"📊 Target words calculation:")
-    print(f"   Duration: {lesson_duration} minutes")
-    print(f"   Bloom level: {lesson_bloom} (multiplier: {bloom_multiplier})")
-    print(f"   Topics: {topic_count}")
-    print(f"   Base words: {base_words}")
-    print(f"   Topic bonus: {topic_bonus}")
-    print(f"   Calculated: {calculated_words} → Bounded: {target_words}")
-    
-    return target_words
+    # Bounds
+    return max(500, min(3000, total_words))
 
 
-# ============================================================================
-# LAMBDA HANDLER
-# ============================================================================
+def build_course_context(course_data: dict) -> str:
+    """Build complete course outline context."""
+    course_title = course_data.get('title', 'Course')
+    modules = course_data.get('modules', [])
+    
+    context_lines = [
+        "════════════════════════════════════════════════════════════════════════",
+        "COMPLETE COURSE OUTLINE - MUST REFERENCE THIS EXACT STRUCTURE",
+        "════════════════════════════════════════════════════════════════════════",
+        f"Course: {course_title}",
+        ""
+    ]
+    
+    for mod_idx, module in enumerate(modules, 1):
+        mod_title = module.get('title', f'Module {mod_idx}')
+        context_lines.append(f"\nModule {mod_idx}: {mod_title}")
+        
+        lessons = module.get('lessons', [])
+        for les_idx, lesson in enumerate(lessons, 1):
+            les_title = lesson.get('title', f'Lesson {les_idx}')
+            context_lines.append(f"  {mod_idx}.{les_idx} {les_title}")
+    
+    context_lines.extend([
+        "",
+        "════════════════════════════════════════════════════════════════════════"
+    ])
+    
+    return "\n".join(context_lines)
 
-def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
+
+def generate_module_single_call(
+    module_number: int,
+    module_data: dict,
+    course_data: dict,
+    model_provider: str = "bedrock",
+    openai_api_key: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """
-    Lambda handler for Strands Agents content generation.
+    Generate complete module content in a SINGLE LLM call.
     
-    Expected event format:
-    {
-        "course_topic": "Kubernetes for DevOps",
-        "course_duration_hours": 20,
-        "module_to_generate": 2,
-        "lesson_to_generate": 1,
-        "target_words": 3000,
-        "outline_s3_key": "project/outline.yaml",
-        "course_bucket": "crewai-course-artifacts",
-        "project_folder": "251006-kubernetes-course"
-    }
+    This is 85% faster than the multi-call approach (1-2 min vs 10+ min).
+    
+    Args:
+        module_number: Module number (1-based)
+        module_data: Module information from outline
+        course_data: Full course data for context
+        model_provider: "bedrock" or "openai"
+        openai_api_key: OpenAI API key (if using OpenAI)
     
     Returns:
-    {
-        "statusCode": 200,
-        "message": "Lesson generated successfully",
-        "lesson_key": "project/lessons/module-02-lesson-01.md",
-        "project_folder": "project-folder",
-        "bucket": "bucket-name"
-    }
+        List of generated lessons with metadata
+    """
+    
+    print(f"\n{'='*70}")
+    print(f"🚀 SINGLE-CALL GENERATION - Module {module_number}")
+    print(f"{'='*70}")
+    
+    # Extract module info
+    module_title = module_data.get('title', f'Module {module_number}')
+    module_summary = module_data.get('summary', '')
+    module_duration = module_data.get('duration_minutes', 0)
+    module_bloom = module_data.get('bloom_level', 'Understand')
+    lessons = module_data.get('lessons', [])
+    
+    total_lessons = len(lessons)
+    print(f"📚 Module: {module_title}")
+    print(f"📖 Lessons to generate: {total_lessons}")
+    print(f"⏱️  Duration: {module_duration} minutes")
+    print(f"🎯 Bloom level: {module_bloom}")
+    
+    # Build course context
+    course_context_str = build_course_context(course_data)
+    
+    # Build lesson specifications
+    lesson_specs = []
+    total_target_words = 0
+    
+    for idx, lesson in enumerate(lessons, 1):
+        lesson_title = lesson.get('title', f'Lesson {idx}')
+        lesson_duration = lesson.get('duration_minutes', 0)
+        lesson_bloom = lesson.get('bloom_level', module_bloom)
+        topics = lesson.get('topics', [])
+        labs = lesson.get('lab_activities', [])
+        
+        target_words = calculate_target_words(lesson, module_data)
+        total_target_words += target_words
+        
+        # Format topics
+        topics_list = []
+        for topic in topics:
+            if isinstance(topic, dict):
+                topic_title = topic.get('title', 'Unnamed topic')
+                topic_duration = topic.get('duration_minutes', 0)
+                topic_bloom = topic.get('bloom_level', 'Understand')
+                topics_list.append(f"    - {topic_title} [{topic_duration} min, {topic_bloom}]")
+            else:
+                topics_list.append(f"    - {topic}")
+        
+        # Format labs
+        labs_list = []
+        for lab in labs:
+            if isinstance(lab, dict):
+                lab_title = lab.get('title', 'Unnamed lab')
+                lab_duration = lab.get('duration_minutes', 0)
+                labs_list.append(f"    - {lab_title} [{lab_duration} min]")
+            else:
+                labs_list.append(f"    - {lab}")
+        
+        lesson_spec = f"""
+## LESSON {idx}: {lesson_title}
+Duration: {lesson_duration} minutes
+Bloom Level: {lesson_bloom}
+Target Words: {target_words}+
+
+TOPICS (EXACTLY {len(topics)} - NO EXTRAS):
+{chr(10).join(topics_list) if topics_list else '    - General overview'}
+
+LAB ACTIVITIES (Reference only - brief descriptions):
+{chr(10).join(labs_list) if labs_list else '    - No lab activities'}
+"""
+        lesson_specs.append(lesson_spec)
+    
+    lessons_structure = "\n".join(lesson_specs)
+    
+    print(f"📝 Total target words: {total_target_words}")
+    print(f"🤖 Using model: {model_provider}")
+    
+    # Build comprehensive prompt
+    comprehensive_prompt = f"""
+Generate COMPLETE educational content for Module {module_number}: {module_title}
+
+═══════════════════════════════════════════════════════════════════════════════════
+� REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════════════
+
+1️⃣ CONTENT LENGTH: Target ~{total_target_words} words TOTAL across all {total_lessons} lessons
+   - Approximately {total_target_words // total_lessons} words per lesson
+   - Be thorough with examples, code snippets, and real-world scenarios
+
+2️⃣ COMPLETENESS: Generate ALL {total_lessons} lessons in full
+   - Each lesson must be complete with all sections
+   - Do not stop mid-lesson or skip content
+
+3️⃣ VISUAL TAGS: Include 3-5 descriptive [VISUAL: ...] tags per lesson
+   - Remember: 80+ characters describing components, layout, and relationships
+   - (Details in system instructions)
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+{course_context_str}
+
+════════════════════════════════════════════════════════════════════════
+MODULE OVERVIEW
+════════════════════════════════════════════════════════════════════════
+Title: {module_title}
+Summary: {module_summary}
+Duration: {module_duration} minutes
+Bloom Level: {module_bloom}
+Number of Lessons: {total_lessons}
+
+════════════════════════════════════════════════════════════════════════
+LESSON SPECIFICATIONS
+════════════════════════════════════════════════════════════════════════
+{lessons_structure}
+
+════════════════════════════════════════════════════════════════════════
+CRITICAL REQUIREMENTS
+════════════════════════════════════════════════════════════════════════
+
+[x] Generate ALL {total_lessons} lessons in THIS response
+[x] Each lesson must cover ONLY the topics listed (no extras)
+[x] Target total: ~{total_target_words} words across all lessons
+[x] NO "Practical Context" section - integrate practical aspects into Theoretical Foundations
+[x] Lab activities: ONLY list labs from outline (1-2 sentences each)
+[x] NO detailed lab procedures or step-by-step guides
+[x] NO invented or additional labs not in the outline
+
+CONTENT REQUIREMENTS:
+[x] Generate ALL {total_lessons} lessons in THIS response
+[x] Each lesson must cover ONLY the topics listed (no extras)
+[x] Target total: ~{total_target_words} words across all lessons
+[x] NO "Practical Context" section - integrate practical aspects into Theoretical Foundations
+[x] Lab activities: ONLY list labs from outline (1-2 sentences each)
+[x] NO detailed lab procedures or step-by-step guides
+[x] NO invented or additional labs not in the outline
+[x] Include 3-5 descriptive [VISUAL: ...] tags per lesson (80+ characters each)
+[x] Maintain consistent terminology across all lessons
+[x] Each lesson should flow naturally to the next
+[x] Use Markdown formatting with clear headings
+[x] Include practical examples and code snippets where appropriate
+
+════════════════════════════════════════════════════════════════════════
+LESSON STRUCTURE (for each lesson)
+════════════════════════════════════════════════════════════════════════
+
+1. INTRODUCTION (5% of content)
+   - Context and learning objectives
+   - Connection to previous lesson (if not Lesson 1)
+
+2. THEORETICAL FOUNDATIONS (85% of content)
+   - Cover ONLY the topics listed for this lesson
+   - Clear explanations with examples and real-world context
+   - Tool comparisons and selection criteria where relevant
+   - Include descriptive [VISUAL: ...] tags for major concepts
+   - If topic is "roadmap": Show COMPLETE course structure from outline above
+
+3. LAB ACTIVITIES OVERVIEW (5% of content)
+   - ONLY list lab titles with 1-2 sentence descriptions
+   - Format: "In the lab guide, you will [brief action]..."
+   - NO detailed procedures or step-by-step instructions
+   - NO mention of labs not listed in the outline
+
+4. SUMMARY (5% of content)
+   - Recap key concepts covered
+   - Bridge to next lesson (if not last)
+
+✅ EXCELLENT (130+ chars, fully describes image):
+[VISUAL: Layered architecture diagram showing three horizontal layers: top layer labeled 'Application Containers' with boxes for nginx, redis, and postgres; middle layer labeled 'Container Runtime (Docker/containerd)' with dotted line separator; bottom layer labeled 'Linux Kernel' showing namespace and cgroups boxes. Arrows pointing down from apps through runtime to kernel.]
+
+✅ EXCELLENT (140+ chars, complete visualization):
+[VISUAL: Side-by-side comparison table with 5 rows and 3 columns. Column headers: 'Minikube', 'kind', 'Managed K8s (EKS/GKE)'. Rows show: Setup Time (quick/instant/varies), Resource Usage (medium/low/high), Production Ready (no/no/yes), Ideal For (learning/testing/production), Cost (free/free/paid). Each cell uses green checkmark or red X icons.]
+
+✅ EXCELLENT (120+ chars, shows flow and components):
+[VISUAL: Flowchart diagram with 6 connected boxes showing kubectl command flow: 1) User types 'kubectl get pods' (terminal icon), 2) kubectl CLI sends HTTPS request (arrow with lock), 3) API Server validates auth (shield icon), 4) API Server queries etcd (database cylinder), 5) etcd returns pod data (arrow back), 6) kubectl displays table output (terminal with table). All connected by numbered arrows showing sequence.]
+
+❌ REJECTED - Too vague (20 chars):
+[VISUAL: Kubernetes architecture]
+
+❌ REJECTED - Placeholder ID (18 chars):
+[VISUAL: 01-01-0004]
+
+❌ REJECTED - No detail (15 chars):
+[VISUAL: Control plane diagram]
+
+❌ REJECTED - Still too vague (45 chars):
+[VISUAL: Diagram showing API server and etcd]
+
+EVERY visual tag must match the EXCELLENT examples in detail level.
+
+════════════════════════════════════════════════════════════════════════
+🚨 REMINDER: VISUAL TAGS MUST BE 80+ CHARACTERS WITH FULL DETAILS 🚨
+════════════════════════════════════════════════════════════════════════
+Before you start writing, remember:
+- EVERY [VISUAL: ...] tag must be minimum 80 characters
+- Describe components, layout, relationships, specific labels
+- NO placeholder IDs or vague descriptions
+
+════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════
+
+MANDATORY MARKDOWN STRUCTURE (use EXACTLY this heading hierarchy):
+
+# Lesson Title (H1 - only for lesson title)
+
+## Introduction (H2 - for main sections)
+Content here...
+
+## Theoretical Foundations (H2)
+
+### Topic 1: Name (H3 - for topics/subtopics)
+Content with **bold** for key terms and *italic* for emphasis.
+
+[VISUAL: Detailed 80+ character description here...]
+
+Code examples:
+```yaml
+apiVersion: v1
+kind: Pod
+```
+
+### Topic 2: Name (H3)
+Content...
+
+## Lab Activities (H2)
+
+### Lab 1: Title (H3)
+Brief description...
+
+## Summary (H2)
+Content...
+
+---
+
+CRITICAL MARKDOWN RULES (enforced for both Bedrock and GPT-5):
+- H1 (#): ONLY for lesson title at the very top
+- H2 (##): For main sections (Introduction, Theoretical Foundations, Lab Activities, Summary)
+- H3 (###): For topics within sections and individual labs
+- NO H4 or deeper - keep it simple
+- Use **bold** for key terms and concepts
+- Use *italic* for emphasis only
+- Use code blocks with language tags: ```yaml, ```bash, ```python
+- Lists: use "- " for unordered, "1. " for ordered
+- Blank line before and after headings
+- Blank line before and after code blocks
+- Blank line before and after visual tags
+
+Use this EXACT format:
+
+---LESSON-1-START---
+# Lesson 1: [Title]
+
+## Introduction
+
+[Context, learning objectives, connection to previous lesson]
+
+## Theoretical Foundations
+
+### [Topic 1 Title from Outline]
+
+[Detailed explanation with examples]
+
+[VISUAL: Detailed 120+ character description with components, layout, relationships, labels, colors, and flow direction clearly specified...]
+
+[More content with **key terms** in bold]
+
+### [Topic 2 Title from Outline]
+
+[Detailed explanation]
+
+[VISUAL: Another detailed 120+ character description...]
+
+## Lab Activities
+
+### Lab 1: [Lab Title from Outline]
+
+In the lab guide, you will [brief 1-2 sentence description].
+
+### Lab 2: [Lab Title from Outline]
+
+In the lab guide, you will [brief 1-2 sentence description].
+
+## Summary
+
+[Recap of key concepts and bridge to next lesson]
+
+---LESSON-1-END---
+
+---LESSON-2-START---
+# Lesson 2: [Title]
+
+[Full lesson content here with all sections]
+
+---LESSON-2-END---
+
+---LESSON-3-START---
+# Lesson 3: [Title]
+
+[Full lesson content here with all sections]
+
+---LESSON-3-END---
+
+════════════════════════════════════════════════════════════════════════
+VALIDATION CHECKLIST (Complete before finishing)
+════════════════════════════════════════════════════════════════════════
+
+Before submitting, verify:
+[ ] All {total_lessons} lessons generated
+[ ] Each lesson has ONLY the specified topics (no extras)
+[ ] Lab activities section lists ONLY labs from the outline (no invented labs)
+[ ] NO "Practical Context" section (integrate context into Theoretical Foundations)
+[ ] Visual tags present (3-5 per lesson minimum, 80+ characters each)
+[ ] Markdown formatting clean
+[ ] Word count appropriate (~{total_target_words} total)
+[ ] Course roadmap (if applicable) matches outline EXACTLY
+[ ] Consistent terminology throughout
+[ ] Natural flow between lessons
+
+════════════════════════════════════════════════════════════════════════
+FINAL REMINDERS
+════════════════════════════════════════════════════════════════════════
+
+✅ Generate ALL {total_lessons} lessons completely (no partial lessons)
+✅ Target ~{total_target_words} words total (~{total_target_words // total_lessons} per lesson)
+✅ Include 3-5 descriptive [VISUAL: ...] tags per lesson (80+ chars - see system instructions)
+✅ Use H1/H2/H3 hierarchy exactly as specified
+✅ NO invented labs - only labs from outline
+✅ Be thorough and detailed, not overly concise
+
+Now generate the complete module content.
+"""
+    
+    print(f"\n🔄 Calling {model_provider.upper()} API...")
+    start_time = datetime.now()
+    
+    # Call appropriate model
+    if model_provider.lower() == "openai":
+        full_content = call_openai(comprehensive_prompt, openai_api_key)
+    else:
+        full_content = call_bedrock(comprehensive_prompt)
+    
+    elapsed = (datetime.now() - start_time).total_seconds()
+    print(f"✅ Generation complete in {elapsed:.1f} seconds!")
+    
+    # Parse lessons from response
+    print(f"\n📋 Parsing {total_lessons} lessons from response...")
+    parsed_lessons = parse_lessons_from_response(
+        full_content,
+        lessons,
+        module_number,
+        module_data
+    )
+    
+    # Summary
+    total_words = sum(l['word_count'] for l in parsed_lessons)
+    print(f"\n{'='*70}")
+    print(f"✅ MODULE GENERATION COMPLETE")
+    print(f"{'='*70}")
+    print(f"📚 Module: {module_title}")
+    print(f"📖 Lessons Generated: {len(parsed_lessons)}")
+    print(f"📊 Total Words: {total_words} (target: {total_target_words})")
+    print(f"⏱️  Generation Time: {elapsed:.1f} seconds")
+    print(f"{'='*70}\n")
+    
+    return parsed_lessons
+
+
+def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
+    """Call AWS Bedrock with Converse API."""
+    try:
+        response = bedrock_client.converse(
+            modelId=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}]
+                }
+            ],
+            inferenceConfig={
+                "maxTokens": 30000,  # Increased from 16000 to allow longer responses (3 lessons)
+                # Note: temperature removed - Claude Sonnet 4.5 uses default (1.0) only
+            }
+        )
+        
+        return response['output']['message']['content'][0]['text']
+    
+    except Exception as e:
+        print(f"❌ Bedrock API error: {e}")
+        raise
+
+
+def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:
+    """Call OpenAI API with SYSTEM message for visual tag requirements."""
+    import openai
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        
+        # GPT-5 specific parameters:
+        # - Uses max_completion_tokens instead of max_tokens
+        # - Only supports default temperature (1.0), cannot be customized
+        # Note: GPT-5 reasoning modes (Auto/Instant/Thinking/Pro) are controlled client-side,
+        # not via API parameters. Users must select "Thinking" mode in their UI.
+        
+        # CRITICAL: Put visual tag requirements in SYSTEM message so GPT-5 processes them FIRST
+        system_message = """You are an expert educational content creator. Follow these CRITICAL rules:
+
+🚨 VISUAL TAG REQUIREMENT (NON-NEGOTIABLE):
+Every [VISUAL: ...] tag you write MUST be 80+ characters and describe:
+- WHAT components are shown (e.g., "API Server", "etcd", "Scheduler")
+- HOW they are arranged (e.g., "layered", "connected in a hub", "side-by-side")
+- WHAT relationships exist (e.g., "connected by arrows labeled 'gRPC'", "bidirectional communication")
+- Any colors, labels, or visual indicators
+
+CORRECT EXAMPLE (125 characters):
+[VISUAL: Architecture diagram showing Kubernetes control plane with API Server (central blue box), Scheduler (green box above), Controller Manager (orange box left), etcd (cyan cylinder right), all connected to API Server with bidirectional arrows]
+
+FORBIDDEN (these will cause rejection):
+❌ [VISUAL: 01-01-0001]
+❌ [VISUAL: diagram]
+❌ [VISUAL: Kubernetes architecture]
+❌ Any tag under 80 characters
+
+Before writing each visual tag, ask yourself: "Could someone draw this image from my description alone?"
+If NO, add more details about components, layout, and connections."""
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=30000  # Increased from 16000 to allow longer, more detailed responses
+        )
+        
+        return response.choices[0].message.content
+    
+    except Exception as e:
+        print(f"❌ OpenAI API error: {e}")
+        raise
+
+
+def parse_lessons_from_response(
+    full_content: str,
+    lessons_outline: List[dict],
+    module_number: int,
+    module_data: dict
+) -> List[Dict[str, Any]]:
+    """
+    Parse individual lessons from the single LLM response.
+    
+    Expects lessons to be separated by markers like:
+    ---LESSON-1-START---
+    [content]
+    ---LESSON-1-END---
+    """
+    
+    parsed_lessons = []
+    
+    # Try to split by lesson markers
+    lesson_parts = []
+    
+    for idx in range(1, len(lessons_outline) + 1):
+        start_marker = f"---LESSON-{idx}-START---"
+        end_marker = f"---LESSON-{idx}-END---"
+        
+        if start_marker in full_content and end_marker in full_content:
+            start_pos = full_content.find(start_marker) + len(start_marker)
+            end_pos = full_content.find(end_marker)
+            lesson_content = full_content[start_pos:end_pos].strip()
+            lesson_parts.append(lesson_content)
+        else:
+            print(f"⚠️  Warning: Could not find markers for Lesson {idx}, trying fallback...")
+            # Fallback: try to split by heading
+            # This is more fragile but better than failing
+            lesson_parts.append("")
+    
+    # If markers didn't work, try splitting by headings
+    if not all(lesson_parts):
+        print("⚠️  Using fallback parsing (splitting by headings)...")
+        lesson_parts = split_by_headings(full_content, len(lessons_outline))
+    
+    # Build lesson objects
+    for idx, (lesson_outline, lesson_content) in enumerate(zip(lessons_outline, lesson_parts), 1):
+        lesson_title = lesson_outline.get('title', f'Lesson {idx}')
+        topics = lesson_outline.get('topics', [])
+        labs = lesson_outline.get('lab_activities', [])
+        target_words = calculate_target_words(lesson_outline, module_data)
+        
+        word_count = len(lesson_content.split())
+        
+        parsed_lessons.append({
+            'lesson_number': idx,
+            'lesson_title': lesson_title,
+            'lesson_content': lesson_content,
+            'filename': format_lesson_filename(module_number, idx - 1, lesson_title),
+            'word_count': word_count,
+            'target_words': target_words,
+            'topics_count': len(topics),
+            'labs_count': len(labs)
+        })
+        
+        print(f"  ✅ Lesson {idx}: {lesson_title} ({word_count} words)")
+    
+    return parsed_lessons
+
+
+def split_by_headings(content: str, expected_lessons: int) -> List[str]:
+    """
+    Fallback parser: Split content by lesson headings.
+    Looks for patterns like "# Lesson 1:" or "## Lesson 1:"
+    """
+    import re
+    
+    # Find all lesson headings
+    pattern = r'^#{1,2}\s*Lesson\s+\d+[:\s]'
+    matches = list(re.finditer(pattern, content, re.MULTILINE))
+    
+    if len(matches) < expected_lessons:
+        print(f"⚠️  Warning: Found {len(matches)} lesson headings, expected {expected_lessons}")
+    
+    lesson_parts = []
+    
+    for i, match in enumerate(matches):
+        start = match.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        lesson_content = content[start:end].strip()
+        lesson_parts.append(lesson_content)
+    
+    # Pad with empty strings if needed
+    while len(lesson_parts) < expected_lessons:
+        lesson_parts.append(f"# Lesson {len(lesson_parts) + 1}\n\n[Content generation failed]")
+    
+    return lesson_parts[:expected_lessons]
+
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda handler - main entry point.
+    
+    This is a drop-in replacement for the original handler.
     """
     
     try:
-        print("="*70)
-        print("🚀 STRANDS AGENTS CONTENT GENERATOR")
-        print("="*70)
-        print(f"\n📥 Event: {json.dumps(event, indent=2)}\n")
+        print("=" * 70)
+        print("CONTENT GENERATION LAMBDA - SINGLE CALL VERSION")
+        print("=" * 70)
         
-        # Extract parameters
-        course_topic = event.get('course_topic', 'Technical Course')
-        course_duration_hours = event.get('course_duration_hours', 20)
-        module_to_generate = event.get('module_to_generate', 1)
-        lesson_to_generate = event.get('lesson_to_generate', 1)
+        # Debug: Print full event to see what we're receiving
+        print(f"\n📥 Received event:")
+        print(json.dumps(event, indent=2, default=str))
+        
+        # Extract parameters from event
+        course_topic = event.get('course_topic', 'Custom Course')
+        
+        # Support both 'module_to_generate' and 'module_number' (frontend uses module_number)
+        # Use explicit None check instead of 'or' to handle module_number=0 correctly
+        module_to_generate = event.get('module_number')
+        if module_to_generate is None:
+            module_to_generate = event.get('module_to_generate')
+        if module_to_generate is None:
+            module_to_generate = 1  # Default to module 1
+        
+        # Ensure it's an integer
+        module_to_generate = int(module_to_generate)
+        
+        model_provider = event.get('model_provider', 'bedrock').lower()
+        
+        # S3 configuration
         outline_s3_key = event.get('outline_s3_key')
-        course_bucket = event.get('course_bucket', 'crewai-course-artifacts')  # Default bucket
+        course_bucket = event.get('course_bucket')
         project_folder = event.get('project_folder')
         
-        # Model provider configuration (your original design)
-        model_provider = event.get('model_provider', 'bedrock').lower()
-        performance_mode = event.get('performance_mode', 'balanced')
-        region = os.getenv('AWS_DEFAULT_REGION', DEFAULT_REGION)
-
-        # Configuration for error handling and fallbacks
-        # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
-        allow_openai_fallback = event.get('allow_openai_fallback', model_provider != 'openai')
-        disable_openai_on_org_error = os.getenv('DISABLE_OPENAI_ON_ORG_ERROR', 'true').lower() == 'true'
-
-        print(f"🤖 Model Provider: {model_provider}")
-        print(f"⚡ Performance Mode: {performance_mode}")
-        print(f"🔄 OpenAI Fallback Allowed: {allow_openai_fallback}")
-
-        # Configure model based on provider with enhanced error handling
-        model = None
-        actual_provider = model_provider
-
-        if model_provider == 'openai':
-            try:
-                model = configure_openai_model()
-                print(f"🔵 Using OpenAI: {DEFAULT_OPENAI_MODEL}")
-            except ValueError as e:
-                error_msg = str(e).lower()
-                if "organization" in error_msg and "verified" in error_msg:
-                    print(f"⚠️  OpenAI organization verification required: {str(e)}")
-
-                    if disable_openai_on_org_error:
-                        print("🔄 Auto-fallback to Bedrock due to organization verification requirement")
-                        if allow_openai_fallback:
-                            model = BedrockModel(model_id=DEFAULT_BEDROCK_MODEL)
-                            actual_provider = 'bedrock'
-                            print(f"🟠 Fallback successful: Using Bedrock: {DEFAULT_BEDROCK_MODEL}")
-                        else:
-                            raise ValueError(
-                                "OpenAI organization verification required and fallback disabled. "
-                                "Please verify your organization at: "
-                                "https://platform.openai.com/settings/organization/general "
-                                "or enable allow_openai_fallback=true"
-                            ) from e
-                    else:
-                        raise  # Re-raise if auto-fallback is disabled
-                else:
-                    # Other OpenAI errors - try fallback if allowed
-                    print(f"⚠️  OpenAI configuration error: {str(e)}")
-                    if allow_openai_fallback:
-                        print("🔄 Fallback to Bedrock due to OpenAI error")
-                        model = BedrockModel(model_id=DEFAULT_BEDROCK_MODEL)
-                        actual_provider = 'bedrock'
-                        print(f"� Fallback successful: Using Bedrock: {DEFAULT_BEDROCK_MODEL}")
-                    else:
-                        raise
-            except Exception as e:
-                print(f"❌ OpenAI initialization failed: {str(e)}")
-                if allow_openai_fallback:
-                    print("🔄 Fallback to Bedrock due to unexpected OpenAI error")
-                    model = BedrockModel(model_id=DEFAULT_BEDROCK_MODEL)
-                    actual_provider = 'bedrock'
-                    print(f"🟠 Fallback successful: Using Bedrock: {DEFAULT_BEDROCK_MODEL}")
-                else:
-                    raise ValueError(f"OpenAI initialization failed and fallback disabled: {str(e)}") from e
-
-        else:  # bedrock (default)
-            model = BedrockModel(model_id=DEFAULT_BEDROCK_MODEL)
-            print(f"🟠 Using Bedrock: {DEFAULT_BEDROCK_MODEL}")
-
-        # Ensure we have a valid model
-        if model is None:
-            raise ValueError("No valid model could be configured. Check your model provider settings.")
+        if not all([outline_s3_key, course_bucket, project_folder]):
+            raise ValueError("Missing required S3 parameters")
         
-        print(f"📚 Course: {course_topic}")
-        print(f"📦 Module: {module_to_generate}, Lesson: {lesson_to_generate}")
-        print(f" Region: {region}")
+        print(f"Course: {course_topic}")
+        print(f"Module: {module_to_generate}")
+        print(f"Model: {model_provider}")
+        print(f"Outline: s3://{course_bucket}/{outline_s3_key}")
         
-        # Initialize S3 client
-        s3_client = boto3.client('s3', region_name=region)
+        # Load outline from S3
+        print(f"\n📥 Loading outline from S3...")
+        outline_obj = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
+        outline_content = outline_obj['Body'].read().decode('utf-8')
+        outline_data = yaml.safe_load(outline_content)
         
-        # Load outline
-        if outline_s3_key and course_bucket:
-            print(f"\n📥 Loading outline from S3: {outline_s3_key}")
-            outline_data = load_outline_from_s3(s3_client, course_bucket, outline_s3_key)
-        else:
-            print("\n📥 Loading outline from local file")
-            yaml_path = os.path.join(os.getcwd(), 'outline.yaml')
-            if not os.path.exists(yaml_path):
-                yaml_path = '/var/task/outline.yaml'
-            outline_data = load_outline_from_yaml(yaml_path)
-        
-        # Extract lesson details
-        modules = outline_data['modules']
+        # Support both 'course' and 'course_metadata' keys for backward compatibility
+        course_info = outline_data.get('course', outline_data.get('course_metadata', {}))
+        modules = outline_data.get('modules', [])
         
         if module_to_generate > len(modules):
-            raise ValueError(f"Module {module_to_generate} not found in outline")
+            raise ValueError(f"Module {module_to_generate} not found (only {len(modules)} modules)")
         
         module_data = modules[module_to_generate - 1]
         
-        # Handle both CrewAI format (with module_info) and simple frontend format
-        if 'module_info' in module_data:
-            module_info = module_data['module_info']
-        else:
-            # Create module_info from simple format
-            module_info = {
-                'title': module_data.get('module_title', f"Module {module_to_generate}"),
-                'module_number': module_data.get('module_number', module_to_generate),
-                'summary': module_data.get('module_description', 'Module overview'),
-                'duration_minutes': module_data.get('estimated_duration_minutes', 60),
-                'percent_theory': 50,
-                'percent_practice': 50,
-                'bloom_level': 'Understand'
-            }
-            print(f"⚠️  Using simplified module_info (frontend format detected)")
+        # Get OpenAI key if needed
+        openai_api_key = None
+        if model_provider == 'openai':
+            try:
+                secret = get_secret("aurora/openai-api-key")
+                openai_api_key = secret.get('api_key')
+            except Exception as e:
+                print(f"⚠️  Could not get OpenAI key: {e}")
+                openai_api_key = os.getenv('OPENAI_API_KEY')
         
-        lessons = module_data['lessons']
-        
-        if lesson_to_generate > len(lessons):
-            raise ValueError(f"Lesson {lesson_to_generate} not found in module {module_to_generate}")
-        
-        lesson_data = lessons[lesson_to_generate - 1]
-        
-        # Handle both formats for lesson title
-        lesson_title = lesson_data.get('title') or lesson_data.get('lesson_title', 'Untitled Lesson')
-        
-        # Handle both formats for topics
-        topics = lesson_data.get('topics', [])
-        if topics and isinstance(topics[0], dict):
-            # CrewAI format: [{"title": "..."}]
-            lesson_topics = [t['title'] for t in topics]
-        elif topics and isinstance(topics[0], str):
-            # Simple format: ["...", "..."]
-            lesson_topics = topics
-        else:
-            lesson_topics = []
-        
-        print(f"\n📖 Generating lesson: {lesson_title}")
-        print(f"📝 Topics: {', '.join(lesson_topics) if lesson_topics else 'General overview'}")
-        
-        # Calculate target words based on lesson complexity and duration
-        target_words = calculate_target_words(lesson_data, module_info)
-        print(f"🎯 Target words: {target_words}")
-        
-        # Generate project folder if not provided
-        if not project_folder and course_bucket:
-            project_folder = generate_project_folder(course_topic, s3_client, course_bucket)
-            print(f"📁 Project folder: {project_folder}")
-        
-        # Generate project folder if not provided
-        if not project_folder and course_bucket:
-            project_folder = generate_project_folder(course_topic, s3_client, course_bucket)
-            print(f"📁 Project folder: {project_folder}")
-        
-        # Create agents
-        print(f"\n🤖 Creating Strands Agents...")
-        agents = create_content_agents(model, target_words)
-        print(f"✅ Agents ready: researcher, writer, reviewer")
-        
-        # Generate content
-        print(f"\n🎬 Starting content generation workflow...")
-        start_time = time.time()
-
-        try:
-            lesson_content = generate_lesson_content(
-                agents=agents,
-                lesson_title=lesson_title,
-                lesson_topics=lesson_topics,
-                course_topic=course_topic,
-                target_words=target_words
-            )
-        except Exception as content_error:
-            error_msg = str(content_error).lower()
-
-            # Check if this is an OpenAI streaming/organization error and we can fallback
-            if (actual_provider == 'openai' and
-                allow_openai_fallback and
-                ("organization" in error_msg and "verified" in error_msg or
-                 "stream" in error_msg and "unsupported" in error_msg)):
-
-                print(f"⚠️  OpenAI streaming failed during content generation: {str(content_error)}")
-                print("🔄 Attempting fallback to Bedrock for content generation...")
-
-                # Create Bedrock agents for fallback
-                try:
-                    bedrock_model = BedrockModel(model_id=DEFAULT_BEDROCK_MODEL)
-                    bedrock_agents = create_content_agents(bedrock_model, target_words)
-                    actual_provider = 'bedrock'
-
-                    print(f"🟠 Fallback successful: Using Bedrock: {DEFAULT_BEDROCK_MODEL}")
-
-                    # Retry content generation with Bedrock
-                    lesson_content = generate_lesson_content(
-                        agents=bedrock_agents,
-                        lesson_title=lesson_title,
-                        lesson_topics=lesson_topics,
-                        course_topic=course_topic,
-                        target_words=target_words
-                    )
-
-                    print("✅ Content generation succeeded with Bedrock fallback")
-
-                except Exception as bedrock_error:
-                    print(f"❌ Bedrock fallback also failed: {str(bedrock_error)}")
-                    raise ValueError(
-                        f"Content generation failed with both OpenAI and Bedrock. "
-                        f"OpenAI error: {str(content_error)}. Bedrock error: {str(bedrock_error)}"
-                    ) from bedrock_error
-            else:
-                # Re-raise the original error if fallback is not applicable
-                raise content_error
-
-        elapsed = time.time() - start_time
-        print(f"\n⏱️  Generation completed in {elapsed:.1f} seconds")
-        
-        # Save to S3
-        lesson_filename = format_lesson_filename(module_to_generate, lesson_to_generate - 1, lesson_title)
-        lesson_key = f"{project_folder}/lessons/{lesson_filename}"
-        
-        print(f"\n💾 Saving to S3: {lesson_key}")
-        
-        s3_client.put_object(
-            Bucket=course_bucket,
-            Key=lesson_key,
-            Body=lesson_content.encode('utf-8'),
-            ContentType='text/markdown'
+        # Generate module content (SINGLE CALL!)
+        generated_lessons = generate_module_single_call(
+            module_number=module_to_generate,
+            module_data=module_data,
+            course_data=course_info,
+            model_provider=model_provider,
+            openai_api_key=openai_api_key
         )
         
-        print(f"✅ Lesson saved successfully")
+        # Save lessons to S3
+        print(f"\n💾 Saving {len(generated_lessons)} lessons to S3...")
         
-        # Prepare response
-        response = {
-            "statusCode": 200,
-            "message": "Lesson generated successfully",
-            "lesson_key": lesson_key,
-            "project_folder": project_folder,
-            "bucket": course_bucket,
-            "module_number": module_to_generate,
-            "lesson_number": lesson_to_generate,
-            "lesson_title": lesson_title,
-            "word_count": len(lesson_content.split()),
-            "target_words": target_words,
-            "generation_time_seconds": round(elapsed, 2),
-            "model_provider": actual_provider,  # Include actual provider used (may differ from requested due to fallback)
-            "requested_provider": model_provider  # Include originally requested provider
+        for lesson in generated_lessons:
+            lesson_key = f"{project_folder}/lessons/{lesson['filename']}"
+            
+            s3_client.put_object(
+                Bucket=course_bucket,
+                Key=lesson_key,
+                Body=lesson['lesson_content'].encode('utf-8'),
+                ContentType='text/markdown'
+            )
+            
+            print(f"  ✅ Saved: {lesson_key}")
+        
+        # Return success response (compatible with Step Functions state machine)
+        lesson_keys = [f"{project_folder}/lessons/{l['filename']}" for l in generated_lessons]
+        
+        return {
+            'statusCode': 200,
+            'message': 'Module generated successfully',
+            # Step Functions compatibility
+            'lesson_keys': lesson_keys,  # Required by state machine
+            'bucket': course_bucket,
+            'project_folder': project_folder,
+            'module_info': {
+                'module_number': module_to_generate,
+                'module_title': module_data.get('title'),
+                'total_lessons': len(generated_lessons),
+                'total_words': sum(l['word_count'] for l in generated_lessons),
+            },
+            # Additional info
+            'lessons': [
+                {
+                    'lesson_number': l['lesson_number'],
+                    'lesson_title': l['lesson_title'],
+                    'filename': l['filename'],
+                    'word_count': l['word_count'],
+                    's3_key': f"{project_folder}/lessons/{l['filename']}"
+                }
+                for l in generated_lessons
+            ],
+            'model_provider': model_provider
         }
-        
-        print(f"\n✅ SUCCESS")
-        print(f"📊 Response: {json.dumps(response, indent=2)}")
-        print("="*70)
-        
-        return response
-        
+    
     except Exception as e:
-        print(f"\n❌ ERROR: {str(e)}")
+        print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
         
-        # Raise exception instead of returning error to trigger Step Functions retry
-        raise e
-
-
-def get_secret(secret_name, region_name="us-east-1"):
-    """Retrieve a secret from AWS Secrets Manager."""
-    from botocore.exceptions import ClientError
-
-    # Create a Secrets Manager client
-    session = boto3.session.Session()
-    client = session.client(
-        service_name='secretsmanager',
-        region_name=region_name
-    )
-
-    try:
-        get_secret_value_response = client.get_secret_value(
-            SecretId=secret_name
-        )
-    except ClientError as e:
-        # For a list of exceptions thrown, see
-        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
-        raise e
-
-    # Decrypts secret using the associated KMS key.
-    secret = get_secret_value_response['SecretString']
-    return json.loads(secret)
-
-
-# ============================================================================
-# LOCAL TESTING
-# ============================================================================
-
-if __name__ == '__main__':
-    # Test event
-    test_event = {
-        "course_topic": "Kubernetes for DevOps",
-        "course_duration_hours": 20,
-        "module_to_generate": 1,
-        "lesson_to_generate": 1,
-        "target_words": 2000,
-        "course_bucket": "crewai-course-artifacts",
-        "project_folder": "test-project"
-    }
-    
-    class MockContext:
-        aws_request_id = 'local-test'
-    
-    result = lambda_handler(test_event, MockContext())
-    print(f"\n\nTest Result: {json.dumps(result, indent=2)}")
+        return {
+            'statusCode': 500,
+            'error': str(e),
+            'errorType': type(e).__name__
+        }

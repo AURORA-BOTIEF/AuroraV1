@@ -3,145 +3,87 @@ import React, { useState, useEffect } from 'react';
 import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { get, post } from 'aws-amplify/api';
+import { post } from 'aws-amplify/api';
+import './GeneradorCursos.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
-const START_JOB_ENDPOINT = `${API_BASE}/start-job`;
-const EXEC_STATUS_ENDPOINT = `${API_BASE}/exec-status`;
-
-// Amplify API configuration
-const API_NAME = 'CourseGeneratorAPI'; // This matches the API name in amplify.js
+const API_NAME = 'CourseGeneratorAPI';
 
 function GeneradorCursos() {
-    const [uploadedKey, setUploadedKey] = useState(null);
-    const [executionArn, setExecutionArn] = useState(null);
-    const [execState, setExecState] = useState('Not started');
-    const [execStatus, setExecStatus] = useState('No execution yet');
-    const [prompts, setPrompts] = useState([]);
-    const [images, setImages] = useState([]);
-    const [uploadStatus, setUploadStatus] = useState('');
-    const [startStatus, setStartStatus] = useState('');
-    const [courseBucket, setCourseBucket] = useState('crewai-course-artifacts');
+    const [outlineFile, setOutlineFile] = useState(null);
     const [projectFolder, setProjectFolder] = useState('');
-    const [moduleNum, setModuleNum] = useState(3);
-    const [lessonNum, setLessonNum] = useState(1);
+    const [moduleInput, setModuleInput] = useState('1');
+    const [generateFullCourse, setGenerateFullCourse] = useState(false);
     const [modelProvider, setModelProvider] = useState('bedrock');
+    const [contentType, setContentType] = useState('theory'); // 'theory', 'labs', 'both'
+    const [labRequirements, setLabRequirements] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
+    const [errorMessage, setErrorMessage] = useState('');
+    const [successMessage, setSuccessMessage] = useState('');
 
-    // Check authentication status on mount
+    const COURSE_BUCKET = 'crewai-course-artifacts';
+
     useEffect(() => {
-        const checkAuth = async () => {
-            try {
-                const user = await getCurrentUser();
-                setIsAuthenticated(true);
-                console.log('User is authenticated:', user.username);
-            } catch (e) {
-                setIsAuthenticated(false);
-                console.log('User is not authenticated');
-            }
-        };
         checkAuth();
     }, []);
 
-    // Helper function to make authenticated API requests using Amplify
-    const makeApiRequest = async (path, options = {}) => {
-        if (!isAuthenticated) {
-            throw new Error('Authentication required');
-        }
-
-        // Log credentials to debug IAM signing
+    const checkAuth = async () => {
         try {
-            const session = await fetchAuthSession();
-            console.log('AWS Credentials:', {
-                accessKeyId: session.credentials?.accessKeyId ? '***' + session.credentials.accessKeyId.slice(-4) : 'missing',
-                authenticated: !!session.credentials,
-                expiration: session.credentials?.expiration,
-            });
-        } catch (credError) {
-            console.error('Failed to get credentials:', credError);
-        }
-
-        const apiOptions = {
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
-            body: options.body, // Amplify expects body as object, not stringified
-        };
-
-        console.log('Making API request:', {
-            path,
-            method: options.method || 'GET',
-            headers: apiOptions.headers,
-            body: apiOptions.body,
-        });
-
-        try {
-            // Use Amplify API with explicit IAM signing
-            let response;
-            if (options.method === 'POST') {
-                const restOperation = post({
-                    apiName: API_NAME,
-                    path,
-                    options: {
-                        body: apiOptions.body,
-                        headers: apiOptions.headers,
-                    }
-                });
-                response = await restOperation.response;
-                const data = await response.body.json();
-                return {
-                    ok: true,
-                    json: () => Promise.resolve(data),
-                    status: response.statusCode,
-                };
-            } else {
-                const restOperation = get({
-                    apiName: API_NAME,
-                    path,
-                    options: {
-                        headers: apiOptions.headers,
-                    }
-                });
-                response = await restOperation.response;
-                const data = await response.body.json();
-                return {
-                    ok: true,
-                    json: () => Promise.resolve(data),
-                    status: response.statusCode,
-                };
-            }
-        } catch (error) {
-            console.error('API request failed:', error);
-            console.error('Error response:', error.response);
-            console.error('Error status:', error.response?.statusCode);
-            // Amplify v6 throws exceptions on error
-            return {
-                ok: false,
-                status: error.response?.statusCode || 500,
-                statusText: error.message || 'Request failed',
-                json: () => Promise.resolve(error.response?.body || { error: error.message }),
-            };
+            const user = await getCurrentUser();
+            setIsAuthenticated(true);
+            console.log('Usuario autenticado:', user.username);
+        } catch (e) {
+            setIsAuthenticated(false);
+            console.log('Usuario no autenticado');
         }
     };
 
-    useEffect(() => {
-        if (executionArn && (execState === 'RUNNING' || execState === 'STARTED')) {
-            const timer = setTimeout(pollStatus, 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [executionArn, execState]);
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            // Validate file type
+            if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
+                setErrorMessage('Por favor selecciona un archivo YAML válido (.yaml o .yml)');
+                setOutlineFile(null);
+                return;
+            }
+            setOutlineFile(file);
+            setErrorMessage('');
 
-    const handleUpload = async () => {
-        if (!isAuthenticated) {
-            setUploadStatus('Error: You must be authenticated to upload files');
-            return;
+            // Auto-generate project folder name if empty
+            if (!projectFolder) {
+                const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                const baseName = file.name.replace(/\.(yaml|yml)$/, '').replace(/[^a-zA-Z0-9-]/g, '-');
+                setProjectFolder(`${timestamp}-${baseName}`);
+            }
         }
-        const fileInput = document.getElementById('fileInput');
-        const f = fileInput.files[0];
-        if (!f) return alert('Choose a file first');
-        setUploadStatus('Getting credentials...');
+    };
 
+    const validateInputs = () => {
+        if (!outlineFile) {
+            setErrorMessage('Debes seleccionar un archivo de outline');
+            return false;
+        }
+
+        if (!projectFolder.trim()) {
+            setErrorMessage('Debes especificar un nombre de proyecto');
+            return false;
+        }
+
+        if (!generateFullCourse) {
+            const modulePattern = /^(\d+(-\d+)?)(,\d+(-\d+)?)*$/;
+            if (!modulePattern.test(moduleInput.trim())) {
+                setErrorMessage('Formato de módulos inválido. Ejemplos: "1", "1,3", "1-5", "1,3-5"');
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const uploadToS3 = async (file) => {
         try {
             const session = await fetchAuthSession();
             const s3Client = new S3Client({
@@ -149,19 +91,16 @@ function GeneradorCursos() {
                 credentials: session.credentials,
             });
 
-            setUploadStatus('Uploading...');
-            const key = `uploads/${Date.now()}-${f.name}`;
-
-            const bucketName = courseBucket;
-            const fileSize = f.size || 0;
+            const key = `uploads/${Date.now()}-${file.name}`;
+            const fileSize = file.size || 0;
             const MAX_SINGLE_PUT = 64 * 1024 * 1024;
 
             const upload = new Upload({
                 client: s3Client,
                 params: {
-                    Bucket: bucketName,
+                    Bucket: COURSE_BUCKET,
                     Key: key,
-                    Body: f,
+                    Body: file,
                     ContentType: 'application/x-yaml',
                 },
                 queueSize: 3,
@@ -171,189 +110,427 @@ function GeneradorCursos() {
             try {
                 await upload.done();
             } catch (err) {
-                console.warn('Upload failed, attempting PutObject fallback:', err && err.message);
-                const msg = String(err && err.message || '').toLowerCase();
+                const msg = String(err?.message || '').toLowerCase();
                 if (msg.includes('crc32') || msg.includes('checksum')) {
                     await s3Client.send(new PutObjectCommand({
-                        Bucket: bucketName,
+                        Bucket: COURSE_BUCKET,
                         Key: key,
-                        Body: f,
+                        Body: file,
                         ContentType: 'application/x-yaml',
                     }));
                 } else {
                     throw err;
                 }
             }
-            setUploadedKey(key);
-            setUploadStatus('Uploaded: ' + key);
-        } catch (e) {
-            console.error('Upload error', e);
-            setUploadStatus('Error during upload: ' + e);
-        }
-    }; const handleStart = async () => {
-        if (!isAuthenticated) {
-            setStartStatus('Error: You must be authenticated to use this feature');
-            return;
-        }
-        if (!uploadedKey) return alert('Please upload an outline first');
-        setStartStatus('Starting execution...');
-        const body = {
-            course_bucket: courseBucket,
-            outline_s3_key: uploadedKey,
-            project_folder: projectFolder,
-            module_to_generate: moduleNum,
-            lesson_to_generate: lessonNum,
-            model_provider: modelProvider
-        };
-        console.log('Sending request body:', JSON.stringify(body, null, 2));
-        try {
-            const resp = await makeApiRequest('/start-job', {
-                method: 'POST',
-                body: body  // Pass as object, not JSON string - Amplify will serialize it
-            });
-            if (!resp.ok) {
-                const errorData = await resp.json();
-                setStartStatus(`Failed to start execution: ${resp.status} ${resp.statusText} - ${JSON.stringify(errorData)}`);
-                return;
-            }
-            const data = await resp.json();
-            const arn = data.executionArn || data.execution_arn;
-            setExecutionArn(arn);
-            setStartStatus('Execution started');
-            setExecState('STARTED');
-            setExecStatus('Polling for status...');
-            setPrompts([]);
-            setImages([]);
-        } catch (e) {
-            setStartStatus('Error: ' + e);
+
+            return key;
+        } catch (error) {
+            console.error('Error subiendo a S3:', error);
+            throw new Error(`Error al subir el archivo: ${error.message}`);
         }
     };
 
-    const pollStatus = async () => {
-        if (!isAuthenticated) {
-            setExecStatus('Error: Authentication required');
+    const startGeneration = async (uploadedKey, modules) => {
+        try {
+            const body = {
+                course_bucket: COURSE_BUCKET,
+                outline_s3_key: uploadedKey,
+                project_folder: projectFolder,
+                module_number: modules, // For single module or first module
+                model_provider: modelProvider,
+                content_type: contentType, // 'theory', 'labs', or 'both'
+                lab_requirements: labRequirements.trim() || undefined, // Optional
+                // Note: NOT sending lesson_number = MODULE mode
+            };
+
+            console.log('Iniciando generación:', body);
+
+            const restOperation = post({
+                apiName: API_NAME,
+                path: '/start-job',
+                options: {
+                    body: body,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                }
+            });
+
+            const response = await restOperation.response;
+            const data = await response.body.json();
+
+            if (response.statusCode !== 200) {
+                throw new Error(`Error al iniciar la generación: ${response.statusCode}`);
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Error iniciando generación:', error);
+            throw new Error(`Error al iniciar la generación: ${error.message}`);
+        }
+    };
+
+    const parseModules = (input) => {
+        // Parse "1", "1,3", "1-5", "1,3-5" into array of module numbers
+        const modules = [];
+        const parts = input.split(',');
+
+        for (const part of parts) {
+            const trimmed = part.trim();
+            if (trimmed.includes('-')) {
+                const [start, end] = trimmed.split('-').map(n => parseInt(n.trim()));
+                for (let i = start; i <= end; i++) {
+                    if (!modules.includes(i)) modules.push(i);
+                }
+            } else {
+                const num = parseInt(trimmed);
+                if (!modules.includes(num)) modules.push(num);
+            }
+        }
+
+        return modules.sort((a, b) => a - b);
+    };
+
+    const handleGenerate = async () => {
+        setErrorMessage('');
+        setSuccessMessage('');
+        setStatusMessage('');
+
+        if (!validateInputs()) {
             return;
         }
-        if (!executionArn) return;
+
+        if (!isAuthenticated) {
+            setErrorMessage('Debes estar autenticado para usar esta función');
+            return;
+        }
+
+        setIsProcessing(true);
+
         try {
-            const resp = await makeApiRequest(`/exec-status/${encodeURIComponent(executionArn)}`);
-            if (!resp.ok) {
-                const errorData = await resp.json();
-                throw new Error(`status failed: ${resp.status} ${resp.statusText} - ${JSON.stringify(errorData)}`);
-            }
-            const j = await resp.json();
-            setExecState(j.status || '-');
-            setExecStatus(JSON.stringify(j, null, 2));
+            // Step 1: Upload file to S3
+            setStatusMessage('📤 Subiendo archivo de outline...');
+            const uploadedKey = await uploadToS3(outlineFile);
+            console.log('Archivo subido:', uploadedKey);
 
-            if (j.status === 'SUCCEEDED' && j.output) {
-                let out = j.output;
-                if (typeof out === 'string') {
-                    try { out = JSON.parse(out); } catch (e) { /* leave as-is */ }
+            // Step 2: Start generation(s)
+            if (generateFullCourse) {
+                setStatusMessage('🚀 Iniciando generación de curso completo...');
+                await startGeneration(uploadedKey, 'all'); // Future: will generate all modules
+                const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
+                    contentType === 'labs' ? 'guía de laboratorios' :
+                        'contenido teórico y guía de laboratorios';
+                setSuccessMessage(`✅ Generación de ${contentTypeText} del curso completo iniciada exitosamente`);
+            } else {
+                const modules = parseModules(moduleInput);
+                console.log('Módulos a generar:', modules);
+
+                setStatusMessage(`🚀 Iniciando generación de ${modules.length} módulo(s)...`);
+
+                // For now, generate first module (later will handle multiple)
+                await startGeneration(uploadedKey, modules[0]);
+
+                const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
+                    contentType === 'labs' ? 'guía de laboratorios' :
+                        'contenido teórico y guía de laboratorios';
+
+                if (modules.length === 1) {
+                    setSuccessMessage(`✅ Generación de ${contentTypeText} del módulo ${modules[0]} iniciada exitosamente`);
+                } else {
+                    setSuccessMessage(`✅ Generación de ${contentTypeText} de ${modules.length} módulos iniciada exitosamente`);
                 }
-                if (out && out.Payload) out = out.Payload;
-
-                const promptsData = out && (out.generated_prompts || out.generatedPrompts || out.prompts);
-                const imagesData = out && (out.generated_images || out.generatedImages || out.images);
-
-                if (Array.isArray(promptsData)) {
-                    setPrompts(promptsData);
-                }
-
-                if (Array.isArray(imagesData)) {
-                    setImages(imagesData);
-                }
             }
 
-            if (j.status === 'RUNNING' || j.status === 'STARTED') {
-                setTimeout(pollStatus, 3000);
-            }
-        } catch (e) {
-            setExecStatus('Error polling status: ' + e);
+            // Show success message
+            setStatusMessage('');
+
+            // Reset form after a delay
+            setTimeout(() => {
+                setOutlineFile(null);
+                setModuleInput('1');
+                setGenerateFullCourse(false);
+                document.getElementById('fileInput').value = '';
+            }, 3000);
+
+        } catch (error) {
+            console.error('Error en el proceso:', error);
+            setErrorMessage(error.message);
+            setStatusMessage('');
+        } finally {
+            setIsProcessing(false);
         }
     };
 
     return (
-        <main style={{ padding: '20px' }}>
-            <h1>CrewAI: Upload outline & generate lesson</h1>
+        <div className="generador-cursos-page">
+            <div className="page-header">
+                <h1>🎓 Generador de Contenido de Cursos</h1>
+                <p>Sistema inteligente de generación de contenido educativo mediante IA</p>
+            </div>
 
-            {/* Authentication Status */}
-            <div style={{ marginBottom: '20px', padding: '10px', backgroundColor: isAuthenticated ? '#d4edda' : '#f8d7da', border: '1px solid', borderColor: isAuthenticated ? '#c3e6cb' : '#f5c6cb', borderRadius: '4px' }}>
-                <strong>Authentication Status:</strong> {isAuthenticated ? '✅ Authenticated' : '❌ Not Authenticated'}
+            <div className="generator-container">
                 {!isAuthenticated && (
-                    <div style={{ marginTop: '10px' }}>
-                        <p>You need to be logged in to use this feature. Please go back to the main page and click "🚀 Comenzar Ahora" to authenticate.</p>
-                        <button onClick={() => window.location.href = '/'} style={{ padding: '8px 16px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                            Go to Login
+                    <div className="alert alert-warning">
+                        <strong>⚠️ Autenticación requerida</strong>
+                        <p>Debes iniciar sesión para usar el generador de cursos.</p>
+                        <button
+                            className="btn-primary"
+                            onClick={() => window.location.href = '/'}
+                        >
+                            Ir a Iniciar Sesión
                         </button>
                     </div>
                 )}
-            </div>
 
-            <section>
-                <h2>1) Upload outline.yaml</h2>
-                <input id="fileInput" type="file" accept=".yaml,.yml" disabled={!isAuthenticated} />
-                <button onClick={handleUpload} disabled={!isAuthenticated}>Upload to S3</button>
-                <div>{uploadStatus}</div>
-            </section>
+                {isAuthenticated && (
+                    <div className="generator-form">
+                        {/* File Upload Section */}
+                        <div className="form-section">
+                            <h3>📁 Outline del Curso</h3>
+                            <p className="section-description">
+                                Selecciona el archivo YAML que contiene la estructura del curso
+                            </p>
 
-            <section>
-                <h2>2) Generation settings</h2>
-                <label>Course bucket: <input value={courseBucket} onChange={e => setCourseBucket(e.target.value)} disabled={!isAuthenticated} /></label>
-                <br />
-                <label>Project folder: <input value={projectFolder} onChange={e => setProjectFolder(e.target.value)} placeholder="e.g. 250916-kubernetes-for-devops-engineers-05" disabled={!isAuthenticated} /></label>
-                <br />
-                <label>Module #: <input type="number" value={moduleNum} onChange={e => setModuleNum(parseInt(e.target.value))} disabled={!isAuthenticated} /></label>
-                <br />
-                <label>Lesson #: <input type="number" value={lessonNum} onChange={e => setLessonNum(parseInt(e.target.value))} disabled={!isAuthenticated} /></label>
-                <br />
-                <label>Model provider:
-                    <select value={modelProvider} onChange={e => setModelProvider(e.target.value)} disabled={!isAuthenticated}>
-                        <option value="openai">OpenAI</option>
-                        <option value="bedrock">Bedrock</option>
-                    </select>
-                </label>
-                <br />
-                <button onClick={handleStart} disabled={!isAuthenticated}>Start generation</button>
-                <div>{startStatus}</div>
-            </section>
-
-            <section>
-                <h2>3) Execution status</h2>
-                <div>Execution ARN: <span>{executionArn || '-'}</span></div>
-                <div>Status: <span>{execState}</span></div>
-                <pre>{execStatus}</pre>
-            </section>
-
-            <section>
-                <h2>4) Visual prompts</h2>
-                <ul>
-                    {prompts.map((p, i) => (
-                        <li key={i}>{typeof p === 'string' ? p : (p.prompt || p.id || JSON.stringify(p))}</li>
-                    ))}
-                </ul>
-            </section>
-
-            <section>
-                <h2>5) Generated images</h2>
-                <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-                    {images.map((img, i) => {
-                        const url = img.s3_key ? `https://s3.amazonaws.com/${courseBucket}/${img.s3_key}` : img.url || null;
-                        return (
-                            <div key={i} style={{ margin: '6px' }}>
-                                {url ? (
-                                    <a href={url} target="_blank" rel="noopener noreferrer">
-                                        <img src={url} style={{ maxWidth: '300px', display: 'block' }} alt="" />
-                                    </a>
-                                ) : (
-                                    <div>{JSON.stringify(img)}</div>
-                                )}
-                                <div>{img.filename || img.id || img.s3_key || ''}</div>
+                            <div className="file-upload-area">
+                                <input
+                                    id="fileInput"
+                                    type="file"
+                                    accept=".yaml,.yml"
+                                    onChange={handleFileSelect}
+                                    disabled={isProcessing}
+                                    className="file-input"
+                                />
+                                <label htmlFor="fileInput" className="file-label">
+                                    {outlineFile ? (
+                                        <>
+                                            <span className="file-icon">📄</span>
+                                            <span className="file-name">{outlineFile.name}</span>
+                                            <span className="file-size">({(outlineFile.size / 1024).toFixed(1)} KB)</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="file-icon">📤</span>
+                                            <span>Haz clic o arrastra el archivo aquí</span>
+                                        </>
+                                    )}
+                                </label>
                             </div>
-                        );
-                    })}
-                </div>
-            </section>
-        </main>
+                        </div>
+
+                        {/* Project Settings */}
+                        <div className="form-section">
+                            <h3>⚙️ Configuración del Proyecto</h3>
+
+                            <div className="form-group">
+                                <label htmlFor="projectFolder">Nombre del Proyecto</label>
+                                <input
+                                    id="projectFolder"
+                                    type="text"
+                                    value={projectFolder}
+                                    onChange={(e) => setProjectFolder(e.target.value)}
+                                    placeholder="ej: 20251011-aws-lambda-curso"
+                                    disabled={isProcessing}
+                                    className="form-input"
+                                />
+                                <small className="form-hint">
+                                    Identificador único para este proyecto (se genera automáticamente)
+                                </small>
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="modelProvider">Proveedor de IA</label>
+                                <select
+                                    id="modelProvider"
+                                    value={modelProvider}
+                                    onChange={(e) => setModelProvider(e.target.value)}
+                                    disabled={isProcessing}
+                                    className="form-select"
+                                >
+                                    <option value="bedrock">AWS Bedrock (Claude 3.7 Sonnet)</option>
+                                    <option value="openai">OpenAI (GPT-5)</option>
+                                </select>
+                                <small className="form-hint">
+                                    Modelo de IA que se utilizará para generar el contenido
+                                </small>
+                            </div>
+                        </div>
+
+                        {/* Content Type Selection */}
+                        <div className="form-section">
+                            <h3>📝 Tipo de Contenido a Generar</h3>
+
+                            <div className="scope-options">
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={contentType === 'theory'}
+                                        onChange={() => setContentType('theory')}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Solo Contenido Teórico</strong>
+                                        <p>Genera únicamente las lecciones teóricas del curso</p>
+                                    </div>
+                                </label>
+
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={contentType === 'labs'}
+                                        onChange={() => setContentType('labs')}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Solo Guía de Laboratorios</strong>
+                                        <p>Genera únicamente la guía paso a paso de los laboratorios</p>
+                                    </div>
+                                </label>
+
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={contentType === 'both'}
+                                        onChange={() => setContentType('both')}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Teoría y Laboratorios</strong>
+                                        <p>Genera el contenido teórico y la guía de laboratorios completa</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            {/* Additional Requirements for Lab Generation */}
+                            {(contentType === 'labs' || contentType === 'both') && (
+                                <div className="form-group" style={{ marginTop: '1.5rem' }}>
+                                    <label htmlFor="labRequirements">
+                                        Requerimientos Adicionales para Laboratorios (Opcional)
+                                    </label>
+                                    <textarea
+                                        id="labRequirements"
+                                        value={labRequirements}
+                                        onChange={(e) => setLabRequirements(e.target.value)}
+                                        placeholder="Ej: Usar contenedores Docker, enfocarse en servicios AWS, incluir troubleshooting común, considerar ambiente Windows..."
+                                        disabled={isProcessing}
+                                        className="form-input"
+                                        rows="4"
+                                        style={{
+                                            resize: 'vertical',
+                                            fontFamily: 'inherit',
+                                            fontSize: '0.95rem',
+                                            lineHeight: '1.5'
+                                        }}
+                                    />
+                                    <small className="form-hint">
+                                        Especifica requisitos técnicos, plataformas, herramientas específicas,
+                                        o consideraciones especiales que deben incluirse en los laboratorios
+                                    </small>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Generation Scope */}
+                        <div className="form-section">
+                            <h3>🎯 Alcance de Generación</h3>
+
+                            <div className="scope-options">
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={!generateFullCourse}
+                                        onChange={() => setGenerateFullCourse(false)}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Módulos Específicos</strong>
+                                        <p>Genera solo los módulos que necesitas</p>
+                                    </div>
+                                </label>
+
+                                <label className="radio-option">
+                                    <input
+                                        type="radio"
+                                        checked={generateFullCourse}
+                                        onChange={() => setGenerateFullCourse(true)}
+                                        disabled={isProcessing}
+                                    />
+                                    <div className="radio-content">
+                                        <strong>Curso Completo</strong>
+                                        <p>Genera todos los módulos del curso</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            {!generateFullCourse && (
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label htmlFor="moduleInput">Módulos a Generar</label>
+                                    <input
+                                        id="moduleInput"
+                                        type="text"
+                                        value={moduleInput}
+                                        onChange={(e) => setModuleInput(e.target.value)}
+                                        placeholder="Ej: 1 o 1,3 o 1-5 o 1,3-5"
+                                        disabled={isProcessing}
+                                        className="form-input"
+                                    />
+                                    <small className="form-hint">
+                                        Ejemplos: "1" (un módulo), "1,3" (módulos 1 y 3), "1-5" (módulos 1 al 5), "1,3-5" (módulos 1, 3, 4, 5)
+                                    </small>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="form-actions">
+                            <button
+                                className="btn-generate"
+                                onClick={handleGenerate}
+                                disabled={!outlineFile || isProcessing || !isAuthenticated}
+                            >
+                                {isProcessing ? (
+                                    <>
+                                        <span className="spinner"></span>
+                                        Procesando...
+                                    </>
+                                ) : (
+                                    <>
+                                        🚀 Generar Contenido
+                                    </>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Status Messages */}
+                        {statusMessage && (
+                            <div className="alert alert-info">
+                                {statusMessage}
+                            </div>
+                        )}
+
+                        {errorMessage && (
+                            <div className="alert alert-error">
+                                <strong>❌ Error:</strong> {errorMessage}
+                            </div>
+                        )}
+
+                        {successMessage && (
+                            <div className="alert alert-success">
+                                <strong>{successMessage}</strong>
+                                <p style={{ marginTop: '0.5rem' }}>
+                                    Su requerimiento está siendo procesado para generar{' '}
+                                    {contentType === 'theory' ? 'el contenido teórico' :
+                                        contentType === 'labs' ? 'la guía de laboratorios' :
+                                            'el contenido teórico y la guía de laboratorios'}{' '}
+                                    {generateFullCourse ? 'del curso completo' :
+                                        moduleInput.includes(',') || moduleInput.includes('-') ? 'de los módulos solicitados' : 'del módulo'}.
+                                    Usted recibirá una notificación a su correo electrónico una vez el proceso haya finalizado.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
     );
 }
 
