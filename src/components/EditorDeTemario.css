@@ -906,3 +906,119 @@ h2.pdf-section-title {
   border: 1px solid #ddd;
   border-radius: 4px;
 }
+
+/* ========================================================= */
+/* =====================  MOD NUEVAS UI  ==================== */
+/* ========================================================= */
+
+/* Botón utilitario */
+.btn {
+  padding: 8px 14px;
+  border: 1px solid #cfd7de;
+  background: #f6f8fa;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.btn:hover {
+  background: #eef3f7;
+}
+
+/* Botón de 3 puntitos */
+.btn-icon {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+  color: #555;
+}
+.btn-icon:hover { color: #000; }
+
+/* Menú contextual ⋮ */
+.menu-contextual {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+  width: 180px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+}
+.menu-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.menu-item:hover {
+  background: #f5f7fa;
+}
+
+/* Modal ancho para la lista de versiones */
+.modal.modal-xl {
+  width: min(980px, 96vw);
+  max-height: 86vh;
+}
+
+/* Barra de búsqueda de versiones */
+.search-bar-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px;
+  background-color: #f7f7f7;
+  border-radius: 8px;
+}
+.search-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+/* Tabla de versiones */
+.tabla-versiones-scroll {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+.versiones-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.versiones-table th,
+.versiones-table td {
+  border-bottom: 1px solid #eee;
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+.versiones-table th {
+  background: #f5f7fa;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.versiones-table tr:nth-child(even) { background: #fafafa; }
+.versiones-table tr:hover { background: #f0f4f8; }
+
+/* Ver temario (solo lectura) */
+.pre-wrap { white-space: pre-wrap; }
+.lista-capitulos { padding-left: 18px; }
+.lista-capitulos > li { margin-bottom: 6px; }
+
+
+
+
+

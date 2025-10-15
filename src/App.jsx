@@ -27,6 +27,7 @@ import GeneradorContenidosPage from './components/GeneradorContenidosPage.jsx';
 import GeneradorContenido from './components/GeneradorContenido.jsx';
 import GeneradorTemarios from './components/GeneradorTemarios.jsx';
 import GeneradorTemarios_KNTR from './components/GeneradorTemarios_KNTR.jsx';
+import GeneradorTemarios_Seminarios from './components/GeneradorTemarios_Seminarios.jsx'
 import GeneradorCursos from './components/GeneradorCursos.jsx';
 import BookBuilderPage from './components/BookBuilderPage.jsx';
 
@@ -186,6 +187,7 @@ function App() {
                 <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
                   <Route path="curso-estandar" element={<GeneradorTemarios />} />
                   <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
+                  <Route path="Temario-seminarios" element={<GeneradorTemarios_Seminarios />} />
                   <Route path="generador-cursos" element={<GeneradorCursos />} />
                   <Route path="book-builder" element={<BookBuilderPage />} />
                   <Route path="generador-contenido" element={<GeneradorContenido />} />

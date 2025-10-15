@@ -13,12 +13,18 @@ Features:
 import os
 import json
 import boto3
+from botocore.config import Config
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-# AWS Clients
+# AWS Clients with extended timeout for Bedrock
+bedrock_config = Config(
+    read_timeout=600,  # 10 minutes for generating multiple labs
+    connect_timeout=60,
+    retries={'max_attempts': 3}
+)
 s3_client = boto3.client('s3')
-bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=bedrock_config)
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
@@ -54,7 +60,7 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
     try:
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 16000,
+            "max_tokens": 32000,  # Enough for 2 labs @ ~15K each
             "messages": [
                 {
                     "role": "user",
@@ -357,6 +363,179 @@ def save_lab_guide_to_s3(
         raise
 
 
+def generate_all_labs_batch(
+    lab_plans: List[Dict[str, Any]],
+    master_context: dict,
+    model_provider: str = "bedrock"
+) -> Dict[str, str]:
+    """
+    Generate ALL lab guides in a SINGLE API call for efficiency.
+    
+    Returns dict mapping lab_id to markdown content.
+    """
+    print(f"\n🚀 Generating {len(lab_plans)} labs in SINGLE API CALL...")
+    
+    # Build comprehensive prompt for ALL labs
+    labs_summary = []
+    for lab in lab_plans:
+        labs_summary.append(f"""
+**Lab {lab['lab_id']}: {lab['lab_title']}**
+- Duration: {lab['estimated_duration']} minutes
+- Complexity: {lab.get('complexity', 'medium')}
+- Bloom Level: {lab['bloom_level']}
+- Objectives: {', '.join(lab['objectives'])}
+- Scope: {lab['scope']}
+- Prerequisites: {', '.join(lab.get('prerequisites', []))}
+- Technologies: {', '.join(lab.get('key_technologies', []))}
+""")
+    
+    prompt = f"""
+You are an expert technical instructor creating detailed, professional laboratory guides.
+
+LANGUAGE REQUIREMENT:
+**GENERATE ALL LAB CONTENT IN: {master_context.get('target_language', 'English')}**
+
+- All headings, instructions, explanations must be in {master_context.get('target_language', 'English')}
+- Use proper {master_context.get('target_language', 'English')} terminology and idioms
+- Command outputs can remain in their original language (usually English)
+- Code comments should be in {master_context.get('target_language', 'English')} where appropriate
+
+MASTER CONTEXT:
+Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}
+
+Hardware Requirements:
+{chr(10).join('- ' + req for req in master_context.get('hardware_requirements', []))}
+
+Software Requirements:
+{chr(10).join(f"- {sw['name']} ({sw['version']}): {sw['purpose']}" for sw in master_context.get('software_requirements', []))}
+
+Special Considerations:
+{chr(10).join('- ' + con for con in master_context.get('special_considerations', []))}
+
+LABS TO GENERATE ({len(lab_plans)} total):
+{chr(10).join(labs_summary)}
+
+YOUR TASK:
+Generate COMPLETE, DETAILED step-by-step instructions for ALL {len(lab_plans)} labs above in {master_context.get('target_language', 'English')}.
+
+OUTPUT FORMAT (use delimiters):
+---LAB_START---
+LAB_ID: 03-01-01
+---MARKDOWN---
+# Lab 03-01-01: Full Title
+
+## Overview
+...complete markdown content...
+
+---LAB_END---
+
+---LAB_START---
+LAB_ID: 03-02-01
+---MARKDOWN---
+# Lab 03-02-01: Next Lab Title
+...
+---LAB_END---
+
+For EACH lab, the markdown MUST include:
+
+1. **Header**: Lab ID, title, duration, complexity
+2. **Overview**: Brief description (2-3 sentences)
+3. **Learning Objectives**: 3-5 specific, measurable outcomes
+4. **Prerequisites**: Knowledge/skills/tools needed
+5. **Lab Environment Setup**: 
+   - Hardware/software requirements specific to this lab
+   - Initial configuration steps
+6. **Step-by-Step Instructions** (numbered):
+   - Clear, actionable steps
+   - EXACT commands with syntax highlighting
+   - Expected outputs
+   - Verification steps
+7. **Validation**: How to confirm successful completion
+8. **Troubleshooting**: 3-5 common issues with solutions
+9. **Cleanup**: Steps to reset environment (if needed)
+10. **Next Steps/Additional Resources**: What to explore next
+
+CRITICAL REQUIREMENTS:
+- Use REAL, EXECUTABLE commands - no placeholders like <filename>
+- Include actual code in ```language blocks
+- Each step must be testable and verifiable
+- Match the specified duration and complexity
+- Adapt detail level to Bloom taxonomy level
+- Professional technical writing style
+- Success criteria must be measurable
+
+IMPORTANT: Use the delimiter format exactly as shown. Do NOT use JSON format.
+"""
+    
+    try:
+        if model_provider == "openai":
+            secret_data = get_secret("aurora/openai-api-key")
+            api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                print("⚠️  OpenAI API key not found, falling back to Bedrock")
+                model_provider = "bedrock"
+            else:
+                response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+        
+        if model_provider == "bedrock":
+            response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+        
+        print("✅ AI response received, parsing with delimiters...")
+        
+        # Parse using delimiters instead of JSON
+        labs_dict = {}
+        
+        # Split by lab sections
+        lab_sections = response_text.split('---LAB_START---')
+        
+        for section in lab_sections[1:]:  # Skip first empty split
+            if '---LAB_END---' not in section:
+                continue
+            
+            # Extract lab_id and markdown
+            try:
+                header_part, rest = section.split('---MARKDOWN---', 1)
+                markdown_part = rest.split('---LAB_END---')[0].strip()
+                
+                # Extract lab_id from header
+                for line in header_part.split('\n'):
+                    if line.startswith('LAB_ID:'):
+                        lab_id = line.replace('LAB_ID:', '').strip()
+                        labs_dict[lab_id] = markdown_part
+                        print(f"  ✓ Lab {lab_id}: {len(markdown_part)} characters")
+                        break
+            except Exception as e:
+                print(f"  ⚠️  Failed to parse lab section: {e}")
+                continue
+        
+        if not labs_dict:
+            print("⚠️  No labs found in response, trying fallback JSON parsing...")
+            # Fallback to JSON if delimiter format failed
+            try:
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    response_text = response_text.split("```")[1].split("```")[0]
+                
+                result = json.loads(response_text.strip())
+                for lab_data in result.get('labs', []):
+                    lab_id = lab_data['lab_id']
+                    markdown = lab_data['markdown']
+                    labs_dict[lab_id] = markdown
+                    print(f"  ✓ Lab {lab_id}: {len(markdown)} characters (from JSON)")
+            except Exception as fallback_error:
+                print(f"❌ Fallback JSON parsing also failed: {fallback_error}")
+                raise ValueError("Could not parse labs from AI response in any format")
+        
+        print(f"✅ Successfully generated {len(labs_dict)} lab guides")
+        return labs_dict
+    
+    except Exception as e:
+        print(f"❌ Error generating batch labs: {e}")
+        print(f"Response preview: {response_text[:1000] if 'response_text' in locals() else 'N/A'}...")
+        raise
+
+
 def lambda_handler(event, context):
     """
     Lambda handler for Lab Writer (Agent 2).
@@ -406,45 +585,76 @@ def lambda_handler(event, context):
                 'error': 'No lab plans found in master plan'
             }
         
-        print(f"\n📊 Total labs to generate: {len(lab_plans)}\n")
+        # Extract language from metadata
+        course_language = master_plan.get('metadata', {}).get('course_language', 'en')
+        language_names = {
+            'en': 'English',
+            'es': 'Spanish (Español)',
+            'fr': 'French (Français)',
+            'de': 'German (Deutsch)',
+            'pt': 'Portuguese (Português)',
+            'it': 'Italian (Italiano)'
+        }
+        target_language = language_names.get(course_language, 'English')
         
-        # Build master context for all labs
+        print(f"\n🌐 Target Language: {target_language} ({course_language})")
+        print(f"📊 Total labs to generate: {len(lab_plans)}\n")
+        
+        # Build master context for all labs (including language)
         master_context = {
             'hardware_requirements': master_plan.get('hardware_requirements', []),
             'software_requirements': master_plan.get('software_requirements', []),
             'special_considerations': master_plan.get('special_considerations', []),
-            'overall_objectives': master_plan.get('overall_objectives', [])
+            'overall_objectives': master_plan.get('overall_objectives', []),
+            'target_language': target_language  # NEW: Pass language to prompt
         }
         
-        # Step 2: Generate each lab guide
-        lab_guide_keys = []
+        # Step 2: Generate lab guides in BATCHES (2 labs per API call to avoid token limits)
+        BATCH_SIZE = 2
+        labs_markdown = {}
         
-        for idx, lab_plan in enumerate(lab_plans, 1):
-            print(f"[{idx}/{len(lab_plans)}] Processing lab {lab_plan['lab_id']}...")
+        for i in range(0, len(lab_plans), BATCH_SIZE):
+            batch = lab_plans[i:i+BATCH_SIZE]
+            batch_num = (i // BATCH_SIZE) + 1
+            total_batches = (len(lab_plans) + BATCH_SIZE - 1) // BATCH_SIZE
+            
+            print(f"\n📦 Batch {batch_num}/{total_batches}: Generating {len(batch)} labs...")
             
             try:
-                # Generate lab guide
-                lab_guide = generate_lab_guide(
-                    lab_plan=lab_plan,
+                batch_results = generate_all_labs_batch(
+                    lab_plans=batch,
                     master_context=master_context,
                     model_provider=model_provider
                 )
-                
-                # Save to S3
+                labs_markdown.update(batch_results)
+            except Exception as e:
+                print(f"❌ Batch {batch_num} generation failed: {e}")
+                # Continue with next batch instead of failing completely
+                continue
+        
+        # Step 3: Save each lab guide to S3
+        lab_guide_keys = []
+        print(f"\n💾 Saving {len(labs_markdown)} lab guides to S3...")
+        
+        for lab_plan in lab_plans:
+            lab_id = lab_plan['lab_id']
+            
+            if lab_id not in labs_markdown:
+                print(f"  ⚠️  Lab {lab_id} not found in generated content, skipping")
+                continue
+            
+            try:
                 lab_key = save_lab_guide_to_s3(
                     bucket=course_bucket,
                     project_folder=project_folder,
-                    lab_id=lab_plan['lab_id'],
+                    lab_id=lab_id,
                     lab_title=lab_plan['lab_title'],
-                    lab_guide=lab_guide
+                    lab_guide=labs_markdown[lab_id]
                 )
-                
                 lab_guide_keys.append(lab_key)
-                print(f"  ✅ Lab {lab_plan['lab_id']} completed\n")
-            
+                print(f"  ✅ Saved lab {lab_id}")
             except Exception as e:
-                print(f"  ❌ Failed to generate lab {lab_plan['lab_id']}: {e}")
-                # Continue with next lab instead of failing completely
+                print(f"  ❌ Failed to save lab {lab_id}: {e}")
                 continue
         
         print(f"\n{'='*70}")

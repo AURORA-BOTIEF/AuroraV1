@@ -9,6 +9,7 @@ This replaces the presigned URL approach with direct IAM-authorized API calls.
 import json
 import boto3
 import os
+import yaml
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -46,6 +47,86 @@ def decode_cognito_jwt(token, region="us-east-1"):
     except Exception as e:
         print(f"Failed to decode JWT token: {e}")
         return None
+
+
+def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
+    """
+    Parse module input into list of module numbers.
+    
+    Supports:
+    - Single int: 1 -> [1]
+    - String single: "1" -> [1]
+    - Comma-separated: "1,3" -> [1, 3]
+    - Range: "1-3" -> [1, 2, 3]
+    - Mixed: "1,3-5" -> [1, 3, 4, 5]
+    - All: "all" -> [1, 2, ..., N] (requires outline to determine N)
+    
+    Returns: List[int] sorted module numbers
+    """
+    # Handle integer input
+    if isinstance(module_input, int):
+        return [module_input]
+    
+    # Convert to string
+    module_str = str(module_input).strip().lower()
+    
+    # Handle "all" - need to count modules from outline
+    if module_str == "all":
+        if outline_s3_key and course_bucket:
+            try:
+                s3_client = boto3.client('s3')
+                outline_obj = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
+                outline_content = outline_obj['Body'].read().decode('utf-8')
+                outline_data = yaml.safe_load(outline_content)
+                
+                # Support both 'course' and top-level 'modules'
+                modules = outline_data.get('modules', [])
+                if not modules:
+                    course_data = outline_data.get('course', {})
+                    modules = course_data.get('modules', [])
+                
+                total_modules = len(modules)
+                print(f"📊 'all' detected: generating all {total_modules} modules")
+                return list(range(1, total_modules + 1))
+            except Exception as e:
+                print(f"⚠️  Could not determine total modules for 'all': {e}")
+                # Fallback to module 1
+                return [1]
+        else:
+            print("⚠️  'all' specified but no outline provided, defaulting to module 1")
+            return [1]
+    
+    # Parse comma-separated and ranges
+    modules = []
+    parts = module_str.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        
+        if '-' in part:
+            # Range: "1-3" -> [1, 2, 3]
+            try:
+                start, end = part.split('-')
+                start_num = int(start.strip())
+                end_num = int(end.strip())
+                for i in range(start_num, end_num + 1):
+                    if i not in modules:
+                        modules.append(i)
+            except ValueError:
+                print(f"⚠️  Invalid range format: {part}, skipping")
+        else:
+            # Single number
+            try:
+                num = int(part)
+                if num not in modules:
+                    modules.append(num)
+            except ValueError:
+                print(f"⚠️  Invalid module number: {part}, skipping")
+    
+    # Return sorted list
+    modules.sort()
+    print(f"📋 Parsed modules: {modules}")
+    return modules if modules else [1]  # Default to [1] if parsing failed
 
 def lambda_handler(event, context):
     """
@@ -175,10 +256,14 @@ def lambda_handler(event, context):
 
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
+        
         # Support both 'module_number' (from GeneradorCursos) and 'module_to_generate' (from GeneradorContenido)
-        module_to_generate = body.get('module_number')
-        if module_to_generate is None:
-            module_to_generate = body.get('module_to_generate', 1)  # Default to module 1
+        # Can be: single int (1), string ("1"), "all", comma-separated ("1,3"), range ("1-3"), or mixed ("1,3-5")
+        module_input = body.get('module_number') or body.get('module_to_generate', 1)
+        
+        # Parse module input into list of module numbers
+        modules_to_generate = parse_module_input(module_input, outline_s3_key, course_bucket)
+        
         lesson_to_generate = body.get('lesson_to_generate')  # Optional: generate specific lesson
         performance_mode = body.get('performance_mode', 'balanced')
         model_provider = body.get('model_provider', 'bedrock')
@@ -214,7 +299,7 @@ def lambda_handler(event, context):
         execution_input = {
             "course_topic": course_topic or "Custom Course",
             "course_duration_hours": course_duration_hours,
-            "module_to_generate": module_to_generate,
+            "modules_to_generate": modules_to_generate,  # NEW: List of modules [1, 3, 5]
             "lesson_to_generate": lesson_to_generate,
             "performance_mode": performance_mode,
             "model_provider": model_provider,
@@ -262,7 +347,7 @@ def lambda_handler(event, context):
                 "execution_arn": execution_arn,
                 "execution_name": execution_name,
                 "course_topic": course_topic,
-                "module_to_generate": module_to_generate,
+                "modules_to_generate": modules_to_generate,  # List of modules
                 "user_email": user_email,
                 "status": "running"
             })
