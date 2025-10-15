@@ -237,15 +237,29 @@ Generate COMPLETE educational content for Module {module_number}: {module_title}
 🚨 CRITICAL: VISUAL TAGS MUST BE DESCRIPTIVE (80+ CHARACTERS) 🚨
 ═══════════════════════════════════════════════════════════════════════════════════
 
-❌ NEVER write: [VISUAL: 01-01-0001] or [VISUAL: diagram] or [VISUAL: architecture]
-✅ ALWAYS write: [VISUAL: Detailed description with components, layout, arrows, labels, colors, and specific elements showing exactly what the image contains and how elements relate to each other...]
+❌ NEVER write these (too vague, no details):
+   [VISUAL: 01-01-0001]
+   [VISUAL: diagram]
+   [VISUAL: Docker architecture]
 
-EVERY [VISUAL: ...] tag MUST:
-- Be 80+ characters minimum
-- Describe specific components, shapes, labels
-- Include layout information (left/right/top/bottom/center)
-- Mention relationships (arrows, connections, flows)
-- Specify colors, icons, or visual elements
+✅ ALWAYS write like these EXAMPLES (specific, detailed, 80+ characters):
+
+Example 1 (Architecture - 147 chars):
+[VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
+
+Example 2 (Comparison - 135 chars):
+[VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
+
+Example 3 (Flowchart - 162 chars):
+[VISUAL: Horizontal flowchart with 5 rounded rectangles connected by right-pointing arrows: 'Write Dockerfile' (pencil icon) → 'docker build' (hammer icon) → 'Image Created' (box icon) → 'docker run' (play icon) → 'Container Running' (green circle)]
+
+YOUR TAGS MUST:
+- Be 80+ characters minimum (count them!)
+- Describe shapes (boxes, circles, arrows, tables, layers)
+- Include layout (top/bottom/left/right/center, horizontal/vertical)
+- Specify labels and text that appear in the image
+- Mention icons, colors, or visual markers
+- Show relationships (arrows, connections, comparisons)
 
 ═══════════════════════════════════════════════════════════════════════════════════
 📋 REQUIREMENTS
