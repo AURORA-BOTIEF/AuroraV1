@@ -14,12 +14,18 @@ import os
 import json
 import yaml
 import boto3
+from botocore.config import Config
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-# AWS Clients
+# AWS Clients with extended timeout for Bedrock (complex prompts can take 3-5 minutes)
+bedrock_config = Config(
+    read_timeout=600,  # 10 minutes
+    connect_timeout=60,
+    retries={'max_attempts': 3}
+)
 s3_client = boto3.client('s3')
-bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=bedrock_config)
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
