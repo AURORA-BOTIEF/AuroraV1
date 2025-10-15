@@ -231,6 +231,21 @@ LAB ACTIVITIES (Reference only - brief descriptions):
     
     # Build comprehensive prompt
     comprehensive_prompt = f"""
+🚨🚨🚨 CRITICAL INSTRUCTION - READ FIRST 🚨🚨🚨
+
+VISUAL TAGS: You MUST write descriptive text inside [VISUAL: ...] tags.
+MINIMUM 80 CHARACTERS describing the visual in detail.
+
+DO NOT WRITE: [VISUAL: 01-01-0001]
+DO NOT WRITE: [VISUAL: 01-02-0003]  
+DO NOT WRITE: [VISUAL: Figure 1]
+
+INSTEAD WRITE: [VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
+
+If you write numbered placeholders, your response will be REJECTED.
+
+═══════════════════════════════════════════════════════════════════════════════════
+
 Generate COMPLETE educational content for Module {module_number}: {module_title}
 
 ═══════════════════════════════════════════════════════════════════════════════════
@@ -541,28 +556,24 @@ def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
         # System message with visual tag requirements
         system_message = [
             {
-                "text": """You are an expert educational content creator. Follow these CRITICAL rules:
+                "text": """You are an expert educational content creator.
 
-🚨 VISUAL TAG REQUIREMENT (NON-NEGOTIABLE):
-Every [VISUAL: ...] tag you write MUST be 80+ characters and describe:
-- WHAT components are shown (e.g., "Docker CLI", "containerd", "nginx container")
-- HOW they are arranged (e.g., "layered vertically", "connected in a flow", "side-by-side comparison")
-- WHAT relationships exist (e.g., "connected by arrows", "bidirectional communication", "hierarchical structure")
-- Any colors, labels, icons, or visual indicators
+🚨 CRITICAL RULE - VISUAL TAGS 🚨
+NEVER write: [VISUAL: 01-01-0001] or [VISUAL: 01-02-0003] or any numbered placeholder
+ALWAYS write: [VISUAL: detailed 80+ character description]
 
-STUDY THESE CORRECT EXAMPLES (minimum 80 characters each):
+Every [VISUAL: ...] tag MUST be 80+ characters describing:
+- WHAT: specific component names (e.g., "Docker CLI", "nginx container")
+- HOW: arrangement (e.g., "layered vertically", "side-by-side")  
+- RELATIONSHIPS: connections (e.g., "connected by arrows", "nested within")
+- DETAILS: colors, icons, labels
 
-Example 1 - Architecture (147 chars):
+CORRECT EXAMPLES:
 [VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
 
-Example 2 - Comparison (135 chars):
 [VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
 
-Example 3 - Flowchart (145 chars):
-[VISUAL: Horizontal flowchart with 5 rounded rectangles connected by arrows: 'Code Push' (purple) → 'Build Image' (blue) → 'Push to Registry' (green) → 'Pull Image' (orange) → 'Run Container' (red)]
-
-Write all your visual tags following these patterns. Minimum 80 characters, maximum detail.
-Before writing each tag, ask: "Could someone draw this from my description alone?" If no, add more details."""
+If you write numbered placeholders like [VISUAL: 01-01-0001], the content will be REJECTED."""
             }
         ]
         
@@ -602,28 +613,24 @@ def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) ->
         # not via API parameters. Users must select "Thinking" mode in their UI.
         
         # CRITICAL: Put visual tag requirements in SYSTEM message so GPT-5 processes them FIRST
-        system_message = """You are an expert educational content creator. Follow these CRITICAL rules:
+        system_message = """You are an expert educational content creator.
 
-🚨 VISUAL TAG REQUIREMENT (NON-NEGOTIABLE):
-Every [VISUAL: ...] tag you write MUST be 80+ characters and describe:
-- WHAT components are shown (e.g., "API Server", "etcd", "Scheduler")
-- HOW they are arranged (e.g., "layered", "connected in a hub", "side-by-side")
-- WHAT relationships exist (e.g., "connected by arrows labeled 'gRPC'", "bidirectional communication")
-- Any colors, labels, or visual indicators
+🚨 CRITICAL RULE - VISUAL TAGS 🚨
+NEVER write: [VISUAL: 01-01-0001] or [VISUAL: 01-02-0003] or any numbered placeholder
+ALWAYS write: [VISUAL: detailed 80+ character description]
 
-STUDY THESE CORRECT EXAMPLES (minimum 80 characters each):
+Every [VISUAL: ...] tag MUST be 80+ characters describing:
+- WHAT: specific components (e.g., "API Server", "etcd cluster")
+- HOW: arrangement (e.g., "layered", "connected in hub")
+- RELATIONSHIPS: connections (e.g., "arrows labeled gRPC")
+- DETAILS: colors, icons, labels
 
-Example 1 - Architecture (147 chars):
+CORRECT EXAMPLES:
 [VISUAL: Kubernetes control plane architecture with API Server (central blue box), Scheduler (green box above), Controller Manager (orange box left), etcd (cyan cylinder right), all connected to API Server with bidirectional arrows labeled with protocol names]
 
-Example 2 - Comparison (125 chars):
 [VISUAL: Three-column comparison table with headers 'Minikube', 'kind', 'EKS', showing rows for Setup, Cost, Scale, Production-Ready, each cell with green checkmarks or red X marks]
 
-Example 3 - Process Flow (138 chars):
-[VISUAL: Vertical flowchart with 6 numbered steps: 1) kubectl command (terminal), 2) API validation (shield), 3) etcd query (database), 4) scheduler decision (gears), 5) kubelet execution (node), 6) container running (green box)]
-
-Write all your visual tags following these patterns. Minimum 80 characters with complete component and layout details.
-Before writing each tag, ask: "Could someone draw this from my description alone?" If no, add more specifics."""
+If you write numbered placeholders, the content will be REJECTED."""
 
         # GPT-5 (o1) models don't support system messages
         # We need to prepend the instructions to the user message instead
