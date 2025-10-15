@@ -256,6 +256,7 @@ def lambda_handler(event, context):
 
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
+        course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket - must be defined early
         
         # Support both 'module_number' (from GeneradorCursos) and 'module_to_generate' (from GeneradorContenido)
         # Can be: single int (1), string ("1"), "all", comma-separated ("1,3"), range ("1-3"), or mixed ("1,3-5")
@@ -268,7 +269,6 @@ def lambda_handler(event, context):
         performance_mode = body.get('performance_mode', 'balanced')
         model_provider = body.get('model_provider', 'bedrock')
         max_images = body.get('max_images')  # Optional: will be determined by number of prompts
-        course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket
         project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
