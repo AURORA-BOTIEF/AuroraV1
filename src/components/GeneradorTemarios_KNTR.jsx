@@ -23,7 +23,7 @@ function GeneradorTemarios() {
   });
 
   // API nueva -> Incorpora OpenAi.
-  const apiUrl = "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/default/Generador_Temario_Knowledge_Transfer";
+  const apiUrl = "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/version2";
 
 // CÓDIGO CORREGIDO
 const handleParamChange = (e) => {
