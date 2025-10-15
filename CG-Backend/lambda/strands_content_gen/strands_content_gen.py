@@ -625,14 +625,30 @@ Example 3 - Process Flow (138 chars):
 Write all your visual tags following these patterns. Minimum 80 characters with complete component and layout details.
 Before writing each tag, ask: "Could someone draw this from my description alone?" If no, add more specifics."""
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            max_completion_tokens=30000  # Increased from 16000 to allow longer, more detailed responses
-        )
+        # GPT-5 (o1) models don't support system messages
+        # We need to prepend the instructions to the user message instead
+        if model.startswith("o1-") or model == "gpt-5":
+            # Prepend system instructions to user prompt
+            full_prompt = f"{system_message}\n\n{'='*80}\nUSER REQUEST:\n{'='*80}\n\n{prompt}"
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": full_prompt}
+                ],
+                max_completion_tokens=30000
+            )
+        else:
+            # GPT-4 and earlier support system messages
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=30000,
+                temperature=0.7
+            )
         
         return response.choices[0].message.content
     
