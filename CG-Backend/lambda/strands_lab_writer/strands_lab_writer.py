@@ -410,16 +410,23 @@ LABS TO GENERATE ({len(lab_plans)} total):
 YOUR TASK:
 Generate COMPLETE, DETAILED step-by-step instructions for ALL {len(lab_plans)} labs above.
 
-OUTPUT FORMAT (JSON):
-{{
-  "labs": [
-    {{
-      "lab_id": "03-01-01",
-      "markdown": "# Lab 3.1.1: Full Title\\n\\n## Overview\\n...complete markdown content..."
-    }},
-    ...
-  ]
-}}
+OUTPUT FORMAT (use delimiters):
+---LAB_START---
+LAB_ID: 03-01-01
+---MARKDOWN---
+# Lab 03-01-01: Full Title
+
+## Overview
+...complete markdown content...
+
+---LAB_END---
+
+---LAB_START---
+LAB_ID: 03-02-01
+---MARKDOWN---
+# Lab 03-02-01: Next Lab Title
+...
+---LAB_END---
 
 For EACH lab, the markdown MUST include:
 
@@ -449,7 +456,7 @@ CRITICAL REQUIREMENTS:
 - Professional technical writing style
 - Success criteria must be measurable
 
-Return ONLY the JSON object with all labs, no additional text.
+IMPORTANT: Use the delimiter format exactly as shown. Do NOT use JSON format.
 """
     
     try:
@@ -465,32 +472,59 @@ Return ONLY the JSON object with all labs, no additional text.
         if model_provider == "bedrock":
             response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
         
-        print("✅ AI response received, parsing JSON...")
+        print("✅ AI response received, parsing with delimiters...")
         
-        # Parse JSON from response
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
-        
-        result = json.loads(response_text.strip())
+        # Parse using delimiters instead of JSON
         labs_dict = {}
         
-        for lab_data in result.get('labs', []):
-            lab_id = lab_data['lab_id']
-            markdown = lab_data['markdown']
-            labs_dict[lab_id] = markdown
-            print(f"  ✓ Lab {lab_id}: {len(markdown)} characters")
+        # Split by lab sections
+        lab_sections = response_text.split('---LAB_START---')
+        
+        for section in lab_sections[1:]:  # Skip first empty split
+            if '---LAB_END---' not in section:
+                continue
+            
+            # Extract lab_id and markdown
+            try:
+                header_part, rest = section.split('---MARKDOWN---', 1)
+                markdown_part = rest.split('---LAB_END---')[0].strip()
+                
+                # Extract lab_id from header
+                for line in header_part.split('\n'):
+                    if line.startswith('LAB_ID:'):
+                        lab_id = line.replace('LAB_ID:', '').strip()
+                        labs_dict[lab_id] = markdown_part
+                        print(f"  ✓ Lab {lab_id}: {len(markdown_part)} characters")
+                        break
+            except Exception as e:
+                print(f"  ⚠️  Failed to parse lab section: {e}")
+                continue
+        
+        if not labs_dict:
+            print("⚠️  No labs found in response, trying fallback JSON parsing...")
+            # Fallback to JSON if delimiter format failed
+            try:
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    response_text = response_text.split("```")[1].split("```")[0]
+                
+                result = json.loads(response_text.strip())
+                for lab_data in result.get('labs', []):
+                    lab_id = lab_data['lab_id']
+                    markdown = lab_data['markdown']
+                    labs_dict[lab_id] = markdown
+                    print(f"  ✓ Lab {lab_id}: {len(markdown)} characters (from JSON)")
+            except Exception as fallback_error:
+                print(f"❌ Fallback JSON parsing also failed: {fallback_error}")
+                raise ValueError("Could not parse labs from AI response in any format")
         
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict
     
-    except json.JSONDecodeError as e:
-        print(f"❌ Failed to parse AI response as JSON: {e}")
-        print(f"Response preview: {response_text[:500]}...")
-        raise
     except Exception as e:
         print(f"❌ Error generating batch labs: {e}")
+        print(f"Response preview: {response_text[:1000] if 'response_text' in locals() else 'N/A'}...")
         raise
 
 
