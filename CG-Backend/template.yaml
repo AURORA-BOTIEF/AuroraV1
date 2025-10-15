@@ -749,6 +749,7 @@ Resources:
                         project_folder.$: $.project_folder
                         model_provider.$: $.model_provider
                         lab_requirements.$: $.lab_requirements
+                        module_to_generate.$: $.module_to_generate
                     Retry:
                       - ErrorEquals:
                           - Lambda.ServiceException
@@ -916,6 +917,7 @@ Resources:
                         project_folder.$: $.project_folder
                         model_provider.$: $.model_provider
                         lab_requirements.$: $.lab_requirements
+                        module_to_generate.$: $.module_to_generate
                     Retry:
                       - ErrorEquals:
                           - Lambda.ServiceException

@@ -58,9 +58,13 @@ def load_outline_from_s3(bucket: str, key: str) -> dict:
         raise
 
 
-def extract_all_labs(outline_data: dict) -> List[Dict[str, Any]]:
+def extract_all_labs(outline_data: dict, module_to_generate: str = "all") -> List[Dict[str, Any]]:
     """
-    Extract all lab activities from the outline.
+    Extract lab activities from the outline, optionally filtering by module.
+    
+    Args:
+        outline_data: The course outline dictionary
+        module_to_generate: Module number as string (e.g., "3") or "all" for all modules
     
     Returns list of lab info with context:
     [
@@ -80,6 +84,14 @@ def extract_all_labs(outline_data: dict) -> List[Dict[str, Any]]:
     """
     labs = []
     
+    # Parse module filter
+    target_module = None
+    if module_to_generate and module_to_generate != "all":
+        try:
+            target_module = int(module_to_generate)
+        except (ValueError, TypeError):
+            print(f"⚠️  Invalid module_to_generate value: {module_to_generate}, treating as 'all'")
+    
     # Modules can be at top level OR under 'course'
     modules = outline_data.get('modules', [])
     if not modules:
@@ -87,10 +99,18 @@ def extract_all_labs(outline_data: dict) -> List[Dict[str, Any]]:
         modules = course_data.get('modules', [])
     
     print(f"\n{'='*70}")
-    print(f"🔍 EXTRACTING ALL LAB ACTIVITIES FROM OUTLINE")
+    print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")
+    if target_module:
+        print(f"🎯 Filtering: Module {target_module} only")
+    else:
+        print(f"🎯 Filtering: All modules")
     print(f"{'='*70}")
     
     for mod_idx, module in enumerate(modules, 1):
+        # Skip modules that don't match the filter
+        if target_module and mod_idx != target_module:
+            continue
+            
         module_title = module.get('title', f'Module {mod_idx}')
         lessons = module.get('lessons', [])
         
@@ -429,19 +449,21 @@ def lambda_handler(event, context):
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
         lab_requirements = event.get('lab_requirements')
+        module_to_generate = event.get('module_to_generate', 'all')
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📄 Outline: {outline_key}")
         print(f"📁 Project: {project_folder}")
         print(f"🤖 Model: {model_provider}")
+        print(f"🎯 Module Scope: {module_to_generate}")
         print(f"📋 Additional Requirements: {lab_requirements if lab_requirements else 'None'}")
         
         # Step 1: Load outline
         outline_data = load_outline_from_s3(course_bucket, outline_key)
         course_info = outline_data.get('course', {})
         
-        # Step 2: Extract all labs
-        labs = extract_all_labs(outline_data)
+        # Step 2: Extract labs (filtered by module if specified)
+        labs = extract_all_labs(outline_data, module_to_generate)
         
         if not labs:
             print("⚠️  No labs found in outline!")
