@@ -234,32 +234,29 @@ LAB ACTIVITIES (Reference only - brief descriptions):
 Generate COMPLETE educational content for Module {module_number}: {module_title}
 
 ═══════════════════════════════════════════════════════════════════════════════════
-🚨 CRITICAL: VISUAL TAGS MUST BE DESCRIPTIVE (80+ CHARACTERS) 🚨
+🎨 VISUAL TAG REQUIREMENTS (MANDATORY) 🎨
 ═══════════════════════════════════════════════════════════════════════════════════
 
-❌ NEVER write these (too vague, no details):
-   [VISUAL: 01-01-0001]
-   [VISUAL: diagram]
-   [VISUAL: Docker architecture]
+When you need to include a visual element, use [VISUAL: detailed description] tags.
+IMPORTANT: The description must be at least 80 characters with specific details.
 
-✅ ALWAYS write like these EXAMPLES (specific, detailed, 80+ characters):
+✅ FOLLOW THESE PATTERNS - Study these examples carefully:
 
-Example 1 (Architecture - 147 chars):
+Example 1 - Architecture Diagram (147 characters):
 [VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
 
-Example 2 (Comparison - 135 chars):
+Example 2 - Comparison Table (135 characters):
 [VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
 
-Example 3 (Flowchart - 162 chars):
+Example 3 - Process Flowchart (162 characters):
 [VISUAL: Horizontal flowchart with 5 rounded rectangles connected by right-pointing arrows: 'Write Dockerfile' (pencil icon) → 'docker build' (hammer icon) → 'Image Created' (box icon) → 'docker run' (play icon) → 'Container Running' (green circle)]
 
-YOUR TAGS MUST:
-- Be 80+ characters minimum (count them!)
-- Describe shapes (boxes, circles, arrows, tables, layers)
-- Include layout (top/bottom/left/right/center, horizontal/vertical)
-- Specify labels and text that appear in the image
-- Mention icons, colors, or visual markers
-- Show relationships (arrows, connections, comparisons)
+EVERY visual tag MUST include:
+✓ Minimum 80 characters (count them before writing!)
+✓ Specific component names and labels  
+✓ Layout description (layered, side-by-side, horizontal, vertical, etc.)
+✓ Relationships between elements (arrows, connections, lines)
+✓ Visual attributes (colors, icons, shapes when relevant)
 
 ═══════════════════════════════════════════════════════════════════════════════════
 📋 REQUIREMENTS
@@ -365,27 +362,8 @@ LESSON STRUCTURE (for each lesson)
 ✅ EXCELLENT (120+ chars, shows flow and components):
 [VISUAL: Flowchart diagram with 6 connected boxes showing kubectl command flow: 1) User types 'kubectl get pods' (terminal icon), 2) kubectl CLI sends HTTPS request (arrow with lock), 3) API Server validates auth (shield icon), 4) API Server queries etcd (database cylinder), 5) etcd returns pod data (arrow back), 6) kubectl displays table output (terminal with table). All connected by numbered arrows showing sequence.]
 
-❌ REJECTED - Too vague (20 chars):
-[VISUAL: Kubernetes architecture]
-
-❌ REJECTED - Placeholder ID (18 chars):
-[VISUAL: 01-01-0004]
-
-❌ REJECTED - No detail (15 chars):
-[VISUAL: Control plane diagram]
-
-❌ REJECTED - Still too vague (45 chars):
-[VISUAL: Diagram showing API server and etcd]
-
-EVERY visual tag must match the EXCELLENT examples in detail level.
-
-════════════════════════════════════════════════════════════════════════
-🚨 REMINDER: VISUAL TAGS MUST BE 80+ CHARACTERS WITH FULL DETAILS 🚨
-════════════════════════════════════════════════════════════════════════
-Before you start writing, remember:
-- EVERY [VISUAL: ...] tag must be minimum 80 characters
-- Describe components, layout, relationships, specific labels
-- NO placeholder IDs or vague descriptions
+Remember: Write your visual tags following the EXCELLENT examples pattern above.
+Every tag must be at least 80 characters with complete details about components, layout, and relationships.
 
 ════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -560,8 +538,37 @@ Now generate the complete module content.
 def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
     """Call AWS Bedrock with Converse API."""
     try:
+        # System message with visual tag requirements
+        system_message = [
+            {
+                "text": """You are an expert educational content creator. Follow these CRITICAL rules:
+
+🚨 VISUAL TAG REQUIREMENT (NON-NEGOTIABLE):
+Every [VISUAL: ...] tag you write MUST be 80+ characters and describe:
+- WHAT components are shown (e.g., "Docker CLI", "containerd", "nginx container")
+- HOW they are arranged (e.g., "layered vertically", "connected in a flow", "side-by-side comparison")
+- WHAT relationships exist (e.g., "connected by arrows", "bidirectional communication", "hierarchical structure")
+- Any colors, labels, icons, or visual indicators
+
+STUDY THESE CORRECT EXAMPLES (minimum 80 characters each):
+
+Example 1 - Architecture (147 chars):
+[VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
+
+Example 2 - Comparison (135 chars):
+[VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
+
+Example 3 - Flowchart (145 chars):
+[VISUAL: Horizontal flowchart with 5 rounded rectangles connected by arrows: 'Code Push' (purple) → 'Build Image' (blue) → 'Push to Registry' (green) → 'Pull Image' (orange) → 'Run Container' (red)]
+
+Write all your visual tags following these patterns. Minimum 80 characters, maximum detail.
+Before writing each tag, ask: "Could someone draw this from my description alone?" If no, add more details."""
+            }
+        ]
+        
         response = bedrock_client.converse(
             modelId=model_id,
+            system=system_message,
             messages=[
                 {
                     "role": "user",
@@ -604,17 +611,19 @@ Every [VISUAL: ...] tag you write MUST be 80+ characters and describe:
 - WHAT relationships exist (e.g., "connected by arrows labeled 'gRPC'", "bidirectional communication")
 - Any colors, labels, or visual indicators
 
-CORRECT EXAMPLE (125 characters):
-[VISUAL: Architecture diagram showing Kubernetes control plane with API Server (central blue box), Scheduler (green box above), Controller Manager (orange box left), etcd (cyan cylinder right), all connected to API Server with bidirectional arrows]
+STUDY THESE CORRECT EXAMPLES (minimum 80 characters each):
 
-FORBIDDEN (these will cause rejection):
-❌ [VISUAL: 01-01-0001]
-❌ [VISUAL: diagram]
-❌ [VISUAL: Kubernetes architecture]
-❌ Any tag under 80 characters
+Example 1 - Architecture (147 chars):
+[VISUAL: Kubernetes control plane architecture with API Server (central blue box), Scheduler (green box above), Controller Manager (orange box left), etcd (cyan cylinder right), all connected to API Server with bidirectional arrows labeled with protocol names]
 
-Before writing each visual tag, ask yourself: "Could someone draw this image from my description alone?"
-If NO, add more details about components, layout, and connections."""
+Example 2 - Comparison (125 chars):
+[VISUAL: Three-column comparison table with headers 'Minikube', 'kind', 'EKS', showing rows for Setup, Cost, Scale, Production-Ready, each cell with green checkmarks or red X marks]
+
+Example 3 - Process Flow (138 chars):
+[VISUAL: Vertical flowchart with 6 numbered steps: 1) kubectl command (terminal), 2) API validation (shield), 3) etcd query (database), 4) scheduler decision (gears), 5) kubelet execution (node), 6) container running (green box)]
+
+Write all your visual tags following these patterns. Minimum 80 characters with complete component and layout details.
+Before writing each tag, ask: "Could someone draw this from my description alone?" If no, add more specifics."""
 
         response = client.chat.completions.create(
             model=model,
