@@ -60,7 +60,7 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
     try:
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 16000,
+            "max_tokens": 32000,  # Enough for 2 labs @ ~15K each
             "messages": [
                 {
                     "role": "user",
@@ -587,19 +587,28 @@ def lambda_handler(event, context):
             'overall_objectives': master_plan.get('overall_objectives', [])
         }
         
-        # Step 2: Generate ALL lab guides in a SINGLE API call
-        try:
-            labs_markdown = generate_all_labs_batch(
-                lab_plans=lab_plans,
-                master_context=master_context,
-                model_provider=model_provider
-            )
-        except Exception as e:
-            print(f"❌ Batch generation failed: {e}")
-            return {
-                'statusCode': 500,
-                'error': f'Failed to generate labs: {str(e)}'
-            }
+        # Step 2: Generate lab guides in BATCHES (2 labs per API call to avoid token limits)
+        BATCH_SIZE = 2
+        labs_markdown = {}
+        
+        for i in range(0, len(lab_plans), BATCH_SIZE):
+            batch = lab_plans[i:i+BATCH_SIZE]
+            batch_num = (i // BATCH_SIZE) + 1
+            total_batches = (len(lab_plans) + BATCH_SIZE - 1) // BATCH_SIZE
+            
+            print(f"\n📦 Batch {batch_num}/{total_batches}: Generating {len(batch)} labs...")
+            
+            try:
+                batch_results = generate_all_labs_batch(
+                    lab_plans=batch,
+                    master_context=master_context,
+                    model_provider=model_provider
+                )
+                labs_markdown.update(batch_results)
+            except Exception as e:
+                print(f"❌ Batch {batch_num} generation failed: {e}")
+                # Continue with next batch instead of failing completely
+                continue
         
         # Step 3: Save each lab guide to S3
         lab_guide_keys = []
