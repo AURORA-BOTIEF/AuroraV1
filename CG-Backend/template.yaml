@@ -518,6 +518,7 @@ Resources:
             - Effect: Allow
               Action:
                 - s3:HeadObject
+                - s3:GetObject
               Resource:
                 - arn:aws:s3:::crewai-course-artifacts/*
       Events:
