@@ -234,7 +234,21 @@ LAB ACTIVITIES (Reference only - brief descriptions):
 Generate COMPLETE educational content for Module {module_number}: {module_title}
 
 ═══════════════════════════════════════════════════════════════════════════════════
-� REQUIREMENTS
+🚨 CRITICAL: VISUAL TAGS MUST BE DESCRIPTIVE (80+ CHARACTERS) 🚨
+═══════════════════════════════════════════════════════════════════════════════════
+
+❌ NEVER write: [VISUAL: 01-01-0001] or [VISUAL: diagram] or [VISUAL: architecture]
+✅ ALWAYS write: [VISUAL: Detailed description with components, layout, arrows, labels, colors, and specific elements showing exactly what the image contains and how elements relate to each other...]
+
+EVERY [VISUAL: ...] tag MUST:
+- Be 80+ characters minimum
+- Describe specific components, shapes, labels
+- Include layout information (left/right/top/bottom/center)
+- Mention relationships (arrows, connections, flows)
+- Specify colors, icons, or visual elements
+
+═══════════════════════════════════════════════════════════════════════════════════
+📋 REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════════════════
 
 1️⃣ CONTENT LENGTH: Target ~{total_target_words} words TOTAL across all {total_lessons} lessons
