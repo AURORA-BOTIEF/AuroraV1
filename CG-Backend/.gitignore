@@ -4,6 +4,7 @@ access_key.md
 Bedrock_Infer_Profiles.md
 env.json
 cfn_events.json
+.env.local
 
 # AWS SAM
 .aws-sam/
