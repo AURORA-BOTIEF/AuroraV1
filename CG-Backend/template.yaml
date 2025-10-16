@@ -976,6 +976,7 @@ Resources:
                     module_number.$: $.module_number
                     outline_s3_key.$: $.outline_s3_key
                     lab_requirements.$: $.lab_requirements
+                    execution_id.$: $.execution_id
                   Next: ProcessVisualsForModuleBoth
                 ProcessVisualsForModuleBoth:
                   Type: Map
