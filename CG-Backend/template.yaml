@@ -673,7 +673,7 @@ Resources:
                   Type: Map
                   Comment: "Process visual tags for all lessons in this module"
                   ItemsPath: $.lesson_keys
-                  MaxConcurrency: 10
+                  MaxConcurrency: 3
                   Parameters:
                     lesson_key.$: $$.Map.Item.Value
                     course_bucket.$: $.course_bucket
@@ -884,8 +884,24 @@ Resources:
                               IntervalSeconds: 5
                               MaxAttempts: 2
                               BackoffRate: 2.0
+                          Catch:
+                            - ErrorEquals:
+                                - States.ALL
+                              ResultPath: $.error
+                              Next: ModuleTheoryFailStateBoth
                           ResultPath: $.lambda_result
-                          Next: ProcessModuleTheoryContentBoth
+                          Next: CheckTheoryContentGenResultBoth
+                        CheckTheoryContentGenResultBoth:
+                          Type: Choice
+                          Comment: "Check if ContentGen succeeded or returned error"
+                          Choices:
+                            - Variable: $.lambda_result.Payload.statusCode
+                              NumericEquals: 500
+                              Next: ModuleTheoryFailStateBoth
+                            - Variable: $.lambda_result.Payload.statusCode
+                              NumericEquals: 200
+                              Next: ProcessModuleTheoryContentBoth
+                          Default: ModuleTheoryFailStateBoth
                         ProcessModuleTheoryContentBoth:
                           Type: Pass
                           Comment: "Parse theory generation result for this module"
@@ -900,7 +916,7 @@ Resources:
                           Type: Map
                           Comment: "Process visual tags for all lessons in this module"
                           ItemsPath: $.lesson_keys
-                          MaxConcurrency: 10
+                          MaxConcurrency: 3
                           Parameters:
                             lesson_key.$: $$.Map.Item.Value
                             course_bucket.$: $.course_bucket
@@ -962,6 +978,11 @@ Resources:
                             lesson_keys.$: $.lesson_keys
                             image_mappings.$: $.images_result.Payload.image_mappings
                           End: true
+                        ModuleTheoryFailStateBoth:
+                          Type: Fail
+                          Comment: "Theory generation failed for this module"
+                          Cause: "ContentGen Lambda returned error"
+                          Error: "ModuleTheoryGenerationFailed"
                     ResultPath: $.all_modules_results
                     Next: CombineResultsAndBuildBookBoth
                   CombineResultsAndBuildBookBoth:
