@@ -231,10 +231,45 @@ LAB ACTIVITIES (Reference only - brief descriptions):
     
     # Build comprehensive prompt
     comprehensive_prompt = f"""
+🚨🚨🚨 CRITICAL INSTRUCTION - READ FIRST 🚨🚨🚨
+
+IMAGE DESCRIPTIONS: When you need a visual element, write detailed image descriptions using this EXACT format:
+[VISUAL: detailed description of exactly what should be shown in the image, minimum 80 characters]
+
+NEVER USE NUMBERS OR IDS:
+❌ WRONG: [VISUAL: 01-01-0001]
+❌ WRONG: [VISUAL: Figure 1.1] 
+❌ WRONG: [VISUAL: Diagram 1]
+
+✅ CORRECT: [VISUAL: Three-layer architecture diagram showing Docker CLI at top connected to Docker Daemon in middle which connects to containerd and runc at bottom, all boxes connected by downward arrows]
+
+Write the FULL description of what the image should show. Be specific about components, layout, colors, and relationships.
+
+═══════════════════════════════════════════════════════════════════════════════════
+
 Generate COMPLETE educational content for Module {module_number}: {module_title}
 
 ═══════════════════════════════════════════════════════════════════════════════════
-� REQUIREMENTS
+🎨 VISUAL TAG REQUIREMENTS (MANDATORY) 🎨
+═══════════════════════════════════════════════════════════════════════════════════
+
+Every visual needs a detailed description tag formatted as:
+[VISUAL: description]
+
+The description MUST be 80+ characters explaining exactly what should be shown.
+
+✅ GOOD EXAMPLES - Copy this style:
+
+[VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
+
+[VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
+
+[VISUAL: Horizontal flowchart with 5 rounded rectangles connected by right-pointing arrows: 'Write Dockerfile' (pencil icon) → 'docker build' (hammer icon) → 'Image Created' (box icon) → 'docker run' (play icon) → 'Container Running' (green circle)]
+
+Write descriptions like these examples - detailed, specific, visual.
+
+═══════════════════════════════════════════════════════════════════════════════════
+📋 REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════════════════
 
 1️⃣ CONTENT LENGTH: Target ~{total_target_words} words TOTAL across all {total_lessons} lessons
@@ -337,27 +372,8 @@ LESSON STRUCTURE (for each lesson)
 ✅ EXCELLENT (120+ chars, shows flow and components):
 [VISUAL: Flowchart diagram with 6 connected boxes showing kubectl command flow: 1) User types 'kubectl get pods' (terminal icon), 2) kubectl CLI sends HTTPS request (arrow with lock), 3) API Server validates auth (shield icon), 4) API Server queries etcd (database cylinder), 5) etcd returns pod data (arrow back), 6) kubectl displays table output (terminal with table). All connected by numbered arrows showing sequence.]
 
-❌ REJECTED - Too vague (20 chars):
-[VISUAL: Kubernetes architecture]
-
-❌ REJECTED - Placeholder ID (18 chars):
-[VISUAL: 01-01-0004]
-
-❌ REJECTED - No detail (15 chars):
-[VISUAL: Control plane diagram]
-
-❌ REJECTED - Still too vague (45 chars):
-[VISUAL: Diagram showing API server and etcd]
-
-EVERY visual tag must match the EXCELLENT examples in detail level.
-
-════════════════════════════════════════════════════════════════════════
-🚨 REMINDER: VISUAL TAGS MUST BE 80+ CHARACTERS WITH FULL DETAILS 🚨
-════════════════════════════════════════════════════════════════════════
-Before you start writing, remember:
-- EVERY [VISUAL: ...] tag must be minimum 80 characters
-- Describe components, layout, relationships, specific labels
-- NO placeholder IDs or vague descriptions
+Remember: Write your visual tags following the EXCELLENT examples pattern above.
+Every tag must be at least 80 characters with complete details about components, layout, and relationships.
 
 ════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -532,8 +548,28 @@ Now generate the complete module content.
 def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
     """Call AWS Bedrock with Converse API."""
     try:
+        # System message with visual tag requirements
+        system_message = [
+            {
+                "text": """You are an expert educational content creator.
+
+IMPORTANT: When creating visual elements, write FULL DESCRIPTIONS inside [VISUAL: ...] tags.
+
+Example of what to write:
+[VISUAL: Three-layer diagram with Docker CLI at top in blue box, Docker Daemon in middle gray box, and containerd plus runc at bottom in two side-by-side green boxes, connected by downward black arrows showing the execution flow]
+
+DO NOT write:  
+[VISUAL: 01-01-0001]
+[VISUAL: Figure 1]
+[VISUAL: Diagram]
+
+Write complete visual descriptions with 80+ characters describing components, layout, and relationships."""
+            }
+        ]
+        
         response = bedrock_client.converse(
             modelId=model_id,
+            system=system_message,
             messages=[
                 {
                     "role": "user",
@@ -567,35 +603,43 @@ def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) ->
         # not via API parameters. Users must select "Thinking" mode in their UI.
         
         # CRITICAL: Put visual tag requirements in SYSTEM message so GPT-5 processes them FIRST
-        system_message = """You are an expert educational content creator. Follow these CRITICAL rules:
+        system_message = """You are an expert educational content creator.
 
-🚨 VISUAL TAG REQUIREMENT (NON-NEGOTIABLE):
-Every [VISUAL: ...] tag you write MUST be 80+ characters and describe:
-- WHAT components are shown (e.g., "API Server", "etcd", "Scheduler")
-- HOW they are arranged (e.g., "layered", "connected in a hub", "side-by-side")
-- WHAT relationships exist (e.g., "connected by arrows labeled 'gRPC'", "bidirectional communication")
-- Any colors, labels, or visual indicators
+IMPORTANT: When creating visual elements, write FULL DESCRIPTIONS inside [VISUAL: ...] tags.
 
-CORRECT EXAMPLE (125 characters):
-[VISUAL: Architecture diagram showing Kubernetes control plane with API Server (central blue box), Scheduler (green box above), Controller Manager (orange box left), etcd (cyan cylinder right), all connected to API Server with bidirectional arrows]
+Example:
+[VISUAL: Kubernetes control plane showing API Server in center as blue circle connected by arrows to Scheduler above, Controller Manager to left, and etcd database to right, all labeled with their communication protocols]
 
-FORBIDDEN (these will cause rejection):
-❌ [VISUAL: 01-01-0001]
-❌ [VISUAL: diagram]
-❌ [VISUAL: Kubernetes architecture]
-❌ Any tag under 80 characters
+DO NOT write:
+[VISUAL: 01-01-0001]
+[VISUAL: Figure 1]  
 
-Before writing each visual tag, ask yourself: "Could someone draw this image from my description alone?"
-If NO, add more details about components, layout, and connections."""
+Write complete 80+ character descriptions of components, layout, and relationships."""
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            max_completion_tokens=30000  # Increased from 16000 to allow longer, more detailed responses
-        )
+        # GPT-5 (o1) models don't support system messages
+        # We need to prepend the instructions to the user message instead
+        if model.startswith("o1-") or model == "gpt-5":
+            # Prepend system instructions to user prompt
+            full_prompt = f"{system_message}\n\n{'='*80}\nUSER REQUEST:\n{'='*80}\n\n{prompt}"
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": full_prompt}
+                ],
+                max_completion_tokens=30000
+            )
+        else:
+            # GPT-4 and earlier support system messages
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=30000,
+                temperature=0.7
+            )
         
         return response.choices[0].message.content
     

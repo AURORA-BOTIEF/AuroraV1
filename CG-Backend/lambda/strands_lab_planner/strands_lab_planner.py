@@ -122,6 +122,7 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
         module_title = module.get('title', f'Module {mod_idx}')
         lessons = module.get('lessons', [])
         
+        # OPTION 1: Extract labs from lessons (old format: lab_activities inside lessons)
         for les_idx, lesson in enumerate(lessons, 1):
             lesson_title = lesson.get('title', f'Lesson {les_idx}')
             lesson_bloom = lesson.get('bloom_level', module.get('bloom_level', 'Understand'))
@@ -135,7 +136,7 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
                 else:
                     context_topics.append(str(topic))
             
-            # Extract lab activities
+            # Extract lab activities from lesson
             lab_activities = lesson.get('lab_activities', [])
             
             for lab_idx, lab in enumerate(lab_activities, 1):
@@ -143,10 +144,14 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
                     lab_title = lab.get('title', f'Lab {lab_idx}')
                     lab_duration = lab.get('duration_minutes', 30)
                     lab_bloom = lab.get('bloom_level', lesson_bloom)
+                    lab_objectives = lab.get('objectives', [])
+                    lab_activities_list = lab.get('activities', [])
                 else:
                     lab_title = str(lab)
                     lab_duration = 30
                     lab_bloom = lesson_bloom
+                    lab_objectives = []
+                    lab_activities_list = []
                 
                 lab_info = {
                     'module_number': mod_idx,
@@ -158,7 +163,52 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
                     'duration_minutes': lab_duration,
                     'bloom_level': lab_bloom,
                     'context_topics': context_topics,
-                    'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}"
+                    'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}",
+                    'objectives': lab_objectives,
+                    'activities': lab_activities_list
+                }
+                
+                labs.append(lab_info)
+                print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
+        
+        # OPTION 2: Extract labs from module level (new format: labs array at module level)
+        module_labs = module.get('labs', [])
+        if module_labs:
+            print(f"  📋 Found {len(module_labs)} module-level labs")
+            
+            # Collect all topics from all lessons for context
+            all_context_topics = []
+            for lesson in lessons:
+                topics = lesson.get('topics', [])
+                for topic in topics:
+                    if isinstance(topic, dict):
+                        all_context_topics.append(topic.get('title', ''))
+                    else:
+                        all_context_topics.append(str(topic))
+            
+            for lab_idx, lab in enumerate(module_labs, 1):
+                lab_number = lab.get('number', lab_idx)
+                lab_title = lab.get('title', f'Lab {lab_number}')
+                lab_duration = lab.get('duration_minutes', 30)
+                lab_bloom = lab.get('bloom_level', module.get('bloom_level', 'Apply'))
+                lab_objectives = lab.get('objectives', [])
+                lab_activities_list = lab.get('activities', [])
+                lab_description = lab.get('description', '')
+                
+                lab_info = {
+                    'module_number': mod_idx,
+                    'module_title': module_title,
+                    'lesson_number': 0,  # Module-level lab, not tied to specific lesson
+                    'lesson_title': 'Module Lab',
+                    'lab_index': lab_number,
+                    'lab_title': lab_title,
+                    'duration_minutes': lab_duration,
+                    'bloom_level': lab_bloom,
+                    'context_topics': all_context_topics,
+                    'lab_id': f"{mod_idx:02d}-00-{lab_number:02d}",
+                    'objectives': lab_objectives,
+                    'activities': lab_activities_list,
+                    'description': lab_description
                 }
                 
                 labs.append(lab_info)
@@ -201,20 +251,32 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
 
 
 def call_openai_agent(prompt: str, api_key: str, model_id: str = "gpt-5") -> str:
-    """Call OpenAI API."""
+    """Call OpenAI API with GPT-5 compatibility."""
     try:
         import openai
         client = openai.OpenAI(api_key=api_key)
         
-        response = client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {"role": "system", "content": "You are an expert technical instructor and lab designer."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=32000,
-            temperature=0.7
-        )
+        # GPT-5 (o1) models use max_completion_tokens instead of max_tokens
+        # and don't support temperature or system messages
+        if model_id.startswith("o1-") or model_id == "gpt-5":
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=32000
+            )
+        else:
+            # GPT-4 and earlier models
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical instructor and lab designer."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=32000,
+                temperature=0.7
+            )
         
         return response.choices[0].message.content
     

@@ -76,6 +76,16 @@ def lambda_handler(event, context):
                 print(f"No lesson files found in {lessons_prefix}")
                 lesson_keys = []
 
+        # Normalize image_mappings: if it's a list of dicts, merge them into one dict
+        if isinstance(image_mappings, list):
+            print(f"Merging {len(image_mappings)} image mapping dictionaries into one")
+            merged_mappings = {}
+            for mapping_dict in image_mappings:
+                if isinstance(mapping_dict, dict):
+                    merged_mappings.update(mapping_dict)
+            image_mappings = merged_mappings
+            print(f"Merged result: {len(image_mappings)} total image mappings")
+        
         # If no image_mappings provided, scan for existing images and create mappings
         if not image_mappings:
             print("No image_mappings provided, scanning for existing images...")

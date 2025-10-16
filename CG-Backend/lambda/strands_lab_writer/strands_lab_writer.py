@@ -91,15 +91,27 @@ def call_openai_agent(prompt: str, api_key: str, model_id: str = "gpt-5") -> str
         import openai
         client = openai.OpenAI(api_key=api_key)
         
-        response = client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {"role": "system", "content": "You are an expert technical instructor creating detailed, professional laboratory guides."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=16000,
-            temperature=0.7
-        )
+        # GPT-5 (o1) models use max_completion_tokens instead of max_tokens
+        # and don't support temperature or system messages
+        if model_id.startswith("o1-") or model_id == "gpt-5":
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=16000
+            )
+        else:
+            # GPT-4 and earlier models
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical instructor creating detailed, professional laboratory guides."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=16000,
+                temperature=0.7
+            )
         
         return response.choices[0].message.content
     
