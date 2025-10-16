@@ -657,16 +657,23 @@ Resources:
                         - States.ALL
                       ResultPath: $.error
                       Next: ModuleTheoryFailState
+                  ResultSelector:
+                    lesson_keys.$: $.Payload.lesson_keys
+                    course_bucket.$: $.Payload.bucket
+                    project_folder.$: $.Payload.project_folder
+                    model_provider.$: $.Payload.model_provider
+                    module_number_from_input.$: $$.Map.Item.Value
+                  ResultPath: $.lambda_result
                   Next: ProcessModuleTheoryContent
                 ProcessModuleTheoryContent:
                   Type: Pass
                   Comment: "Parse theory generation result for this module"
                   Parameters:
-                    lesson_keys.$: $.Payload.lesson_keys
-                    course_bucket.$: $.Payload.bucket
-                    project_folder.$: $.Payload.project_folder
-                    model_provider.$: $.Payload.model_provider
-                    module_number.$: $.module_number
+                    lesson_keys.$: $.lambda_result.lesson_keys
+                    course_bucket.$: $.lambda_result.course_bucket
+                    project_folder.$: $.lambda_result.project_folder
+                    model_provider.$: $.lambda_result.model_provider
+                    module_number.$: $.lambda_result.module_number_from_input
                   Next: ProcessVisualsForModule
                 ProcessVisualsForModule:
                   Type: Map
@@ -883,16 +890,23 @@ Resources:
                               IntervalSeconds: 5
                               MaxAttempts: 2
                               BackoffRate: 2.0
+                          ResultSelector:
+                            lesson_keys.$: $.Payload.lesson_keys
+                            course_bucket.$: $.Payload.bucket
+                            project_folder.$: $.Payload.project_folder
+                            model_provider.$: $.Payload.model_provider
+                            module_number_from_input.$: $$.Map.Item.Value
+                          ResultPath: $.lambda_result
                           Next: ProcessModuleTheoryContentBoth
                         ProcessModuleTheoryContentBoth:
                           Type: Pass
                           Comment: "Parse theory generation result for this module"
                           Parameters:
-                            lesson_keys.$: $.Payload.lesson_keys
-                            course_bucket.$: $.Payload.bucket
-                            project_folder.$: $.Payload.project_folder
-                            model_provider.$: $.Payload.model_provider
-                            module_number.$: $.module_number
+                            lesson_keys.$: $.lambda_result.lesson_keys
+                            course_bucket.$: $.lambda_result.course_bucket
+                            project_folder.$: $.lambda_result.project_folder
+                            model_provider.$: $.lambda_result.model_provider
+                            module_number.$: $.lambda_result.module_number_from_input
                           Next: ProcessVisualsForModuleBoth
                         ProcessVisualsForModuleBoth:
                           Type: Map
