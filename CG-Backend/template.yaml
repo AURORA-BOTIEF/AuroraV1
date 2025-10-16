@@ -292,6 +292,33 @@ Resources:
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
+  PhaseCoordinator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PhaseCoordinator
+      Description: Coordinates API calls across concurrent modules using CSMA-like protocol
+      Runtime: python3.12
+      Handler: phase_coordinator.lambda_handler
+      CodeUri: ./lambda/
+      Timeout: 30
+      MemorySize: 256
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          TABLE_NAME: course-generation-phase-locks
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt PhaseLocksTable.Arn
+
   # ======================================
   # SUPPORTING LAMBDAS
   # ======================================
@@ -843,9 +870,9 @@ Resources:
           # ===== BOTH THEORY AND LABS BRANCH =====
           BothTheoryAndLabsBranch:
             Type: Map
-            Comment: "Process each module sequentially - Theory + Labs per module"
+            Comment: "Process up to 8 modules in parallel with CSMA coordination"
             ItemsPath: $.modules_to_generate
-            MaxConcurrency: 1
+            MaxConcurrency: 8
             Parameters:
               module_number.$: $$.Map.Item.Value
               course_bucket.$: $.course_bucket
@@ -854,9 +881,39 @@ Resources:
               model_provider.$: $.model_provider
               content_source.$: $.content_source
               lab_requirements.$: $.lab_requirements
+              execution_id.$: $$.Execution.Name
             Iterator:
-              StartAt: InvokeTheoryContentGenForModuleBoth
+              StartAt: AcquireContentGenLock
               States:
+                AcquireContentGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Acquire lock for ContentGen phase using CSMA protocol"
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "ContentGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: $.lock_result
+                  Next: CheckContentGenLock
+                CheckContentGenLock:
+                  Type: Choice
+                  Comment: "Check if we can proceed or need to wait"
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeTheoryContentGenForModuleBoth
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: false
+                      Next: WaitForContentGenSlot
+                  Default: InvokeTheoryContentGenForModuleBoth
+                WaitForContentGenSlot:
+                  Type: Wait
+                  Comment: "Wait for minimum delay between ContentGen calls"
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireContentGenLock
                 InvokeTheoryContentGenForModuleBoth:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -894,8 +951,20 @@ Resources:
                       Next: ModuleTheoryFailStateBoth
                     - Variable: $.lambda_result.Payload.statusCode
                       NumericEquals: 200
-                      Next: ProcessModuleTheoryContentBoth
+                      Next: ReleaseContentGenLock
                   Default: ModuleTheoryFailStateBoth
+                ReleaseContentGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ContentGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.lambda_result.Payload.execution_id
+                  ResultPath: null
+                  Next: ProcessModuleTheoryContentBoth
                 ProcessModuleTheoryContentBoth:
                   Type: Pass
                   Comment: "Parse theory generation result for this module"
@@ -945,7 +1014,30 @@ Resources:
                         OutputPath: $.Payload
                         End: true
                   ResultPath: $.visual_results
-                  Next: InvokeImagesGenForModuleBoth
+                  Next: AcquireImagesGenLock
+                AcquireImagesGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "ImagesGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: $.lock_result
+                  Next: CheckImagesGenLock
+                CheckImagesGenLock:
+                  Type: Choice
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeImagesGenForModuleBoth
+                  Default: WaitForImagesGenSlot
+                WaitForImagesGenSlot:
+                  Type: Wait
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireImagesGenLock
                 InvokeImagesGenForModuleBoth:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -965,7 +1057,42 @@ Resources:
                       MaxAttempts: 2
                       BackoffRate: 2.0
                   ResultPath: $.images_result
-                  Next: InvokeLabPlannerForModule
+                  Next: ReleaseImagesGenLock
+                ReleaseImagesGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ImagesGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
+                  Next: AcquireLabPlannerLock
+                AcquireLabPlannerLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "LabPlanner"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: $.lock_result
+                  Next: CheckLabPlannerLock
+                CheckLabPlannerLock:
+                  Type: Choice
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeLabPlannerForModule
+                  Default: WaitForLabPlannerSlot
+                WaitForLabPlannerSlot:
+                  Type: Wait
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireLabPlannerLock
                 InvokeLabPlannerForModule:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -995,8 +1122,43 @@ Resources:
                   Choices:
                     - Variable: $.lab_plan_result.Payload.statusCode
                       NumericEquals: 200
-                      Next: InvokeLabWriterForModule
+                      Next: ReleaseLabPlannerLock
                   Default: ModuleLabsSkipped
+                ReleaseLabPlannerLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "LabPlanner"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
+                  Next: AcquireLabWriterLock
+                AcquireLabWriterLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "LabWriter"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: $.lock_result
+                  Next: CheckLabWriterLock
+                CheckLabWriterLock:
+                  Type: Choice
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeLabWriterForModule
+                  Default: WaitForLabWriterSlot
+                WaitForLabWriterSlot:
+                  Type: Wait
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireLabWriterLock
                 InvokeLabWriterForModule:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -1017,6 +1179,18 @@ Resources:
                       MaxAttempts: 2
                       BackoffRate: 2.0
                   ResultPath: $.lab_writer_result
+                  Next: ReleaseLabWriterLock
+                ReleaseLabWriterLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "LabWriter"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
                   Next: ModuleCompleteBoth
                 ModuleLabsSkipped:
                   Type: Pass
@@ -1088,6 +1262,30 @@ Resources:
                 - !GetAtt BookBuilder.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
+                - !GetAtt PhaseCoordinator.Arn
+
+  # ======================================
+  # DYNAMODB TABLES
+  # ======================================
+  PhaseLocksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: course-generation-phase-locks
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: phase_name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: phase_name
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Purpose
+          Value: CourseGeneration
+        - Key: Component
+          Value: PhaseCoordination
 
 Outputs:
   # Strands Agents Lambdas - Theory Generation
@@ -1111,6 +1309,10 @@ Outputs:
   StrandsLabWriterArn:
     Description: Strands Lab Writer Lambda ARN
     Value: !GetAtt StrandsLabWriter.Arn
+
+  PhaseCoordinatorArn:
+    Description: Phase Coordinator Lambda ARN
+    Value: !GetAtt PhaseCoordinator.Arn
 
   # Supporting Lambdas
   BookBuilderFunction:
