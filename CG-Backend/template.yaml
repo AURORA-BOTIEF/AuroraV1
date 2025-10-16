@@ -673,7 +673,7 @@ Resources:
                   Type: Map
                   Comment: "Process visual tags for all lessons in this module"
                   ItemsPath: $.lesson_keys
-                  MaxConcurrency: 3
+                  MaxConcurrency: 2
                   Parameters:
                     lesson_key.$: $$.Map.Item.Value
                     course_bucket.$: $.course_bucket
@@ -916,7 +916,7 @@ Resources:
                           Type: Map
                           Comment: "Process visual tags for all lessons in this module"
                           ItemsPath: $.lesson_keys
-                          MaxConcurrency: 3
+                          MaxConcurrency: 2
                           Parameters:
                             lesson_key.$: $$.Map.Item.Value
                             course_bucket.$: $.course_bucket
