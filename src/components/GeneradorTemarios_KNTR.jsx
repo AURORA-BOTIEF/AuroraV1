@@ -94,6 +94,29 @@ function GeneradorTemarios() {
       <h2>Generador de Temarios a la Medida</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.</p>
 
+        <div className="form-group">
+          <label>Nombre Preventa Asociado</label>
+          <input
+            name="nombre_preventa"
+            value={params.nombre_preventa}
+            onChange={handleParamChange}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Asesor(a) Comercial Asociado</label>
+          <select
+            name="asesor_comercial"
+            value={params.asesor_comercial}
+            onChange={handleParamChange}
+          >
+            <option value="">Selecciona un asesor(a)</option>
+            {asesoresComerciales.map((a) => (
+              <option key={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+
       <div className="formulario-inicial">
         <div className="form-grid">
           <div className="form-group">
