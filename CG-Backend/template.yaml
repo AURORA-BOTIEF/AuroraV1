@@ -962,7 +962,7 @@ Resources:
                       action: "release"
                       phase_name: "ContentGen"
                       module_number.$: $.module_number
-                      execution_id.$: $.lambda_result.Payload.execution_id
+                      execution_id.$: $.execution_id
                   ResultPath: null
                   Next: ProcessModuleTheoryContentBoth
                 ProcessModuleTheoryContentBoth:
