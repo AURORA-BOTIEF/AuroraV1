@@ -233,16 +233,17 @@ LAB ACTIVITIES (Reference only - brief descriptions):
     comprehensive_prompt = f"""
 🚨🚨🚨 CRITICAL INSTRUCTION - READ FIRST 🚨🚨🚨
 
-VISUAL TAGS: You MUST write descriptive text inside [VISUAL: ...] tags.
-MINIMUM 80 CHARACTERS describing the visual in detail.
+IMAGE DESCRIPTIONS: When you need a visual element, write detailed image descriptions using this EXACT format:
+[VISUAL: detailed description of exactly what should be shown in the image, minimum 80 characters]
 
-DO NOT WRITE: [VISUAL: 01-01-0001]
-DO NOT WRITE: [VISUAL: 01-02-0003]  
-DO NOT WRITE: [VISUAL: Figure 1]
+NEVER USE NUMBERS OR IDS:
+❌ WRONG: [VISUAL: 01-01-0001]
+❌ WRONG: [VISUAL: Figure 1.1] 
+❌ WRONG: [VISUAL: Diagram 1]
 
-INSTEAD WRITE: [VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
+✅ CORRECT: [VISUAL: Three-layer architecture diagram showing Docker CLI at top connected to Docker Daemon in middle which connects to containerd and runc at bottom, all boxes connected by downward arrows]
 
-If you write numbered placeholders, your response will be REJECTED.
+Write the FULL description of what the image should show. Be specific about components, layout, colors, and relationships.
 
 ═══════════════════════════════════════════════════════════════════════════════════
 
@@ -252,26 +253,20 @@ Generate COMPLETE educational content for Module {module_number}: {module_title}
 🎨 VISUAL TAG REQUIREMENTS (MANDATORY) 🎨
 ═══════════════════════════════════════════════════════════════════════════════════
 
-When you need to include a visual element, use [VISUAL: detailed description] tags.
-IMPORTANT: The description must be at least 80 characters with specific details.
+Every visual needs a detailed description tag formatted as:
+[VISUAL: description]
 
-✅ FOLLOW THESE PATTERNS - Study these examples carefully:
+The description MUST be 80+ characters explaining exactly what should be shown.
 
-Example 1 - Architecture Diagram (147 characters):
+✅ GOOD EXAMPLES - Copy this style:
+
 [VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
 
-Example 2 - Comparison Table (135 characters):
 [VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
 
-Example 3 - Process Flowchart (162 characters):
 [VISUAL: Horizontal flowchart with 5 rounded rectangles connected by right-pointing arrows: 'Write Dockerfile' (pencil icon) → 'docker build' (hammer icon) → 'Image Created' (box icon) → 'docker run' (play icon) → 'Container Running' (green circle)]
 
-EVERY visual tag MUST include:
-✓ Minimum 80 characters (count them before writing!)
-✓ Specific component names and labels  
-✓ Layout description (layered, side-by-side, horizontal, vertical, etc.)
-✓ Relationships between elements (arrows, connections, lines)
-✓ Visual attributes (colors, icons, shapes when relevant)
+Write descriptions like these examples - detailed, specific, visual.
 
 ═══════════════════════════════════════════════════════════════════════════════════
 📋 REQUIREMENTS
@@ -558,22 +553,17 @@ def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
             {
                 "text": """You are an expert educational content creator.
 
-🚨 CRITICAL RULE - VISUAL TAGS 🚨
-NEVER write: [VISUAL: 01-01-0001] or [VISUAL: 01-02-0003] or any numbered placeholder
-ALWAYS write: [VISUAL: detailed 80+ character description]
+IMPORTANT: When creating visual elements, write FULL DESCRIPTIONS inside [VISUAL: ...] tags.
 
-Every [VISUAL: ...] tag MUST be 80+ characters describing:
-- WHAT: specific component names (e.g., "Docker CLI", "nginx container")
-- HOW: arrangement (e.g., "layered vertically", "side-by-side")  
-- RELATIONSHIPS: connections (e.g., "connected by arrows", "nested within")
-- DETAILS: colors, icons, labels
+Example of what to write:
+[VISUAL: Three-layer diagram with Docker CLI at top in blue box, Docker Daemon in middle gray box, and containerd plus runc at bottom in two side-by-side green boxes, connected by downward black arrows showing the execution flow]
 
-CORRECT EXAMPLES:
-[VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
+DO NOT write:  
+[VISUAL: 01-01-0001]
+[VISUAL: Figure 1]
+[VISUAL: Diagram]
 
-[VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
-
-If you write numbered placeholders like [VISUAL: 01-01-0001], the content will be REJECTED."""
+Write complete visual descriptions with 80+ characters describing components, layout, and relationships."""
             }
         ]
         
@@ -615,22 +605,16 @@ def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) ->
         # CRITICAL: Put visual tag requirements in SYSTEM message so GPT-5 processes them FIRST
         system_message = """You are an expert educational content creator.
 
-🚨 CRITICAL RULE - VISUAL TAGS 🚨
-NEVER write: [VISUAL: 01-01-0001] or [VISUAL: 01-02-0003] or any numbered placeholder
-ALWAYS write: [VISUAL: detailed 80+ character description]
+IMPORTANT: When creating visual elements, write FULL DESCRIPTIONS inside [VISUAL: ...] tags.
 
-Every [VISUAL: ...] tag MUST be 80+ characters describing:
-- WHAT: specific components (e.g., "API Server", "etcd cluster")
-- HOW: arrangement (e.g., "layered", "connected in hub")
-- RELATIONSHIPS: connections (e.g., "arrows labeled gRPC")
-- DETAILS: colors, icons, labels
+Example:
+[VISUAL: Kubernetes control plane showing API Server in center as blue circle connected by arrows to Scheduler above, Controller Manager to left, and etcd database to right, all labeled with their communication protocols]
 
-CORRECT EXAMPLES:
-[VISUAL: Kubernetes control plane architecture with API Server (central blue box), Scheduler (green box above), Controller Manager (orange box left), etcd (cyan cylinder right), all connected to API Server with bidirectional arrows labeled with protocol names]
+DO NOT write:
+[VISUAL: 01-01-0001]
+[VISUAL: Figure 1]  
 
-[VISUAL: Three-column comparison table with headers 'Minikube', 'kind', 'EKS', showing rows for Setup, Cost, Scale, Production-Ready, each cell with green checkmarks or red X marks]
-
-If you write numbered placeholders, the content will be REJECTED."""
+Write complete 80+ character descriptions of components, layout, and relationships."""
 
         # GPT-5 (o1) models don't support system messages
         # We need to prepend the instructions to the user message instead
