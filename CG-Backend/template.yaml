@@ -620,7 +620,7 @@ Resources:
             Type: Map
             Comment: "Process each module in parallel - ContentGen → VisualPlanner → ImagesGen"
             ItemsPath: $.modules_to_generate
-            MaxConcurrency: 10
+            MaxConcurrency: 2
             Parameters:
               module_number.$: $$.Map.Item.Value
               course_bucket.$: $.course_bucket
@@ -852,7 +852,7 @@ Resources:
                     Type: Map
                     Comment: "Process each module in parallel - ContentGen → VisualPlanner → ImagesGen"
                     ItemsPath: $.modules_to_generate
-                    MaxConcurrency: 10
+                    MaxConcurrency: 2
                     Parameters:
                       module_number.$: $$.Map.Item.Value
                       course_bucket.$: $.course_bucket
