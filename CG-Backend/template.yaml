@@ -618,9 +618,9 @@ Resources:
           # ===== THEORY ONLY BRANCH =====
           TheoryOnlyBranch:
             Type: Map
-            Comment: "Process each module in parallel - ContentGen → VisualPlanner → ImagesGen"
+            Comment: "Process each module sequentially - ContentGen → VisualPlanner → ImagesGen"
             ItemsPath: $.modules_to_generate
-            MaxConcurrency: 2
+            MaxConcurrency: 1
             Parameters:
               module_number.$: $$.Map.Item.Value
               course_bucket.$: $.course_bucket
@@ -850,9 +850,9 @@ Resources:
                 States:
                   ProcessTheoryModulesInParallel:
                     Type: Map
-                    Comment: "Process each module in parallel - ContentGen → VisualPlanner → ImagesGen"
+                    Comment: "Process each module sequentially - ContentGen → VisualPlanner → ImagesGen"
                     ItemsPath: $.modules_to_generate
-                    MaxConcurrency: 2
+                    MaxConcurrency: 1
                     Parameters:
                       module_number.$: $$.Map.Item.Value
                       course_bucket.$: $.course_bucket
