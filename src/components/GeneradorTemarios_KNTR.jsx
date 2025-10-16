@@ -1,9 +1,15 @@
 // Generador de temarios para KNOWLEDGE TRANSFER (KNTR)
-// Prueba David ...
 
 import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
+
+const asesoresComerciales = [
+  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
+  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
+  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
+  "Natalia García", "Natalia Gomez", "Vianey Miranda",
+].sort();
 
 function GeneradorTemarios() {
   const [temarioGenerado, setTemarioGenerado] = useState(null);
@@ -11,6 +17,8 @@ function GeneradorTemarios() {
   const [error, setError] = useState('');
 
   const [params, setParams] = useState({
+    nombre_preventa: "",
+    asesor_comercial: "",
     tecnologia: '',
     tema_curso: '',
     nivel_dificultad: 'basico',
@@ -23,60 +31,54 @@ function GeneradorTemarios() {
   });
 
   // API nueva -> Incorpora OpenAi.
-  const apiUrl = "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/version2";
+  // const apiUrl = "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/version2";
 
-// CÓDIGO CORREGIDO
-const handleParamChange = (e) => {
+  const handleParamChange = (e) => {
     const { name, value } = e.target;
+    setParams((prev) => ({ ...prev, [name]: value }));
+  };
 
-    // Esta es la clave: si el campo es uno de los sliders, lo convertimos a número.
-    let valorFinal = value;
-    if (name === 'horas_por_sesion' || name === 'numero_sesiones_por_semana') {
-        valorFinal = parseInt(value, 10);
-    }
-    
-    setParams(prev => ({ ...prev, [name]: valorFinal }));
-};
+  const handleSliderChange = (e) => {
+    const { name, value } = e.target;
+    setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+  };
 
-  const handleGenerar = async (nuevosParams = params) => {
-    if (!nuevosParams.tema_curso || !nuevosParams.tecnologia || !nuevosParams.sector) {
-      setError("Por favor, completa Tecnología, Tema del Curso y Sector/Audiencia.");
+  const handleGenerar = async () => {
+    if (
+      !params.nombre_preventa ||
+      !params.asesor_comercial ||
+      !params.tecnologia ||
+      !params.tema_curso
+    ) {
+      setError("Completa todos los campos requeridos antes de continuar.");
       return;
     }
+
     setIsLoading(true);
-    setError('');
-    setTemarioGenerado(null);
+    setError("");
 
     try {
-      const payload = { ...nuevosParams };
-
-      if (payload.objetivo_tipo !== 'certificacion') {
-        delete payload.codigo_certificacion;
-      }
-
       const token = localStorage.getItem("id_token");
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      const data = await response.json();
+      const response = await fetch(
+        "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/version2",
+        {
+          method: "POST",
+          mode: "cors",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(params),
+        }
+      );
 
-      if (!response.ok) {
-        const errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
-        throw new Error(errorMessage || "Ocurrió un error en el servidor.");
-      }
-      
-      const temarioCompleto = { ...data, ...nuevosParams };
-      setTemarioGenerado(temarioCompleto);
-      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Error al generar temario");
+
+      setTemarioGenerado({ ...data, ...params });
     } catch (err) {
-      console.error("Error al generar el temario:", err);
-      setError(err.message);
+      console.error(err);
+      setError("No se pudo generar el temario. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
     }
