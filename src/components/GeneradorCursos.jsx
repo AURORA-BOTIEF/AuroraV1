@@ -227,8 +227,8 @@ function GeneradorCursos() {
 
                 setStatusMessage(`🚀 Iniciando generación de ${modules.length} módulo(s)...`);
 
-                // For now, generate first module (later will handle multiple)
-                await startGeneration(uploadedKey, modules[0]);
+                // Send all modules as array for backend to process
+                await startGeneration(uploadedKey, modules);
 
                 const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
                     contentType === 'labs' ? 'guía de laboratorios' :

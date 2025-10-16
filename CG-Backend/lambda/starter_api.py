@@ -55,6 +55,7 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     
     Supports:
     - Single int: 1 -> [1]
+    - Array: [1, 3, 4] -> [1, 3, 4]
     - String single: "1" -> [1]
     - Comma-separated: "1,3" -> [1, 3]
     - Range: "1-3" -> [1, 2, 3]
@@ -63,6 +64,10 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     
     Returns: List[int] sorted module numbers
     """
+    # Handle list/array input (from frontend)
+    if isinstance(module_input, list):
+        return sorted(list(set(module_input)))
+    
     # Handle integer input
     if isinstance(module_input, int):
         return [module_input]
