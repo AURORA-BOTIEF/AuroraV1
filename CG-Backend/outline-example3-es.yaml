@@ -1,0 +1,112 @@
+course:
+  title: "Fundamentos de Ciberseguridad"
+  description: "Curso introductorio sobre los conceptos esenciales de ciberseguridad, amenazas comunes y mejores prácticas de protección."
+  duration_hours: 2
+  level: "Principiante"
+  language: "es"
+
+modules:
+  - number: 1
+    title: "Introducción a la Ciberseguridad"
+    description: "Conceptos fundamentales de ciberseguridad y principales amenazas digitales."
+    duration_minutes: 60
+    lessons:
+      - number: 1
+        title: "¿Qué es la Ciberseguridad?"
+        description: "Definición, importancia y pilares fundamentales de la ciberseguridad en el mundo digital actual."
+        duration_minutes: 15
+        objectives:
+          - "Comprender el concepto de ciberseguridad y su importancia"
+          - "Identificar los tres pilares: confidencialidad, integridad y disponibilidad (CIA)"
+          - "Reconocer el impacto de los incidentes de seguridad en organizaciones"
+        topics:
+          - "Definición de ciberseguridad"
+          - "La tríada CIA (Confidencialidad, Integridad, Disponibilidad)"
+          - "Panorama actual de amenazas cibernéticas"
+          - "Casos de estudio: incidentes de seguridad recientes"
+      
+      - number: 2
+        title: "Principales Tipos de Amenazas"
+        description: "Análisis de las amenazas cibernéticas más comunes: malware, phishing, ransomware y ataques de ingeniería social."
+        duration_minutes: 20
+        objectives:
+          - "Identificar los diferentes tipos de malware"
+          - "Reconocer ataques de phishing y sus variantes"
+          - "Comprender cómo funcionan los ataques de ransomware"
+          - "Detectar técnicas de ingeniería social"
+        topics:
+          - "Tipos de malware: virus, troyanos, spyware, adware"
+          - "Ataques de phishing: email, SMS (smishing), voz (vishing)"
+          - "Ransomware: funcionamiento y casos famosos"
+          - "Ingeniería social: pretexting, baiting, tailgating"
+    
+    labs:
+      - number: 1
+        title: "Identificación de Correos de Phishing"
+        description: "Práctica para analizar correos electrónicos sospechosos e identificar indicadores de phishing."
+        duration_minutes: 25
+        objectives:
+          - "Analizar encabezados de correos electrónicos"
+          - "Identificar URLs maliciosas y enlaces sospechosos"
+          - "Reconocer señales de alarma en mensajes de phishing"
+          - "Aplicar mejores prácticas al recibir correos sospechosos"
+        activities:
+          - "Analizar 5 ejemplos de correos electrónicos (legítimos y phishing)"
+          - "Examinar URLs usando herramientas de análisis en línea"
+          - "Verificar remitentes y certificados digitales"
+          - "Crear una lista de verificación personal anti-phishing"
+
+  - number: 2
+    title: "Protección y Mejores Prácticas"
+    description: "Estrategias y herramientas para protegerse contra amenazas cibernéticas."
+    duration_minutes: 60
+    lessons:
+      - number: 1
+        title: "Contraseñas Seguras y Autenticación"
+        description: "Creación de contraseñas robustas, gestión segura y autenticación multifactor (MFA)."
+        duration_minutes: 18
+        objectives:
+          - "Crear contraseñas seguras y únicas"
+          - "Utilizar gestores de contraseñas de forma efectiva"
+          - "Implementar autenticación multifactor (MFA/2FA)"
+          - "Evitar errores comunes en la gestión de credenciales"
+        topics:
+          - "Características de contraseñas fuertes"
+          - "Gestores de contraseñas: tipos y recomendaciones"
+          - "Autenticación de dos factores (2FA) y multifactor (MFA)"
+          - "Biometría y tokens de seguridad"
+          - "Errores comunes: reutilización, compartir, almacenar en texto plano"
+      
+      - number: 2
+        title: "Navegación Segura y Protección de Dispositivos"
+        description: "Mejores prácticas para navegar de forma segura en internet y proteger dispositivos personales."
+        duration_minutes: 17
+        objectives:
+          - "Configurar navegadores para navegación segura"
+          - "Reconocer sitios web seguros (HTTPS, certificados SSL)"
+          - "Mantener dispositivos actualizados y protegidos"
+          - "Usar redes Wi-Fi públicas de forma segura"
+        topics:
+          - "Configuración de privacidad en navegadores"
+          - "Extensiones de seguridad: bloqueadores de anuncios, VPN"
+          - "Importancia de actualizaciones de software y parches"
+          - "Antivirus y antimalware: selección y configuración"
+          - "Peligros de Wi-Fi público y uso de VPN"
+          - "Copias de seguridad (backups) periódicas"
+    
+    labs:
+      - number: 1
+        title: "Configuración de Seguridad en Dispositivos"
+        description: "Configuración práctica de medidas de seguridad en un dispositivo personal."
+        duration_minutes: 25
+        objectives:
+          - "Configurar autenticación multifactor en cuentas principales"
+          - "Instalar y configurar un gestor de contraseñas"
+          - "Verificar y aplicar actualizaciones pendientes"
+          - "Configurar opciones de privacidad en navegador"
+        activities:
+          - "Activar 2FA en Gmail, redes sociales y servicios bancarios"
+          - "Instalar Bitwarden o LastPass y migrar 3 contraseñas"
+          - "Revisar actualizaciones del sistema operativo y aplicaciones"
+          - "Configurar extensiones de seguridad: uBlock Origin, HTTPS Everywhere"
+          - "Crear un plan de copias de seguridad automáticas"

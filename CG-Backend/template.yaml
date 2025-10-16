@@ -617,119 +617,160 @@ Resources:
           
           # ===== THEORY ONLY BRANCH =====
           TheoryOnlyBranch:
-            Type: Parallel
-            Comment: "Generate only theory content"
-            Branches:
-              - StartAt: InvokeTheoryContentGen
-                States:
-                  InvokeTheoryContentGen:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
-                    Parameters:
-                      FunctionName: !GetAtt StrandsContentGen.Arn
-                      Payload.$: "$"
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    Catch:
-                      - ErrorEquals:
-                          - States.ALL
-                        ResultPath: $.error
-                        Next: TheoryFailState
-                    Next: ProcessTheoryContent
-                  ProcessTheoryContent:
-                    Type: Pass
-                    Comment: "Parse theory generation result"
-                    Parameters:
-                      lesson_keys.$: $.Payload.lesson_keys
-                      course_bucket.$: $.Payload.bucket
-                      project_folder.$: $.Payload.project_folder
-                      model_provider.$: $.Payload.model_provider
-                    Next: ProcessVisualsForTheory
-                  ProcessVisualsForTheory:
-                    Type: Map
-                    ItemsPath: $.lesson_keys
-                    MaxConcurrency: 3
-                    Parameters:
-                      lesson_key.$: $$.Map.Item.Value
+            Type: Map
+            Comment: "Process each module in parallel - ContentGen → VisualPlanner → ImagesGen"
+            ItemsPath: $.modules_to_generate
+            MaxConcurrency: 10
+            Parameters:
+              module_number.$: $$.Map.Item.Value
+              course_bucket.$: $.course_bucket
+              outline_s3_key.$: $.outline_s3_key
+              project_folder.$: $.project_folder
+              model_provider.$: $.model_provider
+              content_source.$: $.content_source
+            Iterator:
+              StartAt: InvokeTheoryContentGenForModule
+              States:
+                InvokeTheoryContentGenForModule:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate content for ONE module"
+                  Parameters:
+                    FunctionName: !GetAtt StrandsContentGen.Arn
+                    Payload:
                       course_bucket.$: $.course_bucket
+                      outline_s3_key.$: $.outline_s3_key
                       project_folder.$: $.project_folder
                       model_provider.$: $.model_provider
-                    Iterator:
-                      StartAt: InvokeVisualPlanner
-                      States:
-                        InvokeVisualPlanner:
-                          Type: Task
-                          Resource: arn:aws:states:::lambda:invoke
-                          Parameters:
-                            FunctionName: !GetAtt StrandsVisualPlanner.Arn
-                            Payload:
-                              course_bucket.$: $.course_bucket
-                              lesson_key.$: $.lesson_key
-                              project_folder.$: $.project_folder
-                              model_provider.$: $.model_provider
-                          Retry:
-                            - ErrorEquals:
-                                - Lambda.ServiceException
-                                - Lambda.AWSLambdaException
-                                - Lambda.SdkClientException
-                              IntervalSeconds: 5
-                              MaxAttempts: 2
-                              BackoffRate: 2.0
-                          Next: VisualPlannerSuccess
-                        VisualPlannerSuccess:
-                          Type: Pass
-                          OutputPath: $.Payload
-                          End: true
-                    ResultPath: $.visual_results
-                    Next: InvokeImagesGen
-                  InvokeImagesGen:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
-                    Parameters:
-                      FunctionName: !GetAtt ImagesGen.Arn
-                      Payload:
-                        course_bucket.$: $.course_bucket
-                        project_folder.$: $.project_folder
-                        prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    ResultPath: $.images_result
-                    Next: InvokeBookBuilder
-                  InvokeBookBuilder:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
-                    Parameters:
-                      FunctionName: !GetAtt BookBuilder.Arn
-                      Payload:
-                        course_bucket.$: $.course_bucket
-                        project_folder.$: $.project_folder
-                        lesson_keys.$: $.lesson_keys
-                        image_mappings.$: $.images_result.Payload.image_mappings
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    End: true
-                  TheoryFailState:
-                    Type: Fail
-                    Cause: TheoryGenerationFailed
-                    Error: TheoryGenerationError
+                      content_source.$: $.content_source
+                      module_number.$: $.module_number
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: ModuleTheoryFailState
+                  Next: ProcessModuleTheoryContent
+                ProcessModuleTheoryContent:
+                  Type: Pass
+                  Comment: "Parse theory generation result for this module"
+                  Parameters:
+                    lesson_keys.$: $.Payload.lesson_keys
+                    course_bucket.$: $.Payload.bucket
+                    project_folder.$: $.Payload.project_folder
+                    model_provider.$: $.Payload.model_provider
+                    module_number.$: $.module_number
+                  Next: ProcessVisualsForModule
+                ProcessVisualsForModule:
+                  Type: Map
+                  Comment: "Process visual tags for all lessons in this module"
+                  ItemsPath: $.lesson_keys
+                  MaxConcurrency: 10
+                  Parameters:
+                    lesson_key.$: $$.Map.Item.Value
+                    course_bucket.$: $.course_bucket
+                    project_folder.$: $.project_folder
+                    model_provider.$: $.model_provider
+                  Iterator:
+                    StartAt: InvokeVisualPlannerForLesson
+                    States:
+                      InvokeVisualPlannerForLesson:
+                        Type: Task
+                        Resource: arn:aws:states:::lambda:invoke
+                        Parameters:
+                          FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                          Payload:
+                            course_bucket.$: $.course_bucket
+                            lesson_key.$: $.lesson_key
+                            project_folder.$: $.project_folder
+                            model_provider.$: $.model_provider
+                        Retry:
+                          - ErrorEquals:
+                              - Lambda.ServiceException
+                              - Lambda.AWSLambdaException
+                              - Lambda.SdkClientException
+                            IntervalSeconds: 5
+                            MaxAttempts: 2
+                            BackoffRate: 2.0
+                        Next: VisualPlannerSuccessForLesson
+                      VisualPlannerSuccessForLesson:
+                        Type: Pass
+                        OutputPath: $.Payload
+                        End: true
+                  ResultPath: $.visual_results
+                  Next: InvokeImagesGenForModule
+                InvokeImagesGenForModule:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate images for this module's prompts"
+                  Parameters:
+                    FunctionName: !GetAtt ImagesGen.Arn
+                    Payload:
+                      course_bucket.$: $.course_bucket
+                      project_folder.$: $.project_folder
+                      prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  ResultPath: $.images_result
+                  Next: ModuleTheoryComplete
+                ModuleTheoryComplete:
+                  Type: Pass
+                  Comment: "Module processing complete, return results"
+                  Parameters:
+                    module_number.$: $.module_number
+                    lesson_keys.$: $.lesson_keys
+                    image_mappings.$: $.images_result.Payload.image_mappings
+                  End: true
+                ModuleTheoryFailState:
+                  Type: Fail
+                  Cause: ModuleTheoryGenerationFailed
+                  Error: ModuleTheoryGenerationError
+            ResultPath: $.all_modules_results
+            Next: CombineResultsAndBuildBook
+          
+          # ===== COMBINE RESULTS AND BUILD BOOK =====
+          CombineResultsAndBuildBook:
+            Type: Pass
+            Comment: "Flatten results from all modules for BookBuilder"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              all_lesson_keys.$: $.all_modules_results[*].lesson_keys[*]
+              all_image_mappings.$: $.all_modules_results[*].image_mappings
+            Next: InvokeBookBuilder
+          
+          InvokeBookBuilder:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Build final book with all modules"
+            Parameters:
+              FunctionName: !GetAtt BookBuilder.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                project_folder.$: $.project_folder
+                lesson_keys.$: $.all_lesson_keys
+                image_mappings.$: $.all_image_mappings
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
             Next: SuccessState
           
           # ===== LABS ONLY BRANCH =====
@@ -803,54 +844,37 @@ Resources:
             Type: Parallel
             Comment: "Generate both theory and lab guides in parallel"
             Branches:
-              # Theory Branch
-              - StartAt: InvokeTheoryContentGenBoth
+              # Theory Branch - Process all modules in parallel
+              - StartAt: ProcessTheoryModulesInParallel
                 States:
-                  InvokeTheoryContentGenBoth:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
-                    Parameters:
-                      FunctionName: !GetAtt StrandsContentGen.Arn
-                      Payload.$: "$"
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    Next: ProcessTheoryContentBoth
-                  ProcessTheoryContentBoth:
-                    Type: Pass
-                    Parameters:
-                      lesson_keys.$: $.Payload.lesson_keys
-                      course_bucket.$: $.Payload.bucket
-                      project_folder.$: $.Payload.project_folder
-                      model_provider.$: $.Payload.model_provider
-                    Next: ProcessVisualsForTheoryBoth
-                  ProcessVisualsForTheoryBoth:
+                  ProcessTheoryModulesInParallel:
                     Type: Map
-                    ItemsPath: $.lesson_keys
-                    MaxConcurrency: 3
+                    Comment: "Process each module in parallel - ContentGen → VisualPlanner → ImagesGen"
+                    ItemsPath: $.modules_to_generate
+                    MaxConcurrency: 10
                     Parameters:
-                      lesson_key.$: $$.Map.Item.Value
+                      module_number.$: $$.Map.Item.Value
                       course_bucket.$: $.course_bucket
+                      outline_s3_key.$: $.outline_s3_key
                       project_folder.$: $.project_folder
                       model_provider.$: $.model_provider
+                      content_source.$: $.content_source
                     Iterator:
-                      StartAt: InvokeVisualPlannerBoth
+                      StartAt: InvokeTheoryContentGenForModuleBoth
                       States:
-                        InvokeVisualPlannerBoth:
+                        InvokeTheoryContentGenForModuleBoth:
                           Type: Task
                           Resource: arn:aws:states:::lambda:invoke
+                          Comment: "Generate content for ONE module"
                           Parameters:
-                            FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                            FunctionName: !GetAtt StrandsContentGen.Arn
                             Payload:
                               course_bucket.$: $.course_bucket
-                              lesson_key.$: $.lesson_key
+                              outline_s3_key.$: $.outline_s3_key
                               project_folder.$: $.project_folder
                               model_provider.$: $.model_provider
+                              content_source.$: $.content_source
+                              module_number.$: $.module_number
                           Retry:
                             - ErrorEquals:
                                 - Lambda.ServiceException
@@ -859,42 +883,105 @@ Resources:
                               IntervalSeconds: 5
                               MaxAttempts: 2
                               BackoffRate: 2.0
-                          Next: VisualPlannerSuccessBoth
-                        VisualPlannerSuccessBoth:
+                          Next: ProcessModuleTheoryContentBoth
+                        ProcessModuleTheoryContentBoth:
                           Type: Pass
-                          OutputPath: $.Payload
+                          Comment: "Parse theory generation result for this module"
+                          Parameters:
+                            lesson_keys.$: $.Payload.lesson_keys
+                            course_bucket.$: $.Payload.bucket
+                            project_folder.$: $.Payload.project_folder
+                            model_provider.$: $.Payload.model_provider
+                            module_number.$: $.module_number
+                          Next: ProcessVisualsForModuleBoth
+                        ProcessVisualsForModuleBoth:
+                          Type: Map
+                          Comment: "Process visual tags for all lessons in this module"
+                          ItemsPath: $.lesson_keys
+                          MaxConcurrency: 10
+                          Parameters:
+                            lesson_key.$: $$.Map.Item.Value
+                            course_bucket.$: $.course_bucket
+                            project_folder.$: $.project_folder
+                            model_provider.$: $.model_provider
+                          Iterator:
+                            StartAt: InvokeVisualPlannerForLessonBoth
+                            States:
+                              InvokeVisualPlannerForLessonBoth:
+                                Type: Task
+                                Resource: arn:aws:states:::lambda:invoke
+                                Parameters:
+                                  FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                                  Payload:
+                                    course_bucket.$: $.course_bucket
+                                    lesson_key.$: $.lesson_key
+                                    project_folder.$: $.project_folder
+                                    model_provider.$: $.model_provider
+                                Retry:
+                                  - ErrorEquals:
+                                      - Lambda.ServiceException
+                                      - Lambda.AWSLambdaException
+                                      - Lambda.SdkClientException
+                                    IntervalSeconds: 5
+                                    MaxAttempts: 2
+                                    BackoffRate: 2.0
+                                Next: VisualPlannerSuccessForLessonBoth
+                              VisualPlannerSuccessForLessonBoth:
+                                Type: Pass
+                                OutputPath: $.Payload
+                                End: true
+                          ResultPath: $.visual_results
+                          Next: InvokeImagesGenForModuleBoth
+                        InvokeImagesGenForModuleBoth:
+                          Type: Task
+                          Resource: arn:aws:states:::lambda:invoke
+                          Comment: "Generate images for this module's prompts"
+                          Parameters:
+                            FunctionName: !GetAtt ImagesGen.Arn
+                            Payload:
+                              course_bucket.$: $.course_bucket
+                              project_folder.$: $.project_folder
+                              prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                          Retry:
+                            - ErrorEquals:
+                                - Lambda.ServiceException
+                                - Lambda.AWSLambdaException
+                                - Lambda.SdkClientException
+                              IntervalSeconds: 5
+                              MaxAttempts: 2
+                              BackoffRate: 2.0
+                          ResultPath: $.images_result
+                          Next: ModuleTheoryCompleteBoth
+                        ModuleTheoryCompleteBoth:
+                          Type: Pass
+                          Comment: "Module processing complete, return results"
+                          Parameters:
+                            module_number.$: $.module_number
+                            lesson_keys.$: $.lesson_keys
+                            image_mappings.$: $.images_result.Payload.image_mappings
                           End: true
-                    ResultPath: $.visual_results
-                    Next: InvokeImagesGenBoth
-                  InvokeImagesGenBoth:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
+                    ResultPath: $.all_modules_results
+                    Next: CombineResultsAndBuildBookBoth
+                  CombineResultsAndBuildBookBoth:
+                    Type: Pass
+                    Comment: "Flatten results from all modules for BookBuilder"
                     Parameters:
-                      FunctionName: !GetAtt ImagesGen.Arn
-                      Payload:
-                        course_bucket.$: $.course_bucket
-                        project_folder.$: $.project_folder
-                        prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    ResultPath: $.images_result
+                      course_bucket.$: $.course_bucket
+                      project_folder.$: $.project_folder
+                      all_lesson_keys.$: $.all_modules_results[*].lesson_keys[*]
+                      all_image_mappings.$: $.all_modules_results[*].image_mappings
                     Next: InvokeBookBuilderBoth
                   InvokeBookBuilderBoth:
                     Type: Task
                     Resource: arn:aws:states:::lambda:invoke
+                    Comment: "Build final book with all modules"
                     Parameters:
                       FunctionName: !GetAtt BookBuilder.Arn
                       Payload:
                         course_bucket.$: $.course_bucket
                         project_folder.$: $.project_folder
-                        lesson_keys.$: $.lesson_keys
-                        image_mappings.$: $.images_result.Payload.image_mappings
+                        lesson_keys.$: $.all_lesson_keys
+                        image_mappings.$: $.all_image_mappings
                     Retry:
                       - ErrorEquals:
                           - Lambda.ServiceException
