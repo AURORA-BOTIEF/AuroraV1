@@ -906,9 +906,9 @@ Resources:
             Error: "MasterLabPlanningFailed"
           BothTheoryAndLabsBranch:
             Type: Map
-            Comment: "Process up to 8 modules in parallel with CSMA coordination"
+            Comment: "Process up to 4 modules concurrently with CSMA coordination for reliability"
             ItemsPath: $.modules_to_generate
-            MaxConcurrency: 8
+            MaxConcurrency: 4
             Parameters:
               module_number.$: $$.Map.Item.Value
               course_bucket.$: $.course_bucket
