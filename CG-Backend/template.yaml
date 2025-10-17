@@ -939,7 +939,7 @@ Resources:
                     - ErrorEquals:
                         - States.ALL
                       ResultPath: $.error
-                      Next: ModuleTheoryFailStateBoth
+                      Next: ReleaseContentGenLockOnFailure
                   ResultPath: $.lambda_result
                   Next: CheckTheoryContentGenResultBoth
                 CheckTheoryContentGenResultBoth:
@@ -948,11 +948,23 @@ Resources:
                   Choices:
                     - Variable: $.lambda_result.Payload.statusCode
                       NumericEquals: 500
-                      Next: ModuleTheoryFailStateBoth
+                      Next: ReleaseContentGenLockOnFailure
                     - Variable: $.lambda_result.Payload.statusCode
                       NumericEquals: 200
                       Next: ReleaseContentGenLock
-                  Default: ModuleTheoryFailStateBoth
+                  Default: ReleaseContentGenLockOnFailure
+                ReleaseContentGenLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ContentGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
+                  Next: ModuleTheoryFailStateBoth
                 ReleaseContentGenLock:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -1042,13 +1054,13 @@ Resources:
                 InvokeImagesGenForModuleBoth:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate images for this module's prompts"
+                  Comment: "Generate all images for this module's lessons using collected visual prompts"
                   Parameters:
                     FunctionName: !GetAtt ImagesGen.Arn
                     Payload:
                       course_bucket.$: $.course_bucket
                       project_folder.$: $.project_folder
-                      prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                      lesson_keys.$: $.lesson_keys
                   Retry:
                     - ErrorEquals:
                         - Lambda.ServiceException
@@ -1057,8 +1069,25 @@ Resources:
                       IntervalSeconds: 5
                       MaxAttempts: 2
                       BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: ReleaseImagesGenLockOnFailure
                   ResultPath: $.images_result
                   Next: ReleaseImagesGenLock
+                ReleaseImagesGenLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ImagesGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
+                  Next: ModuleTheoryFailStateBoth
                 ReleaseImagesGenLock:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -1124,7 +1153,19 @@ Resources:
                     - Variable: $.lab_plan_result.Payload.statusCode
                       NumericEquals: 200
                       Next: ReleaseLabPlannerLock
-                  Default: ModuleLabsSkipped
+                  Default: ReleaseLabPlannerLockOnFailure
+                ReleaseLabPlannerLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "LabPlanner"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
+                  Next: ModuleLabsSkipped
                 ReleaseLabPlannerLock:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -1179,8 +1220,25 @@ Resources:
                       IntervalSeconds: 5
                       MaxAttempts: 2
                       BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: ReleaseLabWriterLockOnFailure
                   ResultPath: $.lab_writer_result
                   Next: ReleaseLabWriterLock
+                ReleaseLabWriterLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "LabWriter"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                  ResultPath: null
+                  Next: ModuleLabsSkipped
                 ReleaseLabWriterLock:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
