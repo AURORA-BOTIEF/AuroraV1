@@ -919,6 +919,7 @@ Resources:
               lab_requirements.$: $.lab_requirements
               master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
               execution_id.$: $$.Execution.Name
+              total_modules.$: $.total_modules
             Iterator:
               StartAt: AcquireContentGenLock
               States:
@@ -933,6 +934,7 @@ Resources:
                       phase_name: "ContentGen"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: $.lock_result
                   Next: CheckContentGenLock
                 CheckContentGenLock:
@@ -1000,6 +1002,7 @@ Resources:
                       phase_name: "ContentGen"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: null
                   Next: ModuleTheoryFailStateBoth
                 ReleaseContentGenLock:
@@ -1012,6 +1015,7 @@ Resources:
                       phase_name: "ContentGen"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: null
                   Next: ProcessModuleTheoryContentBoth
                 ProcessModuleTheoryContentBoth:
@@ -1027,6 +1031,7 @@ Resources:
                     lab_requirements.$: $.lab_requirements
                     master_plan_key.$: $.master_plan_key
                     execution_id.$: $.execution_id
+                    total_modules.$: $.total_modules
                   Next: ProcessVisualsForModuleBoth
                 ProcessVisualsForModuleBoth:
                   Type: Map
@@ -1076,6 +1081,7 @@ Resources:
                       phase_name: "ImagesGen"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: $.lock_result
                   Next: CheckImagesGenLock
                 CheckImagesGenLock:
@@ -1124,6 +1130,7 @@ Resources:
                       phase_name: "ImagesGen"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: null
                   Next: ModuleTheoryFailStateBoth
                 ReleaseImagesGenLock:
@@ -1136,6 +1143,7 @@ Resources:
                       phase_name: "ImagesGen"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: null
                   Next: AcquireLabWriterLock
                 AcquireLabWriterLock:
@@ -1148,6 +1156,7 @@ Resources:
                       phase_name: "LabWriter"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: $.lock_result
                   Next: CheckLabWriterLock
                 CheckLabWriterLock:
@@ -1198,6 +1207,7 @@ Resources:
                       phase_name: "LabWriter"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: null
                   Next: ModuleLabsSkipped
                 ReleaseLabWriterLock:
@@ -1210,6 +1220,7 @@ Resources:
                       phase_name: "LabWriter"
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
                   ResultPath: null
                   Next: ModuleCompleteBoth
                 ModuleLabsSkipped:

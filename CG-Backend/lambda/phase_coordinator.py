@@ -31,11 +31,35 @@ from typing import Dict, Any
 dynamodb = boto3.resource('dynamodb')
 TABLE_NAME = 'course-generation-phase-locks'
 
-# Minimum delay between API calls (seconds)
-MIN_DELAY_SECONDS = 120
+# Dynamic delay configuration based on module count
+# For 1-4 modules: 120 seconds (proven reliable for small courses)
+# For 5-8 modules: 180 seconds (prevents TPM quota exhaustion)
+MIN_DELAY_SMALL_COURSE = 120  # 1-4 modules
+MIN_DELAY_LARGE_COURSE = 180  # 5-8 modules
+MODULE_COUNT_THRESHOLD = 4
 
 # Jitter to prevent thundering herd (seconds)
 MAX_JITTER_SECONDS = 5
+
+
+def get_min_delay(total_modules: int) -> int:
+    """
+    Calculate minimum delay based on total module count.
+    
+    Rationale:
+    - Small courses (1-4 modules): 120s spacing is sufficient
+    - Large courses (5-8 modules): 180s spacing prevents cumulative TPM quota exhaustion
+    
+    Args:
+        total_modules: Total number of modules in the course
+        
+    Returns:
+        Minimum delay in seconds
+    """
+    if total_modules <= MODULE_COUNT_THRESHOLD:
+        return MIN_DELAY_SMALL_COURSE
+    else:
+        return MIN_DELAY_LARGE_COURSE
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -47,14 +71,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "action": "acquire" | "release",
             "phase_name": "ContentGen" | "ImagesGen" | "LabPlanner" | "LabWriter",
             "module_number": 1,
-            "execution_id": "course-gen-xxx"
+            "execution_id": "course-gen-xxx",
+            "total_modules": 8  # Optional: Total modules in course for dynamic delay
         }
     
     Returns:
         For acquire: {
             "statusCode": 200,
             "can_proceed": true/false,
-            "wait_seconds": 0-60,
+            "wait_seconds": 0-180,
             "reason": "..."
         }
         For release: {
@@ -66,13 +91,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     phase_name = event.get('phase_name')
     module_number = event.get('module_number')
     execution_id = event.get('execution_id', 'unknown')
+    total_modules = event.get('total_modules', 4)  # Default to small course if not specified
     
-    print(f"PhaseCoordinator: action={action}, phase={phase_name}, module={module_number}, execution={execution_id}")
+    print(f"PhaseCoordinator: action={action}, phase={phase_name}, module={module_number}, execution={execution_id}, total_modules={total_modules}")
     
     table = dynamodb.Table(TABLE_NAME)
     
     if action == "acquire":
-        return acquire_lock(table, phase_name, module_number, execution_id)
+        return acquire_lock(table, phase_name, module_number, execution_id, total_modules)
     elif action == "release":
         return release_lock(table, phase_name, module_number)
     else:
@@ -82,12 +108,27 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
 
 
-def acquire_lock(table, phase_name: str, module_number: int, execution_id: str) -> Dict[str, Any]:
+def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, total_modules: int) -> Dict[str, Any]:
     """
     Attempt to acquire lock for a phase.
-    Implements CSMA-like "listen before talk" protocol.
+    Implements CSMA-like "listen before talk" protocol with dynamic delay.
+    
+    Args:
+        table: DynamoDB table resource
+        phase_name: Name of the phase (ContentGen, ImagesGen, LabWriter, LabPlanner)
+        module_number: Current module number
+        execution_id: Execution identifier
+        total_modules: Total number of modules in the course
+    
+    Returns:
+        Dict with can_proceed, wait_seconds, and reason
     """
     try:
+        # Get dynamic minimum delay based on course size
+        min_delay_seconds = get_min_delay(total_modules)
+        
+        print(f"  Using MIN_DELAY={min_delay_seconds}s for {total_modules} modules")
+        
         # Check if another module is currently in this phase
         response = table.get_item(Key={'phase_name': phase_name})
         
@@ -101,9 +142,9 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str) 
             
             print(f"  Found existing lock: module={existing_module}, elapsed={elapsed_seconds:.1f}s")
             
-            if elapsed_seconds < MIN_DELAY_SECONDS:
+            if elapsed_seconds < min_delay_seconds:
                 # Need to wait
-                wait_seconds = MIN_DELAY_SECONDS - elapsed_seconds
+                wait_seconds = min_delay_seconds - elapsed_seconds
                 # Add jitter to prevent thundering herd
                 jitter = random.uniform(0, MAX_JITTER_SECONDS)
                 total_wait = int(wait_seconds) + 1 + int(jitter)  # +1 for safety margin
@@ -118,7 +159,7 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str) 
                 }
             else:
                 # Enough time has passed, can proceed
-                print(f"  Sufficient time elapsed ({elapsed_seconds:.1f}s >= {MIN_DELAY_SECONDS}s)")
+                print(f"  Sufficient time elapsed ({elapsed_seconds:.1f}s >= {min_delay_seconds}s)")
         
         # Can proceed - acquire lock
         table.put_item(
