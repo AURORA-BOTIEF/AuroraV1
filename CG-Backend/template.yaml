@@ -1197,7 +1197,8 @@ Resources:
                   Type: Pass
                   Comment: "Lab generation failed or skipped for this module"
                   Result:
-                    labs_generated: 0
+                    Payload:
+                      lab_guides_generated: 0
                   ResultPath: $.lab_writer_result
                   Next: ModuleCompleteBoth
                 ModuleCompleteBoth:
