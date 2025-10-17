@@ -162,18 +162,30 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, 
                 print(f"  Sufficient time elapsed ({elapsed_seconds:.1f}s >= {min_delay_seconds}s)")
         
         # Can proceed - try to acquire lock atomically
-        # Use ConditionExpression to prevent race conditions
+        # CRITICAL: Must use atomic write that prevents race conditions
+        # Even if multiple modules check simultaneously and see "no lock",
+        # only ONE can successfully write due to ConditionExpression
+        current_timestamp = int(time.time() * 1000)
+        
         try:
+            # First, try to acquire the lock if it doesn't exist
             table.put_item(
                 Item={
                     'phase_name': phase_name,
                     'module_number': module_number,
                     'execution_id': execution_id,
-                    'start_timestamp': int(time.time() * 1000),
+                    'start_timestamp': current_timestamp,
                     'ttl': int(time.time()) + 3600,  # Auto-expire after 1 hour
                     'acquired_at': datetime.utcnow().isoformat()
                 },
-                ConditionExpression='attribute_not_exists(phase_name)'
+                ConditionExpression='attribute_not_exists(phase_name) OR #ts < :min_ts',
+                ExpressionAttributeNames={
+                    '#ts': 'start_timestamp'
+                },
+                ExpressionAttributeValues={
+                    # Only overwrite if existing lock is older than MIN_DELAY
+                    ':min_ts': current_timestamp - (min_delay_seconds * 1000)
+                }
             )
         except table.meta.client.exceptions.ConditionalCheckFailedException:
             # Another module acquired the lock between our check and this put
