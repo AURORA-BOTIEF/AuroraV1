@@ -161,17 +161,53 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, 
                 # Enough time has passed, can proceed
                 print(f"  Sufficient time elapsed ({elapsed_seconds:.1f}s >= {min_delay_seconds}s)")
         
-        # Can proceed - acquire lock
-        table.put_item(
-            Item={
-                'phase_name': phase_name,
-                'module_number': module_number,
-                'execution_id': execution_id,
-                'start_timestamp': int(time.time() * 1000),
-                'ttl': int(time.time()) + 3600,  # Auto-expire after 1 hour
-                'acquired_at': datetime.utcnow().isoformat()
-            }
-        )
+        # Can proceed - try to acquire lock atomically
+        # Use ConditionExpression to prevent race conditions
+        try:
+            table.put_item(
+                Item={
+                    'phase_name': phase_name,
+                    'module_number': module_number,
+                    'execution_id': execution_id,
+                    'start_timestamp': int(time.time() * 1000),
+                    'ttl': int(time.time()) + 3600,  # Auto-expire after 1 hour
+                    'acquired_at': datetime.utcnow().isoformat()
+                },
+                ConditionExpression='attribute_not_exists(phase_name)'
+            )
+        except table.meta.client.exceptions.ConditionalCheckFailedException:
+            # Another module acquired the lock between our check and this put
+            # This is a race condition - need to check again and wait
+            print(f"  ⚠️  Module {module_number} lost race for {phase_name} lock, need to retry")
+            
+            # Re-check the lock to get accurate wait time
+            response = table.get_item(Key={'phase_name': phase_name})
+            if 'Item' in response:
+                existing_module = response['Item']['module_number']
+                existing_start = int(response['Item']['start_timestamp'])
+                current_time = int(time.time() * 1000)
+                elapsed_ms = current_time - existing_start
+                elapsed_seconds = elapsed_ms / 1000.0
+                
+                wait_seconds = max(min_delay_seconds - elapsed_seconds, 5)  # At least 5s
+                jitter = random.uniform(0, MAX_JITTER_SECONDS)
+                total_wait = int(wait_seconds) + 1 + int(jitter)
+                
+                return {
+                    'statusCode': 200,
+                    'can_proceed': False,
+                    'wait_seconds': total_wait,
+                    'reason': f'Lost race to module {existing_module}, must wait'
+                }
+            else:
+                # Lock disappeared (released), retry immediately
+                return {
+                    'statusCode': 200,
+                    'can_proceed': False,
+                    'wait_seconds': 3,  # Short retry
+                    'reason': 'Lock state changed, retry soon'
+                }
+        
         
         print(f"  ✅ Module {module_number} acquired lock for {phase_name}")
         
