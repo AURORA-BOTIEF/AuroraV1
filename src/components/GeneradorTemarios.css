@@ -157,3 +157,106 @@
   cursor: pointer;
 }
 
+/* ===================================================== */
+/* NUEVOS ESTILOS AGREGADOS (FILTROS + MENÚ DE TRES PUNTOS) */
+/* ===================================================== */
+
+/* 🔍 FILTROS */
+.filtros-versiones {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filtro {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 180px;
+}
+
+.filtro label {
+  font-weight: 600;
+  color: #035b6e;
+  margin-bottom: 4px;
+}
+
+.filtro input,
+.filtro select {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.filtro input:focus,
+.filtro select:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 3px #035b6e55;
+}
+
+/* ⋮ MENÚ DE TRES PUNTOS */
+.menu-container {
+  position: relative;
+}
+
+.menu-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: #035b6e;
+  padding: 0.2rem;
+  line-height: 1;
+  border-radius: 6px;
+}
+
+.menu-btn:hover {
+  background-color: #eaf6f7;
+}
+
+.menu-opciones {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  z-index: 10;
+  animation: fadeIn 0.15s ease-in-out;
+}
+
+.menu-opciones button {
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+
+.menu-opciones button:hover {
+  background-color: #f0f0f0;
+}
+
+/* 🪶 Animación de aparición */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===================== FIN NUEVOS ESTILOS ===================== */
+
