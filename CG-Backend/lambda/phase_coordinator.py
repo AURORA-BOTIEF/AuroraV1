@@ -94,7 +94,7 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str) 
         if 'Item' in response:
             # Another module is using this phase
             existing_module = response['Item']['module_number']
-            existing_start = response['Item']['start_timestamp']
+            existing_start = int(response['Item']['start_timestamp'])  # Convert Decimal to int
             current_time = int(time.time() * 1000)  # milliseconds
             elapsed_ms = current_time - existing_start
             elapsed_seconds = elapsed_ms / 1000.0
