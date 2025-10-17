@@ -189,9 +189,24 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, 
                 elapsed_ms = current_time - existing_start
                 elapsed_seconds = elapsed_ms / 1000.0
                 
-                wait_seconds = max(min_delay_seconds - elapsed_seconds, 5)  # At least 5s
+                # Calculate how much longer to wait
+                # If lock holder hasn't finished their delay period, wait for remaining time
+                # Otherwise, they should release soon, wait a full delay cycle
+                remaining_delay = min_delay_seconds - elapsed_seconds
+                
+                if remaining_delay > 0:
+                    # Lock holder still has time, wait for them to finish + small buffer
+                    wait_seconds = remaining_delay + 10  # Extra buffer for lock release
+                else:
+                    # Lock holder should have released by now
+                    # Either they're still running or about to release
+                    # Wait a full delay cycle to be safe
+                    wait_seconds = min_delay_seconds
+                
                 jitter = random.uniform(0, MAX_JITTER_SECONDS)
-                total_wait = int(wait_seconds) + 1 + int(jitter)
+                total_wait = int(wait_seconds) + int(jitter)
+                
+                print(f"  Module {module_number} waiting {total_wait}s (elapsed={elapsed_seconds:.1f}s, remaining={remaining_delay:.1f}s)")
                 
                 return {
                     'statusCode': 200,
