@@ -639,7 +639,7 @@ Resources:
                     IsPresent: true
                   - Variable: $.content_type
                     StringEquals: "both"
-                Next: BothTheoryAndLabsBranch
+                Next: GenerateLabMasterPlan
             Default: TheoryOnlyBranch
           
           # ===== THEORY ONLY BRANCH =====
@@ -868,6 +868,42 @@ Resources:
             Next: SuccessState
           
           # ===== BOTH THEORY AND LABS BRANCH =====
+          GenerateLabMasterPlan:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Generate master lab plan for ALL modules ONCE before parallel processing"
+            Parameters:
+              FunctionName: !GetAtt StrandsLabPlanner.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                outline_s3_key.$: $.outline_s3_key
+                project_folder.$: $.project_folder
+                model_provider.$: $.model_provider
+                lab_requirements.$: $.lab_requirements
+                modules_to_generate.$: $.modules_to_generate
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.master_lab_plan_result
+            Next: CheckMasterLabPlanResult
+          CheckMasterLabPlanResult:
+            Type: Choice
+            Comment: "Check if master lab plan generation succeeded"
+            Choices:
+              - Variable: $.master_lab_plan_result.Payload.statusCode
+                NumericEquals: 200
+                Next: BothTheoryAndLabsBranch
+            Default: LabPlanningFailedState
+          LabPlanningFailedState:
+            Type: Fail
+            Comment: "Master lab planning failed - cannot proceed with lab generation"
+            Cause: "LabPlanner returned error"
+            Error: "MasterLabPlanningFailed"
           BothTheoryAndLabsBranch:
             Type: Map
             Comment: "Process up to 8 modules in parallel with CSMA coordination"
@@ -881,6 +917,7 @@ Resources:
               model_provider.$: $.model_provider
               content_source.$: $.content_source
               lab_requirements.$: $.lab_requirements
+              master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
               execution_id.$: $$.Execution.Name
             Iterator:
               StartAt: AcquireContentGenLock
@@ -1099,84 +1136,6 @@ Resources:
                       module_number.$: $.module_number
                       execution_id.$: $.execution_id
                   ResultPath: null
-                  Next: AcquireLabPlannerLock
-                AcquireLabPlannerLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "acquire"
-                      phase_name: "LabPlanner"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                  ResultPath: $.lock_result
-                  Next: CheckLabPlannerLock
-                CheckLabPlannerLock:
-                  Type: Choice
-                  Choices:
-                    - Variable: $.lock_result.Payload.can_proceed
-                      BooleanEquals: true
-                      Next: InvokeLabPlannerForModule
-                  Default: WaitForLabPlannerSlot
-                WaitForLabPlannerSlot:
-                  Type: Wait
-                  SecondsPath: $.lock_result.Payload.wait_seconds
-                  Next: AcquireLabPlannerLock
-                InvokeLabPlannerForModule:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate lab plan for this module's labs"
-                  Parameters:
-                    FunctionName: !GetAtt StrandsLabPlanner.Arn
-                    Payload:
-                      course_bucket.$: $.course_bucket
-                      outline_s3_key.$: $.outline_s3_key
-                      project_folder.$: $.project_folder
-                      model_provider.$: $.model_provider
-                      lab_requirements.$: $.lab_requirements
-                      modules_to_generate.$: States.Array($.module_number)
-                  Retry:
-                    - ErrorEquals:
-                        - Lambda.ServiceException
-                        - Lambda.AWSLambdaException
-                        - Lambda.SdkClientException
-                      IntervalSeconds: 5
-                      MaxAttempts: 2
-                      BackoffRate: 2.0
-                  ResultPath: $.lab_plan_result
-                  Next: CheckLabPlannerResultPerModule
-                CheckLabPlannerResultPerModule:
-                  Type: Choice
-                  Comment: "Check if LabPlanner succeeded"
-                  Choices:
-                    - Variable: $.lab_plan_result.Payload.statusCode
-                      NumericEquals: 200
-                      Next: ReleaseLabPlannerLock
-                  Default: ReleaseLabPlannerLockOnFailure
-                ReleaseLabPlannerLockOnFailure:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "LabPlanner"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                  ResultPath: null
-                  Next: ModuleLabsSkipped
-                ReleaseLabPlannerLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "LabPlanner"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                  ResultPath: null
                   Next: AcquireLabWriterLock
                 AcquireLabWriterLock:
                   Type: Task
@@ -1204,14 +1163,15 @@ Resources:
                 InvokeLabWriterForModule:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate lab guides for this module"
+                  Comment: "Generate lab guides for this module using pre-generated master plan"
                   Parameters:
                     FunctionName: !GetAtt StrandsLabWriter.Arn
                     Payload:
-                      course_bucket.$: $.lab_plan_result.Payload.bucket
-                      master_plan_key.$: $.lab_plan_result.Payload.master_plan_key
-                      project_folder.$: $.lab_plan_result.Payload.project_folder
-                      model_provider.$: $.lab_plan_result.Payload.model_provider
+                      course_bucket.$: $.course_bucket
+                      master_plan_key.$: $.master_plan_key
+                      project_folder.$: $.project_folder
+                      model_provider.$: $.model_provider
+                      module_number.$: $.module_number
                   Retry:
                     - ErrorEquals:
                         - Lambda.ServiceException
