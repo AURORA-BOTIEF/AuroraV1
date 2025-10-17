@@ -60,7 +60,7 @@ function GeneradorTemarios() {
     try {
       const token = localStorage.getItem("id_token");
       const response = await fetch(
-        "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/default/Generador_Temario_Knowledge_Transfer",
+        "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/version2",
         {
           method: "POST",
           mode: "cors",
