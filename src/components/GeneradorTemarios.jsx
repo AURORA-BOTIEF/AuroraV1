@@ -30,7 +30,7 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  // 🔍 Filtros
+  // 🔍 NUEVOS FILTROS Y MENÚ
   const [filtroCurso, setFiltroCurso] = useState("");
   const [filtroAsesor, setFiltroAsesor] = useState("");
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
@@ -174,7 +174,6 @@ function GeneradorTemarios() {
           Inteligencia Artificial.
         </p>
 
-        {/* --- FORMULARIO PRINCIPAL --- */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
@@ -218,6 +217,49 @@ function GeneradorTemarios() {
               placeholder="Ej: Arquitecturas Serverless"
             />
           </div>
+
+          <div className="form-group">
+            <label>Nivel de Dificultad</label>
+            <select
+              name="nivel_dificultad"
+              value={params.nivel_dificultad}
+              onChange={handleParamChange}
+            >
+              <option value="basico">Básico</option>
+              <option value="intermedio">Intermedio</option>
+              <option value="avanzado">Avanzado</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Número de Sesiones (1-7)</label>
+            <div className="slider-container">
+              <input
+                type="range"
+                min="1"
+                max="7"
+                name="numero_sesiones_por_semana"
+                value={params.numero_sesiones_por_semana}
+                onChange={handleSliderChange}
+              />
+              <span>{params.numero_sesiones_por_semana} sesión</span>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Horas por Sesión (4-12)</label>
+            <div className="slider-container">
+              <input
+                type="range"
+                min="4"
+                max="12"
+                name="horas_por_sesion"
+                value={params.horas_por_sesion}
+                onChange={handleSliderChange}
+              />
+              <span>{params.horas_por_sesion} horas</span>
+            </div>
+          </div>
         </div>
 
         <div className="botones">
@@ -228,7 +270,10 @@ function GeneradorTemarios() {
           >
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button className="btn-versiones" onClick={handleListarVersiones}>
+          <button
+            className="btn-versiones"
+            onClick={handleListarVersiones}
+          >
             Ver Versiones Guardadas
           </button>
         </div>
@@ -236,21 +281,26 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* --- MODAL VERSIONES --- */}
+      {temarioGenerado && (
+        <EditorDeTemario
+          temarioInicial={temarioGenerado}
+          onRegenerate={handleGenerar}
+          onSave={handleGuardarVersion}
+          isLoading={isLoading}
+        />
+      )}
+
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button
-                className="close-btn"
-                onClick={() => setMostrarModal(false)}
-              >
+              <button className="close-btn" onClick={() => setMostrarModal(false)}>
                 ✕
               </button>
             </div>
 
-            {/* FILTROS */}
+            {/* 🔍 FILTROS NUEVOS */}
             <div className="filtros-versiones">
               <div className="filtro">
                 <label>Curso</label>
@@ -269,11 +319,9 @@ function GeneradorTemarios() {
                   onChange={(e) => setFiltroAsesor(e.target.value)}
                 >
                   <option value="">Todos</option>
-                  {[...new Set(versiones.map((v) => v.asesor_comercial))].map(
-                    (a, i) => (
-                      <option key={i}>{a}</option>
-                    )
-                  )}
+                  {[...new Set(versiones.map((v) => v.asesor_comercial))].map((a, i) => (
+                    <option key={i}>{a}</option>
+                  ))}
                 </select>
               </div>
 
@@ -318,14 +366,14 @@ function GeneradorTemarios() {
                       </button>
                       {menuAbierto === i && (
                         <div className="menu-opciones">
-                          <button onClick={() => alert("Editar versión")}>
+                          <button onClick={() => handleCargarVersion(v)}>
                             ✏️ Editar
                           </button>
                           <button onClick={() => alert("Exportar a PDF")}>
-                            📄 PDF
+                            📄 Exportar PDF
                           </button>
                           <button onClick={() => alert("Exportar a Excel")}>
-                            📊 Excel
+                            📊 Exportar Excel
                           </button>
                         </div>
                       )}
