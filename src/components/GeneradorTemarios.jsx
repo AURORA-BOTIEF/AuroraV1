@@ -19,7 +19,7 @@ function GeneradorTemarios() {
     nivel_dificultad: "basico",
     numero_sesiones_por_semana: 1,
     horas_por_sesion: 7,
-    objetivo_tipo: "saber_hacer",
+    objetivo_tipo: "saber_hacer", // ✅ Restaurado
     sector: "",
     enfoque: "",
   });
@@ -30,21 +30,16 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  // 🔍 NUEVOS FILTROS Y MENÚ
+  // 🔍 Filtros y menú contextual
   const [filtroCurso, setFiltroCurso] = useState("");
   const [filtroAsesor, setFiltroAsesor] = useState("");
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
   const [menuAbierto, setMenuAbierto] = useState(null);
 
   const versionesFiltradas = versiones.filter((v) => {
-    const matchCurso = v.nombre_curso
-      ?.toLowerCase()
-      .includes(filtroCurso.toLowerCase());
-    const matchAsesor =
-      filtroAsesor === "" || v.asesor_comercial === filtroAsesor;
-    const matchTecnologia = v.tecnologia
-      ?.toLowerCase()
-      .includes(filtroTecnologia.toLowerCase());
+    const matchCurso = v.nombre_curso?.toLowerCase().includes(filtroCurso.toLowerCase());
+    const matchAsesor = filtroAsesor === "" || v.asesor_comercial === filtroAsesor;
+    const matchTecnologia = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
     return matchCurso && matchAsesor && matchTecnologia;
   });
 
@@ -170,10 +165,10 @@ function GeneradorTemarios() {
       <div className="card-generador">
         <h2>Generador de Temarios a la Medida</h2>
         <p>
-          Introduce los detalles para generar una propuesta de temario con
-          Inteligencia Artificial.
+          Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.
         </p>
 
+        {/* === FORMULARIO PRINCIPAL === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
@@ -262,6 +257,54 @@ function GeneradorTemarios() {
           </div>
         </div>
 
+        {/* ✅ Restaurado: Saber Hacer / Certificación */}
+        <div className="form-group-radio">
+          <label>Tipo de Objetivo</label>
+          <div>
+            <label>
+              <input
+                type="radio"
+                name="objetivo_tipo"
+                value="saber_hacer"
+                checked={params.objetivo_tipo === "saber_hacer"}
+                onChange={handleParamChange}
+              />{" "}
+              Saber Hacer (enfocado en habilidades)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="objetivo_tipo"
+                value="certificacion"
+                checked={params.objetivo_tipo === "certificacion"}
+                onChange={handleParamChange}
+              />{" "}
+              Certificación (enfocado en examen)
+            </label>
+          </div>
+        </div>
+
+        {/* SECTOR Y ENFOQUE */}
+        <div className="form-group">
+          <label>Sector / Audiencia</label>
+          <textarea
+            name="sector"
+            value={params.sector}
+            onChange={handleParamChange}
+            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Enfoque Adicional (Opcional)</label>
+          <textarea
+            name="enfoque"
+            value={params.enfoque}
+            onChange={handleParamChange}
+            placeholder="Ej: Orientado a patrones de diseño..."
+          />
+        </div>
+
         <div className="botones">
           <button
             className="btn-generar"
@@ -270,10 +313,7 @@ function GeneradorTemarios() {
           >
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button
-            className="btn-versiones"
-            onClick={handleListarVersiones}
-          >
+          <button className="btn-versiones" onClick={handleListarVersiones}>
             Ver Versiones Guardadas
           </button>
         </div>
@@ -281,26 +321,16 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {temarioGenerado && (
-        <EditorDeTemario
-          temarioInicial={temarioGenerado}
-          onRegenerate={handleGenerar}
-          onSave={handleGuardarVersion}
-          isLoading={isLoading}
-        />
-      )}
-
+      {/* === MODAL DE VERSIONES === */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="close-btn" onClick={() => setMostrarModal(false)}>
-                ✕
-              </button>
+              <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
 
-            {/* 🔍 FILTROS NUEVOS */}
+            {/* 🔍 FILTROS */}
             <div className="filtros-versiones">
               <div className="filtro">
                 <label>Curso</label>
@@ -336,6 +366,7 @@ function GeneradorTemarios() {
               </div>
             </div>
 
+            {/* TABLA DE VERSIONES */}
             <table className="tabla-versiones">
               <thead>
                 <tr>
@@ -358,23 +389,15 @@ function GeneradorTemarios() {
                     <td className="menu-container">
                       <button
                         className="menu-btn"
-                        onClick={() =>
-                          setMenuAbierto(menuAbierto === i ? null : i)
-                        }
+                        onClick={() => setMenuAbierto(menuAbierto === i ? null : i)}
                       >
                         ⋮
                       </button>
                       {menuAbierto === i && (
                         <div className="menu-opciones">
-                          <button onClick={() => handleCargarVersion(v)}>
-                            ✏️ Editar
-                          </button>
-                          <button onClick={() => alert("Exportar a PDF")}>
-                            📄 Exportar PDF
-                          </button>
-                          <button onClick={() => alert("Exportar a Excel")}>
-                            📊 Exportar Excel
-                          </button>
+                          <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
+                          <button onClick={() => alert("Exportar a PDF")}>📄 Exportar PDF</button>
+                          <button onClick={() => alert("Exportar a Excel")}>📊 Exportar Excel</button>
                         </div>
                       )}
                     </td>
@@ -390,7 +413,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
 
 
 
