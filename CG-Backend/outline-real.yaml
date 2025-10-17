@@ -1,0 +1,237 @@
+course:
+  title: "Seguridad en Sistemas de IA: Vectores de Ataque y Mitigación"
+  description: "Curso especializado en seguridad de sistemas de inteligencia artificial, covering Microsoft Copilot Studio, MCP, LLM Gateway, n8n, RAG, vectores de ataque y técnicas de mitigación."
+  language: es
+  level: advanced
+  audience:
+    - "Arquitectos de seguridad en sistemas de IA"
+    - "Ingenieros de machine learning y MLOps"
+    - "Equipos de seguridad informática"
+    - "Auditores y responsables de cumplimiento"
+  prerequisites:
+    - "Conocimientos de machine learning y LLMs"
+    - "Experiencia en seguridad informática"
+    - "Familiaridad con conceptos de cloud computing"
+  total_duration_minutes: 1195
+  learning_outcomes:
+    - "Implementar y asegurar Microsoft Copilot Studio en entornos empresariales"
+    - "Configurar Model Context Protocol (MCP) con autenticación segura"
+    - "Desplegar y gestionar LLM Gateway con políticas de seguridad"
+    - "Orquestar workflows seguros con n8n integrando MCP y LLM Gateway"
+    - "Diseñar pipelines RAG seguros para enriquecimiento de alertas SOC"
+    - "Identificar y mitigar vectores de ataque como prompt injection y data exfiltration"
+    - "Establecer sistemas de monitoreo y gobernanza para sistemas de IA"
+
+modules:
+  - title: "Capítulo 1: Trabajo con Microsoft Copilot Studio y consideraciones de seguridad"
+    summary: "Implementación y configuración segura de Microsoft Copilot Studio, integración con Teams y modelos de lenguaje generativo."
+    duration_minutes: 175
+    percent_theory: 50
+    percent_practice: 50
+    bloom_level: "Aplicar / Analizar"
+    lessons:
+      - title: "Tipos de licencias para trabajar con Microsoft Copilot Studio"
+        duration_minutes: 10
+        bloom_level: "Comprender"
+      - title: "Copilot Studio integrado en Teams"
+        duration_minutes: 15
+        bloom_level: "Aplicar"
+      - title: "Desarrollar un agente en Microsoft Copilot Studio de Teams"
+        duration_minutes: 15
+        bloom_level: "Aplicar"
+      - title: "Copilot Studio con conexión a modelos de lenguaje"
+        duration_minutes: 15
+        bloom_level: "Aplicar"
+      - title: "Desarrollar un agente en Microsoft Copilot Integrado con IA Generativa"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Integración de tus propios datos al Copilot"
+        duration_minutes: 10
+        bloom_level: "Aplicar"
+      - title: "Consideraciones de seguridad para su implementación"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+    lab_activities:
+      - title: "Práctica 1: Crea agentes en el Copilot Studio de Teams"
+        duration_minutes: 35
+        bloom_level: "Crear"
+      - title: "Práctica 2: Crea agentes en el Copilot Studio Integrando tus datos e IA Generativa"
+        duration_minutes: 35
+        bloom_level: "Crear"
+
+  - title: "Capítulo 2: Model Context Protocol (MCP): especificación y seguridad"
+    summary: "Especificación MCP, autenticación segura, validación de esquemas y mejores prácticas para implementación en banca."
+    duration_minutes: 170
+    percent_theory: 55
+    percent_practice: 45
+    bloom_level: "Aplicar / Analizar"
+    lessons:
+      - title: "¿Qué es MCP?: objetivos, vocabulario y cuándo usarlo en la banca"
+        duration_minutes: 15
+        bloom_level: "Comprender"
+      - title: "Esquema y endpoints clave (context, docs, metadata): campos críticos y ejemplos JSON/OpenAPI"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Autenticación y transporte seguro para MCP: tokens, mTLS y políticas de acceso"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Ingestión segura: validación de schema, sanitización, firma y verificación de orígenes"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Demo: levantar un MCP server local y consultar un contexto (curl/Postman)"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Buenas prácticas para producción: versionado de contextos, whitelisting y revisión humana"
+        duration_minutes: 15
+        bloom_level: "Evaluar"
+    lab_activities:
+      - title: "Práctica 3: Desplegar MCP de referencia local, cargar dataset de ejemplo y ejecutar consultas seguras (incluye habilitar auth simple)"
+        duration_minutes: 60
+        bloom_level: "Crear"
+
+  - title: "Capítulo 3: LLM Gateway: ruteo, políticas y defensa perimetral"
+    summary: "Arquitectura de LLM Gateway, políticas de seguridad, ruteo a proveedores de modelos y operación segura."
+    duration_minutes: 170
+    percent_theory: 50
+    percent_practice: 50
+    bloom_level: "Aplicar / Analizar"
+    lessons:
+      - title: "Introducción al LLM Gateway: papel, ventajas y componentes (ruteo, plugins, inspección)"
+        duration_minutes: 15
+        bloom_level: "Comprender"
+      - title: "Arquitectura: cómo enrutar a Azure OpenAI / AWS Bedrock / modelos locales y gestionar fallbacks"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Políticas del gateway: rate-limiting, quotas, coste-control y tagging de requests"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Seguridad en el gateway: escaneo de prompts, detección de secretos y logging estructurado"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Demo: configurar ruta a proveedor mock y mostrar bloqueo por regla (prompt injection detectado)"
+        duration_minutes: 15
+        bloom_level: "Aplicar"
+      - title: "Operación y métricas: alertas, trazabilidad (request_id) y export a SIEM"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+    lab_activities:
+      - title: "Práctica 4: Desplegar un LLM Gateway local (proxy), añadir una regla simple de inspección y probar rutas a provider mock"
+        duration_minutes: 60
+        bloom_level: "Crear"
+
+  - title: "Capítulo 4: n8n y organización segura de workflows con agentes"
+    summary: "Despliegue seguro de n8n, gestión de credenciales, diseño de workflows y integración con MCP y LLM Gateway."
+    duration_minutes: 170
+    percent_theory: 50
+    percent_practice: 50
+    bloom_level: "Aplicar / Crear"
+    lessons:
+      - title: "n8n en entornos corporativos: deployment options y consideraciones (cloud vs on-prem)"
+        duration_minutes: 15
+        bloom_level: "Comprender"
+      - title: "Gestión de credenciales y RBAC en n8n; encriptación de credenciales y políticas de historial"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Diseño de workflows seguros: templates, minimización de contexto y límites de ejecución"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Demo: construir un webhook + HTTP Request node que Consulte MCP y llame al gateway"
+        duration_minutes: 15
+        bloom_level: "Aplicar"
+      - title: "Integración práctica: cómo enlazar n8n → MCP → LLM Gateway → SIEM/ticketing"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Consideraciones de seguridad operativa: backups, auditoría y escalado de workflows"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+    lab_activities:
+      - title: "Práctica 5: Crear workflow de caza de amenazas en n8n (webhook trigger, consulta MCP, llamada a gateway y creación de ticket mock)"
+        duration_minutes: 60
+        bloom_level: "Crear"
+
+  - title: "Capítulo 5: RAG (Retrieval-Augmented Generation) y pipelines de ingestión segura"
+    summary: "Diseño de pipelines RAG seguros, indexado vectorial, técnicas de data minimization y verificación de integridad."
+    duration_minutes: 170
+    percent_theory: 55
+    percent_practice: 45
+    bloom_level: "Aplicar / Analizar"
+    lessons:
+      - title: "RAG en SOC: cuándo usar RAG y beneficios para enrich de alerts"
+        duration_minutes: 15
+        bloom_level: "Comprender"
+      - title: "Diseño de pipelines de ingestión: ETL, validación, fingerprints y versionado"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Indexado y stores vectoriales: consideraciones de retención y privacidad (qué indexar y qué no)"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Demo: realización de una consulta RAG con contexto recuperado desde MCP (request + respuesta)"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Data minimization y masking: técnicas para evitar exfiltration desde RAG"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Verificación de integridad de los datos: firmas, whitelist y bloqueo de orígenes no verificados"
+        duration_minutes: 15
+        bloom_level: "Evaluar"
+    lab_activities:
+      - title: "Práctica 6: Construir pipeline básico de ingestión → indexación → consulta RAG (usar datasets de prueba y validar sanitización)"
+        duration_minutes: 60
+        bloom_level: "Crear"
+
+  - title: "Capítulo 6: Vectores de ataque contra agentes y técnicas de mitigación"
+    summary: "Identificación y mitigación de principales vectores de ataque contra sistemas de IA, incluyendo prompt injection, data exfiltration y model poisoning."
+    duration_minutes: 175
+    percent_theory: 60
+    percent_practice: 40
+    bloom_level: "Analizar / Evaluar"
+    lessons:
+      - title: "Prompt injection: variantes, ejemplos concretos en entornos bancarios y señales de alerta"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Data exfiltration: cómo un agente puede filtrar datos y cómo detectarlo en logs"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Model poisoning y poisoning indirecto vía MCP/RAG: escenarios y consecuencias"
+        duration_minutes: 20
+        bloom_level: "Evaluar"
+      - title: "Demo: ejecución controlada de un prompt injection en entorno de laboratorio y observación de logs/alertas"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Técnicas de mitigación profundas: prompt shields, validadores, HIL (human-in-loop) y gating"
+        duration_minutes: 20
+        bloom_level: "Evaluar"
+      - title: "Playbook operativo: pasos de detección, contención, mitigación y lecciones aprendidas"
+        duration_minutes: 15
+        bloom_level: "Evaluar"
+    lab_activities:
+      - title: "Práctica 7: Simulación de un prompt injection y aplicación del playbook de respuesta"
+        duration_minutes: 60
+        bloom_level: "Crear"
+
+  - title: "Capítulo 7: Despliegue, monitoreo y gobernanza"
+    summary: "Estrategias para despliegue seguro, gestión de secretos, monitoreo de sistemas de IA y establecimiento de gobernanza robusta."
+    duration_minutes: 165
+    percent_theory: 55
+    percent_practice: 45
+    bloom_level: "Aplicar / Evaluar"
+    lessons:
+      - title: "Despliegue seguro en cloud: private endpoints, VNETs, y políticas de red para Azure/AWS"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Gestión de secretos y rotación: Vault, KeyVault/Secret Manager y mejores prácticas"
+        duration_minutes: 20
+        bloom_level: "Aplicar"
+      - title: "Monitoreo y KPIs para LLMs/agents: latencia, tokens, spikes y detección de anomalías"
+        duration_minutes: 20
+        bloom_level: "Analizar"
+      - title: "Demo: alert generada por LLM Gateway hacia SIEM / ticketing (demostración de integración)"
+        duration_minutes: 15
+        bloom_level: "Aplicar"
+      - title: "Gobernanza y cumplimiento: auditorías, retención de logs y requisitos regulatorios a considerar"
+        duration_minutes: 20
+        bloom_level: "Evaluar"
+    lab_activities:
+      - title: "Práctica 8: Ejercicio final integrador: orquestar MCP + LLM Gateway + n8n + SIEM en flujo controlado (verificación de controles)"
+        duration_minutes: 60
+        bloom_level: "Crear"
