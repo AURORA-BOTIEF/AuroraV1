@@ -32,7 +32,7 @@ dynamodb = boto3.resource('dynamodb')
 TABLE_NAME = 'course-generation-phase-locks'
 
 # Minimum delay between API calls (seconds)
-MIN_DELAY_SECONDS = 60
+MIN_DELAY_SECONDS = 120
 
 # Jitter to prevent thundering herd (seconds)
 MAX_JITTER_SECONDS = 5
