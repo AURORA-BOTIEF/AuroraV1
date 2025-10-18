@@ -121,6 +121,11 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt PhaseCoordinator.Arn
 
   StrandsVisualPlanner:
     Type: AWS::Serverless::Function
