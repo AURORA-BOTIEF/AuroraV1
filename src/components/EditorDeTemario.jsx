@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (FINAL - Formato Netec original + fix PDF + userEmail)
+// src/components/EditorDeTemario.jsx (FINAL - Fix PDF sobreposición + email usuario)
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
@@ -35,17 +35,15 @@ const toDataURL = async (url) => {
   });
 };
 
-function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
+function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const [temario, setTemario] = useState(temarioInicial);
   const [userEmail, setUserEmail] = useState("");
-  const [vista, setVista] = useState("detallada");
   const [guardando, setGuardando] = useState(false);
   const [errorUi, setErrorUi] = useState("");
   const [okUi, setOkUi] = useState("");
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
-  // ✅ Obtener usuario autenticado desde Cognito
   useEffect(() => {
     const obtenerUsuario = async () => {
       try {
@@ -64,28 +62,23 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     setTemario(temarioInicial);
   }, [temarioInicial]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setTemario((prev) => ({ ...prev, [name]: value }));
-  };
-
   const handleFieldChange = (capIndex, subIndex, fieldName, value) => {
     const nuevoTemario = JSON.parse(JSON.stringify(temario));
-    let targetObject;
+    let target;
 
     if (subIndex === null) {
-      targetObject = nuevoTemario.temario[capIndex];
+      target = nuevoTemario.temario[capIndex];
     } else {
       if (typeof nuevoTemario.temario[capIndex].subcapitulos[subIndex] !== "object") {
         nuevoTemario.temario[capIndex].subcapitulos[subIndex] = {
           nombre: nuevoTemario.temario[capIndex].subcapitulos[subIndex],
         };
       }
-      targetObject = nuevoTemario.temario[capIndex].subcapitulos[subIndex];
+      target = nuevoTemario.temario[capIndex].subcapitulos[subIndex];
     }
 
-    const numericFields = ["tiempo_capitulo_min", "tiempo_subcapitulo_min", "sesion"];
-    targetObject[fieldName] = numericFields.includes(fieldName)
+    const numeric = ["tiempo_capitulo_min", "tiempo_subcapitulo_min", "sesion"];
+    target[fieldName] = numeric.includes(fieldName)
       ? parseInt(value, 10) || 0
       : value;
     setTemario(nuevoTemario);
@@ -113,12 +106,9 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     }
   };
 
-  // ✅ Exportar PDF (mantiene formato Netec original + corrección de sobreposición)
+  // --- Exportar PDF (Fix sobreposición) ---
   const exportarPDF = async () => {
     try {
-      setOkUi("Generando PDF profesional...");
-      setErrorUi("");
-
       const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
       const azulNetec = "#005A9C";
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -127,11 +117,11 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
       const contentWidth = pageWidth - margin.left - margin.right;
 
       const encabezadoDataUrl = await toDataURL(encabezadoImagen);
-      const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
+      const pieDataUrl = await toDataURL(pieDePaginaImagen);
       let y = margin.top;
 
-      const addPageIfNeeded = (spaceNeeded = 20) => {
-        if (y + spaceNeeded > pageHeight - margin.bottom) {
+      const addPageIfNeeded = (space = 20) => {
+        if (y + space > pageHeight - margin.bottom) {
           doc.addPage();
           y = margin.top;
         }
@@ -147,7 +137,7 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
       doc.setTextColor(0, 0, 0);
       y += 30;
 
-      // Descripción general, audiencia, etc.
+      // Secciones de texto (corregido línea por línea)
       const secciones = [
         { titulo: "Descripción General", texto: temario?.descripcion_general },
         { titulo: "Audiencia", texto: temario?.audiencia },
@@ -167,7 +157,7 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
 
       secciones.forEach((sec) => {
         if (!sec.texto) return;
-        addPageIfNeeded(50);
+        addPageIfNeeded(40);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(13);
         doc.setTextColor(azulNetec);
@@ -177,12 +167,15 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         const texto = doc.splitTextToSize(sec.texto, contentWidth);
-        addPageIfNeeded(texto.length * 12 + 20); // ✅ evita sobreposición
-        doc.text(texto, margin.left, y);
-        y += texto.length * 12 + 15;
+        texto.forEach((linea) => {
+          addPageIfNeeded(14);
+          doc.text(linea, margin.left, y);
+          y += 14;
+        });
+        y += 10;
       });
 
-      // Temario detallado
+      // Temario
       if (temario?.temario?.length > 0) {
         addPageIfNeeded(40);
         doc.setFont("helvetica", "bold");
@@ -193,23 +186,25 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         y += 20;
 
         temario.temario.forEach((cap, i) => {
-          addPageIfNeeded(50);
+          addPageIfNeeded(40);
           doc.setFont("helvetica", "bold");
           doc.setFontSize(12);
           doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
           y += 15;
 
-          if (cap.objetivos_capitulo && cap.objetivos_capitulo.length > 0) {
-            const objetivos = Array.isArray(cap.objetivos_capitulo)
-              ? cap.objetivos_capitulo
-              : [cap.objetivos_capitulo];
-            const texto = `Objetivos: ${objetivos.join(" ")}`;
+          if (cap.objetivos_capitulo?.length) {
+            const texto = `Objetivos: ${
+              Array.isArray(cap.objetivos_capitulo)
+                ? cap.objetivos_capitulo.join(" ")
+                : cap.objetivos_capitulo
+            }`;
             const lineas = doc.splitTextToSize(texto, contentWidth);
-            addPageIfNeeded(lineas.length * 12 + 20); // ✅ evita que se monte
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(10);
-            doc.text(lineas, margin.left + 15, y);
-            y += lineas.length * 12 + 8;
+            lineas.forEach((linea) => {
+              addPageIfNeeded(14);
+              doc.text(linea, margin.left + 15, y);
+              y += 14;
+            });
+            y += 10;
           }
 
           cap.subcapitulos?.forEach((sub, j) => {
@@ -228,7 +223,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
             });
             y += 12;
           });
-
           y += 10;
         });
       }
@@ -240,11 +234,9 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         const propsEnc = doc.getImageProperties(encabezadoDataUrl);
         const altoEnc = pageWidth * (propsEnc.height / propsEnc.width);
         doc.addImage(encabezadoDataUrl, "PNG", 0, 0, pageWidth, altoEnc);
-
-        const propsPie = doc.getImageProperties(pieDePaginaDataUrl);
+        const propsPie = doc.getImageProperties(pieDataUrl);
         const altoPie = pageWidth * (propsPie.height / propsPie.width);
-        doc.addImage(pieDePaginaDataUrl, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
-
+        doc.addImage(pieDataUrl, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
         doc.setFontSize(8);
         doc.setTextColor("#666");
         doc.text(
@@ -257,20 +249,12 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         });
       }
 
-      const nombreArchivo = `Temario_${slugify(temario?.nombre_curso)}`;
-      doc.save(`${nombreArchivo}.pdf`);
+      doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
       setOkUi("✅ PDF exportado correctamente");
-    } catch (error) {
-      console.error("Error al generar PDF:", error);
+    } catch (e) {
+      console.error("Error PDF:", e);
       setErrorUi("Error al generar el PDF.");
     }
-  };
-
-  const exportarExcel = () => {
-    if (!temario) return;
-    downloadExcelTemario(temario);
-    setOkUi("Exportado correctamente ✔");
-    setModalExportar(false);
   };
 
   if (!temario) return null;
@@ -284,258 +268,81 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         </div>
       )}
 
-      <div className="app-view">
-        <div className="vista-selector">
-          <button
-            className={`btn-vista ${vista === "detallada" ? "activo" : ""}`}
-            onClick={() => setVista("detallada")}
-          >
-            Vista Detallada
-          </button>
+      {isLoading ? (
+        <div className="spinner-container">
+          <div className="spinner" />
+          <p>Generando nueva versión...</p>
         </div>
-
-        {vista === "detallada" && (
-          <div>
-            <h3>Temario Detallado</h3>
-            {(temario?.temario || []).map((cap, capIndex) => (
-              <div key={capIndex} className="capitulo-editor">
-                <div className="capitulo-titulo-con-numero">
-                  <h4>Capítulo {capIndex + 1}:</h4>
-                  <input
-                    value={cap?.capitulo || ""}
-                    onChange={(e) =>
-                      handleFieldChange(capIndex, null, "capitulo", e.target.value)
-                    }
-                    className="input-capitulo"
-                    placeholder="Nombre del capítulo"
-                  />
-                </div>
-
-                <div className="info-grid-capitulo">
-                  <div className="info-item">
-                    <label>Duración (min)</label>
-                    <input
-                      type="number"
-                      value={cap?.tiempo_capitulo_min || ""}
-                      onChange={(e) =>
-                        handleFieldChange(capIndex, null, "tiempo_capitulo_min", e.target.value)
-                      }
-                      className="input-info-small"
-                    />
-                  </div>
-                </div>
-
-                <div className="objetivos-capitulo">
-                  <label>Objetivos del Capítulo</label>
-                  <textarea
-                    value={
-                      Array.isArray(cap?.objetivos_capitulo)
-                        ? cap.objetivos_capitulo.join("\n")
-                        : cap?.objetivos_capitulo || ""
-                    }
-                    onChange={(e) =>
-                      handleFieldChange(
-                        capIndex,
-                        null,
-                        "objetivos_capitulo",
-                        e.target.value.split("\n")
-                      )
-                    }
-                    className="textarea-objetivos-capitulo"
-                  />
-                </div>
-
-                <ul>
-                  {(cap?.subcapitulos || []).map((sub, subIndex) => {
-                    const subObj =
-                      typeof sub === "object" ? sub : { nombre: sub };
-                    return (
-                      <li key={subIndex}>
-                        <div className="subcapitulo-item-detallado">
-                          <span className="subcapitulo-numero">
-                            {capIndex + 1}.{subIndex + 1}
-                          </span>
-                          <input
-                            value={subObj?.nombre || ""}
-                            onChange={(e) =>
-                              handleFieldChange(
-                                capIndex,
-                                subIndex,
-                                "nombre",
-                                e.target.value
-                              )
-                            }
-                            className="input-subcapitulo"
-                            placeholder="Nombre del subcapítulo"
-                          />
-                          <div className="subcapitulo-meta-inputs">
-                            <input
-                              type="number"
-                              value={subObj?.tiempo_subcapitulo_min || ""}
-                              onChange={(e) =>
-                                handleFieldChange(
-                                  capIndex,
-                                  subIndex,
-                                  "tiempo_subcapitulo_min",
-                                  e.target.value
-                                )
-                              }
-                              placeholder="min"
-                            />
-                            <input
-                              type="number"
-                              value={subObj?.sesion || ""}
-                              onChange={(e) =>
-                                handleFieldChange(
-                                  capIndex,
-                                  subIndex,
-                                  "sesion",
-                                  e.target.value
-                                )
-                              }
-                              placeholder="sesión"
-                            />
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-
-                <div className="acciones-subcapitulos">
-                  <button
-                    className="btn-agregar-tema"
-                    onClick={() => {
-                      const nuevoTemario = JSON.parse(JSON.stringify(temario));
-                      nuevoTemario.temario[capIndex].subcapitulos.push({
-                        nombre: `Nuevo tema ${
-                          nuevoTemario.temario[capIndex].subcapitulos.length + 1
-                        }`,
-                        tiempo_subcapitulo_min: 30,
-                        sesion: 1,
-                      });
-                      setTemario(nuevoTemario);
-                    }}
-                  >
-                    Agregar Tema
-                  </button>
-                </div>
+      ) : (
+        <>
+          <h3>Temario Detallado</h3>
+          {(temario?.temario || []).map((cap, i) => (
+            <div key={i} className="capitulo-editor">
+              <h4>Capítulo {i + 1}:</h4>
+              <input
+                value={cap.capitulo || ""}
+                onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+                className="input-capitulo"
+              />
+              <div className="objetivos-capitulo">
+                <label>Objetivos del Capítulo</label>
+                <textarea
+                  value={
+                    Array.isArray(cap.objetivos_capitulo)
+                      ? cap.objetivos_capitulo.join("\n")
+                      : cap.objetivos_capitulo || ""
+                  }
+                  onChange={(e) =>
+                    handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
+                  }
+                  className="textarea-objetivos-capitulo"
+                />
               </div>
-            ))}
-
-            <div className="acciones-agregar">
-              <button
-                className="btn-agregar-capitulo"
-                onClick={() => {
-                  const nuevo = {
-                    capitulo: `Nuevo capítulo ${temario.temario.length + 1}`,
-                    tiempo_capitulo_min: 60,
-                    objetivos_capitulo: [""],
-                    subcapitulos: [],
-                  };
-                  setTemario((prev) => ({
-                    ...prev,
-                    temario: [...(prev.temario || []), nuevo],
-                  }));
-                }}
-              >
-                Agregar Capítulo
-              </button>
+              <ul>
+                {cap.subcapitulos?.map((sub, j) => (
+                  <li key={j}>
+                    <div className="subcapitulo-item-detallado">
+                      <span className="subcapitulo-numero">{i + 1}.{j + 1}</span>
+                      <input
+                        value={sub.nombre || ""}
+                        onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+                        className="input-subcapitulo"
+                      />
+                      <div className="subcapitulo-meta-inputs">
+                        <input
+                          type="number"
+                          value={sub.tiempo_subcapitulo_min || ""}
+                          onChange={(e) =>
+                            handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                          }
+                          placeholder="min"
+                        />
+                        <input
+                          type="number"
+                          value={sub.sesion || ""}
+                          onChange={(e) => handleFieldChange(i, j, "sesion", e.target.value)}
+                          placeholder="sesión"
+                        />
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-        )}
-      </div>
+          ))}
+        </>
+      )}
 
-      {/* === BOTONES FINALES === */}
       <div className="acciones-footer">
-        <button
-          className="btn-secundario"
-          onClick={() => {
-            const totalMinutos = 420;
-            const numCapitulos = temario.temario.length;
-            if (numCapitulos === 0) return;
-            const minutosPorCap = Math.floor(totalMinutos / numCapitulos);
-            const nuevo = JSON.parse(JSON.stringify(temario));
-            nuevo.temario.forEach((cap) => {
-              cap.tiempo_capitulo_min = minutosPorCap;
-              const temas = cap.subcapitulos?.length || 1;
-              const minPorTema = Math.floor(minutosPorCap / temas);
-              cap.subcapitulos.forEach((sub) => {
-                sub.tiempo_subcapitulo_min = minPorTema;
-              });
-            });
-            setTemario(nuevo);
-            setOkUi("⏱️ Tiempos ajustados automáticamente");
-          }}
-        >
-          Ajustar Tiempos Automáticamente
+        <button className="btn-secundario" onClick={exportarPDF}>
+          Exportar PDF
         </button>
-
         <button onClick={handleSaveClick} disabled={guardando}>
           {guardando ? "Guardando..." : "Guardar Versión"}
         </button>
-
-        <button
-          className="btn-secundario"
-          onClick={() => setModalExportar(true)}
-        >
-          Exportar...
-        </button>
       </div>
-
-      {modalExportar && (
-        <div
-          className="modal-overlay"
-          onClick={() => setModalExportar(false)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Exportar</h3>
-              <button
-                className="modal-close"
-                onClick={() => setModalExportar(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="export-format">
-                <label>
-                  <input
-                    type="radio"
-                    checked={exportTipo === "pdf"}
-                    onChange={() => setExportTipo("pdf")}
-                  />
-                  PDF
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    checked={exportTipo === "excel"}
-                    onChange={() => setExportTipo("excel")}
-                  />
-                  Excel
-                </label>
-              </div>
-            </div>
-            <div className="modal-footer">
-              {exportTipo === "pdf" ? (
-                <button onClick={exportarPDF} className="btn-guardar">
-                  Exportar PDF
-                </button>
-              ) : (
-                <button onClick={exportarExcel} className="btn-guardar">
-                  Exportar Excel
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 export default EditorDeTemario;
-
-
