@@ -188,3 +188,43 @@
   font-weight: bold;
   margin-bottom: 1rem;
 }
+/* ========================================================= */
+/* === NUEVOS BOTONES: AGREGAR CAPÍTULO Y AGREGAR TEMA === */
+/* ========================================================= */
+
+.acciones-agregar, .acciones-subcapitulos {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.btn-agregar-capitulo,
+.btn-agregar-tema {
+  background-color: #45ab9f;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.btn-agregar-capitulo:hover,
+.btn-agregar-tema:hover {
+  background-color: #035b6e;
+  transform: scale(1.03);
+}
+
+.btn-agregar-capitulo:active,
+.btn-agregar-tema:active {
+  transform: scale(0.98);
+}
+
+.btn-agregar-capitulo::before,
+.btn-agregar-tema::before {
+  content: "➕ ";
+  font-weight: bold;
+}
