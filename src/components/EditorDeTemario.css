@@ -263,4 +263,15 @@
     justify-content: center;
   }
 }
+/* 🔧 Corrige el doble ícono en los botones Agregar */
+.btn-agregar-tema::before,
+.btn-agregar-capitulo::before {
+  content: "+"; /* Un solo símbolo claro */
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  margin-right: 0.4rem;
+  filter: none !important; /* elimina interferencia de gradientes */
+}
+
 
