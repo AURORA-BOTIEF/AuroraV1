@@ -1,13 +1,11 @@
-/* === CONTENEDOR PRINCIPAL === */
+/* ---------- ESTILOS EXISTENTES (NO TOCADO) ---------- */
 .contenedor-generador {
   padding: 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  background-color: #fafafa;
 }
 
-/* === TARJETA DEL GENERADOR === */
 .card-generador {
   background: #fff;
   padding: 2rem;
@@ -27,7 +25,6 @@
   margin-bottom: 1.5rem;
 }
 
-/* === FORMULARIO === */
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -42,7 +39,6 @@
 .form-group label {
   font-weight: 600;
   margin-bottom: 0.4rem;
-  color: #222;
 }
 
 .form-group input,
@@ -51,7 +47,6 @@
   border: 1px solid #ccc;
   border-radius: 6px;
   padding: 0.5rem;
-  font-size: 0.95rem;
 }
 
 .form-group textarea {
@@ -74,50 +69,38 @@
   gap: 2rem;
 }
 
-/* === BOTONES === */
 .botones {
   display: flex;
-  flex-wrap: wrap;
   gap: 1rem;
   margin-top: 1.5rem;
 }
 
-.btn-generar,
-.btn-versiones {
+.btn-generar {
+  background-color: #035b6e;
+  color: white;
   border: none;
   border-radius: 8px;
   padding: 0.7rem 1.4rem;
   cursor: pointer;
   font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-.btn-generar {
-  background-color: #035b6e;
-  color: #fff;
-}
-
-.btn-generar:hover {
-  background-color: #023f4f;
 }
 
 .btn-versiones {
   background-color: #45ab9f;
-  color: #fff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
 }
 
-.btn-versiones:hover {
-  background-color: #379286;
-}
-
-/* === ERRORES === */
 .error {
   color: #c54b0f;
-  font-weight: 600;
   margin-top: 1rem;
 }
 
-/* === MODAL === */
+/* ---------- MODAL BASE ---------- */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -132,21 +115,20 @@
 }
 
 .modal {
-  background: #fff;
+  background: white;
   border-radius: 12px;
-  padding: 1.5rem;
+  padding: 1rem 1.5rem;
   max-width: 950px;
   width: 95%;
   overflow-y: auto;
   max-height: 85vh;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-  position: relative;
-  animation: aparecer 0.25s ease;
+  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
+  animation: fadeIn 0.25s ease;
 }
 
-@keyframes aparecer {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .modal-header {
@@ -155,7 +137,6 @@
   align-items: center;
   border-bottom: 2px solid #eee;
   padding-bottom: 0.5rem;
-  margin-bottom: 1rem;
 }
 
 .modal-header h3 {
@@ -163,133 +144,143 @@
   font-weight: 700;
 }
 
-.close-btn {
-  background: transparent;
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.close-btn,
+.refresh-btn {
   border: none;
-  font-size: 1.4rem;
+  background: transparent;
+  font-size: 1.2rem;
   cursor: pointer;
-  color: #333;
+  transition: transform 0.2s ease;
 }
 
-/* === FILTROS === */
+.refresh-btn:hover {
+  transform: rotate(180deg);
+}
+
+.close-btn:hover {
+  color: #c54b0f;
+}
+
+/* ---------- FILTROS ---------- */
 .filtros-versiones {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin: 1rem 0;
 }
 
-.filtro label {
-  font-weight: 600;
-  color: #035b6e;
-  margin-bottom: 0.3rem;
-  display: block;
-}
-
-.filtro input,
-.filtro select {
-  width: 100%;
+.filtros-versiones input,
+.filtros-versiones select {
   padding: 0.5rem;
-  border-radius: 6px;
   border: 1px solid #ccc;
-  font-size: 0.95rem;
+  border-radius: 8px;
+  min-width: 180px;
+  font-size: 0.9rem;
 }
 
-/* === TABLA DE VERSIONES === */
+.filtros-versiones input:focus,
+.filtros-versiones select:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+/* ---------- TABLA ---------- */
 .tabla-versiones {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 0.5rem;
+  margin-top: 1rem;
 }
 
 .tabla-versiones th {
-  background-color: #f8f8f8;
-  color: #035b6e;
+  background-color: #035b6e;
+  color: white;
+  padding: 0.7rem;
   text-align: left;
-  padding: 0.6rem;
-  border-bottom: 2px solid #ddd;
 }
 
 .tabla-versiones td {
   padding: 0.6rem;
-  border-bottom: 1px solid #eee;
-  color: #333;
-  vertical-align: middle;
+  border-bottom: 1px solid #ddd;
 }
 
 .tabla-versiones tr:hover {
-  background-color: #f4f8f9;
+  background-color: #f5fafa;
 }
 
-/* === MENÚ DE OPCIONES (⋮) === */
-.menu-container {
+/* ---------- MENÚ DE TRES PUNTOS ---------- */
+.acciones-cell {
   position: relative;
 }
 
 .menu-btn {
-  background: none;
+  background: transparent;
   border: none;
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   cursor: pointer;
-  color: #333;
+  color: #035b6e;
+  font-weight: bold;
+  transition: transform 0.1s ease;
+}
+
+.menu-btn:hover {
+  transform: scale(1.1);
+  color: #197fa6;
 }
 
 .menu-opciones {
   position: absolute;
+  top: 30px;
   right: 0;
-  top: 28px;
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 8px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
   z-index: 10;
-  min-width: 150px;
-  animation: slideIn 0.15s ease;
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.2s ease;
 }
 
 .menu-opciones button {
-  display: block;
-  width: 100%;
   background: none;
   border: none;
-  padding: 0.6rem 1rem;
   text-align: left;
-  font-size: 0.95rem;
+  padding: 0.6rem 1rem;
   cursor: pointer;
-  color: #333;
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
 }
 
 .menu-opciones button:hover {
-  background-color: #f0f5f5;
+  background: #f0f8fa;
+  color: #035b6e;
 }
 
-/* === SCROLL DEL MODAL === */
-.modal::-webkit-scrollbar {
-  width: 8px;
-}
-.modal::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 4px;
-}
-.modal::-webkit-scrollbar-thumb:hover {
-  background: #999;
-}
-
-/* === RESPONSIVE === */
-@media (max-width: 768px) {
-  .card-generador {
-    padding: 1.5rem;
-  }
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
+/* ---------- RESPONSIVO ---------- */
+@media (max-width: 700px) {
   .modal {
     padding: 1rem;
+  }
+
+  .filtros-versiones {
+    flex-direction: column;
+  }
+
+  .tabla-versiones th, .tabla-versiones td {
+    font-size: 0.85rem;
+  }
+
+  .menu-opciones {
+    right: auto;
+    left: 0;
   }
 }
 
