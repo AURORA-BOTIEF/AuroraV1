@@ -123,12 +123,17 @@ def generate_module_single_call(
     module_data: dict,
     course_data: dict,
     model_provider: str = "bedrock",
-    openai_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None,
+    lessons_range: Optional[tuple] = None
 ) -> List[Dict[str, Any]]:
     """
-    Generate complete module content in a SINGLE LLM call.
+    Generate module content in a SINGLE LLM call.
     
-    This is 85% faster than the multi-call approach (1-2 min vs 10+ min).
+    Supports lesson batching to avoid Lambda timeouts:
+    - Modules with ≤3 lessons: Generate all at once
+    - Modules with >3 lessons: Generate in batches (e.g., lessons 1-3, then 4-6)
+    
+    This is 85% faster than the multi-call approach (1-2 min vs 10+ min per batch).
     
     Args:
         module_number: Module number (1-based)
@@ -136,21 +141,32 @@ def generate_module_single_call(
         course_data: Full course data for context
         model_provider: "bedrock" or "openai"
         openai_api_key: OpenAI API key (if using OpenAI)
+        lessons_range: Optional tuple (start, end) for lesson indices (0-based, exclusive end)
+                      If None, generates all lessons. Example: (0, 3) generates lessons 1-3
     
     Returns:
         List of generated lessons with metadata
     """
-    
-    print(f"\n{'='*70}")
-    print(f"🚀 SINGLE-CALL GENERATION - Module {module_number}")
-    print(f"{'='*70}")
     
     # Extract module info
     module_title = module_data.get('title', f'Module {module_number}')
     module_summary = module_data.get('summary', '')
     module_duration = module_data.get('duration_minutes', 0)
     module_bloom = module_data.get('bloom_level', 'Understand')
-    lessons = module_data.get('lessons', [])
+    all_lessons = module_data.get('lessons', [])
+    
+    # Apply lesson range filter if specified
+    if lessons_range:
+        start_idx, end_idx = lessons_range
+        lessons = all_lessons[start_idx:end_idx]
+        batch_info = f" (Lessons {start_idx + 1}-{end_idx} of {len(all_lessons)})"
+    else:
+        lessons = all_lessons
+        batch_info = ""
+    
+    print(f"\n{'='*70}")
+    print(f"🚀 SINGLE-CALL GENERATION - Module {module_number}{batch_info}")
+    print(f"{'='*70}")
     
     total_lessons = len(lessons)
     print(f"📚 Module: {module_title}")
@@ -179,8 +195,14 @@ def generate_module_single_call(
     
     print(f"🌐 Target Language: {target_language} ({course_language})")
     
-    for idx, lesson in enumerate(lessons, 1):
-        lesson_title = lesson.get('title', f'Lesson {idx}')
+    # Calculate the starting lesson number for this batch
+    start_lesson_num = lessons_range[0] + 1 if lessons_range else 1
+    
+    for idx, lesson in enumerate(lessons):
+        # Use global lesson number across all batches
+        global_lesson_num = start_lesson_num + idx
+        
+        lesson_title = lesson.get('title', f'Lesson {global_lesson_num}')
         lesson_duration = lesson.get('duration_minutes', 0)
         lesson_bloom = lesson.get('bloom_level', module_bloom)
         topics = lesson.get('topics', [])
@@ -211,7 +233,7 @@ def generate_module_single_call(
                 labs_list.append(f"    - {lab}")
         
         lesson_spec = f"""
-## LESSON {idx}: {lesson_title}
+## LESSON {global_lesson_num}: {lesson_title}
 Duration: {lesson_duration} minutes
 Bloom Level: {lesson_bloom}
 Target Words: {target_words}+
@@ -816,21 +838,58 @@ def lambda_handler(event, context):
         all_lesson_keys = []
         total_word_count = 0
         
+        # Configuration: Maximum lessons per batch to avoid timeout
+        MAX_LESSONS_PER_BATCH = 3
+        
         for module_num in modules_to_generate:
             print(f"\n{'='*70}")
             print(f"📚 GENERATING MODULE {module_num}/{len(modules)}")
             print(f"{'='*70}")
             
             module_data = modules[module_num - 1]
+            module_lessons = module_data.get('lessons', [])
+            total_module_lessons = len(module_lessons)
             
-            # Generate module content (SINGLE CALL per module!)
-            generated_lessons = generate_module_single_call(
-                module_number=module_num,
-                module_data=module_data,
-                course_data=course_info,
-                model_provider=model_provider,
-                openai_api_key=openai_api_key
-            )
+            # Determine if we need to batch lessons
+            if total_module_lessons <= MAX_LESSONS_PER_BATCH:
+                # Small module: Generate all lessons in one call
+                print(f"📝 Module has {total_module_lessons} lessons - generating in single call")
+                
+                generated_lessons = generate_module_single_call(
+                    module_number=module_num,
+                    module_data=module_data,
+                    course_data=course_info,
+                    model_provider=model_provider,
+                    openai_api_key=openai_api_key,
+                    lessons_range=None  # All lessons
+                )
+            else:
+                # Large module: Generate lessons in batches
+                num_batches = (total_module_lessons + MAX_LESSONS_PER_BATCH - 1) // MAX_LESSONS_PER_BATCH
+                print(f"📝 Module has {total_module_lessons} lessons - splitting into {num_batches} batches of max {MAX_LESSONS_PER_BATCH} lessons")
+                
+                generated_lessons = []
+                
+                for batch_idx in range(num_batches):
+                    start_idx = batch_idx * MAX_LESSONS_PER_BATCH
+                    end_idx = min(start_idx + MAX_LESSONS_PER_BATCH, total_module_lessons)
+                    
+                    print(f"\n🔄 Batch {batch_idx + 1}/{num_batches}: Generating lessons {start_idx + 1}-{end_idx}")
+                    
+                    batch_lessons = generate_module_single_call(
+                        module_number=module_num,
+                        module_data=module_data,
+                        course_data=course_info,
+                        model_provider=model_provider,
+                        openai_api_key=openai_api_key,
+                        lessons_range=(start_idx, end_idx)
+                    )
+                    
+                    generated_lessons.extend(batch_lessons)
+                    
+                    print(f"✅ Batch {batch_idx + 1} complete: Generated {len(batch_lessons)} lessons")
+                
+                print(f"\n✅ Module {module_num} complete: Generated {len(generated_lessons)} lessons across {num_batches} batches")
             
             # Save lessons to S3
             print(f"\n💾 Saving {len(generated_lessons)} lessons to S3...")
