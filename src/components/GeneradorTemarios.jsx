@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
@@ -28,12 +28,27 @@ function GeneradorTemarios() {
   const [error, setError] = useState("");
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [usuarioEmail, setUsuarioEmail] = useState("");
 
   const [filtroCurso, setFiltroCurso] = useState("");
   const [filtroAsesor, setFiltroAsesor] = useState("");
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
   const [menuAbierto, setMenuAbierto] = useState(null);
 
+  // Obtener correo del usuario autenticado desde Cognito
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem("id_token");
+      if (token) {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setUsuarioEmail(payload.email || payload.username || "desconocido@netec.com.mx");
+      }
+    } catch (err) {
+      console.error("Error al obtener email del token:", err);
+    }
+  }, []);
+
+  // Filtrar versiones
   const versionesFiltradas = versiones
     .filter((v) => {
       const matchCurso = v.nombre_curso?.toLowerCase().includes(filtroCurso.toLowerCase());
@@ -41,7 +56,7 @@ function GeneradorTemarios() {
       const matchTecnologia = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
       return matchCurso && matchAsesor && matchTecnologia;
     })
-    .sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
+    .sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)); // más recientes primero
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -53,6 +68,7 @@ function GeneradorTemarios() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
+  // === Generar Temario ===
   const handleGenerar = async () => {
     if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso) {
       setError("Completa todos los campos requeridos antes de continuar.");
@@ -64,12 +80,6 @@ function GeneradorTemarios() {
 
     try {
       const token = localStorage.getItem("id_token");
-      if (!token) {
-        alert("No se encontró el token de autenticación. Inicia sesión nuevamente.");
-        setIsLoading(false);
-        return;
-      }
-
       const response = await fetch(
         "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR",
         {
@@ -86,31 +96,32 @@ function GeneradorTemarios() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar temario");
 
-      console.log("✅ Temario generado:", data);
-      setTemarioGenerado({ ...data, ...params });
+      // 💡 Normalizar estructura para EditorDeTemario
+      if (data.temario) {
+        setTemarioGenerado(data);
+      } else if (data.body) {
+        const parsed = typeof data.body === "string" ? JSON.parse(data.body) : data.body;
+        setTemarioGenerado(parsed);
+      } else {
+        console.warn("Estructura desconocida:", data);
+        setTemarioGenerado(data);
+      }
     } catch (err) {
       console.error(err);
-      setError("❌ No se pudo generar el temario. Intenta nuevamente.");
+      setError("No se pudo generar el temario. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
-      if (!token) {
-        alert("No se encontró el token del usuario.");
-        return;
-      }
-
-      const userInfo = JSON.parse(atob(token.split(".")[1]));
-      const autorEmail = userInfo.email || userInfo["cognito:username"] || "usuario@desconocido";
-
       const bodyData = {
         cursoId: params.tema_curso,
         contenido: temarioParaGuardar,
-        autor: autorEmail,
+        autor: usuarioEmail,
         asesor_comercial: params.asesor_comercial,
         nombre_preventa: params.nombre_preventa,
         nombre_curso: params.tema_curso,
@@ -133,17 +144,17 @@ function GeneradorTemarios() {
       );
 
       const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data.error || "Error al guardar versión");
+      if (!res.ok || !data.success) throw new Error(data.error || "Error al guardar versión");
 
       alert("✅ Versión guardada correctamente");
-      handleListarVersiones();
+      await handleListarVersiones(); // 🔄 refrescar lista
     } catch (error) {
       console.error(error);
       alert("❌ Error al guardar la versión");
     }
   };
 
+  // === Listar versiones ===
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -158,14 +169,16 @@ function GeneradorTemarios() {
           },
         }
       );
+
       const data = await res.json();
-      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)));
+      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))); // 🔽 más recientes primero
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
     }
   };
 
+  // === Cargar versión seleccionada ===
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
@@ -177,7 +190,7 @@ function GeneradorTemarios() {
         <h2>Generador de Temarios a la Medida</h2>
         <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-        {/* === FORMULARIO === */}
+        {/* === FORMULARIO PRINCIPAL === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
@@ -216,11 +229,7 @@ function GeneradorTemarios() {
 
           <div className="form-group">
             <label>Nivel de Dificultad</label>
-            <select
-              name="nivel_dificultad"
-              value={params.nivel_dificultad}
-              onChange={handleParamChange}
-            >
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option>
@@ -258,7 +267,7 @@ function GeneradorTemarios() {
           </div>
         </div>
 
-        {/* Tipo de Objetivo */}
+        {/* === Tipo de Objetivo === */}
         <div className="form-group-radio">
           <label>Tipo de Objetivo</label>
           <div>
@@ -270,7 +279,7 @@ function GeneradorTemarios() {
                 checked={params.objetivo_tipo === "saber_hacer"}
                 onChange={handleParamChange}
               />{" "}
-              Saber Hacer (habilidades)
+              Saber Hacer (enfocado en habilidades)
             </label>
             <label>
               <input
@@ -280,18 +289,19 @@ function GeneradorTemarios() {
                 checked={params.objetivo_tipo === "certificacion"}
                 onChange={handleParamChange}
               />{" "}
-              Certificación (examen)
+              Certificación (enfocado en examen)
             </label>
           </div>
         </div>
 
+        {/* === Sector y Enfoque === */}
         <div className="form-group">
           <label>Sector / Audiencia</label>
           <textarea
             name="sector"
             value={params.sector}
             onChange={handleParamChange}
-            placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..."
+            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
           />
         </div>
 
@@ -317,42 +327,20 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* === MOSTRAR TEMARIO GENERADO === */}
+      {/* === Mostrar Temario Generado === */}
       {temarioGenerado && (
-        <div className="resultado-temario">
-          <h3>📘 Temario Generado</h3>
-          <p><strong>Curso:</strong> {temarioGenerado.nombre_curso}</p>
-          <p><strong>Nivel:</strong> {temarioGenerado.nivel}</p>
-          <p><strong>Sector:</strong> {temarioGenerado.sector}</p>
-          <p>
-            <strong>Distribución:</strong>{" "}
-            {temarioGenerado.porcentaje_teoria}% teoría / {temarioGenerado.porcentaje_practica}% práctica
-          </p>
-
-          <EditorDeTemario
-            temario={temarioGenerado}
-            onGuardar={() => handleGuardarVersion(temarioGenerado)}
-          />
-
-          <pre className="json-preview">
-            {JSON.stringify(temarioGenerado, null, 2)}
-          </pre>
-        </div>
+        <EditorDeTemario temario={temarioGenerado} onGuardar={() => handleGuardarVersion(temarioGenerado)} />
       )}
 
-      {/* === MODAL VERSIONES === */}
+      {/* === Modal de Versiones === */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <div className="header-buttons">
-                <button className="refresh-btn" onClick={handleListarVersiones}>⟳ Refrescar</button>
-                <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
-              </div>
+              <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
 
-            {/* FILTROS */}
             <div className="filtros-versiones">
               <div className="filtro">
                 <label>Curso</label>
@@ -405,17 +393,12 @@ function GeneradorTemarios() {
                     <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                     <td>{v.autor}</td>
                     <td className="menu-container">
-                      <button
-                        className="menu-btn"
-                        onClick={() => setMenuAbierto(menuAbierto === i ? null : i)}
-                      >
-                        ⋮
-                      </button>
+                      <button className="menu-btn" onClick={() => setMenuAbierto(menuAbierto === i ? null : i)}>⋮</button>
                       {menuAbierto === i && (
                         <div className="menu-opciones">
                           <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
-                          <button onClick={() => alert("Exportar a PDF")}>📄 PDF</button>
-                          <button onClick={() => alert("Exportar a Excel")}>📊 Excel</button>
+                          <button onClick={() => alert("Exportar a PDF")}>📄 Exportar PDF</button>
+                          <button onClick={() => alert("Exportar a Excel")}>📊 Exportar Excel</button>
                         </div>
                       )}
                     </td>
@@ -431,7 +414,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
 
 
 
