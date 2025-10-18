@@ -283,5 +283,69 @@
     left: 0;
   }
 }
+/* ============================= */
+/* CAMPOS NUEVOS: Sector y Enfoque */
+/* ============================= */
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 70px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #333;
+  background-color: #fff;
+  transition: all 0.2s ease;
+}
+
+/* Efecto al enfocar */
+.form-group textarea:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+/* Apariencia deshabilitado */
+.form-group input[disabled],
+.form-group select[disabled],
+.form-group textarea[disabled] {
+  background-color: #f4f4f4;
+  color: #666;
+  cursor: not-allowed;
+}
+
+/* Placeholder más tenue */
+.form-group textarea::placeholder {
+  color: #999;
+  font-style: italic;
+}
+
+/* Espaciado coherente entre los nuevos campos */
+.form-group label {
+  margin-top: 1rem;
+}
+
+/* Botones cuando está generando */
+.btn-generar:disabled {
+  background-color: #999;
+  cursor: not-allowed;
+}
+
+.btn-versiones:disabled {
+  background-color: #7dbbb3;
+  cursor: not-allowed;
+}
+
+/* Ajuste visual menor de los íconos de acción */
+.menu-opciones button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.menu-opciones button svg,
+.menu-opciones button::before {
+  font-size: 1rem;
+}
+
 
 
