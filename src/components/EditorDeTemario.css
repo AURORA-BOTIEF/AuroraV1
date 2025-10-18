@@ -6,11 +6,29 @@
   margin-top: 1rem;
 }
 
+.msg.ok {
+  background: #e6f4ea;
+  color: #1b5e20;
+  border: 1px solid #a5d6a7;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.msg.error {
+  background: #fdecea;
+  color: #c62828;
+  border: 1px solid #f5b7b1;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
 .capitulo-editor {
   background: #fafafa;
   border: 1px solid #eee;
   border-radius: 10px;
-  padding: 1rem 1.5rem;
+  padding: 1.2rem 1.5rem;
   margin-bottom: 1.5rem;
 }
 
@@ -25,6 +43,12 @@
   padding: 0.5rem;
   border-radius: 6px;
   border: 1px solid #ccc;
+  margin-bottom: 0.8rem;
+}
+
+.duracion-total {
+  font-size: 0.9rem;
+  color: #333;
   margin-bottom: 0.8rem;
 }
 
@@ -56,25 +80,26 @@
 }
 
 .btn-agregar-tema {
-  background: #45ab9f;
+  background: linear-gradient(90deg, #45ab9f, #035b6e);
   color: #fff;
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1.2rem;
   font-weight: 600;
   cursor: pointer;
-  margin-top: 0.5rem;
+  margin-top: 0.8rem;
+  transition: transform 0.2s ease;
 }
 
 .btn-agregar-tema:hover {
-  background: #3a978e;
+  transform: scale(1.05);
 }
 
 .acciones-footer {
   display: flex;
   justify-content: center;
   gap: 1rem;
-  margin-top: 1.5rem;
+  margin-top: 2rem;
   flex-wrap: wrap;
 }
 
@@ -110,47 +135,33 @@
 
 .agregar-capitulo-container {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   margin-top: 1rem;
 }
 
 .btn-agregar-capitulo {
-  background-color: #45ab9f;
+  background: linear-gradient(90deg, #45ab9f, #035b6e);
   color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 0.6rem 1.2rem;
+  padding: 0.7rem 1.4rem;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 0.2s ease;
 }
 
-.ui-messages .msg {
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  border-radius: 6px;
+.btn-agregar-capitulo:hover {
+  transform: scale(1.05);
 }
 
-.msg.ok {
-  background: #d9fdd3;
-  color: #216e39;
-}
-
-.msg.error {
-  background: #ffe4e1;
-  color: #a73200;
-}
-
-/* --- Modal --- */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.3);
+  inset: 0;
+  background: rgba(0,0,0,0.35);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1000;
 }
 
 .modal {
