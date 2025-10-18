@@ -33,7 +33,6 @@ function GeneradorTemarios() {
   const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
   const [menuActivo, setMenuActivo] = useState(null);
 
-  // 🔹 Obtener correo del usuario autenticado
   useEffect(() => {
     const getUser = async () => {
       try {
@@ -65,7 +64,7 @@ function GeneradorTemarios() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
-  // 🔹 Generar temario IA
+  // --- Generar temario ---
   const handleGenerar = async () => {
     if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso || !params.sector) {
       setError("Completa todos los campos requeridos antes de continuar (incluye Sector/Audiencia).");
@@ -100,7 +99,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // 🔹 Guardar versión
+  // --- Guardar versión ---
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -139,7 +138,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // 🔹 Listar versiones guardadas
+  // --- Listar versiones ---
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -187,33 +186,17 @@ function GeneradorTemarios() {
     );
   });
 
-  // ===================================================
-  // ======    INTERFAZ PRINCIPAL DEL GENERADOR    =====
-  // ===================================================
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
         <h2>Generador de Temarios a la Medida</h2>
         <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-        {/* === FORMULARIO PRINCIPAL === */}
         <div className="form-grid">
-          {/* Campos principales */}
-          {[
-            { label: "Nombre Preventa Asociado", name: "nombre_preventa" },
-            { label: "Tecnología", name: "tecnologia", placeholder: "Ej: AWS, React, Python" },
-            { label: "Tema Principal del Curso", name: "tema_curso", placeholder: "Ej: Arquitecturas Serverless" },
-            { label: "Sector / Audiencia", name: "sector", type: "textarea", placeholder: "Ej: Personas del sector financiero..." },
-          ].map((f) => (
-            <div key={f.name} className="form-group">
-              <label>{f.label}</label>
-              {f.type === "textarea" ? (
-                <textarea name={f.name} value={params[f.name]} onChange={handleParamChange} disabled={isLoading} placeholder={f.placeholder} />
-              ) : (
-                <input name={f.name} value={params[f.name]} onChange={handleParamChange} disabled={isLoading} placeholder={f.placeholder} />
-              )}
-            </div>
-          ))}
+          <div className="form-group">
+            <label>Nombre Preventa Asociado</label>
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
+          </div>
 
           <div className="form-group">
             <label>Asesor(a) Comercial Asociado</label>
@@ -224,6 +207,61 @@ function GeneradorTemarios() {
               ))}
             </select>
           </div>
+
+          <div className="form-group">
+            <label>Tecnología</label>
+            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: AWS, React, Python" />
+          </div>
+
+          <div className="form-group">
+            <label>Tema Principal del Curso</label>
+            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Arquitecturas Serverless" />
+          </div>
+
+          <div className="form-group">
+            <label>Nivel de Dificultad</label>
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange} disabled={isLoading}>
+              <option value="basico">Básico</option>
+              <option value="intermedio">Intermedio</option>
+              <option value="avanzado">Avanzado</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Número de Sesiones</label>
+            <input
+              type="number"
+              name="numero_sesiones_por_semana"
+              min="1"
+              max="7"
+              value={params.numero_sesiones_por_semana}
+              onChange={handleSliderChange}
+              disabled={isLoading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Horas por Sesión</label>
+            <input
+              type="number"
+              name="horas_por_sesion"
+              min="1"
+              max="12"
+              value={params.horas_por_sesion}
+              onChange={handleSliderChange}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label>Sector / Audiencia</label>
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Personas del sector financiero..." />
+        </div>
+
+        <div className="form-group">
+          <label>Enfoque Adicional (Opcional)</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Orientado a patrones de diseño..." />
         </div>
 
         <div className="botones">
@@ -238,64 +276,93 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* === EDITOR === */}
       {temarioGenerado && (
-        <EditorDeTemario temarioInicial={temarioGenerado} onSave={handleGuardarVersion} isLoading={isLoading} />
+        <EditorDeTemario
+          temarioInicial={temarioGenerado}
+          onSave={handleGuardarVersion}
+          isLoading={isLoading}
+          totalHoras={params.numero_sesiones_por_semana * params.horas_por_sesion}
+        />
       )}
 
-      {/* === MODAL DE VERSIONES === */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
+              <div className="modal-actions">
+                <button className="refresh-btn" onClick={handleListarVersiones}>🔄</button>
+                <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
+              </div>
             </div>
-            <div className="filtros-versiones">
-              <input type="text" name="curso" placeholder="Buscar curso..." value={filtros.curso} onChange={handleFiltroChange} />
-              <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
-                <option value="">Todos los asesores</option>
-                {asesoresComerciales.map((a) => (
-                  <option key={a}>{a}</option>
-                ))}
-              </select>
-              <input type="text" name="tecnologia" placeholder="Ej: AWS, React..." value={filtros.tecnologia} onChange={handleFiltroChange} />
-              <button className="btn-versiones" onClick={limpiarFiltros}>Limpiar</button>
-            </div>
+            <div className="modal-body">
+              <div className="filtros-versiones">
+                <input
+                  type="text"
+                  name="curso"
+                  placeholder="Buscar curso..."
+                  value={filtros.curso}
+                  onChange={handleFiltroChange}
+                />
+                <select
+                  name="asesor"
+                  value={filtros.asesor}
+                  onChange={handleFiltroChange}
+                >
+                  <option value="">Todos los asesores</option>
+                  {asesoresComerciales.map((a) => (
+                    <option key={a}>{a}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  name="tecnologia"
+                  placeholder="Ej: AWS, React..."
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+                <button className="btn-versiones" onClick={limpiarFiltros}>Limpiar</button>
+              </div>
 
-            <table className="tabla-versiones">
-              <thead>
-                <tr>
-                  <th>Curso</th>
-                  <th>Tecnología</th>
-                  <th>Asesor</th>
-                  <th>Fecha</th>
-                  <th>Autor</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {versionesFiltradas.map((v, i) => (
-                  <tr key={i}>
-                    <td>{v.nombre_curso}</td>
-                    <td>{v.tecnologia}</td>
-                    <td>{v.asesor_comercial}</td>
-                    <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                    <td>{v.autor}</td>
-                    <td className="acciones-cell">
-                      <button className="menu-btn" onClick={() => setMenuActivo(menuActivo === i ? null : i)}>⋮</button>
-                      {menuActivo === i && (
-                        <div className="menu-opciones">
-                          <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
-                          <button onClick={() => alert("📄 Exportar PDF pronto disponible")}>📄 Exportar PDF</button>
-                          <button onClick={() => alert("📊 Exportar Excel pronto disponible")}>📊 Exportar Excel</button>
-                        </div>
-                      )}
-                    </td>
+              <table className="tabla-versiones">
+                <thead>
+                  <tr>
+                    <th>Curso</th>
+                    <th>Tecnología</th>
+                    <th>Asesor</th>
+                    <th>Fecha</th>
+                    <th>Autor</th>
+                    <th>Acción</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {versionesFiltradas.map((v, i) => (
+                    <tr key={i}>
+                      <td>{v.nombre_curso}</td>
+                      <td>{v.tecnologia}</td>
+                      <td>{v.asesor_comercial}</td>
+                      <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
+                      <td>{v.autor}</td>
+                      <td className="acciones-cell">
+                        <button
+                          className="menu-btn"
+                          onClick={() => setMenuActivo(menuActivo === i ? null : i)}
+                        >
+                          ⋮
+                        </button>
+                        {menuActivo === i && (
+                          <div className="menu-opciones">
+                            <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
+                            <button>📄 Exportar PDF</button>
+                            <button>📊 Exportar Excel</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -304,6 +371,7 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
 
