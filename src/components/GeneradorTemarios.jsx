@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react"; 
+import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
@@ -23,6 +24,7 @@ function GeneradorTemarios() {
     enfoque: "",
   });
 
+  const [userEmail, setUserEmail] = useState(""); // ✅ NUEVO
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,10 +33,23 @@ function GeneradorTemarios() {
   const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
   const [menuActivo, setMenuActivo] = useState(null);
 
+  // ✅ OBTENER EMAIL DEL USUARIO AUTENTICADO
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session?.tokens?.idToken?.payload?.email;
+        console.log("📧 Usuario autenticado:", email);
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("Error obteniendo usuario:", err);
+      }
+    };
+    getUser();
+  }, []);
+
   const handleParamChange = (e) => {
     const { name, value } = e.target;
-
-    // ✅ Comportamiento para los radios de tipo de objetivo
     if (name === "objetivo_tipo") {
       const enfoqueAuto =
         value === "saber_hacer"
@@ -43,7 +58,6 @@ function GeneradorTemarios() {
       setParams((prev) => ({ ...prev, [name]: value, enfoque: enfoqueAuto }));
       return;
     }
-
     setParams((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -53,13 +67,7 @@ function GeneradorTemarios() {
   };
 
   const handleGenerar = async () => {
-    if (
-      !params.nombre_preventa ||
-      !params.asesor_comercial ||
-      !params.tecnologia ||
-      !params.tema_curso ||
-      !params.sector
-    ) {
+    if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso || !params.sector) {
       setError("Completa todos los campos requeridos antes de continuar (incluye Sector/Audiencia).");
       return;
     }
@@ -93,13 +101,14 @@ function GeneradorTemarios() {
     }
   };
 
+  // ✅ GUARDA VERSIÓN CORRECTAMENTE CON userEmail
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
       const bodyData = {
         cursoId: params.tema_curso,
         contenido: temarioParaGuardar,
-        autor: userEmail,
+        autor: userEmail, // ✅ CORREGIDO
         asesor_comercial: params.asesor_comercial,
         nombre_preventa: params.nombre_preventa,
         nombre_curso: params.tema_curso,
@@ -147,11 +156,9 @@ function GeneradorTemarios() {
         }
       );
       const data = await res.json();
-
       const sortedData = data.sort(
         (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
       );
-
       setVersiones(sortedData);
       setMostrarModal(true);
     } catch (error) {
@@ -159,9 +166,7 @@ function GeneradorTemarios() {
     }
   };
 
-  const handleActualizarVersiones = () => {
-    handleListarVersiones();
-  };
+  const handleActualizarVersiones = () => handleListarVersiones();
 
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
@@ -183,17 +188,13 @@ function GeneradorTemarios() {
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => {
-    setFiltros({ curso: "", asesor: "", tecnologia: "" });
-  };
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
 
-  const versionesFiltradas = versiones.filter((v) => {
-    return (
-      v.nombre_curso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
-      (filtros.asesor ? v.asesor_comercial === filtros.asesor : true) &&
-      v.tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
-    );
-  });
+  const versionesFiltradas = versiones.filter((v) => (
+    v.nombre_curso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
+    (filtros.asesor ? v.asesor_comercial === filtros.asesor : true) &&
+    v.tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
+  ));
 
   return (
     <div className="contenedor-generador">
@@ -201,6 +202,7 @@ function GeneradorTemarios() {
         <h2>Generador de Temarios a la Medida</h2>
         <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
+        {/* Formulario */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
@@ -211,9 +213,7 @@ function GeneradorTemarios() {
             <label>Asesor(a) Comercial Asociado</label>
             <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange} disabled={isLoading}>
               <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map((a) => (
-                <option key={a}>{a}</option>
-              ))}
+              {asesoresComerciales.map((a) => <option key={a}>{a}</option>)}
             </select>
           </div>
 
@@ -237,7 +237,7 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
+            <label>Número de Sesiones (1–7)</label>
             <div className="slider-container">
               <input type="range" min="1" max="7" name="numero_sesiones_por_semana" value={params.numero_sesiones_por_semana} onChange={handleSliderChange} disabled={isLoading} />
               <span>{params.numero_sesiones_por_semana} sesión</span>
@@ -245,7 +245,7 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
+            <label>Horas por Sesión (4–12)</label>
             <div className="slider-container">
               <input type="range" min="4" max="12" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleSliderChange} disabled={isLoading} />
               <span>{params.horas_por_sesion} horas</span>
@@ -256,14 +256,8 @@ function GeneradorTemarios() {
         <div className="form-group-radio">
           <label>Tipo de Objetivo</label>
           <div>
-            <label>
-              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange} disabled={isLoading} />
-              Saber Hacer (enfocado en habilidades)
-            </label>
-            <label>
-              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange} disabled={isLoading} />
-              Certificación (enfocado en examen)
-            </label>
+            <label><input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange} disabled={isLoading} /> Saber Hacer</label>
+            <label><input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange} disabled={isLoading} /> Certificación</label>
           </div>
         </div>
 
@@ -290,71 +284,17 @@ function GeneradorTemarios() {
       </div>
 
       {temarioGenerado && (
-        <EditorDeTemario temarioInicial={temarioGenerado} onRegenerate={handleGenerar} onSave={handleGuardarVersion} isLoading={isLoading} />
-      )}
-
-      {mostrarModal && (
-        <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Versiones Guardadas</h3>
-              <div className="modal-actions">
-                <button className="refresh-btn" onClick={handleActualizarVersiones}>🔄</button>
-                <button className="clear-btn" onClick={limpiarFiltros}>🧹</button>
-                <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
-              </div>
-            </div>
-
-            <div className="filtros-versiones">
-              <input type="text" name="curso" placeholder="Buscar curso..." value={filtros.curso} onChange={handleFiltroChange} />
-              <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
-                <option value="">Todos los asesores</option>
-                {asesoresComerciales.map((a) => (
-                  <option key={a}>{a}</option>
-                ))}
-              </select>
-              <input type="text" name="tecnologia" placeholder="Ej: AWS, React..." value={filtros.tecnologia} onChange={handleFiltroChange} />
-            </div>
-
-            <table className="tabla-versiones">
-              <thead>
-                <tr>
-                  <th>Curso</th>
-                  <th>Tecnología</th>
-                  <th>Asesor</th>
-                  <th>Fecha</th>
-                  <th>Autor</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {versionesFiltradas.map((v, i) => (
-                  <tr key={i}>
-                    <td>{v.nombre_curso}</td>
-                    <td>{v.tecnologia}</td>
-                    <td>{v.asesor_comercial}</td>
-                    <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                    <td>{v.autor}</td>
-                    <td className="acciones-cell">
-                      <button className="menu-btn" onClick={() => setMenuActivo(menuActivo === i ? null : i)}>⋮</button>
-                      {menuActivo === i && (
-                        <div className="menu-opciones">
-                          <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
-                          <button onClick={() => handleExportar(v, "pdf")}>📄 Exportar PDF</button>
-                          <button onClick={() => handleExportar(v, "excel")}>📊 Exportar Excel</button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <EditorDeTemario
+          temarioInicial={temarioGenerado}
+          onRegenerate={handleGenerar}
+          onSave={handleGuardarVersion}
+          isLoading={isLoading}
+        />
       )}
     </div>
   );
 }
 
 export default GeneradorTemarios;
+
 
