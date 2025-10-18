@@ -30,35 +30,20 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  // 🔍 Filtros y menú contextual
+  // Filtros
   const [filtroCurso, setFiltroCurso] = useState("");
   const [filtroAsesor, setFiltroAsesor] = useState("");
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
   const [menuAbierto, setMenuAbierto] = useState(null);
 
-  // ✅ Obtener correo del usuario autenticado desde el token de Cognito
-  const getUserEmail = () => {
-    try {
-      const token = localStorage.getItem("id_token");
-      if (!token) return "Usuario desconocido";
-
-      const base64Url = token.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      const decodedData = JSON.parse(atob(base64));
-
-      return decodedData.email || decodedData["cognito:username"] || "Usuario desconocido";
-    } catch (error) {
-      console.error("Error al obtener el correo del token:", error);
-      return "Usuario desconocido";
-    }
-  };
-
-  const versionesFiltradas = versiones.filter((v) => {
-    const matchCurso = v.nombre_curso?.toLowerCase().includes(filtroCurso.toLowerCase());
-    const matchAsesor = filtroAsesor === "" || v.asesor_comercial === filtroAsesor;
-    const matchTecnologia = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
-    return matchCurso && matchAsesor && matchTecnologia;
-  });
+  const versionesFiltradas = versiones
+    .filter((v) => {
+      const matchCurso = v.nombre_curso?.toLowerCase().includes(filtroCurso.toLowerCase());
+      const matchAsesor = filtroAsesor === "" || v.asesor_comercial === filtroAsesor;
+      const matchTecnologia = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
+      return matchCurso && matchAsesor && matchTecnologia;
+    })
+    .sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)); // 🕒 De más reciente a más antiguo
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -70,13 +55,9 @@ function GeneradorTemarios() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
+  // ✅ Corrección total del generador de temarios
   const handleGenerar = async () => {
-    if (
-      !params.nombre_preventa ||
-      !params.asesor_comercial ||
-      !params.tecnologia ||
-      !params.tema_curso
-    ) {
+    if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso) {
       setError("Completa todos los campos requeridos antes de continuar.");
       return;
     }
@@ -86,6 +67,12 @@ function GeneradorTemarios() {
 
     try {
       const token = localStorage.getItem("id_token");
+      if (!token) {
+        alert("No se encontró el token de autenticación. Inicia sesión nuevamente.");
+        setIsLoading(false);
+        return;
+      }
+
       const response = await fetch(
         "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR",
         {
@@ -102,24 +89,32 @@ function GeneradorTemarios() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar temario");
 
+      console.log("✅ Temario generado:", data);
       setTemarioGenerado({ ...data, ...params });
     } catch (err) {
       console.error(err);
-      setError("No se pudo generar el temario. Intenta nuevamente.");
+      setError("❌ No se pudo generar el temario. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // ✅ Guarda versión usando el correo real del usuario autenticado
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
-      const emailUsuario = getUserEmail();
+      if (!token) {
+        alert("No se encontró el token del usuario.");
+        return;
+      }
+
+      const userInfo = JSON.parse(atob(token.split(".")[1]));
+      const autorEmail = userInfo.email || userInfo["cognito:username"] || "usuario@desconocido";
 
       const bodyData = {
         cursoId: params.tema_curso,
         contenido: temarioParaGuardar,
-        autor: emailUsuario, // ✅ correo real del usuario logueado
+        autor: autorEmail,
         asesor_comercial: params.asesor_comercial,
         nombre_preventa: params.nombre_preventa,
         nombre_curso: params.tema_curso,
@@ -146,12 +141,14 @@ function GeneradorTemarios() {
         throw new Error(data.error || "Error al guardar versión");
 
       alert("✅ Versión guardada correctamente");
+      handleListarVersiones(); // 🔁 Refresca lista automáticamente
     } catch (error) {
       console.error(error);
       alert("❌ Error al guardar la versión");
     }
   };
 
+  // ✅ Lista versiones (ordenadas y con refresh)
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -167,12 +164,7 @@ function GeneradorTemarios() {
         }
       );
       const data = await res.json();
-
-      // ✅ Ordenar de la más reciente a la más antigua
-      setVersiones(
-        data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))
-      );
-
+      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))); // 🔁 Recientes primero
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
@@ -188,28 +180,18 @@ function GeneradorTemarios() {
     <div className="contenedor-generador">
       <div className="card-generador">
         <h2>Generador de Temarios a la Medida</h2>
-        <p>
-          Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.
-        </p>
+        <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
         {/* === FORMULARIO PRINCIPAL === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
-            <input
-              name="nombre_preventa"
-              value={params.nombre_preventa}
-              onChange={handleParamChange}
-            />
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} />
           </div>
 
           <div className="form-group">
             <label>Asesor(a) Comercial Asociado</label>
-            <select
-              name="asesor_comercial"
-              value={params.asesor_comercial}
-              onChange={handleParamChange}
-            >
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
               <option value="">Selecciona un asesor(a)</option>
               {asesoresComerciales.map((a) => (
                 <option key={a}>{a}</option>
@@ -281,7 +263,7 @@ function GeneradorTemarios() {
           </div>
         </div>
 
-        {/* ✅ Restaurado: Saber Hacer / Certificación */}
+        {/* Tipo de Objetivo */}
         <div className="form-group-radio">
           <label>Tipo de Objetivo</label>
           <div>
@@ -308,7 +290,6 @@ function GeneradorTemarios() {
           </div>
         </div>
 
-        {/* SECTOR Y ENFOQUE */}
         <div className="form-group">
           <label>Sector / Audiencia</label>
           <textarea
@@ -330,11 +311,7 @@ function GeneradorTemarios() {
         </div>
 
         <div className="botones">
-          <button
-            className="btn-generar"
-            onClick={handleGenerar}
-            disabled={isLoading}
-          >
+          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
           <button className="btn-versiones" onClick={handleListarVersiones}>
@@ -351,10 +328,13 @@ function GeneradorTemarios() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
+              <div className="header-buttons">
+                <button className="refresh-btn" onClick={handleListarVersiones}>⟳ Refrescar</button>
+                <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
+              </div>
             </div>
 
-            {/* 🔍 FILTROS */}
+            {/* Filtros */}
             <div className="filtros-versiones">
               <div className="filtro">
                 <label>Curso</label>
@@ -390,7 +370,7 @@ function GeneradorTemarios() {
               </div>
             </div>
 
-            {/* TABLA DE VERSIONES */}
+            {/* Tabla */}
             <table className="tabla-versiones">
               <thead>
                 <tr>
