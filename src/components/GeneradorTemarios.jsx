@@ -1,4 +1,4 @@
-// src/components/GeneradorTemarios.jsx (CÓDIGO FINAL Y FUNCIONAL)
+// src/components/GeneradorTemarios.jsx (VERSIÓN RESTAURADA Y FUNCIONAL)
 import React, { useState, useEffect } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
@@ -22,7 +22,7 @@ function GeneradorTemarios() {
   const [error, setError] = useState("");
   const [usuarioEmail, setUsuarioEmail] = useState("");
 
-  // 🔹 Obtener correo del usuario autenticado desde Cognito
+  // Leer correo del usuario logueado
   useEffect(() => {
     try {
       const token = localStorage.getItem("id_token");
@@ -35,7 +35,6 @@ function GeneradorTemarios() {
     }
   }, []);
 
-  // 🔹 Manejo de cambios en los inputs y sliders
   const handleParamChange = (e) => {
     const { name, value } = e.target;
     setParams((prev) => ({ ...prev, [name]: value }));
@@ -46,7 +45,6 @@ function GeneradorTemarios() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
-  // 🔹 Llamada al endpoint para generar temario
   const handleGenerar = async () => {
     if (!params.tema_curso || !params.tecnologia || !params.asesor_comercial) {
       setError("Por favor completa los campos requeridos.");
@@ -76,7 +74,6 @@ function GeneradorTemarios() {
       else parsed = data.body || data;
 
       if (parsed.temario) {
-        console.log("✅ Temario generado:", parsed);
         setTemarioGenerado(parsed);
       } else {
         setError("No se encontró contenido del temario.");
@@ -89,7 +86,6 @@ function GeneradorTemarios() {
     }
   };
 
-  // 🔹 Guardar versión (compatibilidad con tu EditorDeTemario.jsx)
   const handleSaveVersion = async (temario, nota) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -170,29 +166,33 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Sesiones (1–7)</label>
-            <input
-              type="range"
-              min="1"
-              max="7"
-              name="numero_sesiones_por_semana"
-              value={params.numero_sesiones_por_semana}
-              onChange={handleSliderChange}
-            />
-            <span>{params.numero_sesiones_por_semana} sesión</span>
+            <label>Número de Sesiones (1–7)</label>
+            <div className="slider-container">
+              <input
+                type="range"
+                min="1"
+                max="7"
+                name="numero_sesiones_por_semana"
+                value={params.numero_sesiones_por_semana}
+                onChange={handleSliderChange}
+              />
+              <span>{params.numero_sesiones_por_semana} sesión</span>
+            </div>
           </div>
 
           <div className="form-group">
             <label>Horas por Sesión (4–12)</label>
-            <input
-              type="range"
-              min="4"
-              max="12"
-              name="horas_por_sesion"
-              value={params.horas_por_sesion}
-              onChange={handleSliderChange}
-            />
-            <span>{params.horas_por_sesion} horas</span>
+            <div className="slider-container">
+              <input
+                type="range"
+                min="4"
+                max="12"
+                name="horas_por_sesion"
+                value={params.horas_por_sesion}
+                onChange={handleSliderChange}
+              />
+              <span>{params.horas_por_sesion} horas</span>
+            </div>
           </div>
         </div>
 
@@ -207,7 +207,7 @@ function GeneradorTemarios() {
                 checked={params.objetivo_tipo === "saber_hacer"}
                 onChange={handleParamChange}
               />
-              Saber Hacer
+              Saber Hacer (enfocado en habilidades)
             </label>
             <label>
               <input
@@ -217,7 +217,7 @@ function GeneradorTemarios() {
                 checked={params.objetivo_tipo === "certificacion"}
                 onChange={handleParamChange}
               />
-              Certificación
+              Certificación (enfocado en examen)
             </label>
           </div>
         </div>
@@ -246,12 +246,12 @@ function GeneradorTemarios() {
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
+          <button className="btn-versiones">Ver Versiones Guardadas</button>
         </div>
 
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* 🔹 Muestra el Editor profesional con todos los props correctos */}
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
