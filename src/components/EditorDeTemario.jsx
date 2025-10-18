@@ -1,12 +1,11 @@
-// src/components/EditorDeTemario.jsx (versión con agregado de capítulos, temas y ajuste de tiempos)
+// src/components/EditorDeTemario.jsx (FINAL - estilo Netec original + funciones nuevas)
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from 'jspdf';
+import { fetchAuthSession } from "aws-amplify/auth";
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from '../assets/encabezado.png';
 import pieDePaginaImagen from '../assets/pie_de_pagina.png';
 import "./EditorDeTemario.css";
-
-const API_BASE = import.meta.env.VITE_TEMARIOS_API || "";
 
 function slugify(str = "") {
   return String(str)
@@ -37,25 +36,28 @@ const toDataURL = async (url) => {
 
 function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
   const [temario, setTemario] = useState(temarioInicial);
+  const [userEmail, setUserEmail] = useState("");
   const [vista, setVista] = useState('detallada');
-  const [mostrarFormRegenerar, setMostrarFormRegenerar] = useState(false);
-
   const [guardando, setGuardando] = useState(false);
   const [errorUi, setErrorUi] = useState("");
   const [okUi, setOkUi] = useState("");
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
-  const pdfContentRef = useRef(null);
-
-  const [params, setParams] = useState({
-    tecnologia: temarioInicial?.version_tecnologia || '',
-    tema_curso: temarioInicial?.tema_curso || temarioInicial?.nombre_curso || '',
-    extension_curso_dias: temarioInicial?.numero_sesiones || 1,
-    nivel_dificultad: temarioInicial?.nivel_dificultad || 'basico',
-    audiencia: temarioInicial?.audiencia || '',
-    enfoque: temarioInicial?.enfoque || ''
-  });
+  useEffect(() => {
+    const obtenerUsuario = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session?.tokens?.idToken;
+        const email = idToken?.payload?.email || "sin-correo";
+        console.log("📩 Usuario autenticado:", email);
+        setUserEmail(email);
+      } catch (error) {
+        console.error("⚠️ Error al obtener usuario:", error);
+      }
+    };
+    obtenerUsuario();
+  }, []);
 
   useEffect(() => {
     setTemario(temarioInicial);
@@ -96,7 +98,7 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
     ) || "";
 
     try {
-      const resultado = await onSave?.(temario, nota);
+      const resultado = await onSave?.({ ...temario, creado_por: userEmail }, nota);
       const success = resultado?.success ?? true;
       const message = resultado?.message || "Versión guardada correctamente";
       success ? setOkUi(message) : setErrorUi(message);
@@ -109,62 +111,135 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
   };
 
   const exportarPDF = async () => {
-    setOkUi("Generando PDF...");
     try {
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+      setOkUi("Generando PDF profesional...");
+      setErrorUi("");
+
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'pt',
+        format: 'letter'
+      });
+
       const azulNetec = "#005A9C";
-      const encabezadoDataUrl = await toDataURL(encabezadoImagen);
-      const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = { top: 210, bottom: 100, left: 40, right: 40 };
+      const contentWidth = pageWidth - margin.left - margin.right;
+
+      const encabezadoDataUrl = await toDataURL(encabezadoImagen);
+      const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
       let y = margin.top;
 
-      const addPageIfNeeded = (space) => {
-        if (y + space > pageHeight - margin.bottom) {
+      const addPageIfNeeded = (spaceNeeded = 20) => {
+        if (y + spaceNeeded > pageHeight - margin.bottom) {
           doc.addPage();
           y = margin.top;
         }
       };
 
+      // Título
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(azulNetec);
-      doc.text(temario?.nombre_curso || "Temario", pageWidth / 2, y, { align: 'center' });
-      y += 40;
+      doc.text(temario?.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: 'center' });
+      doc.setTextColor(0, 0, 0);
+      y += 30;
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
+      // Descripción general
+      const secciones = [
+        { titulo: "Descripción General", texto: temario?.descripcion_general },
+        { titulo: "Audiencia", texto: temario?.audiencia },
+        { titulo: "Prerrequisitos", texto: Array.isArray(temario?.prerrequisitos) ? temario.prerrequisitos.join('\n') : temario?.prerrequisitos },
+        { titulo: "Objetivos", texto: Array.isArray(temario?.objetivos) ? temario.objetivos.join('\n') : temario?.objetivos }
+      ];
 
-      temario.temario?.forEach((cap, i) => {
-        addPageIfNeeded(60);
+      secciones.forEach(sec => {
+        if (!sec.texto) return;
+        addPageIfNeeded(50);
         doc.setFont("helvetica", "bold");
-        doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
-        y += 15;
+        doc.setFontSize(13);
+        doc.setTextColor(azulNetec);
+        doc.text(sec.titulo, margin.left, y);
+        doc.setTextColor(0, 0, 0);
+        y += 14;
         doc.setFont("helvetica", "normal");
-
-        cap.subcapitulos?.forEach((sub, j) => {
-          addPageIfNeeded(15);
-          const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-          doc.text(`${i + 1}.${j + 1} ${subObj.nombre}`, margin.left + 20, y);
-          y += 12;
-        });
-        y += 10;
+        doc.setFontSize(10);
+        const texto = doc.splitTextToSize(sec.texto, contentWidth);
+        doc.text(texto, margin.left, y);
+        y += texto.length * 12 + 15;
       });
 
+      // Temario detallado
+      if (temario?.temario?.length > 0) {
+        addPageIfNeeded(40);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.setTextColor(azulNetec);
+        doc.text("Temario", margin.left, y);
+        doc.setTextColor(0, 0, 0);
+        y += 20;
+
+        temario.temario.forEach((cap, i) => {
+          addPageIfNeeded(50);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(12);
+          doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+          y += 15;
+
+          if (cap.objetivos_capitulo && cap.objetivos_capitulo.length > 0) {
+            const objetivos = Array.isArray(cap.objetivos_capitulo)
+              ? cap.objetivos_capitulo
+              : [cap.objetivos_capitulo];
+            const texto = `Objetivos: ${objetivos.join(" ")}`;
+            const lineas = doc.splitTextToSize(texto, contentWidth);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.text(lineas, margin.left + 15, y);
+            y += lineas.length * 12 + 8;
+          }
+
+          cap.subcapitulos?.forEach((sub, j) => {
+            addPageIfNeeded(15);
+            const subObj = typeof sub === 'object' ? sub : { nombre: sub };
+            const linea = `${i + 1}.${j + 1} ${subObj.nombre}`;
+            const tiempo = subObj.tiempo_subcapitulo_min ? `${subObj.tiempo_subcapitulo_min} min` : "";
+            const sesion = subObj.sesion ? `• Sesión ${subObj.sesion}` : "";
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.text(linea, margin.left + 20, y);
+            doc.text(`${tiempo} ${sesion}`.trim(), pageWidth - margin.right, y, { align: 'right' });
+            y += 12;
+          });
+
+          y += 10;
+        });
+      }
+
+      // Encabezado, pie y numeración
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, 100);
-        doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - 60, pageWidth, 60);
-        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 30, { align: 'center' });
+        const propsEnc = doc.getImageProperties(encabezadoDataUrl);
+        const altoEnc = pageWidth * (propsEnc.height / propsEnc.width);
+        doc.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEnc);
+
+        const propsPie = doc.getImageProperties(pieDePaginaDataUrl);
+        const altoPie = pageWidth * (propsPie.height / propsPie.width);
+        doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
+
+        doc.setFontSize(8);
+        doc.setTextColor("#666666");
+        doc.text("Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.", margin.left, pageHeight - 70);
+        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, { align: 'center' });
       }
 
-      doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
-      setOkUi("PDF exportado correctamente ✔");
-    } catch (err) {
-      console.error(err);
-      setErrorUi("Error al exportar PDF");
+      const nombreArchivo = `Temario_${slugify(temario?.nombre_curso)}`;
+      doc.save(`${nombreArchivo}.pdf`);
+      setOkUi("✅ PDF exportado correctamente");
+    } catch (error) {
+      console.error("Error al generar PDF:", error);
+      setErrorUi("Error al generar el PDF.");
     }
   };
 
@@ -189,14 +264,10 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
       <div className="app-view">
         <div className="vista-selector">
           <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
-          <button className={`btn-vista ${vista === 'resumida' ? 'activo' : ''}`} onClick={() => setVista('resumida')}>Vista Resumida</button>
         </div>
 
         {vista === 'detallada' && (
           <div>
-            <label className="editor-label">Nombre del Curso</label>
-            <textarea name="nombre_curso" value={temario?.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
-
             <h3>Temario Detallado</h3>
             {(temario?.temario || []).map((cap, capIndex) => (
               <div key={capIndex} className="capitulo-editor">
@@ -235,7 +306,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
                   })}
                 </ul>
 
-                {/* 🔹 NUEVO: botón para agregar tema dentro del capítulo */}
                 <div className="acciones-subcapitulos">
                   <button
                     className="btn-agregar-tema"
@@ -255,7 +325,6 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
               </div>
             ))}
 
-            {/* 🔹 NUEVO: botón global para agregar capítulos */}
             <div className="acciones-agregar">
               <button
                 className="btn-agregar-capitulo"
@@ -279,35 +348,33 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         )}
       </div>
 
-      {/* 🔹 NUEVO: botón de ajuste de tiempos */}
       <div className="acciones-footer">
         <button
           className="btn-secundario"
           onClick={() => {
-            const totalMinutos = 420; // 7 horas = 420 min
+            const totalMinutos = 420;
             const numCapitulos = temario.temario.length;
             if (numCapitulos === 0) return;
-
-            const minutosPorCapitulo = Math.floor(totalMinutos / numCapitulos);
-            const nuevoTemario = JSON.parse(JSON.stringify(temario));
-
-            nuevoTemario.temario.forEach(cap => {
-              cap.tiempo_capitulo_min = minutosPorCapitulo;
-              const subCount = cap.subcapitulos?.length || 1;
-              const minutosPorSub = Math.floor(minutosPorCapitulo / subCount);
+            const minutosPorCap = Math.floor(totalMinutos / numCapitulos);
+            const nuevo = JSON.parse(JSON.stringify(temario));
+            nuevo.temario.forEach(cap => {
+              cap.tiempo_capitulo_min = minutosPorCap;
+              const temas = cap.subcapitulos?.length || 1;
+              const minPorTema = Math.floor(minutosPorCap / temas);
               cap.subcapitulos.forEach(sub => {
-                sub.tiempo_subcapitulo_min = minutosPorSub;
+                sub.tiempo_subcapitulo_min = minPorTema;
               });
             });
-
-            setTemario(nuevoTemario);
+            setTemario(nuevo);
             setOkUi("⏱️ Tiempos ajustados automáticamente");
           }}
         >
           Ajustar Tiempos Automáticamente
         </button>
 
-        <button onClick={handleSaveClick} disabled={guardando}>{guardando ? "Guardando..." : "Guardar Versión"}</button>
+        <button onClick={handleSaveClick} disabled={guardando}>
+          {guardando ? "Guardando..." : "Guardar Versión"}
+        </button>
         <button className="btn-secundario" onClick={() => setModalExportar(true)}>Exportar...</button>
       </div>
 
