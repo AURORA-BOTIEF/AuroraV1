@@ -11,6 +11,7 @@ import os
 import json
 import yaml
 import boto3
+import time
 from botocore.config import Config
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -799,6 +800,8 @@ def lambda_handler(event, context):
         outline_s3_key = event.get('outline_s3_key')
         course_bucket = event.get('course_bucket')
         project_folder = event.get('project_folder')
+        execution_id = event.get('execution_id', 'unknown-execution')
+        total_modules = event.get('total_modules', 7)
         
         if not all([outline_s3_key, course_bucket, project_folder]):
             raise ValueError("Missing required S3 parameters")
@@ -873,6 +876,43 @@ def lambda_handler(event, context):
                 for batch_idx in range(num_batches):
                     start_idx = batch_idx * MAX_LESSONS_PER_BATCH
                     end_idx = min(start_idx + MAX_LESSONS_PER_BATCH, total_module_lessons)
+                    
+                    # Acquire lock for this batch (treat each batch like a separate module)
+                    if batch_idx > 0:  # First batch already has lock from module-level acquisition
+                        batch_phase_name = f"module-{module_num}-batch-{batch_idx + 1}"
+                        print(f"\n🔒 Acquiring lock for batch {batch_idx + 1}/{num_batches}...")
+                        
+                        # Invoke PhaseCoordinator to acquire lock
+                        lambda_client = boto3.client('lambda')
+                        lock_response = lambda_client.invoke(
+                            FunctionName='PhaseCoordinator',
+                            InvocationType='RequestResponse',
+                            Payload=json.dumps({
+                                'execution_id': execution_id,
+                                'phase_name': batch_phase_name,
+                                'total_modules': total_modules
+                            })
+                        )
+                        
+                        lock_result = json.loads(lock_response['Payload'].read())
+                        
+                        if lock_result.get('statusCode') != 200 or not lock_result.get('can_proceed', False):
+                            wait_seconds = lock_result.get('wait_seconds', 240)
+                            print(f"⏳ Lock not available, waiting {wait_seconds}s...")
+                            time.sleep(wait_seconds)
+                            # Retry lock acquisition
+                            lock_response = lambda_client.invoke(
+                                FunctionName='PhaseCoordinator',
+                                InvocationType='RequestResponse',
+                                Payload=json.dumps({
+                                    'execution_id': execution_id,
+                                    'phase_name': batch_phase_name,
+                                    'total_modules': total_modules
+                                })
+                            )
+                            lock_result = json.loads(lock_response['Payload'].read())
+                        
+                        print(f"✅ Lock acquired for batch {batch_idx + 1}")
                     
                     print(f"\n🔄 Batch {batch_idx + 1}/{num_batches}: Generating lessons {start_idx + 1}-{end_idx}")
                     

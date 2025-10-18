@@ -33,9 +33,9 @@ TABLE_NAME = 'course-generation-phase-locks'
 
 # Dynamic delay configuration based on module count
 # For 1-4 modules: 120 seconds (proven reliable for small courses)
-# For 5-8 modules: 180 seconds (prevents TPM quota exhaustion)
+# For 5-8 modules: 240 seconds (prevents batch overlaps with lesson batching)
 MIN_DELAY_SMALL_COURSE = 120  # 1-4 modules
-MIN_DELAY_LARGE_COURSE = 180  # 5-8 modules
+MIN_DELAY_LARGE_COURSE = 240  # 5-8 modules
 MODULE_COUNT_THRESHOLD = 4
 
 # Jitter to prevent thundering herd (seconds)
