@@ -1,4 +1,4 @@
-// src/components/GeneradorTemarios.jsx (VERSIÓN RESTAURADA Y FUNCIONAL)
+// src/components/GeneradorTemarios.jsx (VERSIÓN FINAL CON MODAL DE VERSIONES)
 import React, { useState, useEffect } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
@@ -21,8 +21,11 @@ function GeneradorTemarios() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [usuarioEmail, setUsuarioEmail] = useState("");
+  const [modalVersiones, setModalVersiones] = useState(false);
+  const [versiones, setVersiones] = useState([]);
+  const [cargandoVersiones, setCargandoVersiones] = useState(false);
 
-  // Leer correo del usuario logueado
+  // Obtener correo desde Cognito
   useEffect(() => {
     try {
       const token = localStorage.getItem("id_token");
@@ -69,9 +72,7 @@ function GeneradorTemarios() {
       );
 
       const data = await res.json();
-      let parsed;
-      if (typeof data.body === "string") parsed = JSON.parse(data.body);
-      else parsed = data.body || data;
+      let parsed = typeof data.body === "string" ? JSON.parse(data.body) : data.body || data;
 
       if (parsed.temario) {
         setTemarioGenerado(parsed);
@@ -86,6 +87,7 @@ function GeneradorTemarios() {
     }
   };
 
+  // Guardar versión (EditorDeTemario lo llama)
   const handleSaveVersion = async (temario, nota) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -105,7 +107,6 @@ function GeneradorTemarios() {
 
       const data = await response.json();
       if (response.ok) {
-        console.log("✅ Versión guardada:", data);
         return { success: true, message: "Versión guardada correctamente" };
       } else {
         return { success: false, message: data.error || "Error al guardar versión" };
@@ -116,6 +117,28 @@ function GeneradorTemarios() {
     }
   };
 
+  // 🆕 Nueva función: obtener versiones guardadas
+  const cargarVersiones = async () => {
+    setCargandoVersiones(true);
+    try {
+      const token = localStorage.getItem("id_token");
+      const response = await fetch(`${import.meta.env.VITE_TEMARIOS_API}/obtener-versiones?autor=${usuarioEmail}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      setVersiones(Array.isArray(data.body) ? data.body : JSON.parse(data.body || "[]"));
+    } catch (error) {
+      console.error("Error al cargar versiones:", error);
+    } finally {
+      setCargandoVersiones(false);
+    }
+  };
+
+  const handleVerVersiones = () => {
+    setModalVersiones(true);
+    cargarVersiones();
+  };
+
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
@@ -123,13 +146,31 @@ function GeneradorTemarios() {
 
         <div className="form-grid">
           <div className="form-group">
-            <label>Asesor Comercial</label>
+            <label>Nombre de Preventa</label>
             <input
+              name="nombre_preventa"
+              value={params.nombre_preventa}
+              onChange={handleParamChange}
+              placeholder="Ejemplo: Luis Martínez"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Asesor Comercial</label>
+            <select
               name="asesor_comercial"
               value={params.asesor_comercial}
               onChange={handleParamChange}
-              placeholder="Ejemplo: Juan Pérez"
-            />
+            >
+              <option value="">Selecciona un asesor</option>
+              <option value="Natalia García">Natalia García</option>
+              <option value="Mariana López">Mariana López</option>
+              <option value="Fernando Castro">Fernando Castro</option>
+              <option value="Carla Méndez">Carla Méndez</option>
+              <option value="Julio Paredes">Julio Paredes</option>
+              <option value="Andrea Molina">Andrea Molina</option>
+              <option value="Otro">Otro</option>
+            </select>
           </div>
 
           <div className="form-group">
@@ -246,7 +287,9 @@ function GeneradorTemarios() {
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button className="btn-versiones">Ver Versiones Guardadas</button>
+          <button className="btn-versiones" onClick={handleVerVersiones}>
+            Ver Versiones Guardadas
+          </button>
         </div>
 
         {error && <p className="error">{error}</p>}
@@ -263,11 +306,52 @@ function GeneradorTemarios() {
           }}
         />
       )}
+
+      {/* 🆕 Modal de versiones */}
+      {modalVersiones && (
+        <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
+          <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Versiones Guardadas</h3>
+              <button className="modal-close" onClick={() => setModalVersiones(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {cargandoVersiones ? (
+                <p>Cargando versiones...</p>
+              ) : versiones.length === 0 ? (
+                <p>No hay versiones guardadas.</p>
+              ) : (
+                <div className="tabla-versiones-scroll">
+                  <table className="versiones-table">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Nota</th>
+                        <th>Autor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {versiones.map((v, i) => (
+                        <tr key={i}>
+                          <td>{new Date(v.fecha_guardado).toLocaleString()}</td>
+                          <td>{v.nota}</td>
+                          <td>{v.autor}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default GeneradorTemarios;
+
 
 
 
