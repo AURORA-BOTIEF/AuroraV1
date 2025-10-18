@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (FINAL con mejoras visuales y PDF corregido)
+// src/components/EditorDeTemario.jsx (FINAL con botón alineado a la derecha)
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
@@ -51,7 +51,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setTemario(temarioInicial);
   }, [temarioInicial]);
 
-  // ===== CAMBIOS DE CAMPOS =====
+  // ===== CAMBIO DE CAMPOS =====
   const handleFieldChange = (capIndex, subIndex, field, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
     if (subIndex === null) {
@@ -67,7 +67,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           ? parseInt(value, 10) || 0
           : value;
     }
-    // Calcular duración total del capítulo
+    // recalcular duración total
     nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[
       capIndex
     ].subcapitulos.reduce(
@@ -84,7 +84,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       capitulo: `Nuevo capítulo ${nuevo.temario.length + 1}`,
       tiempo_capitulo_min: 0,
       objetivos_capitulo: "",
-      subcapitulos: [],
+      subcapitulos: [
+        { nombre: "Nuevo tema 1", tiempo_subcapitulo_min: 30, sesion: 1 },
+      ],
     });
     setTemario(nuevo);
   };
@@ -163,19 +165,14 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         }
       };
 
-      // --- Encabezado principal ---
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
       doc.setTextColor(azul);
-      doc.text(
-        temario?.nombre_curso || "Temario del Curso",
-        pageWidth / 2,
-        y,
-        { align: "center" }
-      );
+      doc.text(temario?.nombre_curso || "Temario del Curso", pageWidth / 2, y, {
+        align: "center",
+      });
       y += 40;
 
-      // --- Secciones ---
       const secciones = [
         { titulo: "Descripción General", texto: temario?.descripcion_general },
         { titulo: "Audiencia", texto: temario?.audiencia },
@@ -203,7 +200,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         y += 10;
       });
 
-      // --- Título “Temario” ---
       addPageIfNeeded(50);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
@@ -211,7 +207,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       doc.text("Temario", margin.left, y);
       y += 25;
 
-      // --- Capítulos ---
       temario.temario.forEach((cap, i) => {
         addPageIfNeeded(60);
         doc.setFont("helvetica", "bold");
@@ -226,7 +221,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
         y += 12;
 
-        // Objetivos
         if (cap.objetivos_capitulo) {
           doc.setFont("helvetica", "normal");
           doc.setFontSize(10);
@@ -241,7 +235,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           });
         }
 
-        // Subcapítulos
         cap.subcapitulos.forEach((sub, j) => {
           addPageIfNeeded(16);
           const subObj = typeof sub === "object" ? sub : { nombre: sub };
@@ -257,7 +250,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         y += 16;
       });
 
-      // Encabezado y pie
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
@@ -297,9 +289,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
   return (
     <div className="editor-container">
-      {mensaje.texto && (
-        <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>
-      )}
+      {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
       <h3>Temario Detallado</h3>
 
@@ -360,6 +350,13 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         </div>
       ))}
 
+      {/* Botón alineado a la derecha */}
+      <div className="btn-agregar-capitulo-container">
+        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
+          ➕ Agregar Capítulo
+        </button>
+      </div>
+
       <div className="acciones-footer">
         <button className="btn-primario" onClick={ajustarTiempos}>
           Ajustar Tiempos
@@ -369,12 +366,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         </button>
         <button className="btn-secundario" onClick={() => setModalExportar(true)}>
           Exportar
-        </button>
-      </div>
-
-      <div className="agregar-capitulo-container">
-        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
-          ➕ Agregar Capítulo
         </button>
       </div>
 
@@ -424,6 +415,3 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 }
 
 export default EditorDeTemario;
-
-
-
