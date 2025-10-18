@@ -1,111 +1,64 @@
 .contenedor-generador {
   padding: 2rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
 }
 
 .card-generador {
   background: #fff;
   padding: 2rem;
   border-radius: 12px;
-  max-width: 1000px;
-  width: 100%;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
-}
-
-.card-generador h2 {
-  color: #035b6e;
-  font-weight: 700;
-}
-
-.card-generador p {
-  color: #444;
-  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
 }
 
 .form-group label {
   font-weight: 600;
-  margin-bottom: 0.4rem;
-}
-
-.form-group input,
-.form-group select,
-.form-group textarea {
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  padding: 0.5rem;
-}
-
-.form-group textarea {
-  resize: vertical;
-  min-height: 60px;
+  color: #035b6e;
 }
 
 .slider-container {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-}
-
-.form-group-radio {
-  margin-top: 1rem;
-}
-
-.form-group-radio div {
-  display: flex;
-  gap: 2rem;
+  gap: 0.5rem;
 }
 
 .botones {
+  margin-top: 1rem;
   display: flex;
   gap: 1rem;
-  margin-top: 1.5rem;
 }
 
 .btn-generar {
-  background-color: #035b6e;
-  color: white;
+  background: #035b6e;
+  color: #fff;
   border: none;
+  padding: 0.8rem 1.5rem;
   border-radius: 8px;
-  padding: 0.7rem 1.4rem;
   cursor: pointer;
-  font-weight: 600;
 }
 
 .btn-versiones {
-  background-color: #45ab9f;
-  color: white;
+  background: #45ab9f;
+  color: #fff;
   border: none;
+  padding: 0.8rem 1.5rem;
   border-radius: 8px;
-  padding: 0.7rem 1.4rem;
   cursor: pointer;
-  font-weight: 600;
 }
 
-.error {
-  color: #c54b0f;
-  margin-top: 1rem;
+.btn-generar:hover,
+.btn-versiones:hover {
+  opacity: 0.9;
 }
 
-/* Modal */
+/* --- Modal --- */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   background: rgba(0, 0, 0, 0.4);
   display: flex;
   justify-content: center;
@@ -115,11 +68,11 @@
 .modal {
   background: white;
   border-radius: 12px;
-  padding: 1rem;
+  padding: 1.5rem;
+  width: 90%;
   max-width: 900px;
-  width: 95%;
+  max-height: 85vh;
   overflow-y: auto;
-  max-height: 80vh;
 }
 
 .modal-header {
@@ -128,135 +81,51 @@
   align-items: center;
 }
 
-.close-btn {
-  background: transparent;
-  border: none;
-  font-size: 1.4rem;
-  cursor: pointer;
+.header-buttons {
+  display: flex;
+  gap: 0.5rem;
 }
 
-.tabla-versiones {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-}
-
-.tabla-versiones th,
-.tabla-versiones td {
-  padding: 0.6rem;
-  border-bottom: 1px solid #ddd;
-  text-align: left;
-}
-
-.btn-abrir {
-  background-color: #197fa6;
+.refresh-btn {
+  background: #1b5784;
   color: white;
   border: none;
+  padding: 0.3rem 0.8rem;
   border-radius: 6px;
-  padding: 0.4rem 0.8rem;
   cursor: pointer;
 }
 
-/* ===================================================== */
-/* NUEVOS ESTILOS AGREGADOS (FILTROS + MENÚ DE TRES PUNTOS) */
-/* ===================================================== */
-
-/* 🔍 FILTROS */
-.filtros-versiones {
-  display: flex;
-  gap: 1rem;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-}
-
-.filtro {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 180px;
-}
-
-.filtro label {
-  font-weight: 600;
-  color: #035b6e;
-  margin-bottom: 4px;
-}
-
-.filtro input,
-.filtro select {
-  padding: 8px 10px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-}
-
-.filtro input:focus,
-.filtro select:focus {
-  outline: none;
-  border-color: #035b6e;
-  box-shadow: 0 0 3px #035b6e55;
-}
-
-/* ⋮ MENÚ DE TRES PUNTOS */
-.menu-container {
-  position: relative;
-}
-
-.menu-btn {
-  background: transparent;
+.close-btn {
+  background: #a73200;
+  color: white;
   border: none;
-  font-size: 1.4rem;
-  cursor: pointer;
-  color: #035b6e;
-  padding: 0.2rem;
-  line-height: 1;
+  padding: 0.3rem 0.8rem;
   border-radius: 6px;
+  cursor: pointer;
 }
 
-.menu-btn:hover {
-  background-color: #eaf6f7;
+/* --- Resultado --- */
+.resultado-temario {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
-.menu-opciones {
-  position: absolute;
-  top: 24px;
-  right: 0;
-  background: white;
-  border: 1px solid #ddd;
+.resultado-temario h3 {
+  color: #035b6e;
+  margin-bottom: 0.8rem;
+}
+
+.json-preview {
+  background: #f7f9fb;
+  padding: 1rem;
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  display: flex;
-  flex-direction: column;
-  min-width: 140px;
-  z-index: 10;
-  animation: fadeIn 0.15s ease-in-out;
-}
-
-.menu-opciones button {
-  padding: 8px 10px;
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
+  margin-top: 1rem;
+  overflow-x: auto;
   font-size: 0.9rem;
-  transition: background 0.2s;
+  white-space: pre-wrap;
 }
 
-.menu-opciones button:hover {
-  background-color: #f0f0f0;
-}
-
-/* 🪶 Animación de aparición */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ===================== FIN NUEVOS ESTILOS ===================== */
 
