@@ -1,4 +1,3 @@
-// src/components/GeneradorTemarios.jsx
 import React, { useState } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
@@ -30,7 +29,6 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  // Filtros
   const [filtroCurso, setFiltroCurso] = useState("");
   const [filtroAsesor, setFiltroAsesor] = useState("");
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
@@ -43,7 +41,7 @@ function GeneradorTemarios() {
       const matchTecnologia = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
       return matchCurso && matchAsesor && matchTecnologia;
     })
-    .sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)); // 🕒 De más reciente a más antiguo
+    .sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -55,7 +53,6 @@ function GeneradorTemarios() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
-  // ✅ Corrección total del generador de temarios
   const handleGenerar = async () => {
     if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso) {
       setError("Completa todos los campos requeridos antes de continuar.");
@@ -99,7 +96,6 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guarda versión usando el correo real del usuario autenticado
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -141,14 +137,13 @@ function GeneradorTemarios() {
         throw new Error(data.error || "Error al guardar versión");
 
       alert("✅ Versión guardada correctamente");
-      handleListarVersiones(); // 🔁 Refresca lista automáticamente
+      handleListarVersiones();
     } catch (error) {
       console.error(error);
       alert("❌ Error al guardar la versión");
     }
   };
 
-  // ✅ Lista versiones (ordenadas y con refresh)
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -164,7 +159,7 @@ function GeneradorTemarios() {
         }
       );
       const data = await res.json();
-      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))); // 🔁 Recientes primero
+      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)));
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
@@ -182,7 +177,7 @@ function GeneradorTemarios() {
         <h2>Generador de Temarios a la Medida</h2>
         <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-        {/* === FORMULARIO PRINCIPAL === */}
+        {/* === FORMULARIO === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
@@ -275,7 +270,7 @@ function GeneradorTemarios() {
                 checked={params.objetivo_tipo === "saber_hacer"}
                 onChange={handleParamChange}
               />{" "}
-              Saber Hacer (enfocado en habilidades)
+              Saber Hacer (habilidades)
             </label>
             <label>
               <input
@@ -285,7 +280,7 @@ function GeneradorTemarios() {
                 checked={params.objetivo_tipo === "certificacion"}
                 onChange={handleParamChange}
               />{" "}
-              Certificación (enfocado en examen)
+              Certificación (examen)
             </label>
           </div>
         </div>
@@ -296,7 +291,7 @@ function GeneradorTemarios() {
             name="sector"
             value={params.sector}
             onChange={handleParamChange}
-            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
+            placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..."
           />
         </div>
 
@@ -322,7 +317,30 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* === MODAL DE VERSIONES === */}
+      {/* === MOSTRAR TEMARIO GENERADO === */}
+      {temarioGenerado && (
+        <div className="resultado-temario">
+          <h3>📘 Temario Generado</h3>
+          <p><strong>Curso:</strong> {temarioGenerado.nombre_curso}</p>
+          <p><strong>Nivel:</strong> {temarioGenerado.nivel}</p>
+          <p><strong>Sector:</strong> {temarioGenerado.sector}</p>
+          <p>
+            <strong>Distribución:</strong>{" "}
+            {temarioGenerado.porcentaje_teoria}% teoría / {temarioGenerado.porcentaje_practica}% práctica
+          </p>
+
+          <EditorDeTemario
+            temario={temarioGenerado}
+            onGuardar={() => handleGuardarVersion(temarioGenerado)}
+          />
+
+          <pre className="json-preview">
+            {JSON.stringify(temarioGenerado, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      {/* === MODAL VERSIONES === */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -334,7 +352,7 @@ function GeneradorTemarios() {
               </div>
             </div>
 
-            {/* Filtros */}
+            {/* FILTROS */}
             <div className="filtros-versiones">
               <div className="filtro">
                 <label>Curso</label>
@@ -348,10 +366,7 @@ function GeneradorTemarios() {
 
               <div className="filtro">
                 <label>Asesor</label>
-                <select
-                  value={filtroAsesor}
-                  onChange={(e) => setFiltroAsesor(e.target.value)}
-                >
+                <select value={filtroAsesor} onChange={(e) => setFiltroAsesor(e.target.value)}>
                   <option value="">Todos</option>
                   {[...new Set(versiones.map((v) => v.asesor_comercial))].map((a, i) => (
                     <option key={i}>{a}</option>
@@ -370,7 +385,6 @@ function GeneradorTemarios() {
               </div>
             </div>
 
-            {/* Tabla */}
             <table className="tabla-versiones">
               <thead>
                 <tr>
@@ -400,8 +414,8 @@ function GeneradorTemarios() {
                       {menuAbierto === i && (
                         <div className="menu-opciones">
                           <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
-                          <button onClick={() => alert("Exportar a PDF")}>📄 Exportar PDF</button>
-                          <button onClick={() => alert("Exportar a Excel")}>📊 Exportar Excel</button>
+                          <button onClick={() => alert("Exportar a PDF")}>📄 PDF</button>
+                          <button onClick={() => alert("Exportar a Excel")}>📊 Excel</button>
                         </div>
                       )}
                     </td>
