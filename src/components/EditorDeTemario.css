@@ -4,6 +4,7 @@
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.05);
   margin-top: 1rem;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* Mensajes */
@@ -28,10 +29,15 @@
 /* Capítulos */
 .capitulo-editor {
   background: #fafafa;
-  border: 1px solid #eee;
+  border: 1px solid #e0e0e0;
   border-radius: 10px;
   padding: 1.2rem 1.5rem;
   margin-bottom: 1.5rem;
+  transition: box-shadow 0.2s ease;
+}
+
+.capitulo-editor:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
 }
 
 .capitulo-editor h4 {
@@ -40,12 +46,31 @@
   margin-bottom: 0.5rem;
 }
 
-.input-capitulo {
+/* Inputs y textareas */
+.input-capitulo,
+.textarea-objetivos-capitulo {
   width: 100%;
-  padding: 0.5rem;
-  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
   border: 1px solid #ccc;
   margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: #333;
+  background-color: #fff;
+  transition: all 0.2s ease;
+}
+
+.input-capitulo:focus,
+.textarea-objetivos-capitulo:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+.textarea-objetivos-capitulo {
+  min-height: 80px;
+  resize: vertical;
 }
 
 .duracion-total {
@@ -55,16 +80,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.textarea-objetivos-capitulo {
-  width: 100%;
-  min-height: 80px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  padding: 0.5rem;
-  margin-bottom: 1rem;
-  resize: vertical;
 }
 
 /* Subcapítulos */
@@ -77,8 +92,18 @@
 
 .subcapitulo-item input {
   border: 1px solid #ccc;
-  border-radius: 6px;
-  padding: 0.4rem;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #333;
+  transition: all 0.2s ease;
+}
+
+.subcapitulo-item input:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
 }
 
 .subcapitulo-item span {
@@ -88,8 +113,6 @@
 }
 
 /* === BOTONES === */
-
-/* Botón principal (Ajustar, Guardar, Exportar) */
 .btn-primario,
 .btn-secundario {
   border: none;
@@ -99,6 +122,7 @@
   font-weight: 600;
   transition: all 0.2s ease-in-out;
   color: #fff;
+  font-family: inherit;
 }
 
 .btn-primario {
@@ -135,15 +159,17 @@
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
+  font-family: inherit;
 }
 
-/* Icono ➕ */
+/* 🔄 Reemplazo del icono "➕" por un símbolo más estilizado */
 .btn-agregar-tema::before,
 .btn-agregar-capitulo::before {
-  content: "➕";
+  content: "＋"; /* símbolo más limpio */
+  font-weight: 700;
+  font-size: 1.1rem;
   color: #fff;
-  font-weight: bold;
-  font-size: 1rem;
+  margin-right: 0.3rem;
 }
 
 /* Hover y active */
@@ -170,7 +196,7 @@
 
 .btn-agregar-capitulo-container {
   display: flex;
-  justify-content: flex-end; /* 👉 se alinea a la derecha */
+  justify-content: flex-end;
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;
 }
@@ -181,9 +207,10 @@
   color: white;
   padding: 0.7rem 1.2rem;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
+  font-family: inherit;
 }
 
 .btn-guardar:hover {
@@ -203,9 +230,11 @@
 
 .modal {
   background: #fff;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 1.5rem;
   width: 320px;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+  font-family: inherit;
 }
 
 .modal-header {
@@ -234,3 +263,4 @@
     justify-content: center;
   }
 }
+
