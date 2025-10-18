@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (FINAL NETEC – restaurado y mejorado)
+// src/components/EditorDeTemario.jsx (FINAL con mejoras visuales y PDF corregido)
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
@@ -30,8 +30,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const [temario, setTemario] = useState(temarioInicial);
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
-  const [errorUi, setErrorUi] = useState("");
-  const [okUi, setOkUi] = useState("");
+  const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
@@ -52,7 +51,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setTemario(temarioInicial);
   }, [temarioInicial]);
 
-  // --- CAMBIO DE CAMPOS ---
+  // ===== CAMBIOS DE CAMPOS =====
   const handleFieldChange = (capIndex, subIndex, field, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
     if (subIndex === null) {
@@ -68,24 +67,29 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           ? parseInt(value, 10) || 0
           : value;
     }
+    // Calcular duración total del capítulo
+    nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[
+      capIndex
+    ].subcapitulos.reduce(
+      (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+      0
+    );
     setTemario(nuevo);
   };
 
-  // --- AGREGAR CAPÍTULO ---
+  // ===== AGREGAR CAPÍTULO =====
   const agregarCapitulo = () => {
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario.push({
       capitulo: `Nuevo capítulo ${nuevo.temario.length + 1}`,
-      tiempo_capitulo_min: 60,
+      tiempo_capitulo_min: 0,
       objetivos_capitulo: "",
-      subcapitulos: [
-        { nombre: "Nuevo tema 1", tiempo_subcapitulo_min: 30, sesion: 1 },
-      ],
+      subcapitulos: [],
     });
     setTemario(nuevo);
   };
 
-  // --- AGREGAR TEMA ---
+  // ===== AGREGAR TEMA =====
   const agregarTema = (capIndex) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario[capIndex].subcapitulos.push({
@@ -96,7 +100,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setTemario(nuevo);
   };
 
-  // --- AJUSTAR TIEMPOS SEGÚN HORAS DE SESIÓN ---
+  // ===== AJUSTAR TIEMPOS SEGÚN HORAS =====
   const ajustarTiempos = () => {
     const horas = temario?.horas_por_sesion || 7;
     const minutosTotales = horas * 60;
@@ -117,28 +121,28 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       );
     });
     setTemario(nuevo);
-    setOkUi(`⏱️ Tiempos ajustados a ${horas}h totales`);
+    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h totales` });
   };
 
-  // --- GUARDAR VERSIÓN ---
+  // ===== GUARDAR VERSIÓN =====
   const handleSaveClick = async () => {
-    setErrorUi("");
-    setOkUi("");
     setGuardando(true);
+    setMensaje({ tipo: "", texto: "" });
     const nota =
       window.prompt("Escribe una nota para esta versión (opcional):") || "";
     try {
       await onSave?.({ ...temario, autor: userEmail }, nota);
-      setOkUi("✅ Versión guardada correctamente");
+      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
     } catch (err) {
       console.error(err);
-      setErrorUi("Error al guardar la versión");
+      setMensaje({ tipo: "error", texto: "❌ Error al guardar la versión" });
     } finally {
       setGuardando(false);
+      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
     }
   };
 
-  // --- EXPORTAR PDF PROFESIONAL ---
+  // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {
     try {
       const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
@@ -146,27 +150,32 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       const negro = "#000000";
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = { top: 210, bottom: 100, left: 40, right: 40 };
+      const margin = { top: 220, bottom: 90, left: 50, right: 50 };
       const contentWidth = pageWidth - margin.left - margin.right;
       const encabezado = await toDataURL(encabezadoImagen);
       const pie = await toDataURL(pieDePaginaImagen);
       let y = margin.top;
 
-      const addPageIfNeeded = (h = 20) => {
-        if (y + h > pageHeight - margin.bottom) {
+      const addPageIfNeeded = (extra = 40) => {
+        if (y + extra > pageHeight - margin.bottom) {
           doc.addPage();
           y = margin.top;
         }
       };
 
-      // --- Título principal ---
+      // --- Encabezado principal ---
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
       doc.setTextColor(azul);
-      doc.text(temario?.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: "center" });
+      doc.text(
+        temario?.nombre_curso || "Temario del Curso",
+        pageWidth / 2,
+        y,
+        { align: "center" }
+      );
       y += 40;
 
-      // --- Secciones introductorias ---
+      // --- Secciones ---
       const secciones = [
         { titulo: "Descripción General", texto: temario?.descripcion_general },
         { titulo: "Audiencia", texto: temario?.audiencia },
@@ -174,22 +183,19 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         { titulo: "Objetivos", texto: temario?.objetivos },
       ];
 
-      secciones.forEach((sec) => {
-        if (!sec.texto) return;
+      secciones.forEach((s) => {
+        if (!s.texto) return;
         addPageIfNeeded(60);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(14);
         doc.setTextColor(azul);
-        doc.text(sec.titulo, margin.left, y);
+        doc.text(s.titulo, margin.left, y);
         y += 18;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         doc.setTextColor(negro);
-        const texto = doc.splitTextToSize(
-          Array.isArray(sec.texto) ? sec.texto.join("\n") : sec.texto,
-          contentWidth
-        );
-        texto.forEach((linea) => {
+        const lineas = doc.splitTextToSize(s.texto, contentWidth);
+        lineas.forEach((linea) => {
           addPageIfNeeded(14);
           doc.text(linea, margin.left, y);
           y += 14;
@@ -197,80 +203,69 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         y += 10;
       });
 
-      // --- Título del temario ---
-      addPageIfNeeded(40);
+      // --- Título “Temario” ---
+      addPageIfNeeded(50);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(azul);
       doc.text("Temario", margin.left, y);
-      y += 30;
+      y += 25;
 
-      // --- Capítulos y subcapítulos ---
+      // --- Capítulos ---
       temario.temario.forEach((cap, i) => {
-        addPageIfNeeded(40);
+        addPageIfNeeded(60);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(13);
         doc.setTextColor(azul);
-        const titulo = doc.splitTextToSize(
-          `Capítulo ${i + 1}: ${cap.capitulo}`,
-          contentWidth
-        );
-        titulo.forEach((linea) => {
-          doc.text(linea, margin.left, y);
-          y += 14;
-        });
+        doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+        y += 16;
 
-        if (cap.objetivos_capitulo?.length) {
-          addPageIfNeeded(20);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(9);
+        doc.setTextColor(negro);
+        doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+        y += 12;
+
+        // Objetivos
+        if (cap.objetivos_capitulo) {
           doc.setFont("helvetica", "normal");
           doc.setFontSize(10);
-          doc.setTextColor(negro);
-          const texto = doc.splitTextToSize(
-            `Objetivos: ${
-              Array.isArray(cap.objetivos_capitulo)
-                ? cap.objetivos_capitulo.join(" ")
-                : cap.objetivos_capitulo
-            }`,
-            contentWidth
-          );
-          texto.forEach((linea) => {
-            addPageIfNeeded(14);
-            doc.text(linea, margin.left + 15, y);
-            y += 14;
+          const objetivos = Array.isArray(cap.objetivos_capitulo)
+            ? cap.objetivos_capitulo.join(" ")
+            : cap.objetivos_capitulo;
+          const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
+          lines.forEach((line) => {
+            addPageIfNeeded(12);
+            doc.text(line, margin.left + 15, y);
+            y += 12;
           });
         }
 
+        // Subcapítulos
         cap.subcapitulos.forEach((sub, j) => {
-          addPageIfNeeded(14);
+          addPageIfNeeded(16);
           const subObj = typeof sub === "object" ? sub : { nombre: sub };
-          const nombre = subObj.nombre || "";
-          const tiempo = subObj.tiempo_subcapitulo_min
-            ? `${subObj.tiempo_subcapitulo_min} min`
-            : "";
-          const sesion = subObj.sesion ? `• Sesión ${subObj.sesion}` : "";
+          const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${
+            subObj.sesion || 1
+          }`;
           doc.setFont("helvetica", "normal");
           doc.setFontSize(10);
-          doc.setTextColor(negro);
-          doc.text(`${i + 1}.${j + 1} ${nombre}`, margin.left + 20, y);
-          if (tiempo || sesion) {
-            doc.text(`${tiempo} ${sesion}`.trim(), pageWidth - margin.right, y, {
-              align: "right",
-            });
-          }
+          doc.text(`${i + 1}.${j + 1} ${subObj.nombre}`, margin.left + 25, y);
+          doc.text(meta, pageWidth - margin.right, y, { align: "right" });
           y += 12;
         });
-        y += 15;
+        y += 16;
       });
 
-      // --- Encabezado y pie de página ---
+      // Encabezado y pie
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         const propsEnc = doc.getImageProperties(encabezado);
-        const altoEnc = pageWidth * (propsEnc.height / propsEnc.width);
+        const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
         doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
         const propsPie = doc.getImageProperties(pie);
-        const altoPie = pageWidth * (propsPie.height / propsPie.width);
+        const altoPie = (propsPie.height / propsPie.width) * pageWidth;
         doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
         doc.setFontSize(8);
         doc.setTextColor("#666");
@@ -279,33 +274,31 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           margin.left,
           pageHeight - 70
         );
-        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
-          align: "center",
-        });
+        doc.text(
+          `Página ${i} de ${totalPages}`,
+          pageWidth / 2,
+          pageHeight - 55,
+          { align: "center" }
+        );
       }
 
       doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
-      setOkUi("✅ PDF exportado correctamente");
+      setMensaje({ tipo: "ok", texto: "✅ PDF exportado correctamente" });
     } catch (err) {
-      console.error("Error PDF:", err);
-      setErrorUi("Error al generar el PDF");
+      console.error(err);
+      setMensaje({ tipo: "error", texto: "❌ Error al generar PDF" });
     }
   };
 
   const exportarExcel = () => {
     downloadExcelTemario(temario);
-    setOkUi("✅ Excel exportado correctamente");
+    setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
-
-  if (!temario) return null;
 
   return (
     <div className="editor-container">
-      {(errorUi || okUi) && (
-        <div className="ui-messages">
-          {errorUi && <div className="msg error">{errorUi}</div>}
-          {okUi && <div className="msg ok">{okUi}</div>}
-        </div>
+      {mensaje.texto && (
+        <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>
       )}
 
       <h3>Temario Detallado</h3>
@@ -318,6 +311,10 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
             onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
             className="input-capitulo"
           />
+          <div className="duracion-total">
+            ⏱️ Duración total: <strong>{cap.tiempo_capitulo_min || 0} min</strong>
+          </div>
+
           <label>Objetivos del Capítulo</label>
           <textarea
             value={
@@ -330,6 +327,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
             }
             className="textarea-objetivos-capitulo"
           />
+
           <ul>
             {cap.subcapitulos.map((sub, j) => (
               <li key={j} className="subcapitulo-item">
@@ -355,6 +353,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
               </li>
             ))}
           </ul>
+
           <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
             ➕ Agregar Tema
           </button>
@@ -394,7 +393,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                   type="radio"
                   checked={exportTipo === "pdf"}
                   onChange={() => setExportTipo("pdf")}
-                />
+                />{" "}
                 PDF
               </label>
               <label>
@@ -402,7 +401,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                   type="radio"
                   checked={exportTipo === "excel"}
                   onChange={() => setExportTipo("excel")}
-                />
+                />{" "}
                 Excel
               </label>
             </div>
