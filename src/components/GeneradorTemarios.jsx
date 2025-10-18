@@ -29,13 +29,12 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
   const [usuarioEmail, setUsuarioEmail] = useState("");
-
   const [filtroCurso, setFiltroCurso] = useState("");
   const [filtroAsesor, setFiltroAsesor] = useState("");
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
   const [menuAbierto, setMenuAbierto] = useState(null);
 
-  // Obtener correo del usuario autenticado desde Cognito
+  // === Obtener correo del usuario autenticado ===
   useEffect(() => {
     try {
       const token = localStorage.getItem("id_token");
@@ -48,13 +47,13 @@ function GeneradorTemarios() {
     }
   }, []);
 
-  // Filtrar versiones
+  // === Filtros dinámicos ===
   const versionesFiltradas = versiones
     .filter((v) => {
       const matchCurso = v.nombre_curso?.toLowerCase().includes(filtroCurso.toLowerCase());
-      const matchAsesor = filtroAsesor === "" || v.asesor_comercial === filtroAsesor;
-      const matchTecnologia = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
-      return matchCurso && matchAsesor && matchTecnologia;
+      const matchAsesor = !filtroAsesor || v.asesor_comercial === filtroAsesor;
+      const matchTec = v.tecnologia?.toLowerCase().includes(filtroTecnologia.toLowerCase());
+      return matchCurso && matchAsesor && matchTec;
     })
     .sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)); // más recientes primero
 
@@ -96,18 +95,21 @@ function GeneradorTemarios() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar temario");
 
-      // 💡 Normalizar estructura para EditorDeTemario
-      if (data.temario) {
-        setTemarioGenerado(data);
-      } else if (data.body) {
-        const parsed = typeof data.body === "string" ? JSON.parse(data.body) : data.body;
+      // ✅ Corrige la estructura del JSON de la Lambda
+      let parsed;
+      if (typeof data.body === "string") parsed = JSON.parse(data.body);
+      else if (data.body) parsed = data.body;
+      else parsed = data;
+
+      if (parsed.temario) {
+        console.log("✅ Temario generado:", parsed);
         setTemarioGenerado(parsed);
       } else {
-        console.warn("Estructura desconocida:", data);
-        setTemarioGenerado(data);
+        console.error("⚠️ Estructura no reconocida:", parsed);
+        setError("La API respondió pero no se encontró el temario.");
       }
     } catch (err) {
-      console.error(err);
+      console.error("Error en generación:", err);
       setError("No se pudo generar el temario. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
@@ -147,7 +149,7 @@ function GeneradorTemarios() {
       if (!res.ok || !data.success) throw new Error(data.error || "Error al guardar versión");
 
       alert("✅ Versión guardada correctamente");
-      await handleListarVersiones(); // 🔄 refrescar lista
+      await handleListarVersiones(); // 🔄 Refrescar lista
     } catch (error) {
       console.error(error);
       alert("❌ Error al guardar la versión");
@@ -171,7 +173,7 @@ function GeneradorTemarios() {
       );
 
       const data = await res.json();
-      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))); // 🔽 más recientes primero
+      setVersiones(data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))); // más recientes
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
@@ -190,7 +192,7 @@ function GeneradorTemarios() {
         <h2>Generador de Temarios a la Medida</h2>
         <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
 
-        {/* === FORMULARIO PRINCIPAL === */}
+        {/* === FORMULARIO === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
@@ -198,9 +200,9 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Asesor(a) Comercial Asociado</label>
+            <label>Asesor(a) Comercial</label>
             <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
-              <option value="">Selecciona un asesor(a)</option>
+              <option value="">Selecciona un asesor</option>
               {asesoresComerciales.map((a) => (
                 <option key={a}>{a}</option>
               ))}
@@ -209,26 +211,16 @@ function GeneradorTemarios() {
 
           <div className="form-group">
             <label>Tecnología</label>
-            <input
-              name="tecnologia"
-              value={params.tecnologia}
-              onChange={handleParamChange}
-              placeholder="Ej: AWS, React, Python"
-            />
+            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React" />
           </div>
 
           <div className="form-group">
-            <label>Tema Principal del Curso</label>
-            <input
-              name="tema_curso"
-              value={params.tema_curso}
-              onChange={handleParamChange}
-              placeholder="Ej: Arquitecturas Serverless"
-            />
+            <label>Tema del Curso</label>
+            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Azure Functions" />
           </div>
 
           <div className="form-group">
-            <label>Nivel de Dificultad</label>
+            <label>Nivel</label>
             <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
@@ -237,16 +229,9 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
+            <label>Sesiones (1-7)</label>
             <div className="slider-container">
-              <input
-                type="range"
-                min="1"
-                max="7"
-                name="numero_sesiones_por_semana"
-                value={params.numero_sesiones_por_semana}
-                onChange={handleSliderChange}
-              />
+              <input type="range" min="1" max="7" name="numero_sesiones_por_semana" value={params.numero_sesiones_por_semana} onChange={handleSliderChange} />
               <span>{params.numero_sesiones_por_semana} sesión</span>
             </div>
           </div>
@@ -254,65 +239,32 @@ function GeneradorTemarios() {
           <div className="form-group">
             <label>Horas por Sesión (4-12)</label>
             <div className="slider-container">
-              <input
-                type="range"
-                min="4"
-                max="12"
-                name="horas_por_sesion"
-                value={params.horas_por_sesion}
-                onChange={handleSliderChange}
-              />
+              <input type="range" min="4" max="12" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleSliderChange} />
               <span>{params.horas_por_sesion} horas</span>
             </div>
           </div>
         </div>
 
-        {/* === Tipo de Objetivo === */}
         <div className="form-group-radio">
           <label>Tipo de Objetivo</label>
           <div>
             <label>
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="saber_hacer"
-                checked={params.objetivo_tipo === "saber_hacer"}
-                onChange={handleParamChange}
-              />{" "}
-              Saber Hacer (enfocado en habilidades)
+              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange} /> Saber Hacer
             </label>
             <label>
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="certificacion"
-                checked={params.objetivo_tipo === "certificacion"}
-                onChange={handleParamChange}
-              />{" "}
-              Certificación (enfocado en examen)
+              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange} /> Certificación
             </label>
           </div>
         </div>
 
-        {/* === Sector y Enfoque === */}
         <div className="form-group">
           <label>Sector / Audiencia</label>
-          <textarea
-            name="sector"
-            value={params.sector}
-            onChange={handleParamChange}
-            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
-          />
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: sector educativo, financiero..." />
         </div>
 
         <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea
-            name="enfoque"
-            value={params.enfoque}
-            onChange={handleParamChange}
-            placeholder="Ej: Orientado a patrones de diseño..."
-          />
+          <label>Enfoque Adicional</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: casos de uso, prácticas reales..." />
         </div>
 
         <div className="botones">
@@ -327,12 +279,10 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {/* === Mostrar Temario Generado === */}
-      {temarioGenerado && (
-        <EditorDeTemario temario={temarioGenerado} onGuardar={() => handleGuardarVersion(temarioGenerado)} />
-      )}
+      {/* === Mostrar Temario === */}
+      {temarioGenerado && <EditorDeTemario temario={temarioGenerado} onGuardar={() => handleGuardarVersion(temarioGenerado)} />}
 
-      {/* === Modal de Versiones === */}
+      {/* === Modal Versiones === */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -344,14 +294,8 @@ function GeneradorTemarios() {
             <div className="filtros-versiones">
               <div className="filtro">
                 <label>Curso</label>
-                <input
-                  type="text"
-                  placeholder="Buscar curso..."
-                  value={filtroCurso}
-                  onChange={(e) => setFiltroCurso(e.target.value)}
-                />
+                <input type="text" placeholder="Buscar curso..." value={filtroCurso} onChange={(e) => setFiltroCurso(e.target.value)} />
               </div>
-
               <div className="filtro">
                 <label>Asesor</label>
                 <select value={filtroAsesor} onChange={(e) => setFiltroAsesor(e.target.value)}>
@@ -361,15 +305,9 @@ function GeneradorTemarios() {
                   ))}
                 </select>
               </div>
-
               <div className="filtro">
                 <label>Tecnología</label>
-                <input
-                  type="text"
-                  placeholder="Ej: AWS, React..."
-                  value={filtroTecnologia}
-                  onChange={(e) => setFiltroTecnologia(e.target.value)}
-                />
+                <input type="text" placeholder="Ej: AWS, React..." value={filtroTecnologia} onChange={(e) => setFiltroTecnologia(e.target.value)} />
               </div>
             </div>
 
