@@ -1,278 +1,351 @@
-// src/components/GeneradorTemarios.jsx (FINAL RESTAURADO Y FUNCIONAL)
+// src/components/EditorDeTemario.jsx (FINAL - Fix PDF sobreposición + email usuario)
 import React, { useState, useEffect } from "react";
+import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
-import EditorDeTemario from "./EditorDeTemario";
-import "./GeneradorTemarios.css";
+import { downloadExcelTemario } from "../utils/downloadExcel";
+import encabezadoImagen from "../assets/encabezado.png";
+import pieDePaginaImagen from "../assets/pie_de_pagina.png";
+import "./EditorDeTemario.css";
 
-const asesoresComerciales = [
-  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
-  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
-  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
-  "Natalia García", "Natalia Gomez", "Vianey Miranda",
-].sort();
+function slugify(str = "") {
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u00-~]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "curso";
+}
 
-function GeneradorTemarios() {
-  const [params, setParams] = useState({
-    nombre_preventa: "",
-    asesor_comercial: "",
-    tecnologia: "",
-    tema_curso: "",
-    nivel_dificultad: "basico",
-    numero_sesiones_por_semana: 1,
-    horas_por_sesion: 7,
-    objetivo_tipo: "saber_hacer",
-    sector: "",
-    enfoque: "",
+function nowIso() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+const toDataURL = async (url) => {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
+};
 
+function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
+  const [temario, setTemario] = useState(temarioInicial);
   const [userEmail, setUserEmail] = useState("");
-  const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [versiones, setVersiones] = useState([]);
-  const [mostrarModal, setMostrarModal] = useState(false);
-  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+  const [guardando, setGuardando] = useState(false);
+  const [errorUi, setErrorUi] = useState("");
+  const [okUi, setOkUi] = useState("");
+  const [modalExportar, setModalExportar] = useState(false);
+  const [exportTipo, setExportTipo] = useState("pdf");
 
-  // 🔹 Obtener correo del usuario autenticado
   useEffect(() => {
-    const getUser = async () => {
+    const obtenerUsuario = async () => {
       try {
         const session = await fetchAuthSession();
-        const email = session?.tokens?.idToken?.payload?.email;
-        setUserEmail(email || "sin-correo");
-      } catch (err) {
-        console.error("⚠️ Error obteniendo usuario:", err);
+        const email = session?.tokens?.idToken?.payload?.email || "sin-correo";
+        console.log("📧 Usuario autenticado:", email);
+        setUserEmail(email);
+      } catch (error) {
+        console.error("⚠️ Error al obtener usuario:", error);
       }
     };
-    getUser();
+    obtenerUsuario();
   }, []);
 
-  const handleParamChange = (e) => {
-    const { name, value } = e.target;
-    if (name === "objetivo_tipo") {
-      const enfoqueAuto =
-        value === "saber_hacer"
-          ? "Enfocado en el desarrollo de habilidades prácticas y resolución de problemas reales."
-          : "Enfocado en la preparación para aprobar un examen de certificación.";
-      setParams((prev) => ({ ...prev, [name]: value, enfoque: enfoqueAuto }));
-      return;
-    }
-    setParams((prev) => ({ ...prev, [name]: value }));
-  };
+  useEffect(() => {
+    setTemario(temarioInicial);
+  }, [temarioInicial]);
 
-  const handleSliderChange = (e) => {
-    const { name, value } = e.target;
-    setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
-  };
+  const handleFieldChange = (capIndex, subIndex, fieldName, value) => {
+    const nuevoTemario = JSON.parse(JSON.stringify(temario));
+    let target;
 
-  const handleGenerar = async () => {
-    if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso || !params.sector) {
-      setError("Completa todos los campos requeridos antes de continuar (incluye Sector/Audiencia).");
-      return;
+    if (subIndex === null) {
+      target = nuevoTemario.temario[capIndex];
+    } else {
+      if (typeof nuevoTemario.temario[capIndex].subcapitulos[subIndex] !== "object") {
+        nuevoTemario.temario[capIndex].subcapitulos[subIndex] = {
+          nombre: nuevoTemario.temario[capIndex].subcapitulos[subIndex],
+        };
+      }
+      target = nuevoTemario.temario[capIndex].subcapitulos[subIndex];
     }
 
-    setIsLoading(true);
-    setError("");
+    const numeric = ["tiempo_capitulo_min", "tiempo_subcapitulo_min", "sesion"];
+    target[fieldName] = numeric.includes(fieldName)
+      ? parseInt(value, 10) || 0
+      : value;
+    setTemario(nuevoTemario);
+  };
+
+  const handleSaveClick = async () => {
+    setErrorUi("");
+    setOkUi("");
+    setGuardando(true);
+
+    const nota =
+      window.prompt("Escribe una nota para esta versión (opcional):", `Guardado ${nowIso()}`) ||
+      "";
 
     try {
-      const token = localStorage.getItem("id_token");
-      const response = await fetch(
-        "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(params),
-        }
-      );
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Error al generar temario");
-      setTemarioGenerado({ ...data, ...params });
+      const resultado = await onSave?.({ ...temario, creado_por: userEmail }, nota);
+      const success = resultado?.success ?? true;
+      const message = resultado?.message || "Versión guardada correctamente";
+      success ? setOkUi(message) : setErrorUi(message);
     } catch (err) {
       console.error(err);
-      setError("No se pudo generar el temario. Intenta nuevamente.");
+      setErrorUi("No se pudo guardar la versión");
     } finally {
-      setIsLoading(false);
+      setGuardando(false);
     }
   };
 
-  const handleGuardarVersion = async (temarioParaGuardar) => {
+  // --- Exportar PDF (Fix sobreposición) ---
+  const exportarPDF = async () => {
     try {
-      const token = localStorage.getItem("id_token");
-      const bodyData = {
-        cursoId: params.tema_curso,
-        contenido: temarioParaGuardar,
-        autor: userEmail,
-        asesor_comercial: params.asesor_comercial,
-        nombre_preventa: params.nombre_preventa,
-        nombre_curso: params.tema_curso,
-        tecnologia: params.tecnologia,
-        nota_version: `Guardado el ${new Date().toLocaleString()}`,
-        fecha_creacion: new Date().toISOString(),
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const azulNetec = "#005A9C";
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = { top: 210, bottom: 100, left: 40, right: 40 };
+      const contentWidth = pageWidth - margin.left - margin.right;
+
+      const encabezadoDataUrl = await toDataURL(encabezadoImagen);
+      const pieDataUrl = await toDataURL(pieDePaginaImagen);
+      let y = margin.top;
+
+      const addPageIfNeeded = (space = 20) => {
+        if (y + space > pageHeight - margin.bottom) {
+          doc.addPage();
+          y = margin.top;
+        }
       };
 
-      const res = await fetch(
-        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(bodyData),
-        }
-      );
+      // Título
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(20);
+      doc.setTextColor(azulNetec);
+      doc.text(temario?.nombre_curso || "Temario del Curso", pageWidth / 2, y, {
+        align: "center",
+      });
+      doc.setTextColor(0, 0, 0);
+      y += 30;
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Error al guardar versión");
-      alert("✅ Versión guardada correctamente");
-    } catch (error) {
-      console.error(error);
-      alert("❌ Error al guardar la versión");
+      // Secciones de texto (corregido línea por línea)
+      const secciones = [
+        { titulo: "Descripción General", texto: temario?.descripcion_general },
+        { titulo: "Audiencia", texto: temario?.audiencia },
+        {
+          titulo: "Prerrequisitos",
+          texto: Array.isArray(temario?.prerrequisitos)
+            ? temario.prerrequisitos.join("\n")
+            : temario?.prerrequisitos,
+        },
+        {
+          titulo: "Objetivos",
+          texto: Array.isArray(temario?.objetivos)
+            ? temario.objetivos.join("\n")
+            : temario?.objetivos,
+        },
+      ];
+
+      secciones.forEach((sec) => {
+        if (!sec.texto) return;
+        addPageIfNeeded(40);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azulNetec);
+        doc.text(sec.titulo, margin.left, y);
+        doc.setTextColor(0, 0, 0);
+        y += 14;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        const texto = doc.splitTextToSize(sec.texto, contentWidth);
+        texto.forEach((linea) => {
+          addPageIfNeeded(14);
+          doc.text(linea, margin.left, y);
+          y += 14;
+        });
+        y += 10;
+      });
+
+      // Temario
+      if (temario?.temario?.length > 0) {
+        addPageIfNeeded(40);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.setTextColor(azulNetec);
+        doc.text("Temario", margin.left, y);
+        doc.setTextColor(0, 0, 0);
+        y += 20;
+
+        temario.temario.forEach((cap, i) => {
+          addPageIfNeeded(40);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(12);
+          doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+          y += 15;
+
+          if (cap.objetivos_capitulo?.length) {
+            const texto = `Objetivos: ${
+              Array.isArray(cap.objetivos_capitulo)
+                ? cap.objetivos_capitulo.join(" ")
+                : cap.objetivos_capitulo
+            }`;
+            const lineas = doc.splitTextToSize(texto, contentWidth);
+            lineas.forEach((linea) => {
+              addPageIfNeeded(14);
+              doc.text(linea, margin.left + 15, y);
+              y += 14;
+            });
+            y += 10;
+          }
+
+          cap.subcapitulos?.forEach((sub, j) => {
+            addPageIfNeeded(15);
+            const subObj = typeof sub === "object" ? sub : { nombre: sub };
+            const linea = `${i + 1}.${j + 1} ${subObj.nombre}`;
+            const tiempo = subObj.tiempo_subcapitulo_min
+              ? `${subObj.tiempo_subcapitulo_min} min`
+              : "";
+            const sesion = subObj.sesion ? `• Sesión ${subObj.sesion}` : "";
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.text(linea, margin.left + 20, y);
+            doc.text(`${tiempo} ${sesion}`.trim(), pageWidth - margin.right, y, {
+              align: "right",
+            });
+            y += 12;
+          });
+          y += 10;
+        });
+      }
+
+      // Encabezado y pie
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        const propsEnc = doc.getImageProperties(encabezadoDataUrl);
+        const altoEnc = pageWidth * (propsEnc.height / propsEnc.width);
+        doc.addImage(encabezadoDataUrl, "PNG", 0, 0, pageWidth, altoEnc);
+        const propsPie = doc.getImageProperties(pieDataUrl);
+        const altoPie = pageWidth * (propsPie.height / propsPie.width);
+        doc.addImage(pieDataUrl, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+        doc.setFontSize(8);
+        doc.setTextColor("#666");
+        doc.text(
+          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
+          margin.left,
+          pageHeight - 70
+        );
+        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
+          align: "center",
+        });
+      }
+
+      doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
+      setOkUi("✅ PDF exportado correctamente");
+    } catch (e) {
+      console.error("Error PDF:", e);
+      setErrorUi("Error al generar el PDF.");
     }
   };
 
-  const handleListarVersiones = async () => {
-    try {
-      const token = localStorage.getItem("id_token");
-      const res = await fetch(
-        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await res.json();
-      const sortedData = data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
-      setVersiones(sortedData);
-      setMostrarModal(true);
-    } catch (error) {
-      console.error("Error al obtener versiones:", error);
-    }
-  };
-
-  const handleCargarVersion = (version) => {
-    setMostrarModal(false);
-    setTimeout(() => setTemarioGenerado(version.contenido), 300);
-  };
-
-  const versionesFiltradas = versiones.filter((v) => {
-    return (
-      v.nombre_curso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
-      (filtros.asesor ? v.asesor_comercial === filtros.asesor : true) &&
-      v.tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
-    );
-  });
+  if (!temario) return null;
 
   return (
-    <div className="contenedor-generador">
-      <div className="card-generador">
-        <h2>Generador de Temarios a la Medida</h2>
-        <p>Introduce los detalles para generar una propuesta de temario con Inteligencia Artificial.</p>
-
-        <div className="form-grid">
-          <div className="form-group">
-            <label>Nombre Preventa Asociado</label>
-            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
-          </div>
-
-          <div className="form-group">
-            <label>Asesor(a) Comercial Asociado</label>
-            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange}>
-              <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map((a) => (
-                <option key={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Tecnología</label>
-            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, Azure, React" />
-          </div>
-
-          <div className="form-group">
-            <label>Tema Principal del Curso</label>
-            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
-          </div>
-
-          <div className="form-group">
-            <label>Nivel de Dificultad</label>
-            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
-              <option value="basico">Básico</option>
-              <option value="intermedio">Intermedio</option>
-              <option value="avanzado">Avanzado</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
-            <div className="slider-container">
-              <input type="range" min="1" max="7" name="numero_sesiones_por_semana" value={params.numero_sesiones_por_semana} onChange={handleSliderChange} />
-              <span>{params.numero_sesiones_por_semana} sesión(es)</span>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
-            <div className="slider-container">
-              <input type="range" min="4" max="12" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleSliderChange} />
-              <span>{params.horas_por_sesion} horas</span>
-            </div>
-          </div>
+    <div className="editor-container">
+      {(errorUi || okUi) && (
+        <div className="ui-messages">
+          {errorUi && <div className="msg error">{errorUi}</div>}
+          {okUi && <div className="msg ok">{okUi}</div>}
         </div>
-
-        <div className="form-group-radio">
-          <label>Tipo de Objetivo</label>
-          <div>
-            <label>
-              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange} />
-              Saber Hacer (enfocado en habilidades)
-            </label>
-            <label>
-              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange} />
-              Certificación (enfocado en examen)
-            </label>
-          </div>
-        </div>
-
-        <div className="form-group">
-          <label>Sector / Audiencia</label>
-          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Personas del sector financiero que quieren ocupar Kanban" />
-        </div>
-
-        <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño..." />
-        </div>
-
-        <div className="botones">
-          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
-            {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
-          </button>
-          <button className="btn-versiones" onClick={handleListarVersiones}>
-            Ver Versiones Guardadas
-          </button>
-        </div>
-
-        {error && <p className="error">{error}</p>}
-      </div>
-
-      {temarioGenerado && (
-        <EditorDeTemario temarioInicial={temarioGenerado} onSave={handleGuardarVersion} isLoading={isLoading} />
       )}
+
+      {isLoading ? (
+        <div className="spinner-container">
+          <div className="spinner" />
+          <p>Generando nueva versión...</p>
+        </div>
+      ) : (
+        <>
+          <h3>Temario Detallado</h3>
+          {(temario?.temario || []).map((cap, i) => (
+            <div key={i} className="capitulo-editor">
+              <h4>Capítulo {i + 1}:</h4>
+              <input
+                value={cap.capitulo || ""}
+                onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+                className="input-capitulo"
+              />
+              <div className="objetivos-capitulo">
+                <label>Objetivos del Capítulo</label>
+                <textarea
+                  value={
+                    Array.isArray(cap.objetivos_capitulo)
+                      ? cap.objetivos_capitulo.join("\n")
+                      : cap.objetivos_capitulo || ""
+                  }
+                  onChange={(e) =>
+                    handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
+                  }
+                  className="textarea-objetivos-capitulo"
+                />
+              </div>
+              <ul>
+                {cap.subcapitulos?.map((sub, j) => (
+                  <li key={j}>
+                    <div className="subcapitulo-item-detallado">
+                      <span className="subcapitulo-numero">{i + 1}.{j + 1}</span>
+                      <input
+                        value={sub.nombre || ""}
+                        onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+                        className="input-subcapitulo"
+                      />
+                      <div className="subcapitulo-meta-inputs">
+                        <input
+                          type="number"
+                          value={sub.tiempo_subcapitulo_min || ""}
+                          onChange={(e) =>
+                            handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                          }
+                          placeholder="min"
+                        />
+                        <input
+                          type="number"
+                          value={sub.sesion || ""}
+                          onChange={(e) => handleFieldChange(i, j, "sesion", e.target.value)}
+                          placeholder="sesión"
+                        />
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
+
+      <div className="acciones-footer">
+        <button className="btn-secundario" onClick={exportarPDF}>
+          Exportar PDF
+        </button>
+        <button onClick={handleSaveClick} disabled={guardando}>
+          {guardando ? "Guardando..." : "Guardar Versión"}
+        </button>
+      </div>
     </div>
   );
 }
 
-export default GeneradorTemarios;
+export default EditorDeTemario;
 
 
 
