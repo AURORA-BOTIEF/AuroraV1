@@ -19,7 +19,7 @@ function GeneradorTemarios() {
     nivel_dificultad: "basico",
     numero_sesiones_por_semana: 1,
     horas_por_sesion: 7,
-    objetivo_tipo: "saber_hacer", // ✅ Restaurado
+    objetivo_tipo: "saber_hacer",
     sector: "",
     enfoque: "",
   });
@@ -148,7 +148,12 @@ function GeneradorTemarios() {
         }
       );
       const data = await res.json();
-      setVersiones(data);
+
+      // ✅ Ordenar de la más reciente a la más antigua
+      setVersiones(
+        data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion))
+      );
+
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
@@ -413,6 +418,7 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
 
 
 
