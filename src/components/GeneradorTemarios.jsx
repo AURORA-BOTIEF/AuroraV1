@@ -19,7 +19,6 @@ function GeneradorTemarios() {
     numero_sesiones_por_semana: 1,
     horas_por_sesion: 7,
     objetivo_tipo: "saber_hacer",
-    codigo_certificacion: "",
     sector: "",
     enfoque: "",
   });
@@ -29,26 +28,22 @@ function GeneradorTemarios() {
   const [error, setError] = useState("");
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
-  const [filtro, setFiltro] = useState("");
-  const [busqueda, setBusqueda] = useState("");
-
-  // 🔥 URL FIJA para evitar errores 404
-  const API_BASE = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/dev2";
-
-  // 🔍 Obtener el correo real del usuario autenticado en Cognito
-  const getUsuarioActual = () => {
-    try {
-      const token = localStorage.getItem("id_token");
-      if (!token) return "desconocido@netec.com";
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      return payload.email || payload["cognito:username"] || "desconocido@netec.com";
-    } catch {
-      return "desconocido@netec.com";
-    }
-  };
+  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+  const [menuActivo, setMenuActivo] = useState(null);
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
+
+    // ✅ Comportamiento para los radios de tipo de objetivo
+    if (name === "objetivo_tipo") {
+      const enfoqueAuto =
+        value === "saber_hacer"
+          ? "Enfocado en el desarrollo de habilidades prácticas y resolución de problemas reales."
+          : "Enfocado en la preparación para aprobar un examen de certificación.";
+      setParams((prev) => ({ ...prev, [name]: value, enfoque: enfoqueAuto }));
+      return;
+    }
+
     setParams((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -62,9 +57,10 @@ function GeneradorTemarios() {
       !params.nombre_preventa ||
       !params.asesor_comercial ||
       !params.tecnologia ||
-      !params.tema_curso
+      !params.tema_curso ||
+      !params.sector
     ) {
-      setError("Completa todos los campos requeridos antes de continuar.");
+      setError("Completa todos los campos requeridos antes de continuar (incluye Sector/Audiencia).");
       return;
     }
 
@@ -73,19 +69,21 @@ function GeneradorTemarios() {
 
     try {
       const token = localStorage.getItem("id_token");
-      const response = await fetch(`${API_BASE}/PruebadeTEMAR`, {
-        method: "POST",
-        mode: "cors",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(params),
-      });
+      const response = await fetch(
+        "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR",
+        {
+          method: "POST",
+          mode: "cors",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(params),
+        }
+      );
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Error al generar temario");
-
       setTemarioGenerado({ ...data, ...params });
     } catch (err) {
       console.error(err);
@@ -101,7 +99,7 @@ function GeneradorTemarios() {
       const bodyData = {
         cursoId: params.tema_curso,
         contenido: temarioParaGuardar,
-        autor: getUsuarioActual(),
+        autor: "anette.flores@netec.com.mx",
         asesor_comercial: params.asesor_comercial,
         nombre_preventa: params.nombre_preventa,
         nombre_curso: params.tema_curso,
@@ -149,15 +147,20 @@ function GeneradorTemarios() {
         }
       );
       const data = await res.json();
-      // Ordenar por fecha de creación (más reciente primero)
-      const ordenadas = [...data].sort(
+
+      const sortedData = data.sort(
         (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
       );
-      setVersiones(ordenadas);
+
+      setVersiones(sortedData);
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
     }
+  };
+
+  const handleActualizarVersiones = () => {
+    handleListarVersiones();
   };
 
   const handleCargarVersion = (version) => {
@@ -165,17 +168,30 @@ function GeneradorTemarios() {
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
+  const handleExportar = (version, tipo) => {
+    setMostrarModal(false);
+    setTimeout(() => {
+      setTemarioGenerado(version.contenido);
+      setTimeout(() => {
+        document.querySelector(".btn-secundario:nth-child(3)")?.click();
+      }, 600);
+    }, 300);
+  };
+
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+    setFiltros((prev) => ({ ...prev, [name]: value }));
+  };
+
   const limpiarFiltros = () => {
-    setFiltro("");
-    setBusqueda("");
+    setFiltros({ curso: "", asesor: "", tecnologia: "" });
   };
 
   const versionesFiltradas = versiones.filter((v) => {
     return (
-      (!filtro || v.tecnologia?.toLowerCase().includes(filtro.toLowerCase())) &&
-      (!busqueda ||
-        v.nombre_curso?.toLowerCase().includes(busqueda.toLowerCase()) ||
-        v.asesor_comercial?.toLowerCase().includes(busqueda.toLowerCase()))
+      v.nombre_curso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
+      (filtros.asesor ? v.asesor_comercial === filtros.asesor : true) &&
+      v.tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
     );
   });
 
@@ -188,22 +204,12 @@ function GeneradorTemarios() {
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado</label>
-            <input
-              name="nombre_preventa"
-              value={params.nombre_preventa}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            />
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
           </div>
 
           <div className="form-group">
             <label>Asesor(a) Comercial Asociado</label>
-            <select
-              name="asesor_comercial"
-              value={params.asesor_comercial}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            >
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange} disabled={isLoading}>
               <option value="">Selecciona un asesor(a)</option>
               {asesoresComerciales.map((a) => (
                 <option key={a}>{a}</option>
@@ -213,34 +219,17 @@ function GeneradorTemarios() {
 
           <div className="form-group">
             <label>Tecnología</label>
-            <input
-              name="tecnologia"
-              value={params.tecnologia}
-              onChange={handleParamChange}
-              placeholder="Ej: AWS, React, Python"
-              disabled={isLoading}
-            />
+            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: AWS, React, Python" />
           </div>
 
           <div className="form-group">
             <label>Tema Principal del Curso</label>
-            <input
-              name="tema_curso"
-              value={params.tema_curso}
-              onChange={handleParamChange}
-              placeholder="Ej: Arquitecturas Serverless"
-              disabled={isLoading}
-            />
+            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Arquitecturas Serverless" />
           </div>
 
           <div className="form-group">
             <label>Nivel de Dificultad</label>
-            <select
-              name="nivel_dificultad"
-              value={params.nivel_dificultad}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            >
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange} disabled={isLoading}>
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option>
@@ -250,15 +239,7 @@ function GeneradorTemarios() {
           <div className="form-group">
             <label>Número de Sesiones (1-7)</label>
             <div className="slider-container">
-              <input
-                type="range"
-                min="1"
-                max="7"
-                name="numero_sesiones_por_semana"
-                value={params.numero_sesiones_por_semana}
-                onChange={handleSliderChange}
-                disabled={isLoading}
-              />
+              <input type="range" min="1" max="7" name="numero_sesiones_por_semana" value={params.numero_sesiones_por_semana} onChange={handleSliderChange} disabled={isLoading} />
               <span>{params.numero_sesiones_por_semana} sesión</span>
             </div>
           </div>
@@ -266,15 +247,7 @@ function GeneradorTemarios() {
           <div className="form-group">
             <label>Horas por Sesión (4-12)</label>
             <div className="slider-container">
-              <input
-                type="range"
-                min="4"
-                max="12"
-                name="horas_por_sesion"
-                value={params.horas_por_sesion}
-                onChange={handleSliderChange}
-                disabled={isLoading}
-              />
+              <input type="range" min="4" max="12" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleSliderChange} disabled={isLoading} />
               <span>{params.horas_por_sesion} horas</span>
             </div>
           </div>
@@ -284,78 +257,31 @@ function GeneradorTemarios() {
           <label>Tipo de Objetivo</label>
           <div>
             <label>
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="saber_hacer"
-                checked={params.objetivo_tipo === "saber_hacer"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />{" "}
+              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange} disabled={isLoading} />
               Saber Hacer (enfocado en habilidades)
             </label>
             <label>
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="certificacion"
-                checked={params.objetivo_tipo === "certificacion"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />{" "}
+              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange} disabled={isLoading} />
               Certificación (enfocado en examen)
             </label>
           </div>
         </div>
 
-        {params.objetivo_tipo === "certificacion" && (
-          <div className="form-group">
-            <label>Código de Certificación</label>
-            <input
-              name="codigo_certificacion"
-              value={params.codigo_certificacion}
-              onChange={handleParamChange}
-              placeholder="Ej: AZ-104, SAA-C03, DP-100..."
-              disabled={isLoading}
-            />
-          </div>
-        )}
-
         <div className="form-group">
           <label>Sector / Audiencia</label>
-          <textarea
-            name="sector"
-            value={params.sector}
-            onChange={handleParamChange}
-            placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..."
-            disabled={isLoading}
-          />
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Personas del sector financiero que quieren ocupar Kanban" />
         </div>
 
         <div className="form-group">
           <label>Enfoque Adicional (Opcional)</label>
-          <textarea
-            name="enfoque"
-            value={params.enfoque}
-            onChange={handleParamChange}
-            placeholder="Ej: Orientado a patrones de diseño..."
-            disabled={isLoading}
-          />
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Orientado a patrones de diseño..." />
         </div>
 
         <div className="botones">
-          <button
-            className="btn-generar"
-            onClick={handleGenerar}
-            disabled={isLoading}
-          >
+          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button
-            className="btn-versiones"
-            onClick={handleListarVersiones}
-            disabled={isLoading}
-          >
+          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
             Ver Versiones Guardadas
           </button>
         </div>
@@ -364,12 +290,7 @@ function GeneradorTemarios() {
       </div>
 
       {temarioGenerado && (
-        <EditorDeTemario
-          temarioInicial={temarioGenerado}
-          onRegenerate={handleGenerar}
-          onSave={handleGuardarVersion}
-          isLoading={isLoading}
-        />
+        <EditorDeTemario temarioInicial={temarioGenerado} onRegenerate={handleGenerar} onSave={handleGuardarVersion} isLoading={isLoading} />
       )}
 
       {mostrarModal && (
@@ -377,25 +298,22 @@ function GeneradorTemarios() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="close-btn" onClick={() => setMostrarModal(false)}>
-                ✕
-              </button>
+              <div className="modal-actions">
+                <button className="refresh-btn" onClick={handleActualizarVersiones}>🔄</button>
+                <button className="clear-btn" onClick={limpiarFiltros}>🧹</button>
+                <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
+              </div>
             </div>
 
             <div className="filtros-versiones">
-              <input
-                type="text"
-                placeholder="Buscar por curso o asesor..."
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="Filtrar por tecnología..."
-                value={filtro}
-                onChange={(e) => setFiltro(e.target.value)}
-              />
-              <button className="btn-limpiar" onClick={limpiarFiltros}>🧹 Limpiar</button>
+              <input type="text" name="curso" placeholder="Buscar curso..." value={filtros.curso} onChange={handleFiltroChange} />
+              <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
+                <option value="">Todos los asesores</option>
+                {asesoresComerciales.map((a) => (
+                  <option key={a}>{a}</option>
+                ))}
+              </select>
+              <input type="text" name="tecnologia" placeholder="Ej: AWS, React..." value={filtros.tecnologia} onChange={handleFiltroChange} />
             </div>
 
             <table className="tabla-versiones">
@@ -417,21 +335,15 @@ function GeneradorTemarios() {
                     <td>{v.asesor_comercial}</td>
                     <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                     <td>{v.autor}</td>
-                    <td>
-                      <div className="menu-acciones">
-                        <button
-                          className="btn-acciones"
-                          title="Opciones"
-                        >
-                          ⋮
-                        </button>
+                    <td className="acciones-cell">
+                      <button className="menu-btn" onClick={() => setMenuActivo(menuActivo === i ? null : i)}>⋮</button>
+                      {menuActivo === i && (
                         <div className="menu-opciones">
-                          <button onClick={() => handleCargarVersion(v)}>📂 Ver</button>
-                          <button onClick={() => alert("🚧 Editar en desarrollo")}>✏️ Editar</button>
-                          <button onClick={() => alert("📄 Exportar PDF pronto disponible")}>📄 PDF</button>
-                          <button onClick={() => alert("📊 Exportar Excel pronto disponible")}>📊 Excel</button>
+                          <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
+                          <button onClick={() => handleExportar(v, "pdf")}>📄 Exportar PDF</button>
+                          <button onClick={() => handleExportar(v, "excel")}>📊 Exportar Excel</button>
                         </div>
-                      </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -445,3 +357,4 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
