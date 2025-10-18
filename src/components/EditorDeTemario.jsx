@@ -1,4 +1,4 @@
-// src/components/EditorDeTemario.jsx (versión con agregado de capítulos y temas)
+// src/components/EditorDeTemario.jsx (versión con agregado de capítulos, temas y ajuste de tiempos)
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from 'jspdf';
 import { downloadExcelTemario } from "../utils/downloadExcel";
@@ -279,7 +279,34 @@ function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
         )}
       </div>
 
+      {/* 🔹 NUEVO: botón de ajuste de tiempos */}
       <div className="acciones-footer">
+        <button
+          className="btn-secundario"
+          onClick={() => {
+            const totalMinutos = 420; // 7 horas = 420 min
+            const numCapitulos = temario.temario.length;
+            if (numCapitulos === 0) return;
+
+            const minutosPorCapitulo = Math.floor(totalMinutos / numCapitulos);
+            const nuevoTemario = JSON.parse(JSON.stringify(temario));
+
+            nuevoTemario.temario.forEach(cap => {
+              cap.tiempo_capitulo_min = minutosPorCapitulo;
+              const subCount = cap.subcapitulos?.length || 1;
+              const minutosPorSub = Math.floor(minutosPorCapitulo / subCount);
+              cap.subcapitulos.forEach(sub => {
+                sub.tiempo_subcapitulo_min = minutosPorSub;
+              });
+            });
+
+            setTemario(nuevoTemario);
+            setOkUi("⏱️ Tiempos ajustados automáticamente");
+          }}
+        >
+          Ajustar Tiempos Automáticamente
+        </button>
+
         <button onClick={handleSaveClick} disabled={guardando}>{guardando ? "Guardando..." : "Guardar Versión"}</button>
         <button className="btn-secundario" onClick={() => setModalExportar(true)}>Exportar...</button>
       </div>
