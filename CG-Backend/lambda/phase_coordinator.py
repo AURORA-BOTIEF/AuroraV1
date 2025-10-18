@@ -31,11 +31,15 @@ from typing import Dict, Any
 dynamodb = boto3.resource('dynamodb')
 TABLE_NAME = 'course-generation-phase-locks'
 
-# Dynamic delay configuration based on module count
-# For 1-4 modules: 120 seconds (proven reliable for small courses)
-# For 5-8 modules: 240 seconds (prevents batch overlaps with lesson batching)
+# Concurrency Configuration
+# Maximum number of batches that can run simultaneously
+# Start conservative (1) and increase based on testing
+# Theoretical max based on TPM: ~16-40, but bursty API calls cause throttling
+MAX_CONCURRENT_BATCHES = 2  # Conservative: allows 2 concurrent batches
+
+# Fallback MIN_DELAY (only used if concurrent tracking fails)
 MIN_DELAY_SMALL_COURSE = 120  # 1-4 modules
-MIN_DELAY_LARGE_COURSE = 240  # 5-8 modules
+MIN_DELAY_LARGE_COURSE = 180  # 5-8 modules (back to original, concurrency handles efficiency)
 MODULE_COUNT_THRESHOLD = 4
 
 # Jitter to prevent thundering herd (seconds)
@@ -64,22 +68,24 @@ def get_min_delay(total_modules: int) -> int:
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Coordinates access to expensive API phases.
+    Coordinates access to expensive API phases with concurrent batch tracking.
     
     Args:
         event: {
             "action": "acquire" | "release",
-            "phase_name": "ContentGen" | "ImagesGen" | "LabPlanner" | "LabWriter",
+            "phase_name": "ContentGen" | "module-{N}-batch-{B}",
             "module_number": 1,
             "execution_id": "course-gen-xxx",
-            "total_modules": 8  # Optional: Total modules in course for dynamic delay
+            "total_modules": 8,  # Optional: Total modules in course
+            "use_concurrency": true  # Optional: Use concurrent batch tracking (default: true)
         }
     
     Returns:
         For acquire: {
             "statusCode": 200,
             "can_proceed": true/false,
-            "wait_seconds": 0-180,
+            "wait_seconds": 0-60,
+            "active_batches": 0-N,
             "reason": "..."
         }
         For release: {
@@ -91,14 +97,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     phase_name = event.get('phase_name')
     module_number = event.get('module_number')
     execution_id = event.get('execution_id', 'unknown')
-    total_modules = event.get('total_modules', 4)  # Default to small course if not specified
+    total_modules = event.get('total_modules', 4)
+    use_concurrency = event.get('use_concurrency', True)  # Default to concurrent tracking
     
-    print(f"PhaseCoordinator: action={action}, phase={phase_name}, module={module_number}, execution={execution_id}, total_modules={total_modules}")
+    print(f"PhaseCoordinator: action={action}, phase={phase_name}, module={module_number}, execution={execution_id}, total_modules={total_modules}, concurrency={use_concurrency}")
     
     table = dynamodb.Table(TABLE_NAME)
     
     if action == "acquire":
-        return acquire_lock(table, phase_name, module_number, execution_id, total_modules)
+        if use_concurrency:
+            return acquire_lock_with_concurrency(table, phase_name, module_number, execution_id, total_modules)
+        else:
+            return acquire_lock(table, phase_name, module_number, execution_id, total_modules)
     elif action == "release":
         return release_lock(table, phase_name, module_number)
     else:
@@ -108,14 +118,126 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
 
 
-def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, total_modules: int) -> Dict[str, Any]:
+def count_active_batches(table, execution_id: str) -> int:
     """
-    Attempt to acquire lock for a phase.
-    Implements CSMA-like "listen before talk" protocol with dynamic delay.
+    Count currently active (running) batches for this execution.
     
     Args:
         table: DynamoDB table resource
-        phase_name: Name of the phase (ContentGen, ImagesGen, LabWriter, LabPlanner)
+        execution_id: Execution identifier
+    
+    Returns:
+        Number of batches with status='running'
+    """
+    try:
+        # Scan for all items with this execution_id and status='running'
+        # Note: In production, this should use a GSI, but for now scan works for small datasets
+        response = table.scan(
+            FilterExpression='execution_id = :exec_id AND #status = :running',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':exec_id': execution_id,
+                ':running': 'running'
+            }
+        )
+        
+        active_count = len(response.get('Items', []))
+        print(f"  Active batches for {execution_id}: {active_count}")
+        
+        return active_count
+        
+    except Exception as e:
+        print(f"  ⚠️  Error counting active batches: {e}")
+        # Return 0 on error to allow progress (fail-open)
+        return 0
+
+
+def acquire_lock_with_concurrency(table, phase_name: str, module_number: int, execution_id: str, total_modules: int) -> Dict[str, Any]:
+    """
+    Acquire lock only if concurrent batch limit not exceeded.
+    Uses active batch counting instead of time-based delays.
+    
+    Args:
+        table: DynamoDB table resource
+        phase_name: Name of the phase (e.g., "module-1-batch-2")
+        module_number: Current module number
+        execution_id: Execution identifier
+        total_modules: Total number of modules (for fallback MIN_DELAY)
+    
+    Returns:
+        Dict with can_proceed, wait_seconds, active_batches, and reason
+    """
+    try:
+        # Count currently active batches
+        active_batches = count_active_batches(table, execution_id)
+        
+        if active_batches >= MAX_CONCURRENT_BATCHES:
+            print(f"  ⏸️  Module {module_number} waiting: {active_batches}/{MAX_CONCURRENT_BATCHES} slots full")
+            return {
+                'statusCode': 200,
+                'can_proceed': False,
+                'wait_seconds': 60,  # Check again in 60s
+                'active_batches': active_batches,
+                'reason': f'{active_batches} batches already running (limit: {MAX_CONCURRENT_BATCHES})'
+            }
+        
+        # Slot available - register this batch as running
+        current_timestamp = int(time.time() * 1000)
+        
+        try:
+            table.put_item(
+                Item={
+                    'phase_name': phase_name,
+                    'execution_id': execution_id,
+                    'module_number': module_number,
+                    'start_timestamp': current_timestamp,
+                    'end_timestamp': None,
+                    'status': 'running',
+                    'ttl': int(time.time()) + 3600,  # Auto-expire after 1 hour
+                    'acquired_at': datetime.utcnow().isoformat()
+                },
+                ConditionExpression='attribute_not_exists(phase_name)'
+            )
+            
+            slot_number = active_batches + 1
+            print(f"  ✅ Module {module_number} acquired lock (slot {slot_number}/{MAX_CONCURRENT_BATCHES})")
+            
+            return {
+                'statusCode': 200,
+                'can_proceed': True,
+                'wait_seconds': 0,
+                'active_batches': active_batches,
+                'reason': f'Lock acquired (slot {slot_number}/{MAX_CONCURRENT_BATCHES})'
+            }
+            
+        except table.meta.client.exceptions.ConditionalCheckFailedException:
+            # Batch already registered (shouldn't happen in normal flow)
+            print(f"  ⚠️  Batch {phase_name} already registered")
+            return {
+                'statusCode': 200,
+                'can_proceed': False,
+                'wait_seconds': 60,
+                'active_batches': active_batches,
+                'reason': 'Batch already registered, retry in 60s'
+            }
+            
+    except Exception as e:
+        print(f"  ❌ Error in acquire_lock_with_concurrency: {e}")
+        # Fallback to time-based locking on error
+        print(f"  Falling back to time-based locking")
+        return acquire_lock(table, phase_name, module_number, execution_id, total_modules)
+
+
+def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, total_modules: int) -> Dict[str, Any]:
+    """
+    Attempt to acquire lock for a phase (FALLBACK TIME-BASED METHOD).
+    Implements CSMA-like "listen before talk" protocol with dynamic delay.
+    
+    This is a fallback when concurrent tracking is disabled or fails.
+    
+    Args:
+        table: DynamoDB table resource
+        phase_name: Name of the phase
         module_number: Current module number
         execution_id: Execution identifier
         total_modules: Total number of modules in the course
@@ -260,22 +382,56 @@ def acquire_lock(table, phase_name: str, module_number: int, execution_id: str, 
 def release_lock(table, phase_name: str, module_number: int) -> Dict[str, Any]:
     """
     Release lock after completing a phase.
+    For concurrent tracking: Updates status to 'completed' and sets end_timestamp.
+    For time-based locking: Deletes the lock entry.
     """
     try:
-        # Only delete if this module owns the lock
-        table.delete_item(
-            Key={'phase_name': phase_name},
-            ConditionExpression='module_number = :mn',
-            ExpressionAttributeValues={':mn': module_number}
-        )
+        # Try to update status to 'completed' (concurrent tracking mode)
+        current_timestamp = int(time.time() * 1000)
         
-        print(f"  ✅ Module {module_number} released lock for {phase_name}")
+        try:
+            table.update_item(
+                Key={'phase_name': phase_name},
+                UpdateExpression='SET #status = :completed, end_timestamp = :end_ts',
+                ConditionExpression='module_number = :mn',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':completed': 'completed',
+                    ':end_ts': current_timestamp,
+                    ':mn': module_number
+                }
+            )
+            
+            print(f"  🔓 Module {module_number} marked batch {phase_name} as completed")
+            
+            return {
+                'statusCode': 200,
+                'message': 'Lock released (status=completed)'
+            }
+            
+        except table.meta.client.exceptions.ConditionalCheckFailedException:
+            # Item doesn't have status field (old time-based lock), try delete
+            print(f"  ℹ️  No status field, falling back to delete")
+            table.delete_item(
+                Key={'phase_name': phase_name},
+                ConditionExpression='module_number = :mn',
+                ExpressionAttributeValues={':mn': module_number}
+            )
+            
+            print(f"  ✅ Module {module_number} released lock for {phase_name}")
+            
+            return {
+                'statusCode': 200,
+                'message': 'Lock released (deleted)'
+            }
         
+    except Exception as e:
+        print(f"  ⚠️  Error releasing lock: {e}")
+        # Non-critical error, lock will auto-expire via TTL
         return {
             'statusCode': 200,
-            'message': 'Lock released successfully'
+            'message': f'Lock release failed (will auto-expire): {str(e)}'
         }
-        
     except table.meta.client.exceptions.ConditionalCheckFailedException:
         # Lock doesn't belong to this module (probably already expired or taken by another)
         print(f"  ⚠️  Module {module_number} doesn't own lock for {phase_name} (already released or expired)")

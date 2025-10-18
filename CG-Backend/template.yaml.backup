@@ -1299,12 +1299,12 @@ Resources:
                 - lambda:InvokeFunction
               Resource:
                 - !GetAtt StrandsContentGen.Arn
-                - !GetAtt BatchExpander.Arn
                 - !GetAtt StrandsVisualPlanner.Arn
                 - !GetAtt ImagesGen.Arn
                 - !GetAtt BookBuilder.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
+                - !GetAtt PhaseCoordinator.Arn
 
 Outputs:
   # Strands Agents Lambdas - Theory Generation

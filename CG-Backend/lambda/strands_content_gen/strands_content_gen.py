@@ -1,10 +1,19 @@
 """
-Content Generation - Single Call Version
-Generates entire module in ONE LLM call for maximum efficiency.
+Content Generation - SIMPLIFIED SINGLE-BATCH VERSION
+=====================================================
+Generates ONE batch of lessons per invocation (max 3 lessons).
+Step Functions handles parallelization with MaxConcurrency.
 
-Performance:
-- Old: 7 calls, 10+ minutes
-- New: 1 call, 1-2 minutes (85% faster)
+Each Lambda execution is guaranteed to be ~6-7 minutes, safely under the 15-minute timeout.
+
+Expected event parameters:
+    - module_number: int (which module to generate)
+    - batch_start_idx: int (0-based index of first lesson in batch)
+    - batch_end_idx: int (0-based index of last lesson + 1, Python slice style)
+    - batch_index: int (1-based batch number for logging)
+    - total_batches: int (total batches in this module, for logging)
+    - course_bucket, outline_s3_key, project_folder: S3 paths
+    - model_provider: 'bedrock' or 'openai'
 """
 
 import os
@@ -99,700 +108,278 @@ def build_course_context(course_data: dict) -> str:
         "COMPLETE COURSE OUTLINE - MUST REFERENCE THIS EXACT STRUCTURE",
         "════════════════════════════════════════════════════════════════════════",
         f"Course: {course_title}",
+        f"Total Modules: {len(modules)}",
         ""
     ]
     
-    for mod_idx, module in enumerate(modules, 1):
-        mod_title = module.get('title', f'Module {mod_idx}')
-        context_lines.append(f"\nModule {mod_idx}: {mod_title}")
-        
+    for i, module in enumerate(modules, 1):
+        context_lines.append(f"MODULE {i}: {module.get('title', 'Untitled')}")
         lessons = module.get('lessons', [])
-        for les_idx, lesson in enumerate(lessons, 1):
-            les_title = lesson.get('title', f'Lesson {les_idx}')
-            context_lines.append(f"  {mod_idx}.{les_idx} {les_title}")
+        for j, lesson in enumerate(lessons, 1):
+            context_lines.append(f"  Lesson {i}.{j}: {lesson.get('title', 'Untitled')}")
     
-    context_lines.extend([
-        "",
-        "════════════════════════════════════════════════════════════════════════"
-    ])
+    context_lines.append("════════════════════════════════════════════════════════════════════════")
     
     return "\n".join(context_lines)
 
 
-def generate_module_single_call(
+def generate_batch_single_call(
     module_number: int,
+    batch_start_idx: int,
+    batch_end_idx: int,
     module_data: dict,
     course_data: dict,
-    model_provider: str = "bedrock",
-    openai_api_key: Optional[str] = None,
-    lessons_range: Optional[tuple] = None
+    model_provider: str = 'bedrock',
+    openai_api_key: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Generate module content in a SINGLE LLM call.
-    
-    Supports lesson batching to avoid Lambda timeouts:
-    - Modules with ≤3 lessons: Generate all at once
-    - Modules with >3 lessons: Generate in batches (e.g., lessons 1-3, then 4-6)
-    
-    This is 85% faster than the multi-call approach (1-2 min vs 10+ min per batch).
-    
-    Args:
-        module_number: Module number (1-based)
-        module_data: Module information from outline
-        course_data: Full course data for context
-        model_provider: "bedrock" or "openai"
-        openai_api_key: OpenAI API key (if using OpenAI)
-        lessons_range: Optional tuple (start, end) for lesson indices (0-based, exclusive end)
-                      If None, generates all lessons. Example: (0, 3) generates lessons 1-3
+    Generate a single batch of lessons (3 lessons max) in ONE LLM call.
     
     Returns:
-        List of generated lessons with metadata
+        List of lesson dictionaries with content, metadata, etc.
     """
     
-    # Extract module info
-    module_title = module_data.get('title', f'Module {module_number}')
-    module_summary = module_data.get('summary', '')
-    module_duration = module_data.get('duration_minutes', 0)
+    module_title = module_data.get('title', 'Module')
+    module_description = module_data.get('description', '')
+    module_duration = module_data.get('duration_minutes', 45)
     module_bloom = module_data.get('bloom_level', 'Understand')
-    all_lessons = module_data.get('lessons', [])
+    lessons = module_data.get('lessons', [])
     
-    # Apply lesson range filter if specified
-    if lessons_range:
-        start_idx, end_idx = lessons_range
-        lessons = all_lessons[start_idx:end_idx]
-        batch_info = f" (Lessons {start_idx + 1}-{end_idx} of {len(all_lessons)})"
-    else:
-        lessons = all_lessons
-        batch_info = ""
+    # Extract the batch of lessons
+    batch_lessons = lessons[batch_start_idx:batch_end_idx]
+    num_lessons = len(batch_lessons)
     
-    print(f"\n{'='*70}")
-    print(f"🚀 SINGLE-CALL GENERATION - Module {module_number}{batch_info}")
-    print(f"{'='*70}")
-    
-    total_lessons = len(lessons)
-    print(f"📚 Module: {module_title}")
-    print(f"📖 Lessons to generate: {total_lessons}")
-    print(f"⏱️  Duration: {module_duration} minutes")
-    print(f"🎯 Bloom level: {module_bloom}")
+    print(f"\n📚 Module {module_number}: {module_title}")
+    print(f"📝 Generating batch: Lessons {batch_start_idx + 1}-{batch_end_idx} ({num_lessons} lessons)")
     
     # Build course context
-    course_context_str = build_course_context(course_data)
+    course_context = build_course_context({'title': course_data.get('title', 'Course'), 'modules': course_data.get('modules', [])})
     
     # Build lesson specifications
     lesson_specs = []
-    total_target_words = 0
-    
-    # Extract language from course_data
-    course_language = course_data.get('language', 'en').lower()
-    language_names = {
-        'en': 'English',
-        'es': 'Spanish (Español)',
-        'fr': 'French (Français)',
-        'de': 'German (Deutsch)',
-        'pt': 'Portuguese (Português)',
-        'it': 'Italian (Italiano)'
-    }
-    target_language = language_names.get(course_language, 'English')
-    
-    print(f"🌐 Target Language: {target_language} ({course_language})")
-    
-    # Calculate the starting lesson number for this batch
-    start_lesson_num = lessons_range[0] + 1 if lessons_range else 1
-    
-    for idx, lesson in enumerate(lessons):
-        # Use global lesson number across all batches
-        global_lesson_num = start_lesson_num + idx
-        
-        lesson_title = lesson.get('title', f'Lesson {global_lesson_num}')
-        lesson_duration = lesson.get('duration_minutes', 0)
-        lesson_bloom = lesson.get('bloom_level', module_bloom)
-        topics = lesson.get('topics', [])
-        labs = lesson.get('lab_activities', [])
-        
+    for i, lesson in enumerate(batch_lessons, start=batch_start_idx):
         target_words = calculate_target_words(lesson, module_data)
-        total_target_words += target_words
         
-        # Format topics
-        topics_list = []
-        for topic in topics:
-            if isinstance(topic, dict):
-                topic_title = topic.get('title', 'Unnamed topic')
-                topic_duration = topic.get('duration_minutes', 0)
-                topic_bloom = topic.get('bloom_level', 'Understand')
-                topics_list.append(f"    - {topic_title} [{topic_duration} min, {topic_bloom}]")
-            else:
-                topics_list.append(f"    - {topic}")
+        topics_list = lesson.get('topics', [])
+        topics_str = "\n".join([f"      - {topic}" for topic in topics_list])
         
-        # Format labs
-        labs_list = []
-        for lab in labs:
-            if isinstance(lab, dict):
-                lab_title = lab.get('title', 'Unnamed lab')
-                lab_duration = lab.get('duration_minutes', 0)
-                labs_list.append(f"    - {lab_title} [{lab_duration} min]")
-            else:
-                labs_list.append(f"    - {lab}")
+        lab_activities = lesson.get('lab_activities', [])
+        labs_str = "\n".join([f"      - {lab}" for lab in lab_activities])
         
-        lesson_spec = f"""
-## LESSON {global_lesson_num}: {lesson_title}
-Duration: {lesson_duration} minutes
-Bloom Level: {lesson_bloom}
-Target Words: {target_words}+
-
-TOPICS (EXACTLY {len(topics)} - NO EXTRAS):
-{chr(10).join(topics_list) if topics_list else '    - General overview'}
-
-LAB ACTIVITIES (Reference only - brief descriptions):
-{chr(10).join(labs_list) if labs_list else '    - No lab activities'}
+        spec = f"""
+    Lesson {i + 1}: {lesson.get('title', 'Untitled')}
+    Duration: {lesson.get('duration_minutes', module_duration)} minutes
+    Bloom Level: {lesson.get('bloom_level', module_bloom)}
+    Target Length: ~{target_words} words
+    Topics:
+{topics_str if topics_str else "      (None specified)"}
+    Lab Activities:
+{labs_str if labs_str else "      (None specified)"}
 """
-        lesson_specs.append(lesson_spec)
+        lesson_specs.append(spec)
     
-    lessons_structure = "\n".join(lesson_specs)
+    lessons_specification = "\n".join(lesson_specs)
     
-    print(f"📝 Total target words: {total_target_words}")
-    print(f"🤖 Using model: {model_provider}")
-    
-    # Build comprehensive prompt
-    comprehensive_prompt = f"""
-🚨🚨🚨 CRITICAL INSTRUCTION - READ FIRST 🚨🚨🚨
+    # Build the prompt
+    prompt = f"""You are an expert technical educator creating lesson content for a professional course.
 
-IMAGE DESCRIPTIONS: When you need a visual element, write detailed image descriptions using this EXACT format:
-[VISUAL: detailed description of exactly what should be shown in the image, minimum 80 characters]
+{course_context}
 
-NEVER USE NUMBERS OR IDS:
-❌ WRONG: [VISUAL: 01-01-0001]
-❌ WRONG: [VISUAL: Figure 1.1] 
-❌ WRONG: [VISUAL: Diagram 1]
+TASK: Generate complete, detailed lesson content for {num_lessons} lesson(s) in Module {module_number}.
 
-✅ CORRECT: [VISUAL: Three-layer architecture diagram showing Docker CLI at top connected to Docker Daemon in middle which connects to containerd and runc at bottom, all boxes connected by downward arrows]
+MODULE {module_number}: {module_title}
+Description: {module_description}
 
-Write the FULL description of what the image should show. Be specific about components, layout, colors, and relationships.
+LESSONS TO GENERATE:
+{lessons_specification}
 
-═══════════════════════════════════════════════════════════════════════════════════
+REQUIREMENTS:
+1. Generate EXACTLY {num_lessons} complete lesson(s)
+2. Each lesson must be comprehensive, detailed, and ready to teach
+3. Each lesson MUST start with a clear heading: # Lesson N: [Title]
+4. Include all specified topics and activities
+5. Use Markdown formatting with proper headings, lists, code blocks
+6. Meet the target word count for each lesson
+7. Maintain technical accuracy and professional tone
+8. Include practical examples where appropriate
 
-Generate COMPLETE educational content for Module {module_number}: {module_title}
+OUTPUT FORMAT:
+Generate the lessons separated by this exact delimiter:
+═══════════════════════════════════════════════════════════════════════
 
-═══════════════════════════════════════════════════════════════════════════════════
-🎨 VISUAL TAG REQUIREMENTS (MANDATORY) 🎨
-═══════════════════════════════════════════════════════════════════════════════════
-
-Every visual needs a detailed description tag formatted as:
-[VISUAL: description]
-
-The description MUST be 80+ characters explaining exactly what should be shown.
-
-✅ GOOD EXAMPLES - Copy this style:
-
-[VISUAL: Three-layer architecture diagram with blue boxes: top layer shows 'Docker CLI' with terminal icon, middle layer has 'Docker Daemon' with gear icon, bottom layer displays 'containerd' and 'runc' boxes side by side, connected by downward arrows between each layer]
-
-[VISUAL: Side-by-side comparison table with two columns labeled 'Virtual Machine' and 'Container', showing rows for Size (GB vs MB), Startup (minutes vs seconds), Isolation (hardware vs process), with green checkmarks and red X marks]
-
-[VISUAL: Horizontal flowchart with 5 rounded rectangles connected by right-pointing arrows: 'Write Dockerfile' (pencil icon) → 'docker build' (hammer icon) → 'Image Created' (box icon) → 'docker run' (play icon) → 'Container Running' (green circle)]
-
-Write descriptions like these examples - detailed, specific, visual.
-
-═══════════════════════════════════════════════════════════════════════════════════
-📋 REQUIREMENTS
-═══════════════════════════════════════════════════════════════════════════════════
-
-1️⃣ CONTENT LENGTH: Target ~{total_target_words} words TOTAL across all {total_lessons} lessons
-   - Approximately {total_target_words // total_lessons} words per lesson
-   - Be thorough with examples, code snippets, and real-world scenarios
-
-2️⃣ COMPLETENESS: Generate ALL {total_lessons} lessons in full
-   - Each lesson must be complete with all sections
-   - Do not stop mid-lesson or skip content
-
-3️⃣ VISUAL TAGS: Include 3-5 descriptive [VISUAL: ...] tags per lesson
-   - Remember: 80+ characters describing components, layout, and relationships
-   - (Details in system instructions)
-
-═══════════════════════════════════════════════════════════════════════════════════
-
-{course_context_str}
-
-════════════════════════════════════════════════════════════════════════
-LANGUAGE REQUIREMENT
-════════════════════════════════════════════════════════════════════════
-**GENERATE ALL CONTENT IN: {target_language}**
-
-- All headings, explanations, examples, and text must be in {target_language}
-- Use proper {target_language} terminology and idioms
-- Code comments should also be in {target_language} where appropriate
-- Maintain technical accuracy while using natural {target_language} expression
-
-════════════════════════════════════════════════════════════════════════
-MODULE OVERVIEW
-════════════════════════════════════════════════════════════════════════
-Title: {module_title}
-Summary: {module_summary}
-Duration: {module_duration} minutes
-Bloom Level: {module_bloom}
-Number of Lessons: {total_lessons}
-
-════════════════════════════════════════════════════════════════════════
-LESSON SPECIFICATIONS
-════════════════════════════════════════════════════════════════════════
-{lessons_structure}
-
-════════════════════════════════════════════════════════════════════════
-CRITICAL REQUIREMENTS
-════════════════════════════════════════════════════════════════════════
-
-[x] Generate ALL {total_lessons} lessons in THIS response
-[x] Each lesson must cover ONLY the topics listed (no extras)
-[x] Target total: ~{total_target_words} words across all lessons
-[x] NO "Practical Context" section - integrate practical aspects into Theoretical Foundations
-[x] Lab activities: ONLY list labs from outline (1-2 sentences each)
-[x] NO detailed lab procedures or step-by-step guides
-[x] NO invented or additional labs not in the outline
-
-CONTENT REQUIREMENTS:
-[x] Generate ALL {total_lessons} lessons in THIS response
-[x] Each lesson must cover ONLY the topics listed (no extras)
-[x] Target total: ~{total_target_words} words across all lessons
-[x] NO "Practical Context" section - integrate practical aspects into Theoretical Foundations
-[x] Lab activities: ONLY list labs from outline (1-2 sentences each)
-[x] NO detailed lab procedures or step-by-step guides
-[x] NO invented or additional labs not in the outline
-[x] Include 3-5 descriptive [VISUAL: ...] tags per lesson (80+ characters each)
-[x] Maintain consistent terminology across all lessons
-[x] Each lesson should flow naturally to the next
-[x] Use Markdown formatting with clear headings
-[x] Include practical examples and code snippets where appropriate
-
-════════════════════════════════════════════════════════════════════════
-LESSON STRUCTURE (for each lesson)
-════════════════════════════════════════════════════════════════════════
-
-1. INTRODUCTION (5% of content)
-   - Context and learning objectives
-   - Connection to previous lesson (if not Lesson 1)
-
-2. THEORETICAL FOUNDATIONS (85% of content)
-   - Cover ONLY the topics listed for this lesson
-   - Clear explanations with examples and real-world context
-   - Tool comparisons and selection criteria where relevant
-   - Include descriptive [VISUAL: ...] tags for major concepts
-   - If topic is "roadmap": Show COMPLETE course structure from outline above
-
-3. LAB ACTIVITIES OVERVIEW (5% of content)
-   - ONLY list lab titles with 1-2 sentence descriptions
-   - Format: "In the lab guide, you will [brief action]..."
-   - NO detailed procedures or step-by-step instructions
-   - NO mention of labs not listed in the outline
-
-4. SUMMARY (5% of content)
-   - Recap key concepts covered
-   - Bridge to next lesson (if not last)
-
-✅ EXCELLENT (130+ chars, fully describes image):
-[VISUAL: Layered architecture diagram showing three horizontal layers: top layer labeled 'Application Containers' with boxes for nginx, redis, and postgres; middle layer labeled 'Container Runtime (Docker/containerd)' with dotted line separator; bottom layer labeled 'Linux Kernel' showing namespace and cgroups boxes. Arrows pointing down from apps through runtime to kernel.]
-
-✅ EXCELLENT (140+ chars, complete visualization):
-[VISUAL: Side-by-side comparison table with 5 rows and 3 columns. Column headers: 'Minikube', 'kind', 'Managed K8s (EKS/GKE)'. Rows show: Setup Time (quick/instant/varies), Resource Usage (medium/low/high), Production Ready (no/no/yes), Ideal For (learning/testing/production), Cost (free/free/paid). Each cell uses green checkmark or red X icons.]
-
-✅ EXCELLENT (120+ chars, shows flow and components):
-[VISUAL: Flowchart diagram with 6 connected boxes showing kubectl command flow: 1) User types 'kubectl get pods' (terminal icon), 2) kubectl CLI sends HTTPS request (arrow with lock), 3) API Server validates auth (shield icon), 4) API Server queries etcd (database cylinder), 5) etcd returns pod data (arrow back), 6) kubectl displays table output (terminal with table). All connected by numbered arrows showing sequence.]
-
-Remember: Write your visual tags following the EXCELLENT examples pattern above.
-Every tag must be at least 80 characters with complete details about components, layout, and relationships.
-
-════════════════════════════════════════════════════════════════════════
-OUTPUT FORMAT
-════════════════════════════════════════════════════════════════════════
-
-MANDATORY MARKDOWN STRUCTURE (use EXACTLY this heading hierarchy):
-
-# Lesson Title (H1 - only for lesson title)
-
-## Introduction (H2 - for main sections)
-Content here...
-
-## Theoretical Foundations (H2)
-
-### Topic 1: Name (H3 - for topics/subtopics)
-Content with **bold** for key terms and *italic* for emphasis.
-
-[VISUAL: Detailed 80+ character description here...]
-
-Code examples:
-```yaml
-apiVersion: v1
-kind: Pod
-```
-
-### Topic 2: Name (H3)
-Content...
-
-## Lab Activities (H2)
-
-### Lab 1: Title (H3)
-Brief description...
-
-## Summary (H2)
-Content...
-
----
-
-CRITICAL MARKDOWN RULES (enforced for both Bedrock and GPT-5):
-- H1 (#): ONLY for lesson title at the very top
-- H2 (##): For main sections (Introduction, Theoretical Foundations, Lab Activities, Summary)
-- H3 (###): For topics within sections and individual labs
-- NO H4 or deeper - keep it simple
-- Use **bold** for key terms and concepts
-- Use *italic* for emphasis only
-- Use code blocks with language tags: ```yaml, ```bash, ```python
-- Lists: use "- " for unordered, "1. " for ordered
-- Blank line before and after headings
-- Blank line before and after code blocks
-- Blank line before and after visual tags
-
-Use this EXACT format:
-
----LESSON-1-START---
-# Lesson 1: [Title]
-
-## Introduction
-
-[Context, learning objectives, connection to previous lesson]
-
-## Theoretical Foundations
-
-### [Topic 1 Title from Outline]
-
-[Detailed explanation with examples]
-
-[VISUAL: Detailed 120+ character description with components, layout, relationships, labels, colors, and flow direction clearly specified...]
-
-[More content with **key terms** in bold]
-
-### [Topic 2 Title from Outline]
-
-[Detailed explanation]
-
-[VISUAL: Another detailed 120+ character description...]
-
-## Lab Activities
-
-### Lab 1: [Lab Title from Outline]
-
-In the lab guide, you will [brief 1-2 sentence description].
-
-### Lab 2: [Lab Title from Outline]
-
-In the lab guide, you will [brief 1-2 sentence description].
-
-## Summary
-
-[Recap of key concepts and bridge to next lesson]
-
----LESSON-1-END---
-
----LESSON-2-START---
-# Lesson 2: [Title]
-
-[Full lesson content here with all sections]
-
----LESSON-2-END---
-
----LESSON-3-START---
-# Lesson 3: [Title]
-
-[Full lesson content here with all sections]
-
----LESSON-3-END---
-
-════════════════════════════════════════════════════════════════════════
-VALIDATION CHECKLIST (Complete before finishing)
-════════════════════════════════════════════════════════════════════════
-
-Before submitting, verify:
-[ ] All {total_lessons} lessons generated
-[ ] Each lesson has ONLY the specified topics (no extras)
-[ ] Lab activities section lists ONLY labs from the outline (no invented labs)
-[ ] NO "Practical Context" section (integrate context into Theoretical Foundations)
-[ ] Visual tags present (3-5 per lesson minimum, 80+ characters each)
-[ ] Markdown formatting clean
-[ ] Word count appropriate (~{total_target_words} total)
-[ ] Course roadmap (if applicable) matches outline EXACTLY
-[ ] Consistent terminology throughout
-[ ] Natural flow between lessons
-
-════════════════════════════════════════════════════════════════════════
-FINAL REMINDERS
-════════════════════════════════════════════════════════════════════════
-
-✅ Generate ALL {total_lessons} lessons completely (no partial lessons)
-✅ Target ~{total_target_words} words total (~{total_target_words // total_lessons} per lesson)
-✅ Include 3-5 descriptive [VISUAL: ...] tags per lesson (80+ chars - see system instructions)
-✅ Use H1/H2/H3 hierarchy exactly as specified
-✅ NO invented labs - only labs from outline
-✅ Be thorough and detailed, not overly concise
-
-Now generate the complete module content.
+Begin generating now:
 """
     
-    print(f"\n🔄 Calling {model_provider.upper()} API...")
-    start_time = datetime.now()
+    print(f"🤖 Calling {model_provider.upper()} API...")
+    start_time = time.time()
     
-    # Call appropriate model
-    if model_provider.lower() == "openai":
-        full_content = call_openai(comprehensive_prompt, openai_api_key)
-    else:
-        full_content = call_bedrock(comprehensive_prompt)
+    try:
+        if model_provider == 'bedrock':
+            response_text = call_bedrock(prompt)
+        elif model_provider == 'openai':
+            if not openai_api_key:
+                raise ValueError("OpenAI API key required for openai provider")
+            response_text = call_openai(prompt, openai_api_key)
+        else:
+            raise ValueError(f"Unknown model provider: {model_provider}")
+        
+        elapsed = time.time() - start_time
+        print(f"✅ API call completed in {elapsed:.1f}s")
+        print(f"📄 Response length: {len(response_text):,} characters")
+        
+        # Parse the response into individual lessons
+        parsed_lessons = parse_lessons_from_response(
+            response_text=response_text,
+            module_number=module_number,
+            batch_lessons=batch_lessons,
+            batch_start_idx=batch_start_idx,
+            module_data=module_data
+        )
+        
+        if len(parsed_lessons) != num_lessons:
+            print(f"⚠️  Warning: Expected {num_lessons} lessons, got {len(parsed_lessons)}")
+        
+        return parsed_lessons
     
-    elapsed = (datetime.now() - start_time).total_seconds()
-    print(f"✅ Generation complete in {elapsed:.1f} seconds!")
-    
-    # Parse lessons from response
-    print(f"\n📋 Parsing {total_lessons} lessons from response...")
-    parsed_lessons = parse_lessons_from_response(
-        full_content,
-        lessons,
-        module_number,
-        module_data
-    )
-    
-    # Summary
-    total_words = sum(l['word_count'] for l in parsed_lessons)
-    print(f"\n{'='*70}")
-    print(f"✅ MODULE GENERATION COMPLETE")
-    print(f"{'='*70}")
-    print(f"📚 Module: {module_title}")
-    print(f"📖 Lessons Generated: {len(parsed_lessons)}")
-    print(f"📊 Total Words: {total_words} (target: {total_target_words})")
-    print(f"⏱️  Generation Time: {elapsed:.1f} seconds")
-    print(f"{'='*70}\n")
-    
-    return parsed_lessons
+    except Exception as e:
+        print(f"❌ Error generating batch: {str(e)}")
+        raise
 
 
 def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
-    """Call AWS Bedrock with Converse API."""
+    """Call AWS Bedrock Claude API."""
     try:
-        # System message with visual tag requirements
-        system_message = [
-            {
-                "text": """You are an expert educational content creator.
-
-IMPORTANT: When creating visual elements, write FULL DESCRIPTIONS inside [VISUAL: ...] tags.
-
-Example of what to write:
-[VISUAL: Three-layer diagram with Docker CLI at top in blue box, Docker Daemon in middle gray box, and containerd plus runc at bottom in two side-by-side green boxes, connected by downward black arrows showing the execution flow]
-
-DO NOT write:  
-[VISUAL: 01-01-0001]
-[VISUAL: Figure 1]
-[VISUAL: Diagram]
-
-Write complete visual descriptions with 80+ characters describing components, layout, and relationships."""
-            }
-        ]
-        
-        response = bedrock_client.converse(
-            modelId=model_id,
-            system=system_message,
-            messages=[
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 32000,
+            "temperature": 0.7,
+            "messages": [
                 {
                     "role": "user",
-                    "content": [{"text": prompt}]
+                    "content": prompt
                 }
-            ],
-            inferenceConfig={
-                "maxTokens": 30000,  # Increased from 16000 to allow longer responses (3 lessons)
-                # Note: temperature removed - Claude Sonnet 4.5 uses default (1.0) only
-            }
+            ]
+        }
+        
+        response = bedrock_client.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType='application/json',
+            accept='application/json'
         )
         
-        return response['output']['message']['content'][0]['text']
+        response_body = json.loads(response['body'].read())
+        
+        if 'content' in response_body and len(response_body['content']) > 0:
+            return response_body['content'][0]['text']
+        else:
+            raise ValueError("No content in Bedrock response")
     
     except Exception as e:
-        print(f"❌ Bedrock API error: {e}")
+        print(f"Bedrock API Error: {str(e)}")
         raise
 
 
 def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:
-    """Call OpenAI API with SYSTEM message for visual tag requirements."""
-    import openai
-    
+    """Call OpenAI API."""
     try:
-        client = openai.OpenAI(api_key=api_key)
+        import openai
+        openai.api_key = api_key
         
-        # GPT-5 specific parameters:
-        # - Uses max_completion_tokens instead of max_tokens
-        # - Only supports default temperature (1.0), cannot be customized
-        # Note: GPT-5 reasoning modes (Auto/Instant/Thinking/Pro) are controlled client-side,
-        # not via API parameters. Users must select "Thinking" mode in their UI.
-        
-        # CRITICAL: Put visual tag requirements in SYSTEM message so GPT-5 processes them FIRST
-        system_message = """You are an expert educational content creator.
-
-IMPORTANT: When creating visual elements, write FULL DESCRIPTIONS inside [VISUAL: ...] tags.
-
-Example:
-[VISUAL: Kubernetes control plane showing API Server in center as blue circle connected by arrows to Scheduler above, Controller Manager to left, and etcd database to right, all labeled with their communication protocols]
-
-DO NOT write:
-[VISUAL: 01-01-0001]
-[VISUAL: Figure 1]  
-
-Write complete 80+ character descriptions of components, layout, and relationships."""
-
-        # GPT-5 (o1) models don't support system messages
-        # We need to prepend the instructions to the user message instead
-        if model.startswith("o1-") or model == "gpt-5":
-            # Prepend system instructions to user prompt
-            full_prompt = f"{system_message}\n\n{'='*80}\nUSER REQUEST:\n{'='*80}\n\n{prompt}"
-            
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "user", "content": full_prompt}
-                ],
-                max_completion_tokens=30000
-            )
-        else:
-            # GPT-4 and earlier support system messages
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=30000,
-                temperature=0.7
-            )
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are an expert technical educator."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=32000,
+            temperature=0.7
+        )
         
         return response.choices[0].message.content
     
     except Exception as e:
-        print(f"❌ OpenAI API error: {e}")
+        print(f"OpenAI API Error: {str(e)}")
         raise
 
 
 def parse_lessons_from_response(
-    full_content: str,
-    lessons_outline: List[dict],
+    response_text: str,
     module_number: int,
+    batch_lessons: List[dict],
+    batch_start_idx: int,
     module_data: dict
 ) -> List[Dict[str, Any]]:
-    """
-    Parse individual lessons from the single LLM response.
+    """Parse LLM response into individual lesson objects."""
     
-    Expects lessons to be separated by markers like:
-    ---LESSON-1-START---
-    [content]
-    ---LESSON-1-END---
-    """
+    # Split by delimiter
+    delimiter = "═" * 71
+    parts = response_text.split(delimiter)
+    
+    # Filter out empty parts
+    lesson_contents = [part.strip() for part in parts if part.strip()]
+    
+    print(f"📝 Parsed {len(lesson_contents)} lesson(s) from response")
     
     parsed_lessons = []
     
-    # Try to split by lesson markers
-    lesson_parts = []
-    
-    for idx in range(1, len(lessons_outline) + 1):
-        start_marker = f"---LESSON-{idx}-START---"
-        end_marker = f"---LESSON-{idx}-END---"
+    for i, content in enumerate(lesson_contents):
+        if i >= len(batch_lessons):
+            print(f"⚠️  Warning: More lessons in response than expected, truncating")
+            break
         
-        if start_marker in full_content and end_marker in full_content:
-            start_pos = full_content.find(start_marker) + len(start_marker)
-            end_pos = full_content.find(end_marker)
-            lesson_content = full_content[start_pos:end_pos].strip()
-            lesson_parts.append(lesson_content)
-        else:
-            print(f"⚠️  Warning: Could not find markers for Lesson {idx}, trying fallback...")
-            # Fallback: try to split by heading
-            # This is more fragile but better than failing
-            lesson_parts.append("")
-    
-    # If markers didn't work, try splitting by headings
-    if not all(lesson_parts):
-        print("⚠️  Using fallback parsing (splitting by headings)...")
-        lesson_parts = split_by_headings(full_content, len(lessons_outline))
-    
-    # Build lesson objects
-    for idx, (lesson_outline, lesson_content) in enumerate(zip(lessons_outline, lesson_parts), 1):
-        lesson_title = lesson_outline.get('title', f'Lesson {idx}')
-        topics = lesson_outline.get('topics', [])
-        labs = lesson_outline.get('lab_activities', [])
-        target_words = calculate_target_words(lesson_outline, module_data)
+        lesson_data = batch_lessons[i]
+        lesson_index = batch_start_idx + i
+        lesson_title = lesson_data.get('title', f'Lesson {lesson_index + 1}')
         
-        word_count = len(lesson_content.split())
+        # Calculate word count
+        word_count = len(content.split())
         
-        parsed_lessons.append({
-            'lesson_number': idx,
+        # Format filename
+        filename = format_lesson_filename(module_number, lesson_index, lesson_title)
+        
+        parsed_lesson = {
+            'module_number': module_number,
+            'lesson_number': lesson_index + 1,
             'lesson_title': lesson_title,
-            'lesson_content': lesson_content,
-            'filename': format_lesson_filename(module_number, idx - 1, lesson_title),
+            'filename': filename,
+            'lesson_content': content,
             'word_count': word_count,
-            'target_words': target_words,
-            'topics_count': len(topics),
-            'labs_count': len(labs)
-        })
+            'topics': lesson_data.get('topics', []),
+            'bloom_level': lesson_data.get('bloom_level', module_data.get('bloom_level', 'Understand')),
+            'duration_minutes': lesson_data.get('duration_minutes', module_data.get('duration_minutes', 45))
+        }
         
-        print(f"  ✅ Lesson {idx}: {lesson_title} ({word_count} words)")
+        parsed_lessons.append(parsed_lesson)
+        
+        print(f"  ✅ Lesson {lesson_index + 1}: {lesson_title} ({word_count} words)")
     
     return parsed_lessons
 
 
-def split_by_headings(content: str, expected_lessons: int) -> List[str]:
-    """
-    Fallback parser: Split content by lesson headings.
-    Looks for patterns like "# Lesson 1:" or "## Lesson 1:"
-    """
-    import re
-    
-    # Find all lesson headings
-    pattern = r'^#{1,2}\s*Lesson\s+\d+[:\s]'
-    matches = list(re.finditer(pattern, content, re.MULTILINE))
-    
-    if len(matches) < expected_lessons:
-        print(f"⚠️  Warning: Found {len(matches)} lesson headings, expected {expected_lessons}")
-    
-    lesson_parts = []
-    
-    for i, match in enumerate(matches):
-        start = match.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
-        lesson_content = content[start:end].strip()
-        lesson_parts.append(lesson_content)
-    
-    # Pad with empty strings if needed
-    while len(lesson_parts) < expected_lessons:
-        lesson_parts.append(f"# Lesson {len(lesson_parts) + 1}\n\n[Content generation failed]")
-    
-    return lesson_parts[:expected_lessons]
-
-
 def lambda_handler(event, context):
     """
-    AWS Lambda handler - main entry point.
+    AWS Lambda handler - SIMPLIFIED SINGLE-BATCH VERSION
     
-    This is a drop-in replacement for the original handler.
+    Generates ONE batch of lessons per invocation (max 3 lessons).
+    Step Functions handles parallelization with MaxConcurrency.
     """
     
     try:
         print("=" * 70)
-        print("CONTENT GENERATION LAMBDA - MULTI-MODULE SUPPORT")
+        print("CONTENT GENERATION LAMBDA - SINGLE BATCH MODE")
         print("=" * 70)
         
-        # Debug: Print full event to see what we're receiving
+        # Debug: Print full event
         print(f"\n📥 Received event:")
         print(json.dumps(event, indent=2, default=str))
         
-        # Extract parameters from event
-        course_topic = event.get('course_topic', 'Custom Course')
-        
-        # Support both old (single module) and new (multiple modules) formats
-        modules_to_generate = event.get('modules_to_generate')
-        if modules_to_generate is None:
-            # Fallback to old single-module parameters
-            module_to_generate = event.get('module_number') or event.get('module_to_generate', 1)
-            modules_to_generate = [int(module_to_generate)]
-        elif not isinstance(modules_to_generate, list):
-            # Handle case where it's a single value
-            modules_to_generate = [int(modules_to_generate)]
+        # Extract batch parameters
+        module_num = event.get('module_number')
+        batch_start_idx = event.get('batch_start_idx', 0)
+        batch_end_idx = event.get('batch_end_idx')
+        batch_index = event.get('batch_index', 1)
+        total_batches = event.get('total_batches', 1)
         
         model_provider = event.get('model_provider', 'bedrock').lower()
         
@@ -800,16 +387,19 @@ def lambda_handler(event, context):
         outline_s3_key = event.get('outline_s3_key')
         course_bucket = event.get('course_bucket')
         project_folder = event.get('project_folder')
-        execution_id = event.get('execution_id', 'unknown-execution')
-        total_modules = event.get('total_modules', 7)
         
-        if not all([outline_s3_key, course_bucket, project_folder]):
-            raise ValueError("Missing required S3 parameters")
+        if not all([module_num, outline_s3_key, course_bucket, project_folder]):
+            raise ValueError("Missing required parameters: module_number, outline_s3_key, course_bucket, project_folder")
         
-        print(f"Course: {course_topic}")
-        print(f"Modules to generate: {modules_to_generate}")
-        print(f"Model: {model_provider}")
-        print(f"Outline: s3://{course_bucket}/{outline_s3_key}")
+        module_num = int(module_num)
+        batch_start_idx = int(batch_start_idx)
+        
+        print(f"\n📋 Batch Info:")
+        print(f"  Module: {module_num}")
+        print(f"  Batch: {batch_index}/{total_batches}")
+        print(f"  Lessons: {batch_start_idx + 1}-{batch_end_idx if batch_end_idx else 'all'}")
+        print(f"  Model: {model_provider}")
+        print(f"  Outline: s3://{course_bucket}/{outline_s3_key}")
         
         # Load outline from S3
         print(f"\n📥 Loading outline from S3...")
@@ -817,16 +407,28 @@ def lambda_handler(event, context):
         outline_content = outline_obj['Body'].read().decode('utf-8')
         outline_data = yaml.safe_load(outline_content)
         
-        # Support both 'course' and 'course_metadata' keys for backward compatibility
+        # Support both 'course' and 'course_metadata' keys
         course_info = outline_data.get('course', outline_data.get('course_metadata', {}))
         modules = outline_data.get('modules', [])
         
-        # Validate modules
-        for module_num in modules_to_generate:
-            if module_num > len(modules) or module_num < 1:
-                raise ValueError(f"Module {module_num} not found (outline has {len(modules)} modules)")
+        # Validate module
+        if module_num > len(modules) or module_num < 1:
+            raise ValueError(f"Module {module_num} not found (outline has {len(modules)} modules)")
         
-        # Get OpenAI key if needed (do this once for all modules)
+        module_data = modules[module_num - 1]
+        module_lessons = module_data.get('lessons', [])
+        
+        # If batch_end_idx not specified, generate all lessons
+        if batch_end_idx is None:
+            batch_end_idx = len(module_lessons)
+        else:
+            batch_end_idx = int(batch_end_idx)
+        
+        # Validate batch range
+        if batch_start_idx >= len(module_lessons) or batch_end_idx > len(module_lessons):
+            raise ValueError(f"Invalid batch range [{batch_start_idx}:{batch_end_idx}] for module with {len(module_lessons)} lessons")
+        
+        # Get OpenAI key if needed
         openai_api_key = None
         if model_provider == 'openai':
             try:
@@ -836,148 +438,59 @@ def lambda_handler(event, context):
                 print(f"⚠️  Could not get OpenAI key: {e}")
                 openai_api_key = os.getenv('OPENAI_API_KEY')
         
-        # GENERATE CONTENT FOR ALL MODULES
-        all_lessons = []
-        all_lesson_keys = []
-        total_word_count = 0
-        
-        # Configuration: Maximum lessons per batch to avoid timeout
-        MAX_LESSONS_PER_BATCH = 3
-        
-        for module_num in modules_to_generate:
-            print(f"\n{'='*70}")
-            print(f"📚 GENERATING MODULE {module_num}/{len(modules)}")
-            print(f"{'='*70}")
-            
-            module_data = modules[module_num - 1]
-            module_lessons = module_data.get('lessons', [])
-            total_module_lessons = len(module_lessons)
-            
-            # Determine if we need to batch lessons
-            if total_module_lessons <= MAX_LESSONS_PER_BATCH:
-                # Small module: Generate all lessons in one call
-                print(f"📝 Module has {total_module_lessons} lessons - generating in single call")
-                
-                generated_lessons = generate_module_single_call(
-                    module_number=module_num,
-                    module_data=module_data,
-                    course_data=course_info,
-                    model_provider=model_provider,
-                    openai_api_key=openai_api_key,
-                    lessons_range=None  # All lessons
-                )
-            else:
-                # Large module: Generate lessons in batches
-                num_batches = (total_module_lessons + MAX_LESSONS_PER_BATCH - 1) // MAX_LESSONS_PER_BATCH
-                print(f"📝 Module has {total_module_lessons} lessons - splitting into {num_batches} batches of max {MAX_LESSONS_PER_BATCH} lessons")
-                
-                generated_lessons = []
-                
-                for batch_idx in range(num_batches):
-                    start_idx = batch_idx * MAX_LESSONS_PER_BATCH
-                    end_idx = min(start_idx + MAX_LESSONS_PER_BATCH, total_module_lessons)
-                    
-                    # Acquire lock for this batch (treat each batch like a separate module)
-                    if batch_idx > 0:  # First batch already has lock from module-level acquisition
-                        batch_phase_name = f"module-{module_num}-batch-{batch_idx + 1}"
-                        print(f"\n🔒 Acquiring lock for batch {batch_idx + 1}/{num_batches}...")
-                        
-                        # Invoke PhaseCoordinator to acquire lock
-                        lambda_client = boto3.client('lambda')
-                        lock_response = lambda_client.invoke(
-                            FunctionName='PhaseCoordinator',
-                            InvocationType='RequestResponse',
-                            Payload=json.dumps({
-                                'execution_id': execution_id,
-                                'phase_name': batch_phase_name,
-                                'total_modules': total_modules
-                            })
-                        )
-                        
-                        lock_result = json.loads(lock_response['Payload'].read())
-                        
-                        if lock_result.get('statusCode') != 200 or not lock_result.get('can_proceed', False):
-                            wait_seconds = lock_result.get('wait_seconds', 240)
-                            print(f"⏳ Lock not available, waiting {wait_seconds}s...")
-                            time.sleep(wait_seconds)
-                            # Retry lock acquisition
-                            lock_response = lambda_client.invoke(
-                                FunctionName='PhaseCoordinator',
-                                InvocationType='RequestResponse',
-                                Payload=json.dumps({
-                                    'execution_id': execution_id,
-                                    'phase_name': batch_phase_name,
-                                    'total_modules': total_modules
-                                })
-                            )
-                            lock_result = json.loads(lock_response['Payload'].read())
-                        
-                        print(f"✅ Lock acquired for batch {batch_idx + 1}")
-                    
-                    print(f"\n🔄 Batch {batch_idx + 1}/{num_batches}: Generating lessons {start_idx + 1}-{end_idx}")
-                    
-                    batch_lessons = generate_module_single_call(
-                        module_number=module_num,
-                        module_data=module_data,
-                        course_data=course_info,
-                        model_provider=model_provider,
-                        openai_api_key=openai_api_key,
-                        lessons_range=(start_idx, end_idx)
-                    )
-                    
-                    generated_lessons.extend(batch_lessons)
-                    
-                    print(f"✅ Batch {batch_idx + 1} complete: Generated {len(batch_lessons)} lessons")
-                
-                print(f"\n✅ Module {module_num} complete: Generated {len(generated_lessons)} lessons across {num_batches} batches")
-            
-            # Save lessons to S3
-            print(f"\n💾 Saving {len(generated_lessons)} lessons to S3...")
-            
-            for lesson in generated_lessons:
-                lesson_key = f"{project_folder}/lessons/{lesson['filename']}"
-                
-                s3_client.put_object(
-                    Bucket=course_bucket,
-                    Key=lesson_key,
-                    Body=lesson['lesson_content'].encode('utf-8'),
-                    ContentType='text/markdown'
-                )
-                
-                print(f"  ✅ Saved: {lesson_key}")
-                all_lesson_keys.append(lesson_key)
-                total_word_count += lesson['word_count']
-            
-            all_lessons.extend(generated_lessons)
-        
-        # Return success response (compatible with Step Functions state machine)
+        # GENERATE THIS BATCH
         print(f"\n{'='*70}")
-        print(f"✅ COMPLETE: Generated {len(all_lessons)} lessons across {len(modules_to_generate)} module(s)")
-        print(f"📊 Total words: {total_word_count:,}")
+        print(f"📚 GENERATING MODULE {module_num} - BATCH {batch_index}/{total_batches}")
+        print(f"{'='*70}")
+        
+        generated_lessons = generate_batch_single_call(
+            module_number=module_num,
+            batch_start_idx=batch_start_idx,
+            batch_end_idx=batch_end_idx,
+            module_data=module_data,
+            course_data={'title': course_info.get('title', 'Course'), 'modules': modules},
+            model_provider=model_provider,
+            openai_api_key=openai_api_key
+        )
+        
+        # Save lessons to S3
+        print(f"\n💾 Saving {len(generated_lessons)} lesson(s) to S3...")
+        
+        lesson_keys = []
+        total_words = 0
+        
+        for lesson in generated_lessons:
+            lesson_key = f"{project_folder}/lessons/{lesson['filename']}"
+            
+            s3_client.put_object(
+                Bucket=course_bucket,
+                Key=lesson_key,
+                Body=lesson['lesson_content'].encode('utf-8'),
+                ContentType='text/markdown'
+            )
+            
+            print(f"  ✅ Saved: {lesson_key}")
+            lesson_keys.append(lesson_key)
+            total_words += lesson['word_count']
+        
+        # Return success response
+        print(f"\n{'='*70}")
+        print(f"✅ BATCH COMPLETE: Generated {len(generated_lessons)} lesson(s)")
+        print(f"📊 Total words: {total_words:,}")
         print(f"{'='*70}")
         
         return {
             'statusCode': 200,
-            'message': f'Generated {len(modules_to_generate)} module(s) successfully',
-            # Step Functions compatibility
-            'lesson_keys': all_lesson_keys,  # Required by state machine
+            'message': f'Batch {batch_index}/{total_batches} completed successfully',
+            'lesson_keys': lesson_keys,  # Required by Step Functions
             'bucket': course_bucket,
             'project_folder': project_folder,
-            'modules_generated': modules_to_generate,
-            'total_lessons': len(all_lessons),
-            'total_words': total_word_count,
-            'model_provider': model_provider,
-            # Additional info
-            'lessons': [
-                {
-                    'lesson_number': l['lesson_number'],
-                    'lesson_title': l['lesson_title'],
-                    'filename': l['filename'],
-                    'word_count': l['word_count'],
-                    's3_key': f"{project_folder}/lessons/{l['filename']}"
-                }
-                for l in all_lessons
-            ]
+            'module_number': module_num,
+            'batch_index': batch_index,
+            'total_batches': total_batches,
+            'lessons_generated': len(generated_lessons),
+            'total_words': total_words,
+            'model_provider': model_provider
         }
     
     except Exception as e:
