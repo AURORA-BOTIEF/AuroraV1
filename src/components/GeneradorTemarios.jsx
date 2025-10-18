@@ -36,6 +36,23 @@ function GeneradorTemarios() {
   const [filtroTecnologia, setFiltroTecnologia] = useState("");
   const [menuAbierto, setMenuAbierto] = useState(null);
 
+  // ✅ Obtener correo del usuario autenticado desde el token de Cognito
+  const getUserEmail = () => {
+    try {
+      const token = localStorage.getItem("id_token");
+      if (!token) return "Usuario desconocido";
+
+      const base64Url = token.split(".")[1];
+      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+      const decodedData = JSON.parse(atob(base64));
+
+      return decodedData.email || decodedData["cognito:username"] || "Usuario desconocido";
+    } catch (error) {
+      console.error("Error al obtener el correo del token:", error);
+      return "Usuario desconocido";
+    }
+  };
+
   const versionesFiltradas = versiones.filter((v) => {
     const matchCurso = v.nombre_curso?.toLowerCase().includes(filtroCurso.toLowerCase());
     const matchAsesor = filtroAsesor === "" || v.asesor_comercial === filtroAsesor;
@@ -97,10 +114,12 @@ function GeneradorTemarios() {
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
+      const emailUsuario = getUserEmail();
+
       const bodyData = {
         cursoId: params.tema_curso,
         contenido: temarioParaGuardar,
-        autor: "anette.flores@netec.com.mx",
+        autor: emailUsuario, // ✅ correo real del usuario logueado
         asesor_comercial: params.asesor_comercial,
         nombre_preventa: params.nombre_preventa,
         nombre_curso: params.tema_curso,
