@@ -1060,6 +1060,15 @@ h2.pdf-section-title {
   content: "➕ ";
   font-weight: bold;
 }
+.btn-secundario {
+  background-color: #197fa6 !important;
+  color: #fff !important;
+  border: none;
+}
+
+.btn-secundario:hover {
+  background-color: #035b6e !important;
+}
 
 
 
