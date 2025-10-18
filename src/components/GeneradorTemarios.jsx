@@ -99,7 +99,7 @@ function GeneradorTemarios() {
       const bodyData = {
         cursoId: params.tema_curso,
         contenido: temarioParaGuardar,
-        autor: "anette.flores@netec.com.mx",
+        autor: userEmail,
         asesor_comercial: params.asesor_comercial,
         nombre_preventa: params.nombre_preventa,
         nombre_curso: params.tema_curso,
