@@ -1,3 +1,4 @@
+// src/components/GeneradorTemarios.jsx (VERSIÓN RESTAURADA Y FUNCIONAL)
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario from "./EditorDeTemario";
@@ -31,8 +32,8 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
   const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
-  const [menuActivo, setMenuActivo] = useState(null);
 
+  // 🔹 Obtener correo del usuario autenticado
   useEffect(() => {
     const getUser = async () => {
       try {
@@ -46,6 +47,7 @@ function GeneradorTemarios() {
     getUser();
   }, []);
 
+  // 🔹 Manejo de inputs
   const handleParamChange = (e) => {
     const { name, value } = e.target;
     if (name === "objetivo_tipo") {
@@ -64,7 +66,7 @@ function GeneradorTemarios() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
-  // --- Generar temario ---
+  // 🔹 Generar temario con IA
   const handleGenerar = async () => {
     if (!params.nombre_preventa || !params.asesor_comercial || !params.tecnologia || !params.tema_curso || !params.sector) {
       setError("Completa todos los campos requeridos antes de continuar (incluye Sector/Audiencia).");
@@ -99,7 +101,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // --- Guardar versión ---
+  // 🔹 Guardar versión
   const handleGuardarVersion = async (temarioParaGuardar) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -128,9 +130,7 @@ function GeneradorTemarios() {
       );
 
       const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data.error || "Error al guardar versión");
-
+      if (!res.ok || !data.success) throw new Error(data.error || "Error al guardar versión");
       alert("✅ Versión guardada correctamente");
     } catch (error) {
       console.error(error);
@@ -138,7 +138,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // --- Listar versiones ---
+  // 🔹 Mostrar versiones guardadas
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
@@ -164,19 +164,19 @@ function GeneradorTemarios() {
     }
   };
 
+  // 🔹 Cargar versión seleccionada
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
+  // 🔹 Filtros
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => {
-    setFiltros({ curso: "", asesor: "", tecnologia: "" });
-  };
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
     return (
@@ -186,6 +186,7 @@ function GeneradorTemarios() {
     );
   });
 
+  // ================== INTERFAZ ==================
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
@@ -210,17 +211,17 @@ function GeneradorTemarios() {
 
           <div className="form-group">
             <label>Tecnología</label>
-            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: AWS, React, Python" />
+            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, Azure, React" disabled={isLoading} />
           </div>
 
           <div className="form-group">
             <label>Tema Principal del Curso</label>
-            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Arquitecturas Serverless" />
+            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" disabled={isLoading} />
           </div>
 
           <div className="form-group">
             <label>Nivel de Dificultad</label>
-            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange} disabled={isLoading}>
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option>
@@ -228,40 +229,42 @@ function GeneradorTemarios() {
           </div>
 
           <div className="form-group">
-            <label>Número de Sesiones</label>
-            <input
-              type="number"
-              name="numero_sesiones_por_semana"
-              min="1"
-              max="7"
-              value={params.numero_sesiones_por_semana}
-              onChange={handleSliderChange}
-              disabled={isLoading}
-            />
+            <label>Número de Sesiones (1-7)</label>
+            <div className="slider-container">
+              <input type="range" min="1" max="7" name="numero_sesiones_por_semana" value={params.numero_sesiones_por_semana} onChange={handleSliderChange} />
+              <span>{params.numero_sesiones_por_semana} sesión(es)</span>
+            </div>
           </div>
 
           <div className="form-group">
-            <label>Horas por Sesión</label>
-            <input
-              type="number"
-              name="horas_por_sesion"
-              min="1"
-              max="12"
-              value={params.horas_por_sesion}
-              onChange={handleSliderChange}
-              disabled={isLoading}
-            />
+            <label>Horas por Sesión (4-12)</label>
+            <div className="slider-container">
+              <input type="range" min="4" max="12" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleSliderChange} />
+              <span>{params.horas_por_sesion} horas</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="form-group-radio">
+          <label>Tipo de Objetivo</label>
+          <div>
+            <label>
+              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange} /> Saber Hacer (enfocado en habilidades)
+            </label>
+            <label>
+              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange} /> Certificación (enfocado en examen)
+            </label>
           </div>
         </div>
 
         <div className="form-group">
           <label>Sector / Audiencia</label>
-          <textarea name="sector" value={params.sector} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Personas del sector financiero..." />
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} placeholder="Ej: Personas del sector financiero que quieren ocupar Kanban" />
         </div>
 
         <div className="form-group">
           <label>Enfoque Adicional (Opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} disabled={isLoading} placeholder="Ej: Orientado a patrones de diseño..." />
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño..." />
         </div>
 
         <div className="botones">
@@ -276,92 +279,47 @@ function GeneradorTemarios() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      {temarioGenerado && (
-        <EditorDeTemario
-          temarioInicial={temarioGenerado}
-          onSave={handleGuardarVersion}
-          isLoading={isLoading}
-          totalHoras={params.numero_sesiones_por_semana * params.horas_por_sesion}
-        />
-      )}
+      {temarioGenerado && <EditorDeTemario temarioInicial={temarioGenerado} onSave={handleGuardarVersion} isLoading={isLoading} />}
 
+      {/* Modal de versiones */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <div className="modal-actions">
-                <button className="refresh-btn" onClick={handleListarVersiones}>🔄</button>
-                <button className="close-btn" onClick={() => setMostrarModal(false)}>✕</button>
-              </div>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <div className="filtros-versiones">
-                <input
-                  type="text"
-                  name="curso"
-                  placeholder="Buscar curso..."
-                  value={filtros.curso}
-                  onChange={handleFiltroChange}
-                />
-                <select
-                  name="asesor"
-                  value={filtros.asesor}
-                  onChange={handleFiltroChange}
-                >
-                  <option value="">Todos los asesores</option>
-                  {asesoresComerciales.map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  name="tecnologia"
-                  placeholder="Ej: AWS, React..."
-                  value={filtros.tecnologia}
-                  onChange={handleFiltroChange}
-                />
-                <button className="btn-versiones" onClick={limpiarFiltros}>Limpiar</button>
-              </div>
-
-              <table className="tabla-versiones">
-                <thead>
-                  <tr>
-                    <th>Curso</th>
-                    <th>Tecnología</th>
-                    <th>Asesor</th>
-                    <th>Fecha</th>
-                    <th>Autor</th>
-                    <th>Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versionesFiltradas.map((v, i) => (
-                    <tr key={i}>
-                      <td>{v.nombre_curso}</td>
-                      <td>{v.tecnologia}</td>
-                      <td>{v.asesor_comercial}</td>
-                      <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                      <td>{v.autor}</td>
-                      <td className="acciones-cell">
-                        <button
-                          className="menu-btn"
-                          onClick={() => setMenuActivo(menuActivo === i ? null : i)}
-                        >
-                          ⋮
-                        </button>
-                        {menuActivo === i && (
-                          <div className="menu-opciones">
-                            <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
-                            <button>📄 Exportar PDF</button>
-                            <button>📊 Exportar Excel</button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {versiones.length === 0 ? (
+                <p>No hay versiones guardadas.</p>
+              ) : (
+                <div className="tabla-versiones-scroll">
+                  <table className="versiones-table">
+                    <thead>
+                      <tr>
+                        <th>Curso</th>
+                        <th>Tecnología</th>
+                        <th>Asesor</th>
+                        <th>Fecha</th>
+                        <th>Autor</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {versionesFiltradas.map((v, i) => (
+                        <tr key={i}>
+                          <td>{v.nombre_curso}</td>
+                          <td>{v.tecnologia}</td>
+                          <td>{v.asesor_comercial}</td>
+                          <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
+                          <td>{v.autor}</td>
+                          <td><button onClick={() => handleCargarVersion(v)}>Cargar</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -371,7 +329,6 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
-
 
 
 
