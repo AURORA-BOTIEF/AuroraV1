@@ -12,16 +12,23 @@ import json
 import boto3
 import base64
 import time
+import logging
 from io import BytesIO
 from PIL import Image
 from typing import Dict, Any, List
+from datetime import datetime
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Import Google Generative AI
 try:
     import google.generativeai as genai
+    logger.info("✅ google.generativeai imported successfully")
 except ImportError:
     genai = None
-    print("WARNING: google.generativeai not available")
+    logger.error("❌ WARNING: google.generativeai not available")
 
 # ============================================================================
 # CONFIGURATION
@@ -64,32 +71,30 @@ def get_secret(secret_name: str, region_name: str = "us-east-1") -> Dict[str, An
 
 def get_google_api_key() -> str:
     """Get Google API key from Secrets Manager or environment."""
-    print("🔍 Attempting to retrieve Google API key...")
+    logger.info("🔍 Attempting to retrieve Google API key...")
     try:
         # Try Secrets Manager first
-        print("📡 Calling get_secret('aurora/google-api-key')...")
+        logger.info("📡 Calling get_secret('aurora/google-api-key')...")
         google_secret = get_secret("aurora/google-api-key")
-        print(f"📦 Secret retrieved: {type(google_secret)}, keys: {list(google_secret.keys()) if isinstance(google_secret, dict) else 'N/A'}")
+        logger.info(f"📦 Secret retrieved: {type(google_secret)}, keys: {list(google_secret.keys()) if isinstance(google_secret, dict) else 'N/A'}")
         api_key = google_secret.get('api_key')
-        print(f"🔑 api_key value: {'<present>' if api_key else '<missing>'}")
+        logger.info(f"🔑 api_key value: {'<present>' if api_key else '<missing>'}")
         if api_key:
-            print("✅ Retrieved Google API key from Secrets Manager")
+            logger.info("✅ Retrieved Google API key from Secrets Manager")
             return api_key
         else:
-            print("⚠️  api_key field is empty in secret")
+            logger.warning("⚠️  api_key field is empty in secret")
     except Exception as e:
-        print(f"⚠️  Failed to retrieve from Secrets Manager: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"⚠️  Failed to retrieve from Secrets Manager: {type(e).__name__}: {e}", exc_info=True)
     
     # Fallback to environment variable
-    print("🔍 Checking environment variable GOOGLE_API_KEY...")
+    logger.info("🔍 Checking environment variable GOOGLE_API_KEY...")
     api_key = os.getenv('GOOGLE_API_KEY')
     if api_key:
-        print("✅ Using Google API key from environment variable")
+        logger.info("✅ Using Google API key from environment variable")
         return api_key
     
-    print("❌ No Google API key found in Secrets Manager or environment")
+    logger.error("❌ No Google API key found in Secrets Manager or environment")
     return None
 
 
@@ -110,105 +115,105 @@ def generate_image(model, prompt_id: str, prompt_text: str) -> tuple:
         tuple: (success: bool, image_bytes: bytes or None, error: str or None)
     """
     try:
-        print(f"Generating image for prompt: {prompt_id}")
-        print(f"Prompt text length: {len(prompt_text)} characters")
-        print(f"Prompt preview: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
+        logger.info(f"Generating image for prompt: {prompt_id}")
+        logger.info(f"Prompt text length: {len(prompt_text)} characters")
+        logger.info(f"Prompt preview: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
         
         # Use the prompt text directly (it's already enhanced with details)
         # No need to add "Generate an image:" prefix as the prompt is comprehensive
-        print(f"Sending to Gemini: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
+        logger.info(f"Sending to Gemini: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
         
         response = model.generate_content(prompt_text)
-        print(f"Gemini response type: {type(response)}")
+        logger.info(f"Gemini response type: {type(response)}")
         
         # Process the response
         if response and hasattr(response, 'candidates'):
-            print(f"Found {len(response.candidates)} candidates")
+            logger.info(f"Found {len(response.candidates)} candidates")
             for candidate_idx, candidate in enumerate(response.candidates):
-                print(f"Processing candidate {candidate_idx}")
+                logger.info(f"Processing candidate {candidate_idx}")
                 if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                    print(f"Candidate has {len(candidate.content.parts)} parts")
+                    logger.info(f"Candidate has {len(candidate.content.parts)} parts")
                     for part_idx, part in enumerate(candidate.content.parts):
-                        print(f"Processing part {part_idx}: {type(part)}")
+                        logger.info(f"Processing part {part_idx}: {type(part)}")
                         
                         # Check for inline_data (image) first
                         if hasattr(part, 'inline_data'):
-                            print(f"Found inline_data in part {part_idx}")
+                            logger.info(f"Found inline_data in part {part_idx}")
                             image_data = part.inline_data
                             image_bytes = image_data.data
                             mime_type = image_data.mime_type
 
-                            print(f"Image data type: {type(image_bytes)}, size: {len(image_bytes) if hasattr(image_bytes, '__len__') else 'unknown'}")
-                            print(f"MIME type: {mime_type}")
+                            logger.info(f"Image data type: {type(image_bytes)}, size: {len(image_bytes) if hasattr(image_bytes, '__len__') else 'unknown'}")
+                            logger.info(f"MIME type: {mime_type}")
 
                             # Check if we have image data
                             if not image_bytes or len(image_bytes) == 0:
-                                print(f"Empty image data for {prompt_id}")
+                                logger.info(f"Empty image data for {prompt_id}")
                                 continue  # Skip this part, check others
 
                             # Additional validation
                             if len(image_bytes) < 1000:  # Reasonable minimum size for an image
-                                print(f"Image data too small ({len(image_bytes)} bytes), skipping")
+                                logger.info(f"Image data too small ({len(image_bytes)} bytes), skipping")
                                 continue
 
                             # Decode base64 if needed
                             if isinstance(image_bytes, str):
-                                print("Decoding base64 image data")
+                                logger.info("Decoding base64 image data")
                                 image_bytes = base64.b64decode(image_bytes)
 
                             # Try to create PIL Image
-                            print("Creating PIL Image")
+                            logger.info("Creating PIL Image")
                             try:
                                 image = Image.open(BytesIO(image_bytes))
-                                print(f"Success! Image size: {image.size}, mode: {image.mode}, format: {image.format}")
+                                logger.info(f"Success! Image size: {image.size}, mode: {image.mode}, format: {image.format}")
                                 return True, image_bytes, None
                             except Exception as pil_error:
-                                print(f"PIL Error: {pil_error}")
+                                logger.info(f"PIL Error: {pil_error}")
 
                                 # Inspect the bytes
                                 first_bytes = image_bytes[:20] if len(image_bytes) > 20 else image_bytes
-                                print(f"First 20 bytes: {first_bytes}")
+                                logger.info(f"First 20 bytes: {first_bytes}")
 
                                 # Try different formats
                                 if image_bytes.startswith(b'\xff\xd8\xff'):
-                                    print("Detected JPEG signature")
+                                    logger.info("Detected JPEG signature")
                                 elif image_bytes.startswith(b'\x89PNG'):
-                                    print("Detected PNG signature")
+                                    logger.info("Detected PNG signature")
                                 elif image_bytes.startswith(b'RIFF') and b'WEBP' in image_bytes[:20]:
-                                    print("Detected WebP signature")
+                                    logger.info("Detected WebP signature")
                                 else:
-                                    print("Unknown format signature")
+                                    logger.info("Unknown format signature")
 
                                 continue  # Try next part
 
                         # Check for text parts (but don't skip image processing)
                         if hasattr(part, 'text'):
                             text_content = part.text
-                            print(f"Found text part: {text_content[:200]}...")
+                            logger.info(f"Found text part: {text_content[:200]}...")
 
                             # Check if this is an error message
                             if any(keyword in text_content.lower() for keyword in ['cannot', 'unable', 'error', 'sorry', 'failed', 'not available']):
-                                print(f"Gemini returned error: {text_content[:100]}...")
+                                logger.info(f"Gemini returned error: {text_content[:100]}...")
                                 return False, None, f"Gemini error: {text_content[:100]}"
                             # Don't continue here - let it check other parts for images
                                 
                     if not any(hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data and len(part.inline_data.data) >= 1000 for part in candidate.content.parts):
-                        print("No valid image data found in any part")
+                        logger.info("No valid image data found in any part")
                         return False, None, "No valid image data found in any part"
                 else:
-                    print(f"❌ Candidate {candidate_idx} has no valid content")
+                    logger.info(f"❌ Candidate {candidate_idx} has no valid content")
                     return False, None, "Candidate has no valid content"
             else:
-                print("No candidates with image data found")
+                logger.info("No candidates with image data found")
                 return False, None, "No candidates with image data found"
         else:
-            print(f"Unexpected response format: {type(response)}")
+            logger.info(f"Unexpected response format: {type(response)}")
             if hasattr(response, 'text'):
-                print(f"Response text: {response.text}")
+                logger.info(f"Response text: {response.text}")
             return False, None, f"Unexpected response format: {type(response)}"
 
     except Exception as e:
-        print(f"Error generating image for {prompt_id}: {e}")
+        logger.info(f"Error generating image for {prompt_id}: {e}")
         import traceback
         traceback.print_exc()
         return False, None, str(e)
@@ -241,11 +246,11 @@ def save_image_to_s3(s3_client, bucket: str, key: str, image_bytes: bytes) -> bo
             ContentType='image/png'
         )
         
-        print(f"✅ Saved to S3: {key}")
+        logger.info(f"✅ Saved to S3: {key}")
         return True
         
     except Exception as e:
-        print(f"❌ Error saving to S3: {e}")
+        logger.info(f"❌ Error saving to S3: {e}")
         return False
 
 
@@ -299,7 +304,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     }
     """
     try:
-        print("=== Starting Image Generation Lambda ===")
+        logger.info("=== Starting Image Generation Lambda ===")
         
         # Extract event data (support Step Functions format)
         if isinstance(event, dict) and 'Execution' in event and isinstance(event['Execution'], dict):
@@ -314,15 +319,15 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         prompts_prefix = exec_input.get('prompts_prefix')
         requested_max_images = exec_input.get('max_images')
         
-        print(f"Bucket: {course_bucket}")
-        print(f"Project: {project_folder}")
-        print(f"Prompts provided: {len(prompts_from_input) if prompts_from_input else 0}")
-        print(f"Prompts prefix: {prompts_prefix}")
-        print(f"Max images: {requested_max_images}")
+        logger.info(f"Bucket: {course_bucket}")
+        logger.info(f"Project: {project_folder}")
+        logger.info(f"Prompts provided: {len(prompts_from_input) if prompts_from_input else 0}")
+        logger.info(f"Prompts prefix: {prompts_prefix}")
+        logger.info(f"Max images: {requested_max_images}")
         
         # Validate required parameters
         if not course_bucket or not project_folder:
-            print("❌ Missing required parameters")
+            logger.info("❌ Missing required parameters")
             return {
                 "statusCode": 400,
                 "error": "Missing required parameters: course_bucket and project_folder",
@@ -336,7 +341,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         # If prompts_prefix provided, read prompts from S3
         if prompts_prefix and not prompts_from_input:
-            print(f"📂 Reading prompts from S3: {prompts_prefix}")
+            logger.info(f"📂 Reading prompts from S3: {prompts_prefix}")
             try:
                 # Build full S3 prefix
                 full_prefix = f"{project_folder}/{prompts_prefix}" if not prompts_prefix.startswith(project_folder) else prompts_prefix
@@ -349,7 +354,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 
                 if 'Contents' in list_response:
                     prompt_files = [obj['Key'] for obj in list_response['Contents'] if obj['Key'].endswith('.json')]
-                    print(f"📄 Found {len(prompt_files)} prompt files in S3")
+                    logger.info(f"📄 Found {len(prompt_files)} prompt files in S3")
                     
                     # Read each prompt file
                     for prompt_key in prompt_files:
@@ -369,17 +374,17 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                                     's3_key': prompt_key
                                 })
                         except Exception as e:
-                            print(f"⚠️  Failed to read prompt {prompt_key}: {e}")
+                            logger.info(f"⚠️  Failed to read prompt {prompt_key}: {e}")
                     
-                    print(f"✅ Loaded {len(prompts_from_input)} prompts with descriptions from S3")
+                    logger.info(f"✅ Loaded {len(prompts_from_input)} prompts with descriptions from S3")
                 else:
-                    print(f"⚠️  No prompt files found at {full_prefix}")
+                    logger.info(f"⚠️  No prompt files found at {full_prefix}")
             except Exception as e:
-                print(f"❌ Error reading prompts from S3: {e}")
+                logger.info(f"❌ Error reading prompts from S3: {e}")
         
         # Check if genai is available
         if genai is None:
-            print("⚠️  genai library not available; skipping image generation")
+            logger.info("⚠️  genai library not available; skipping image generation")
             return {
                 "statusCode": 200,
                 "message": "genai library not available; skipped image generation",
@@ -391,7 +396,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         # Get Google API key
         google_api_key = get_google_api_key()
         if not google_api_key:
-            print("⚠️  Google API key not available; skipping image generation")
+            logger.info("⚠️  Google API key not available; skipping image generation")
             return {
                 "statusCode": 200,
                 "message": "Google API key not available; skipped image generation",
@@ -404,9 +409,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         try:
             genai.configure(api_key=google_api_key)
             model = genai.GenerativeModel(GEMINI_MODEL)
-            print(f"✅ Initialized Gemini model: {GEMINI_MODEL}")
+            logger.info(f"✅ Initialized Gemini model: {GEMINI_MODEL}")
         except Exception as e:
-            print(f"❌ Failed to configure Gemini: {e}")
+            logger.info(f"❌ Failed to configure Gemini: {e}")
             return {
                 "statusCode": 500,
                 "error": f"Failed to configure Gemini: {e}",
@@ -417,7 +422,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         # Handle empty prompts list
         if not prompts_from_input or len(prompts_from_input) == 0:
-            print("⚠️  No prompts to process")
+            logger.info("⚠️  No prompts to process")
             
             # Still discover lessons for BookBuilder
             lessons_prefix = f"{project_folder}/lessons/"
@@ -430,7 +435,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 if 'Contents' in list_response:
                     lesson_keys = [obj['Key'] for obj in list_response['Contents'] if obj['Key'].endswith('.md')]
             except Exception as e:
-                print(f"Error listing lessons: {e}")
+                logger.info(f"Error listing lessons: {e}")
             
             return {
                 "statusCode": 200,
@@ -442,66 +447,131 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 "image_mappings": {}
             }
         
-        # Determine how many to process
+        # Determine how many to process with start_index support
+        start_index = exec_input.get('start_index', 0)
         num_prompts = len(prompts_from_input)
+        
+        # REPAIR MODE: Filter to only missing images
+        repair_mode = exec_input.get('repair_mode', False)
+        missing_image_ids = exec_input.get('missing_image_ids', [])
+        
+        if repair_mode and missing_image_ids:
+            logger.info(f"🔧 REPAIR MODE ENABLED")
+            logger.info(f"   Filtering to {len(missing_image_ids)} missing images")
+            
+            # Convert to set for faster lookup
+            missing_set = set(missing_image_ids)
+            
+            # Filter prompts to only missing ones
+            original_count = len(prompts_from_input)
+            prompts_from_input = [
+                p for p in prompts_from_input
+                if str(p.get('id', '')) in missing_set
+            ]
+            filtered_count = len(prompts_from_input)
+            
+            logger.info(f"   Filtered {original_count} → {filtered_count} prompts")
+            num_prompts = filtered_count
+        
+        # Apply start_index offset (only if not in repair mode)
+        elif start_index > 0:
+            logger.info(f"📍 Starting from index {start_index}")
+            prompts_from_input = prompts_from_input[start_index:]
+            num_prompts = len(prompts_from_input)
+        
         effective_max = min(num_prompts, BACKEND_MAX)
         
         if num_prompts > BACKEND_MAX:
-            print(f"⚠️  Truncating from {num_prompts} to backend cap {BACKEND_MAX}")
+            logger.info(f"⚠️  Truncating from {num_prompts} to backend cap {BACKEND_MAX}")
+            if not repair_mode:
+                logger.info(f"📊 Processing prompts {start_index} to {start_index + BACKEND_MAX - 1}")
         
         prompts_to_process = prompts_from_input[:effective_max]
-        print(f"Processing {len(prompts_to_process)} prompts")
+        logger.info(f"Processing {len(prompts_to_process)} prompts")
+        
+        # Track detailed statistics
+        failed_images = []
+        successful_images = []
+        skipped_images = []
         
         # Process each prompt
         for idx, prompt_obj in enumerate(prompts_to_process, start=1):
             prompt_id = str(prompt_obj.get('id', f'prompt-{idx}'))
             prompt_text = prompt_obj.get('description', '')
             
-            print(f"\n[{idx}/{len(prompts_to_process)}] Processing: {prompt_id}")
+            logger.info(f"\n[{idx}/{len(prompts_to_process)}] Processing: {prompt_id}")
             
             # Skip if no description
             if not prompt_text:
-                print(f"⚠️  Skipping {prompt_id}: no description")
-                generated_images.append({
+                logger.warning(f"⚠️  Skipping {prompt_id}: no description")
+                error_detail = {
                     'id': prompt_id,
                     'status': 'skipped',
-                    'error': 'no description'
-                })
+                    'error': 'no description',
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                generated_images.append(error_detail)
+                skipped_images.append(error_detail)
                 continue
             
-            # Generate image
-            success, image_bytes, error = generate_image(model, prompt_id, prompt_text)
-            
-            if success and image_bytes:
-                # Save to S3
-                image_filename = f"{prompt_id}.png"
-                images_key = f"{project_folder}/images/{image_filename}"
+            try:
+                # Generate image
+                logger.info(f"📸 Calling generate_image for {prompt_id}")
+                success, image_bytes, error = generate_image(model, prompt_id, prompt_text)
                 
-                if save_image_to_s3(s3_client, course_bucket, images_key, image_bytes):
-                    generated_images.append({
-                        'id': prompt_id,
-                        'filename': image_filename,
-                        's3_key': images_key,
-                        'status': 'ok'
-                    })
-                    print(f"✅ Generated: {images_key}")
+                if success and image_bytes:
+                    # Save to S3
+                    image_filename = f"{prompt_id}.png"
+                    images_key = f"{project_folder}/images/{image_filename}"
+                    
+                    logger.info(f"💾 Saving to S3: {images_key}")
+                    if save_image_to_s3(s3_client, course_bucket, images_key, image_bytes):
+                        success_detail = {
+                            'id': prompt_id,
+                            'filename': image_filename,
+                            's3_key': images_key,
+                            'status': 'ok',
+                            'timestamp': datetime.utcnow().isoformat()
+                        }
+                        generated_images.append(success_detail)
+                        successful_images.append(prompt_id)
+                        logger.info(f"✅ Generated: {images_key}")
+                    else:
+                        error_detail = {
+                            'id': prompt_id,
+                            'status': 'failed',
+                            'error': 'failed to save to S3',
+                            'timestamp': datetime.utcnow().isoformat()
+                        }
+                        generated_images.append(error_detail)
+                        failed_images.append(error_detail)
+                        logger.error(f"❌ S3 Save failed for {prompt_id}")
                 else:
-                    generated_images.append({
+                    error_detail = {
                         'id': prompt_id,
                         'status': 'failed',
-                        'error': 'failed to save to S3'
-                    })
-            else:
-                print(f"❌ Failed: {error}")
-                generated_images.append({
+                        'error': error or 'unknown error',
+                        'timestamp': datetime.utcnow().isoformat()
+                    }
+                    generated_images.append(error_detail)
+                    failed_images.append(error_detail)
+                    logger.error(f"❌ Generation failed for {prompt_id}: {error}")
+                    
+            except Exception as e:
+                error_detail = {
                     'id': prompt_id,
                     'status': 'failed',
-                    'error': error or 'unknown error'
-                })
+                    'error': f'Exception: {str(e)}',
+                    'error_type': type(e).__name__,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                generated_images.append(error_detail)
+                failed_images.append(error_detail)
+                logger.error(f"❌ Exception processing {prompt_id}: {e}", exc_info=True)
             
             # Rate limiting delay
             if idx < len(prompts_to_process):
-                print(f"⏳ Waiting {RATE_LIMIT_DELAY}s before next request...")
+                logger.info(f"⏳ Waiting {RATE_LIMIT_DELAY}s before next request...")
                 time.sleep(RATE_LIMIT_DELAY)
         
         # Build image mappings for BookBuilder
@@ -517,9 +587,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             )
             if 'Contents' in list_response:
                 lesson_keys = [obj['Key'] for obj in list_response['Contents'] if obj['Key'].endswith('.md')]
-                print(f"Found {len(lesson_keys)} lesson files")
+                logger.info(f"Found {len(lesson_keys)} lesson files")
         except Exception as e:
-            print(f"Error listing lessons: {e}")
+            logger.info(f"Error listing lessons: {e}")
         
         # Create mappings for each generated image
         for img_data in generated_images:
@@ -546,37 +616,67 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                         # Only add if not already in mappings (newly generated take precedence)
                         if visual_tag not in image_mappings:
                             image_mappings[visual_tag] = img_key
-                            print(f"✅ Included existing image mapping: {visual_tag} -> {img_key}")
+                            logger.info(f"✅ Included existing image mapping: {visual_tag} -> {img_key}")
         except Exception as e:
-            print(f"Warning: Could not scan existing images: {e}")
+            logger.info(f"Warning: Could not scan existing images: {e}")
         
-        # Summary
-        successful = len([img for img in generated_images if img.get('status') == 'ok'])
-        print(f"\n{'='*60}")
-        print(f"✅ Generated {successful}/{len(prompts_to_process)} images successfully")
-        print(f"📊 Total prompts processed: {len(generated_images)}")
-        print(f"{'='*60}\n")
+        # Summary with detailed statistics
+        successful_count = len(successful_images)
+        failed_count = len(failed_images)
+        skipped_count = len(skipped_images)
+        total_processed = len(prompts_to_process)
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"📊 EXECUTION SUMMARY")
+        logger.info(f"{'='*60}")
+        logger.info(f"✅ Successful: {successful_count}/{total_processed}")
+        logger.info(f"❌ Failed:     {failed_count}/{total_processed}")
+        logger.info(f"⏭️  Skipped:    {skipped_count}/{total_processed}")
+        logger.info(f"{'='*60}")
+        
+        if failed_images:
+            logger.warning(f"\n❌ FAILED IMAGES ({failed_count}):")
+            for fail in failed_images:
+                logger.warning(f"   - {fail['id']}: {fail['error']}")
+        
+        if successful_images:
+            logger.info(f"\n✅ SUCCESSFUL IMAGES ({successful_count}):")
+            for img_id in successful_images[:10]:  # Show first 10
+                logger.info(f"   - {img_id}")
+            if successful_count > 10:
+                logger.info(f"   ... and {successful_count - 10} more")
+        
+        logger.info(f"\n{'='*60}\n")
+        
+        # Determine status code based on results
+        status_code = 200 if failed_count == 0 else 207  # 207 = Multi-Status (partial success)
         
         return {
-            "statusCode": 200,
-            "message": f"Generated {successful} images successfully",
+            "statusCode": status_code,
+            "message": f"Generated {successful_count}/{total_processed} images successfully",
             "generated_images": generated_images,
             "bucket": course_bucket,
             "project_folder": project_folder,
             "lesson_keys": lesson_keys,
             "image_mappings": image_mappings,
             "statistics": {
-                "total_prompts": len(prompts_to_process),
-                "successful": successful,
-                "failed": len(generated_images) - successful,
-                "skipped": num_prompts - len(prompts_to_process) if num_prompts > len(prompts_to_process) else 0
-            }
+                "total_processed": total_processed,
+                "successful": successful_count,
+                "failed": failed_count,
+                "skipped": skipped_count,
+                "success_rate": f"{(successful_count/total_processed*100):.1f}%" if total_processed > 0 else "0%"
+            },
+            "failed_details": failed_images if failed_images else []
         }
         
     except Exception as e:
-        print(f"❌ Lambda error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"❌ FATAL ERROR in lambda_handler: {e}", exc_info=True)
+        return {
+            "statusCode": 500,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "timestamp": datetime.utcnow().isoformat()
+        }
         
         return {
             "statusCode": 500,
@@ -586,5 +686,5 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
 
 
 if __name__ == '__main__':
-    print("Images Generation Lambda")
-    print("Use SAM CLI to test: sam local invoke ImagesGen -e test-event.json")
+    logger.info("Images Generation Lambda")
+    logger.info("Use SAM CLI to test: sam local invoke ImagesGen -e test-event.json")

@@ -150,6 +150,34 @@ Resources:
                 - arn:aws:s3:::netec-course-generator-content
                 - arn:aws:s3:::netec-course-generator-content/*
 
+  LabBatchExpander:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: LabBatchExpander
+      Description: Expand labs into individual batch tasks for parallel processing
+      Runtime: python3.12
+      Handler: lab_batch_expander.lambda_handler
+      CodeUri: ./lambda/
+      Timeout: 60
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          MAX_LABS_PER_BATCH: '2'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+
   StrandsVisualPlanner:
     Type: AWS::Serverless::Function
     Properties:
@@ -160,7 +188,7 @@ Resources:
       CodeUri: ./lambda/strands_visual_planner/
       Layers:
         - !Ref StrandsAgentsLayer
-      Timeout: 300
+      Timeout: 900
       MemorySize: 512
       Architectures:
         - arm64
@@ -351,6 +379,38 @@ Resources:
           Type: Api
           Properties:
             Path: /build-book
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  LabGuideBuilder:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Builds complete lab guide books by combining lab exercises
+      Handler: lab_guide_builder.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 300
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        BuildLabGuideApi:
+          Type: Api
+          Properties:
+            Path: /build-lab-guide
             Method: post
             Auth:
               Authorizer: NONE
@@ -686,7 +746,7 @@ Resources:
                 GenerateBatchContent:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate ONE batch of lessons (max 3 lessons, ~6-7 minutes)"
+                  Comment: "OPTIMIZED: Generate batch of lessons (max 5 lessons) with single API call"
                   Parameters:
                     FunctionName: !GetAtt StrandsContentGen.Arn
                     Payload.$: $.batch_task
@@ -704,45 +764,49 @@ Resources:
                       ResultPath: $.error
                       Next: BatchFailState
                   ResultPath: $.batch_result
-                  Next: ProcessBatchVisuals
-                ProcessBatchVisuals:
-                  Type: Map
-                  Comment: "Process visual tags for lessons in this batch"
-                  ItemsPath: $.batch_result.Payload.lesson_keys
-                  MaxConcurrency: 2
+                  Next: InvokeVisualPlannerForBatch
+                InvokeVisualPlannerForBatch:
+                  Type: Task
+                  Comment: "OPTIMIZED: Process ALL lessons in batch with single API call (85% cost reduction)"
+                  Resource: arn:aws:states:::lambda:invoke
                   Parameters:
-                    lesson_key.$: $$.Map.Item.Value
-                    course_bucket.$: $.batch_task.course_bucket
-                    project_folder.$: $.batch_task.project_folder
-                    model_provider.$: $.batch_task.model_provider
-                  Iterator:
-                    StartAt: InvokeVisualPlannerForLesson
-                    States:
-                      InvokeVisualPlannerForLesson:
-                        Type: Task
-                        Resource: arn:aws:states:::lambda:invoke
-                        Parameters:
-                          FunctionName: !GetAtt StrandsVisualPlanner.Arn
-                          Payload:
-                            course_bucket.$: $.course_bucket
-                            lesson_key.$: $.lesson_key
-                            project_folder.$: $.project_folder
-                            model_provider.$: $.model_provider
-                        Retry:
-                          - ErrorEquals:
-                              - Lambda.ServiceException
-                              - Lambda.AWSLambdaException
-                              - Lambda.SdkClientException
-                            IntervalSeconds: 5
-                            MaxAttempts: 2
-                            BackoffRate: 2.0
-                        Next: VisualPlannerSuccess
-                      VisualPlannerSuccess:
-                        Type: Pass
-                        OutputPath: $.Payload
-                        End: true
-                  ResultPath: $.visual_results
-                  Next: GenerateBatchImages
+                    FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                    Payload:
+                      lesson_keys.$: $.batch_result.Payload.lesson_keys
+                      course_bucket.$: $.batch_task.course_bucket
+                      project_folder.$: $.batch_task.project_folder
+                      model_provider.$: $.batch_task.model_provider
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  ResultPath: $.visual_result
+                  Next: CheckForVisualTags
+                CheckForVisualTags:
+                  Type: Choice
+                  Comment: "Check if any visual tags were found in this batch"
+                  Choices:
+                    - And:
+                        - Variable: $.visual_result.Payload
+                          IsPresent: true
+                        - Variable: $.visual_result.Payload.prompts_s3_prefix
+                          IsPresent: true
+                      Next: GenerateBatchImages
+                  Default: SkipImageGeneration
+                SkipImageGeneration:
+                  Type: Pass
+                  Comment: "No visual tags found, skip image generation"
+                  Result:
+                    Payload:
+                      statusCode: 200
+                      message: "No visual tags found, skipped image generation"
+                      image_mappings: {}
+                  ResultPath: $.images_result
+                  Next: BatchComplete
                 GenerateBatchImages:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
@@ -752,7 +816,7 @@ Resources:
                     Payload:
                       course_bucket.$: $.batch_task.course_bucket
                       project_folder.$: $.batch_task.project_folder
-                      prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                      prompts_prefix.$: $.visual_result.Payload.prompts_s3_prefix
                   Retry:
                     - ErrorEquals:
                         - Lambda.ServiceException
@@ -788,6 +852,8 @@ Resources:
               project_folder.$: $.project_folder
               all_lesson_keys.$: $.all_batches_results[*].lesson_keys[*]
               all_image_mappings.$: $.all_batches_results[*].image_mappings
+              # CRITICAL: Preserve master_lab_plan_result for labs generation
+              master_lab_plan_result.$: $.master_lab_plan_result
             Next: InvokeBookBuilder
           
           InvokeBookBuilder:
@@ -809,72 +875,233 @@ Resources:
                 IntervalSeconds: 5
                 MaxAttempts: 2
                 BackoffRate: 2.0
+            ResultPath: $.book_result
+            Next: CheckIfLabsNeeded
+          
+          CheckIfLabsNeeded:
+            Type: Choice
+            Comment: "Check if we need to generate labs (both mode)"
+            Choices:
+              - Variable: $.master_lab_plan_result.Payload.statusCode
+                NumericEquals: 200
+                Next: ExpandLabsToBatchesBoth
+            Default: SuccessState
+          
+          ExpandLabsToBatchesBoth:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Expand labs into batches"
+            Parameters:
+              FunctionName: !GetAtt LabBatchExpander.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
+                project_folder.$: $.project_folder
+                model_provider.$: $.model_provider
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.lab_batch_expansion
+            Next: ProcessLabBatchesInParallelBoth
+          
+          ProcessLabBatchesInParallelBoth:
+            Type: Map
+            Comment: "Process lab batches in parallel"
+            ItemsPath: $.lab_batch_expansion.Payload.batches
+            MaxConcurrency: 2
+            Parameters:
+              lab_batch.$: $$.Map.Item.Value
+            Iterator:
+              StartAt: GenerateLabBatchBoth
+              States:
+                GenerateLabBatchBoth:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt StrandsLabWriter.Arn
+                    Payload.$: $.lab_batch
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: LabBatchFailStateBoth
+                  ResultPath: $.lab_result
+                  Next: LabBatchCompleteBoth
+                
+                LabBatchCompleteBoth:
+                  Type: Pass
+                  Parameters:
+                    batch_index.$: $.lab_batch.batch_index
+                    lab_guide_keys.$: $.lab_result.Payload.lab_guide_keys
+                  End: true
+                
+                LabBatchFailStateBoth:
+                  Type: Fail
+                  Cause: LabBatchGenerationFailed
+                  Error: LabBatchGenerationError
+            ResultPath: $.all_lab_batches_results
+            Next: CombineLabResultsBoth
+          
+          CombineLabResultsBoth:
+            Type: Pass
+            Comment: "Flatten lab results and combine with theory results"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              theory_book_key.$: $.book_result.Payload.book_s3_key
+              theory_book_json_key.$: $.book_result.Payload.book_json_key
+              all_lab_keys.$: $.all_lab_batches_results[*].lab_guide_keys[*]
+              lesson_count.$: $.book_result.Payload.lesson_count
+            Next: InvokeLabGuideBuilder
+          
+          InvokeLabGuideBuilder:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Build lab guide book with all lab exercises"
+            Parameters:
+              FunctionName: !GetAtt LabGuideBuilder.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                project_folder.$: $.project_folder
+                lab_keys.$: $.all_lab_keys
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.lab_guide_result
             Next: SuccessState
           
           # ===== LABS ONLY BRANCH =====
           LabsOnlyBranch:
-            Type: Parallel
-            Comment: "Generate only lab guides"
-            Branches:
-              - StartAt: InvokeLabPlanner
-                States:
-                  InvokeLabPlanner:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
-                    Parameters:
-                      FunctionName: !GetAtt StrandsLabPlanner.Arn
-                      Payload:
-                        course_bucket.$: $.course_bucket
-                        outline_s3_key.$: $.outline_s3_key
-                        project_folder.$: $.project_folder
-                        model_provider.$: $.model_provider
-                        lab_requirements.$: $.lab_requirements
-                        modules_to_generate.$: $.modules_to_generate
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    Catch:
-                      - ErrorEquals:
-                          - States.ALL
-                        ResultPath: $.error
-                        Next: LabsFailState
-                    Next: CheckLabPlannerResult
-                  CheckLabPlannerResult:
-                    Type: Choice
-                    Comment: "Check if LabPlanner succeeded (statusCode 200)"
-                    Choices:
-                      - Variable: $.Payload.statusCode
-                        NumericEquals: 200
-                        Next: InvokeLabWriter
-                    Default: LabsFailState
-                  InvokeLabWriter:
-                    Type: Task
-                    Resource: arn:aws:states:::lambda:invoke
-                    Parameters:
-                      FunctionName: !GetAtt StrandsLabWriter.Arn
-                      Payload:
-                        course_bucket.$: $.Payload.bucket
-                        master_plan_key.$: $.Payload.master_plan_key
-                        project_folder.$: $.Payload.project_folder
-                        model_provider.$: $.Payload.model_provider
-                    Retry:
-                      - ErrorEquals:
-                          - Lambda.ServiceException
-                          - Lambda.AWSLambdaException
-                          - Lambda.SdkClientException
-                        IntervalSeconds: 5
-                        MaxAttempts: 2
-                        BackoffRate: 2.0
-                    End: true
-                  LabsFailState:
-                    Type: Fail
-                    Cause: LabGenerationFailed
-                    Error: LabGenerationError
+            Type: Pass
+            Comment: "Prepare input for lab generation with batch expansion"
+            Next: InvokeLabPlanner
+          
+          InvokeLabPlanner:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Generate master lab plan for ALL modules"
+            Parameters:
+              FunctionName: !GetAtt StrandsLabPlanner.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                outline_s3_key.$: $.outline_s3_key
+                project_folder.$: $.project_folder
+                model_provider.$: $.model_provider
+                lab_requirements.$: $.lab_requirements
+                modules_to_generate.$: $.modules_to_generate
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.lab_planner_result
+            Next: CheckLabPlannerResult
+          
+          CheckLabPlannerResult:
+            Type: Choice
+            Comment: "Check if LabPlanner succeeded (statusCode 200)"
+            Choices:
+              - Variable: $.lab_planner_result.Payload.statusCode
+                NumericEquals: 200
+                Next: ExpandLabsToBatches
+            Default: LabPlanningFailedState
+          
+          ExpandLabsToBatches:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Expand labs into batches for parallel processing"
+            Parameters:
+              FunctionName: !GetAtt LabBatchExpander.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                master_plan_key.$: $.lab_planner_result.Payload.master_plan_key
+                project_folder.$: $.project_folder
+                model_provider.$: $.model_provider
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.lab_batch_expansion
+            Next: ProcessLabBatchesInParallel
+          
+          ProcessLabBatchesInParallel:
+            Type: Map
+            Comment: "Process 2 lab batches concurrently"
+            ItemsPath: $.lab_batch_expansion.Payload.batches
+            MaxConcurrency: 2
+            Parameters:
+              lab_batch.$: $$.Map.Item.Value
+            Iterator:
+              StartAt: GenerateLabBatch
+              States:
+                GenerateLabBatch:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate labs for this batch (max 2 labs per batch)"
+                  Parameters:
+                    FunctionName: !GetAtt StrandsLabWriter.Arn
+                    Payload.$: $.lab_batch
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: LabBatchFailState
+                  ResultPath: $.lab_result
+                  Next: LabBatchComplete
+                LabBatchComplete:
+                  Type: Pass
+                  Comment: "Lab batch processing complete"
+                  Parameters:
+                    batch_index.$: $.lab_batch.batch_index
+                    lab_guide_keys.$: $.lab_result.Payload.lab_guide_keys
+                  End: true
+                LabBatchFailState:
+                  Type: Fail
+                  Cause: LabBatchGenerationFailed
+                  Error: LabBatchGenerationError
+            ResultPath: $.all_lab_batches_results
+            Next: CombineLabResults
+          
+          CombineLabResults:
+            Type: Pass
+            Comment: "Flatten lab results from all batches"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              all_lab_keys.$: $.all_lab_batches_results[*].lab_guide_keys[*]
             Next: SuccessState
           
           # ===== BOTH THEORY AND LABS BRANCH =====
@@ -901,6 +1128,7 @@ Resources:
                 BackoffRate: 2.0
             ResultPath: $.master_lab_plan_result
             Next: CheckMasterLabPlanResult
+          
           CheckMasterLabPlanResult:
             Type: Choice
             Comment: "Check if master lab plan generation succeeded"
@@ -909,383 +1137,18 @@ Resources:
                 NumericEquals: 200
                 Next: BothTheoryAndLabsBranch
             Default: LabPlanningFailedState
+          
+          BothTheoryAndLabsBranch:
+            Type: Pass
+            Comment: "Generate theory first, then labs (both use parallel batch processing)"
+            Next: ExpandModulesToBatches
+          
+          # ===== FAIL STATES =====
           LabPlanningFailedState:
             Type: Fail
-            Comment: "Master lab planning failed - cannot proceed with lab generation"
+            Comment: "Master lab planning failed"
             Cause: "LabPlanner returned error"
             Error: "MasterLabPlanningFailed"
-          BothTheoryAndLabsBranch:
-            Type: Map
-            Comment: "Process up to 4 modules concurrently with CSMA coordination for reliability"
-            ItemsPath: $.modules_to_generate
-            MaxConcurrency: 4
-            Parameters:
-              module_number.$: $$.Map.Item.Value
-              course_bucket.$: $.course_bucket
-              outline_s3_key.$: $.outline_s3_key
-              project_folder.$: $.project_folder
-              model_provider.$: $.model_provider
-              content_source.$: $.content_source
-              lab_requirements.$: $.lab_requirements
-              master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
-              execution_id.$: $$.Execution.Name
-              total_modules.$: $.total_modules
-            Iterator:
-              StartAt: AcquireContentGenLock
-              States:
-                AcquireContentGenLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Acquire lock for ContentGen phase using CSMA protocol"
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "acquire"
-                      phase_name: "ContentGen"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: $.lock_result
-                  Next: CheckContentGenLock
-                CheckContentGenLock:
-                  Type: Choice
-                  Comment: "Check if we can proceed or need to wait"
-                  Choices:
-                    - Variable: $.lock_result.Payload.can_proceed
-                      BooleanEquals: true
-                      Next: InvokeTheoryContentGenForModuleBoth
-                    - Variable: $.lock_result.Payload.can_proceed
-                      BooleanEquals: false
-                      Next: WaitForContentGenSlot
-                  Default: InvokeTheoryContentGenForModuleBoth
-                WaitForContentGenSlot:
-                  Type: Wait
-                  Comment: "Wait for minimum delay between ContentGen calls"
-                  SecondsPath: $.lock_result.Payload.wait_seconds
-                  Next: AcquireContentGenLock
-                InvokeTheoryContentGenForModuleBoth:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate content for ONE module"
-                  Parameters:
-                    FunctionName: !GetAtt StrandsContentGen.Arn
-                    Payload:
-                      course_bucket.$: $.course_bucket
-                      outline_s3_key.$: $.outline_s3_key
-                      project_folder.$: $.project_folder
-                      model_provider.$: $.model_provider
-                      content_source.$: $.content_source
-                      module_number.$: $.module_number
-                  Retry:
-                    - ErrorEquals:
-                        - Lambda.ServiceException
-                        - Lambda.AWSLambdaException
-                        - Lambda.SdkClientException
-                      IntervalSeconds: 5
-                      MaxAttempts: 2
-                      BackoffRate: 2.0
-                  Catch:
-                    - ErrorEquals:
-                        - States.ALL
-                      ResultPath: $.error
-                      Next: ReleaseContentGenLockOnFailure
-                  ResultPath: $.lambda_result
-                  Next: CheckTheoryContentGenResultBoth
-                CheckTheoryContentGenResultBoth:
-                  Type: Choice
-                  Comment: "Check if ContentGen succeeded or returned error"
-                  Choices:
-                    - Variable: $.lambda_result.Payload.statusCode
-                      NumericEquals: 500
-                      Next: ReleaseContentGenLockOnFailure
-                    - Variable: $.lambda_result.Payload.statusCode
-                      NumericEquals: 200
-                      Next: ReleaseContentGenLock
-                  Default: ReleaseContentGenLockOnFailure
-                ReleaseContentGenLockOnFailure:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "ContentGen"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: null
-                  Next: ModuleTheoryFailStateBoth
-                ReleaseContentGenLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "ContentGen"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: null
-                  Next: ProcessModuleTheoryContentBoth
-                ProcessModuleTheoryContentBoth:
-                  Type: Pass
-                  Comment: "Parse theory generation result for this module"
-                  Parameters:
-                    lesson_keys.$: $.lambda_result.Payload.lesson_keys
-                    course_bucket.$: $.lambda_result.Payload.bucket
-                    project_folder.$: $.lambda_result.Payload.project_folder
-                    model_provider.$: $.lambda_result.Payload.model_provider
-                    module_number.$: $.module_number
-                    outline_s3_key.$: $.outline_s3_key
-                    lab_requirements.$: $.lab_requirements
-                    master_plan_key.$: $.master_plan_key
-                    execution_id.$: $.execution_id
-                    total_modules.$: $.total_modules
-                  Next: ProcessVisualsForModuleBoth
-                ProcessVisualsForModuleBoth:
-                  Type: Map
-                  Comment: "Process visual tags for all lessons in this module"
-                  ItemsPath: $.lesson_keys
-                  MaxConcurrency: 2
-                  Parameters:
-                    lesson_key.$: $$.Map.Item.Value
-                    course_bucket.$: $.course_bucket
-                    project_folder.$: $.project_folder
-                    model_provider.$: $.model_provider
-                  Iterator:
-                    StartAt: InvokeVisualPlannerForLessonBoth
-                    States:
-                      InvokeVisualPlannerForLessonBoth:
-                        Type: Task
-                        Resource: arn:aws:states:::lambda:invoke
-                        Parameters:
-                          FunctionName: !GetAtt StrandsVisualPlanner.Arn
-                          Payload:
-                            course_bucket.$: $.course_bucket
-                            lesson_key.$: $.lesson_key
-                            project_folder.$: $.project_folder
-                            model_provider.$: $.model_provider
-                        Retry:
-                          - ErrorEquals:
-                              - Lambda.ServiceException
-                              - Lambda.AWSLambdaException
-                              - Lambda.SdkClientException
-                            IntervalSeconds: 5
-                            MaxAttempts: 2
-                            BackoffRate: 2.0
-                        Next: VisualPlannerSuccessForLessonBoth
-                      VisualPlannerSuccessForLessonBoth:
-                        Type: Pass
-                        OutputPath: $.Payload
-                        End: true
-                  ResultPath: $.visual_results
-                  Next: AcquireImagesGenLock
-                AcquireImagesGenLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "acquire"
-                      phase_name: "ImagesGen"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: $.lock_result
-                  Next: CheckImagesGenLock
-                CheckImagesGenLock:
-                  Type: Choice
-                  Choices:
-                    - Variable: $.lock_result.Payload.can_proceed
-                      BooleanEquals: true
-                      Next: InvokeImagesGenForModuleBoth
-                  Default: WaitForImagesGenSlot
-                WaitForImagesGenSlot:
-                  Type: Wait
-                  SecondsPath: $.lock_result.Payload.wait_seconds
-                  Next: AcquireImagesGenLock
-                InvokeImagesGenForModuleBoth:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate all images for this module's lessons using collected visual prompts"
-                  Parameters:
-                    FunctionName: !GetAtt ImagesGen.Arn
-                    Payload:
-                      course_bucket.$: $.course_bucket
-                      project_folder.$: $.project_folder
-                      lesson_keys.$: $.lesson_keys
-                  Retry:
-                    - ErrorEquals:
-                        - Lambda.ServiceException
-                        - Lambda.AWSLambdaException
-                        - Lambda.SdkClientException
-                      IntervalSeconds: 5
-                      MaxAttempts: 2
-                      BackoffRate: 2.0
-                  Catch:
-                    - ErrorEquals:
-                        - States.ALL
-                      ResultPath: $.error
-                      Next: ReleaseImagesGenLockOnFailure
-                  ResultPath: $.images_result
-                  Next: ReleaseImagesGenLock
-                ReleaseImagesGenLockOnFailure:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "ImagesGen"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: null
-                  Next: ModuleTheoryFailStateBoth
-                ReleaseImagesGenLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "ImagesGen"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: null
-                  Next: AcquireLabWriterLock
-                AcquireLabWriterLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "acquire"
-                      phase_name: "LabWriter"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: $.lock_result
-                  Next: CheckLabWriterLock
-                CheckLabWriterLock:
-                  Type: Choice
-                  Choices:
-                    - Variable: $.lock_result.Payload.can_proceed
-                      BooleanEquals: true
-                      Next: InvokeLabWriterForModule
-                  Default: WaitForLabWriterSlot
-                WaitForLabWriterSlot:
-                  Type: Wait
-                  SecondsPath: $.lock_result.Payload.wait_seconds
-                  Next: AcquireLabWriterLock
-                InvokeLabWriterForModule:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate lab guides for this module using pre-generated master plan"
-                  Parameters:
-                    FunctionName: !GetAtt StrandsLabWriter.Arn
-                    Payload:
-                      course_bucket.$: $.course_bucket
-                      master_plan_key.$: $.master_plan_key
-                      project_folder.$: $.project_folder
-                      model_provider.$: $.model_provider
-                      module_number.$: $.module_number
-                  Retry:
-                    - ErrorEquals:
-                        - Lambda.ServiceException
-                        - Lambda.AWSLambdaException
-                        - Lambda.SdkClientException
-                      IntervalSeconds: 5
-                      MaxAttempts: 2
-                      BackoffRate: 2.0
-                  Catch:
-                    - ErrorEquals:
-                        - States.ALL
-                      ResultPath: $.error
-                      Next: ReleaseLabWriterLockOnFailure
-                  ResultPath: $.lab_writer_result
-                  Next: ReleaseLabWriterLock
-                ReleaseLabWriterLockOnFailure:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "LabWriter"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: null
-                  Next: ModuleLabsSkipped
-                ReleaseLabWriterLock:
-                  Type: Task
-                  Resource: arn:aws:states:::lambda:invoke
-                  Parameters:
-                    FunctionName: !GetAtt PhaseCoordinator.Arn
-                    Payload:
-                      action: "release"
-                      phase_name: "LabWriter"
-                      module_number.$: $.module_number
-                      execution_id.$: $.execution_id
-                      total_modules.$: $.total_modules
-                  ResultPath: null
-                  Next: ModuleCompleteBoth
-                ModuleLabsSkipped:
-                  Type: Pass
-                  Comment: "Lab generation failed or skipped for this module"
-                  Result:
-                    Payload:
-                      lab_guides_generated: 0
-                  ResultPath: $.lab_writer_result
-                  Next: ModuleCompleteBoth
-                ModuleCompleteBoth:
-                  Type: Pass
-                  Comment: "Module complete with theory and labs"
-                  Parameters:
-                    module_number.$: $.module_number
-                    lesson_keys.$: $.lesson_keys
-                    image_mappings.$: $.images_result.Payload.image_mappings
-                    labs_generated.$: $.lab_writer_result.Payload.lab_guides_generated
-                  End: true
-                ModuleTheoryFailStateBoth:
-                  Type: Fail
-                  Comment: "Theory generation failed for this module"
-                  Cause: "ContentGen Lambda returned error"
-                  Error: "ModuleTheoryGenerationFailed"
-            ResultPath: $.all_modules_results
-            Next: CombineResultsAndBuildBookBoth
-          CombineResultsAndBuildBookBoth:
-            Type: Pass
-            Comment: "Flatten results from all modules for BookBuilder"
-            Parameters:
-              course_bucket.$: $.course_bucket
-              project_folder.$: $.project_folder
-              all_lesson_keys.$: $.all_modules_results[*].lesson_keys[*]
-              all_image_mappings.$: $.all_modules_results[*].image_mappings
-            Next: InvokeBookBuilderBoth
-          InvokeBookBuilderBoth:
-            Type: Task
-            Resource: arn:aws:states:::lambda:invoke
-            Comment: "Build final book with all modules"
-            Parameters:
-              FunctionName: !GetAtt BookBuilder.Arn
-              Payload:
-                course_bucket.$: $.course_bucket
-                project_folder.$: $.project_folder
-                lesson_keys.$: $.all_lesson_keys
-                image_mappings.$: $.all_image_mappings
-            Retry:
-              - ErrorEquals:
-                  - Lambda.ServiceException
-                  - Lambda.AWSLambdaException
-                  - Lambda.SdkClientException
-                IntervalSeconds: 5
-                MaxAttempts: 2
-                BackoffRate: 2.0
-            Next: SuccessState
           
           # ===== SUCCESS STATE =====
           SuccessState:
@@ -1300,6 +1163,7 @@ Resources:
               Resource:
                 - !GetAtt StrandsContentGen.Arn
                 - !GetAtt BatchExpander.Arn
+                - !GetAtt LabBatchExpander.Arn
                 - !GetAtt StrandsVisualPlanner.Arn
                 - !GetAtt ImagesGen.Arn
                 - !GetAtt BookBuilder.Arn
@@ -1333,6 +1197,10 @@ Outputs:
   BookBuilderFunction:
     Description: Book Builder Lambda Function ARN
     Value: !GetAtt BookBuilder.Arn
+  
+  LabGuideBuilderFunction:
+    Description: Lab Guide Builder Lambda Function ARN
+    Value: !GetAtt LabGuideBuilder.Arn
   
   ListProjectsFunction:
     Description: List Projects Lambda Function ARN

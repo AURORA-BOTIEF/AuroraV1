@@ -70,12 +70,30 @@ def lambda_handler(event, context):
             book_md_key = None
 
             if 'Contents' in response:
+                # Prioritize files ending with _data.json and _complete.md
+                # If multiple exist, prefer the most recently modified
+                json_files = []
+                md_files = []
+                
                 for obj in response['Contents']:
                     key = obj['Key']
-                    if key.endswith('_data.json') and not book_json_key:
-                        book_json_key = key
-                    elif key.endswith('_complete.md') and not book_md_key:
-                        book_md_key = key
+                    last_modified = obj.get('LastModified')
+                    
+                    if key.endswith('_data.json'):
+                        json_files.append((key, last_modified))
+                    elif key.endswith('_complete.md'):
+                        md_files.append((key, last_modified))
+                
+                # Sort by last modified (most recent first) and pick the first
+                if json_files:
+                    json_files.sort(key=lambda x: x[1], reverse=True)
+                    book_json_key = json_files[0][0]
+                    print(f"Selected JSON file: {book_json_key} (from {len(json_files)} available)")
+                
+                if md_files:
+                    md_files.sort(key=lambda x: x[1], reverse=True)
+                    book_md_key = md_files[0][0]
+                    print(f"Selected MD file: {book_md_key} (from {len(md_files)} available)")
 
             # Helper to decide whether to inline or presign
             def prepare_object(key):

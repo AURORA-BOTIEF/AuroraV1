@@ -1,10 +1,11 @@
 """
-Content Generation - SIMPLIFIED SINGLE-BATCH VERSION
-=====================================================
-Generates ONE batch of lessons per invocation (max 3 lessons).
+Content Generation - OPTIMIZED FOR MODERN LLMs
+===============================================
+Generates ONE batch of lessons per invocation (max 5 lessons).
 Step Functions handles parallelization with MaxConcurrency.
 
-Each Lambda execution is guaranteed to be ~6-7 minutes, safely under the 15-minute timeout.
+Modern LLMs (Sonnet 4.5, GPT-5) can easily handle 5+ lessons with rich content
+and visual tags in a single API call, reducing cost and improving speed.
 
 Expected event parameters:
     - module_number: int (which module to generate)
@@ -197,11 +198,15 @@ REQUIREMENTS:
 1. Generate EXACTLY {num_lessons} complete lesson(s)
 2. Each lesson must be comprehensive, detailed, and ready to teach
 3. Each lesson MUST start with a clear heading: # Lesson N: [Title]
-4. Include all specified topics and activities
+4. Include all specified topics and activities (if provided)
 5. Use Markdown formatting with proper headings, lists, code blocks
 6. Meet the target word count for each lesson
 7. Maintain technical accuracy and professional tone
 8. Include practical examples where appropriate
+9. **IMPORTANT**: When a concept would benefit from visual representation (diagrams, screenshots, illustrations), add a visual tag using this format: [VISUAL: Brief description of the image needed]
+   - Place visual tags inline where the image should appear
+   - Be specific about what the image should show
+   - Examples: [VISUAL: Diagram showing the MVC architecture flow], [VISUAL: Screenshot of the IDE debugger panel], [VISUAL: Flowchart of the authentication process]
 
 OUTPUT FORMAT:
 Generate the lessons separated by this exact delimiter:
@@ -470,7 +475,15 @@ def lambda_handler(event, context):
             )
             
             print(f"  ✅ Saved: {lesson_key}")
-            lesson_keys.append(lesson_key)
+            
+            # Build structured lesson info for VisualPlanner (OPTIMIZED: batch processing)
+            lesson_keys.append({
+                "s3_key": lesson_key,
+                "module_number": lesson['module_number'],
+                "lesson_number": lesson['lesson_number'],
+                "lesson_title": lesson['lesson_title']
+            })
+            
             total_words += lesson['word_count']
         
         # Return success response

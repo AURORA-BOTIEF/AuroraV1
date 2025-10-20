@@ -39,8 +39,9 @@ from typing import List, Dict, Any
 
 s3_client = boto3.client('s3')
 
-# Maximum lessons per batch (to avoid Lambda timeout)
-MAX_LESSONS_PER_BATCH = 3
+# Maximum lessons per batch (optimized for modern LLMs like Sonnet 4.5 and GPT-5)
+# These models can easily handle 5+ lessons in a single API call
+MAX_LESSONS_PER_BATCH = 5
 
 
 def lambda_handler(event, context):
