@@ -63,7 +63,7 @@ function GeneradorTemarios() {
         "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/default/Generador_Temario_Knowledge_Transfer",
         {
           method: "POST",
-          // mode: "cors",
+          mode: "cors",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
