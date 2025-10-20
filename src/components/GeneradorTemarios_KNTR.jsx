@@ -179,8 +179,8 @@ function GeneradorTemarios() {
           <label>Enfoque Adicional (Opcional)</label>
           <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
         </div>
-        
-        <button className="btn-generar-principal" onClick={() => handleGenerar(params)} disabled={isLoading}>
+         
+        <button className="btn-generar-principal" onClick={handleGenerar} disabled={isLoading}> 
           {isLoading ? 'Generando...' : 'Generar Propuesta de Temario'}
         </button>
       </div>
