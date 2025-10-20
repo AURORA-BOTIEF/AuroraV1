@@ -10,6 +10,7 @@ import { Amplify } from 'aws-amplify';
  * - VITE_AWS_REGION (optional, derived from domain if missing)
  * - VITE_REDIRECT_URI and/or VITE_REDIRECT_URI_TESTING
  * - VITE_IDENTITY_POOL_ID (optional)
+ * - VITE_HTTP_API_URL (for custom HTTP API Gateway)
  */
 const domainRaw = import.meta.env.VITE_COGNITO_DOMAIN || '';
 const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
@@ -48,10 +49,11 @@ if (missing.length) {
     region,
     userPoolId,
     identityPoolId: identityPoolId || '(not set)',
-    apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod"
+    apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
+    httpApi: import.meta.env.VITE_HTTP_API_URL || "(not set)"
   });
 
-  // AWS Amplify v6 configuration format
+  // === ✅ AWS Amplify v6 configuration ===
   Amplify.configure({
     Auth: {
       Cognito: {
@@ -73,6 +75,11 @@ if (missing.length) {
       REST: {
         CourseGeneratorAPI: {
           endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
+          region: region
+        },
+        // 👇 Nueva API registrada (HTTP API Gateway)
+        SeminariosAPI: {
+          endpoint: import.meta.env.VITE_HTTP_API_URL || "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev",
           region: region
         }
       }

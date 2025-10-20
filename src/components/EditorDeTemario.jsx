@@ -1,28 +1,11 @@
-// src/components/EditorDeTemario.jsx (FUSIÓN: PDF profesional + numeración + guardado de versión)
-import React, { useState, useEffect, useRef } from "react";
-import jsPDF from 'jspdf';
+// src/components/EditorDeTemario.jsx (FINAL con botón alineado a la derecha)
+import React, { useState, useEffect } from "react";
+import jsPDF from "jspdf";
+import { fetchAuthSession } from "aws-amplify/auth";
 import { downloadExcelTemario } from "../utils/downloadExcel";
-import encabezadoImagen from '../assets/encabezado.png';
-import pieDePaginaImagen from '../assets/pie_de_pagina.png';
+import encabezadoImagen from "../assets/encabezado.png";
+import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
-
-const API_BASE = import.meta.env.VITE_TEMARIOS_API || "";
-
-function slugify(str = "") {
-  return String(str)
-    .normalize("NFD").replace(/[\u00-~]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "curso";
-}
-
-function nowIso() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}`;
-}
 
 const toDataURL = async (url) => {
   const res = await fetch(url);
@@ -35,502 +18,394 @@ const toDataURL = async (url) => {
   });
 };
 
-function EditorDeTemario({ temarioInicial, onRegenerate, onSave, isLoading }) {
-  const [temario, setTemario] = useState(temarioInicial);
-  const [vista, setVista] = useState('detallada');
-  const [mostrarFormRegenerar, setMostrarFormRegenerar] = useState(false);
+const slugify = (str = "") =>
+  String(str)
+    .normalize("NFD")
+    .replace(/[\u00-~]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "curso";
 
+function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
+  const [temario, setTemario] = useState(temarioInicial);
+  const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
-  const [errorUi, setErrorUi] = useState("");
-  const [okUi, setOkUi] = useState("");
-  const [modalVersiones, setModalVersiones] = useState(false); // reservado si luego muestras historial
-  const [versiones, setVersiones] = useState([]);
-  const [cargandoVersiones, setCargandoVersiones] = useState(false);
+  const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
-  const [seleccionadas, setSeleccionadas] = useState({});
 
-  const pdfContentRef = useRef(null);
-
-  const [params, setParams] = useState({
-    tecnologia: temarioInicial?.version_tecnologia || '',
-    tema_curso: temarioInicial?.tema_curso || temarioInicial?.nombre_curso || '',
-    extension_curso_dias: temarioInicial?.numero_sesiones || 1,
-    nivel_dificultad: temarioInicial?.nivel_dificultad || 'basico',
-    audiencia: temarioInicial?.audiencia || '',
-    enfoque: temarioInicial?.enfoque || ''
-  });
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session?.tokens?.idToken?.payload?.email;
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("Error obteniendo usuario:", err);
+      }
+    };
+    getUser();
+  }, []);
 
   useEffect(() => {
     setTemario(temarioInicial);
   }, [temarioInicial]);
 
-  // Opcional: soportar payloads donde audiencia/objetivos/prerrequisitos vienen anidados
-  useEffect(() => {
-    if (!temarioInicial) return;
-    if (temarioInicial.temario && !Array.isArray(temarioInicial.temario)) {
-      setTemario(prev => ({
-        ...prev,
-        audiencia: temarioInicial.temario.audiencia || prev?.audiencia || "",
-        prerrequisitos: temarioInicial.temario.prerrequisitos || prev?.prerrequisitos || [],
-        objetivos: temarioInicial.temario.objetivos_generales || prev?.objetivos || []
-      }));
-    }
-  }, [temarioInicial]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setTemario(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleFieldChange = (capIndex, subIndex, fieldName, value) => {
-    const nuevoTemario = JSON.parse(JSON.stringify(temario));
-    let targetObject;
-
+  // ===== CAMBIO DE CAMPOS =====
+  const handleFieldChange = (capIndex, subIndex, field, value) => {
+    const nuevo = JSON.parse(JSON.stringify(temario));
     if (subIndex === null) {
-      targetObject = nuevoTemario.temario[capIndex];
+      nuevo.temario[capIndex][field] = value;
     } else {
-      if (typeof nuevoTemario.temario[capIndex].subcapitulos[subIndex] !== 'object') {
-        nuevoTemario.temario[capIndex].subcapitulos[subIndex] = {
-          nombre: nuevoTemario.temario[capIndex].subcapitulos[subIndex]
+      if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
+        nuevo.temario[capIndex].subcapitulos[subIndex] = {
+          nombre: nuevo.temario[capIndex].subcapitulos[subIndex],
         };
       }
-      targetObject = nuevoTemario.temario[capIndex].subcapitulos[subIndex];
+      nuevo.temario[capIndex].subcapitulos[subIndex][field] =
+        field.includes("tiempo") || field === "sesion"
+          ? parseInt(value, 10) || 0
+          : value;
     }
-
-    const numericFields = ['tiempo_capitulo_min', 'tiempo_subcapitulo_min', 'sesion'];
-    targetObject[fieldName] = numericFields.includes(fieldName) ? parseInt(value, 10) || 0 : value;
-
-    setTemario(nuevoTemario);
+    // recalcular duración total
+    nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[
+      capIndex
+    ].subcapitulos.reduce(
+      (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+      0
+    );
+    setTemario(nuevo);
   };
 
-  const handleParamsChange = (e) => {
-    const { name, value } = e.target;
-    setParams(prev => ({ ...prev, [name]: value }));
+  // ===== AGREGAR CAPÍTULO =====
+  const agregarCapitulo = () => {
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario.push({
+      capitulo: `Nuevo capítulo ${nuevo.temario.length + 1}`,
+      tiempo_capitulo_min: 0,
+      objetivos_capitulo: "",
+      subcapitulos: [
+        { nombre: "Nuevo tema 1", tiempo_subcapitulo_min: 30, sesion: 1 },
+      ],
+    });
+    setTemario(nuevo);
   };
 
-  const handleRegenerateClick = () => {
-    setErrorUi("");
-    setOkUi("");
-    onRegenerate?.(params);
-    setMostrarFormRegenerar(false);
+  // ===== AGREGAR TEMA =====
+  const agregarTema = (capIndex) => {
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario[capIndex].subcapitulos.push({
+      nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1}`,
+      tiempo_subcapitulo_min: 30,
+      sesion: 1,
+    });
+    setTemario(nuevo);
   };
 
-// Guardar versión (se comunica con el padre)
-// MOD: añadimos normalización del contrato de respuesta para tolerar distintos retornos.
-// Acepta: true | string | { success, message }
-const normalizeSaveResult = (resultado) => {
-// MOD: compatibilidad hacia atrás
-if (resultado === true) return { success: true, message: 'Versión guardada' };
-if (typeof resultado === 'string') return { success: true, message: resultado };
-if (typeof resultado === 'object' && resultado) {
-const { success = false, message = success ? 'Versión guardada' : 'Error al guardar' } = resultado;
-return { success, message };
-}
-// Si no retorna nada, lo consideramos error controlado
-return { success: false, message: 'Respuesta vacía del onSave' };
-};
+  // ===== AJUSTAR TIEMPOS SEGÚN HORAS =====
+  const ajustarTiempos = () => {
+    const horas = temario?.horas_por_sesion || 7;
+    const minutosTotales = horas * 60;
+    const totalTemas = temario.temario.reduce(
+      (acc, cap) => acc + (cap.subcapitulos?.length || 0),
+      0
+    );
+    if (totalTemas === 0) return;
+    const minutosPorTema = Math.floor(minutosTotales / totalTemas);
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario.forEach((cap) => {
+      cap.subcapitulos.forEach((sub) => {
+        sub.tiempo_subcapitulo_min = minutosPorTema;
+      });
+      cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
+        (a, s) => a + (s.tiempo_subcapitulo_min || 0),
+        0
+      );
+    });
+    setTemario(nuevo);
+    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h totales` });
+  };
 
+  // ===== GUARDAR VERSIÓN =====
+  const handleSaveClick = async () => {
+    setGuardando(true);
+    setMensaje({ tipo: "", texto: "" });
+    const nota =
+      window.prompt("Escribe una nota para esta versión (opcional):") || "";
+    try {
+      await onSave?.({ ...temario, autor: userEmail }, nota);
+      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
+    } catch (err) {
+      console.error(err);
+      setMensaje({ tipo: "error", texto: "❌ Error al guardar la versión" });
+    } finally {
+      setGuardando(false);
+      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
+    }
+  };
 
-const handleSaveClick = async () => {
-setErrorUi("");
-setOkUi("");
-setGuardando(true);
-
-
-const nota = window.prompt(
-"Escribe una nota para esta versión (opcional):",
-`Guardado ${nowIso()}`
-) || "";
-
-
-try {
-const resultado = await onSave?.(temario, nota);
-
-
-// MOD: usamos la normalización para decidir qué mostrar en UI
-const { success, message } = normalizeSaveResult(resultado);
-
-
-if (success) {
-setOkUi(message);
-} else {
-setErrorUi(message);
-}
-} catch (err) {
-console.error('onSave error:', err); // MOD: log de diagnóstico
-setErrorUi("No se pudo guardar la versión");
-} finally {
-setGuardando(false);
-}
-};
-
-  // --- EXPORTACIÓN PDF (profesional con numeración y metadatos) ---
+  // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {
     try {
-      setOkUi("Generando PDF profesional...");
-      setErrorUi("");
-
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'pt',
-        format: 'letter'
-      });
-
-      const azulNetec = "#005A9C";
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const azul = "#005A9C";
+      const negro = "#000000";
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = { top: 210, bottom: 100, left: 40, right: 40 };
+      const margin = { top: 220, bottom: 90, left: 50, right: 50 };
       const contentWidth = pageWidth - margin.left - margin.right;
-
-      const encabezadoDataUrl = await toDataURL(encabezadoImagen);
-      const pieDePaginaDataUrl = await toDataURL(pieDePaginaImagen);
-
+      const encabezado = await toDataURL(encabezadoImagen);
+      const pie = await toDataURL(pieDePaginaImagen);
       let y = margin.top;
 
-      const addPageIfNeeded = (spaceNeeded = 20) => {
-        if (y + spaceNeeded > pageHeight - margin.bottom) {
+      const addPageIfNeeded = (extra = 40) => {
+        if (y + extra > pageHeight - margin.bottom) {
           doc.addPage();
           y = margin.top;
         }
       };
 
-      // Título
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(20);
-      doc.setTextColor(azulNetec);
-      doc.text(temario?.nombre_curso || "Temario del Curso", pageWidth / 2, y, { align: 'center' });
-      doc.setTextColor(0, 0, 0);
-      y += 30;
+      doc.setFontSize(22);
+      doc.setTextColor(azul);
+      doc.text(temario?.nombre_curso || "Temario del Curso", pageWidth / 2, y, {
+        align: "center",
+      });
+      y += 40;
 
-      // Metadatos (versión, horas, sesiones, etc.)
-      const drawMetaInfo = () => {
-        const metaData = [
-          { label: "Versión:", value: temario?.version_tecnologia },
-          { label: "Horas Totales:", value: temario?.horas_totales },
-          { label: "Sesiones:", value: temario?.numero_sesiones },
-          { label: "EOL:", value: temario?.EOL },
-          { label: "Distribución:", value: temario?.porcentaje_teoria_practica_general },
-        ].filter(item => item.value);
+      const secciones = [
+        { titulo: "Descripción General", texto: temario?.descripcion_general },
+        { titulo: "Audiencia", texto: temario?.audiencia },
+        { titulo: "Prerrequisitos", texto: temario?.prerrequisitos },
+        { titulo: "Objetivos", texto: temario?.objetivos },
+      ];
 
-        if (metaData.length === 0) return;
-
-        addPageIfNeeded(metaData.length * 15);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-
-        metaData.forEach(item => {
-          doc.setFont("helvetica", "bold");
-          doc.text(item.label, margin.left, y);
-          doc.setFont("helvetica", "normal");
-          doc.text(String(item.value), margin.left + 80, y);
-          y += 15;
-        });
-        y += 15;
-      };
-
-      drawMetaInfo();
-
-      // Secciones de texto
-      const drawSection = (title, content) => {
-        if (!content) return;
-        const contentAsText = Array.isArray(content) ? content.join('\n') : content;
-        const textLines = doc.splitTextToSize(contentAsText, contentWidth);
-        const sectionHeight = 15 + (textLines.length * 12) + 20;
-        addPageIfNeeded(sectionHeight);
-
+      secciones.forEach((s) => {
+        if (!s.texto) return;
+        addPageIfNeeded(60);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(14);
-        doc.setTextColor(azulNetec);
-        doc.text(title, margin.left, y);
-        doc.setTextColor(0, 0, 0);
-        y += 15;
-
+        doc.setTextColor(azul);
+        doc.text(s.titulo, margin.left, y);
+        y += 18;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
-        doc.text(textLines, margin.left, y);
-        y += (textLines.length * 12) + 20;
-      };
-
-      drawSection("Descripción General", temario?.descripcion_general);
-      drawSection("Audiencia", temario?.audiencia);
-      drawSection("Prerrequisitos", temario?.prerrequisitos);
-      drawSection("Objetivos", temario?.objetivos);
-
-      // Temario
-      if (temario?.temario && temario.temario.length > 0) {
-        addPageIfNeeded(40);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(16);
-        doc.setTextColor(azulNetec);
-        doc.text("Temario", margin.left, y);
-        doc.setTextColor(0, 0, 0);
-        y += 20;
-
-        temario.temario.forEach((capitulo, capIndex) => {
-          addPageIfNeeded(50);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(12);
-          doc.text(`Capítulo ${capIndex + 1}: ${capitulo.capitulo || ''}`.trim(), margin.left, y);
-          y += 15;
-
-          // Objetivos del capítulo (si existen)
-          if (capitulo.objetivos_capitulo && capitulo.objetivos_capitulo.length > 0) {
-            const objetivos = Array.isArray(capitulo.objetivos_capitulo)
-              ? capitulo.objetivos_capitulo
-              : [capitulo.objetivos_capitulo];
-            const objetivosTexto = objetivos.join(' ');
-            const textoCompleto = `Objetivos: ${objetivosTexto}`;
-            const textLines = doc.splitTextToSize(textoCompleto, contentWidth - 15);
-            addPageIfNeeded(20 + textLines.length * 12);
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(10);
-            doc.text(textLines, margin.left + 15, y);
-            y += (textLines.length * 12) + 8;
-          }
-
-          // Subcapítulos
-          if (capitulo.subcapitulos && capitulo.subcapitulos.length > 0) {
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(10);
-            capitulo.subcapitulos.forEach((sub, subIndex) => {
-              addPageIfNeeded(14);
-              const nombre = typeof sub === 'object' ? sub.nombre : sub;
-              const tiempo = typeof sub === 'object' ? sub.tiempo_subcapitulo_min : '';
-              const sesion = typeof sub === 'object' ? sub.sesion : '';
-
-              let meta = '';
-              if (tiempo) meta += `${tiempo} min`;
-              if (tiempo && sesion) meta += ' • ';
-              if (sesion) meta += `Sesión ${sesion}`;
-
-              const subLines = doc.splitTextToSize(`${capIndex + 1}.${subIndex + 1} ${nombre || ''}`.trim(), contentWidth - 80);
-              doc.text(subLines, margin.left + 15, y);
-              if (meta) {
-                doc.text(meta, pageWidth - margin.right - 10, y, { align: 'right' });
-              }
-              y += (subLines.length * 12) + 2;
-            });
-          }
-          y += 10;
+        doc.setTextColor(negro);
+        const lineas = doc.splitTextToSize(s.texto, contentWidth);
+        lineas.forEach((linea) => {
+          addPageIfNeeded(14);
+          doc.text(linea, margin.left, y);
+          y += 14;
         });
-      }
+        y += 10;
+      });
 
-      // Encabezado / Pie y numeración de páginas
+      addPageIfNeeded(50);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(20);
+      doc.setTextColor(azul);
+      doc.text("Temario", margin.left, y);
+      y += 25;
+
+      temario.temario.forEach((cap, i) => {
+        addPageIfNeeded(60);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azul);
+        doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+        y += 16;
+
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(9);
+        doc.setTextColor(negro);
+        doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+        y += 12;
+
+        if (cap.objetivos_capitulo) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          const objetivos = Array.isArray(cap.objetivos_capitulo)
+            ? cap.objetivos_capitulo.join(" ")
+            : cap.objetivos_capitulo;
+          const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
+          lines.forEach((line) => {
+            addPageIfNeeded(12);
+            doc.text(line, margin.left + 15, y);
+            y += 12;
+          });
+        }
+
+        cap.subcapitulos.forEach((sub, j) => {
+          addPageIfNeeded(16);
+          const subObj = typeof sub === "object" ? sub : { nombre: sub };
+          const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${
+            subObj.sesion || 1
+          }`;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.text(`${i + 1}.${j + 1} ${subObj.nombre}`, margin.left + 25, y);
+          doc.text(meta, pageWidth - margin.right, y, { align: "right" });
+          y += 12;
+        });
+        y += 16;
+      });
+
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-
-        const propsEncabezado = doc.getImageProperties(encabezadoDataUrl);
-        const altoEncabezado = pageWidth * (propsEncabezado.height / propsEncabezado.width);
-        doc.addImage(encabezadoDataUrl, 'PNG', 0, 0, pageWidth, altoEncabezado);
-
-        const propsPie = doc.getImageProperties(pieDePaginaDataUrl);
-        const altoPie = pageWidth * (propsPie.height / propsPie.width);
-        doc.addImage(pieDePaginaDataUrl, 'PNG', 0, pageHeight - altoPie, pageWidth, altoPie);
-
-        const leyendaY = pageHeight - 70;
-        const pageNumY = pageHeight - 55;
-        doc.setFont("helvetica", "normal");
-        const leyenda = "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
+        const propsEnc = doc.getImageProperties(encabezado);
+        const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
+        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+        const propsPie = doc.getImageProperties(pie);
+        const altoPie = (propsPie.height / propsPie.width) * pageWidth;
+        doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
         doc.setFontSize(8);
-        doc.setTextColor("#888888");
-        doc.text(leyenda, margin.left, leyendaY);
-
-        doc.setFontSize(9);
-        doc.setTextColor("#6c757d");
-        const pageNumText = `Página ${i} de ${totalPages}`;
-        doc.text(pageNumText, pageWidth / 2, pageNumY, { align: 'center' });
+        doc.setTextColor("#666");
+        doc.text(
+          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
+          margin.left,
+          pageHeight - 70
+        );
+        doc.text(
+          `Página ${i} de ${totalPages}`,
+          pageWidth / 2,
+          pageHeight - 55,
+          { align: "center" }
+        );
       }
 
-      const nombreParaArchivo = temario?.nombre_curso || temario?.tema_curso || 'curso';
-      doc.save(`Temario_${slugify(nombreParaArchivo)}.pdf`);
-      setOkUi("PDF exportado correctamente ✔");
-    } catch (error) {
-      console.error("Error al generar PDF:", error);
-      setErrorUi("Error al generar el PDF.");
+      doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
+      setMensaje({ tipo: "ok", texto: "✅ PDF exportado correctamente" });
+    } catch (err) {
+      console.error(err);
+      setMensaje({ tipo: "error", texto: "❌ Error al generar PDF" });
     }
   };
 
   const exportarExcel = () => {
-    if (!temario) {
-      setErrorUi("No hay temario para exportar");
-      return;
-    }
     downloadExcelTemario(temario);
-    setOkUi("Exportado correctamente ✔");
-    setModalExportar(false);
+    setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
-
-  const abrirExportar = () => {
-    setModalExportar(true);
-    setErrorUi("");
-    setOkUi("");
-  };
-
-  if (!temario) return null;
 
   return (
     <div className="editor-container">
-      {(errorUi || okUi) && (
-        <div className="ui-messages">
-          {errorUi && <div className="msg error">{errorUi}</div>}
-          {okUi && <div className="msg ok">{okUi}</div>}
-        </div>
-      )}
+      {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
-      <div ref={pdfContentRef} style={{ display: 'none' }}></div>
+      <h3>Temario Detallado</h3>
 
-      <div className="app-view">
-        <div className="vista-selector">
-          <button className={`btn-vista ${vista === 'detallada' ? 'activo' : ''}`} onClick={() => setVista('detallada')}>Vista Detallada</button>
-          <button className={`btn-vista ${vista === 'resumida' ? 'activo' : ''}`} onClick={() => setVista('resumida')}>Vista Resumida</button>
-        </div>
-        <div className="vista-info">
-          {vista === 'detallada' ? (
-            <p>📝 Vista completa con todos los campos editables organizados verticalmente</p>
-          ) : (
-            <p>📋 Vista compacta con campos organizados en grillas para edición rápida</p>
-          )}
-        </div>
-
-        {isLoading ? (
-          <div className="spinner-container"><div className="spinner"></div><p>Generando nueva versión...</p></div>
-        ) : (
-          <div>
-            {vista === 'detallada' ? (
-              <div>
-                <label className="editor-label">Nombre del Curso</label>
-                <textarea name="nombre_curso" value={temario?.nombre_curso || ''} onChange={handleInputChange} className="input-titulo" />
-
-                <label className="editor-label">Descripción General</label>
-                <textarea name="descripcion_general" value={temario?.descripcion_general || ''} onChange={handleInputChange} className="textarea-descripcion" />
-
-                <label className="editor-label">Audiencia</label>
-                <textarea name="audiencia" value={temario?.audiencia || ''} onChange={handleInputChange} className="textarea-descripcion" />
-
-                <label className="editor-label">Prerrequisitos</label>
-                <textarea name="prerrequisitos" value={Array.isArray(temario?.prerrequisitos) ? temario.prerrequisitos.join('\n') : temario?.prerrequisitos || ''} onChange={(e) => handleInputChange({ target: { name: 'prerrequisitos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un prerrequisito por línea"/>
-
-                <label className="editor-label">Objetivos Generales</label>
-                <textarea name="objetivos" value={Array.isArray(temario?.objetivos) ? temario.objetivos.join('\n') : temario?.objetivos || ''} onChange={(e) => handleInputChange({ target: { name: 'objetivos', value: e.target.value.split('\n') }})} className="textarea-descripcion" placeholder="Un objetivo por línea" />
-
-                <h3>Temario Detallado</h3>
-                {(temario?.temario || []).map((cap, capIndex) => (
-                  <div key={capIndex} className="capitulo-editor">
-                    <div className="capitulo-titulo-con-numero">
-                      <h4>Capítulo {capIndex + 1}:</h4>
-                      <input value={cap?.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo" placeholder="Nombre del capítulo"/>
-                    </div>
-
-                    <div className="info-grid-capitulo">
-                      <div className="info-item">
-                        <label>Duración (min)</label>
-                        <input type="number" value={cap?.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} className="input-info-small"/>
-                      </div>
-                    </div>
-
-                    <div className="objetivos-capitulo">
-                      <label>Objetivos del Capítulo</label>
-                      <textarea value={Array.isArray(cap?.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap?.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} className="textarea-objetivos-capitulo" placeholder="Un objetivo por línea"/>
-                    </div>
-
-                    <ul>
-                      {(cap?.subcapitulos || []).map((sub, subIndex) => {
-                        const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-                        return (
-                          <li key={subIndex}>
-                            <div className="subcapitulo-item-detallado">
-                              <span className="subcapitulo-numero">{capIndex + 1}.{subIndex + 1}</span>
-                              <input value={subObj?.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} className="input-subcapitulo" placeholder="Nombre del subcapítulo"/>
-                              <div className="subcapitulo-meta-inputs">
-                                <input type="number" value={subObj?.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min"/>
-                                <input type="number" value={subObj?.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión"/>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="vista-resumida-editable">
-                <input name="nombre_curso" value={temario?.nombre_curso || ''} onChange={handleInputChange} className="input-titulo-resumido" placeholder="Nombre del curso" />
-
-                <h3>Temario Detallado</h3>
-                {(temario?.temario || []).map((cap, capIndex) => (
-                  <div key={capIndex} className="capitulo-resumido">
-                    <div className="capitulo-titulo-con-numero">
-                      <h4>Capítulo {capIndex + 1}:</h4>
-                      <input value={cap?.capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'capitulo', e.target.value)} className="input-capitulo-resumido" placeholder="Nombre del capítulo"/>
-                    </div>
-
-                    <div className="info-grid-capitulo">
-                      <div className="info-item">
-                        <label>Duración Total (min)</label>
-                        <input type="number" className="input-info-small" value={cap?.tiempo_capitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, null, 'tiempo_capitulo_min', e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="objetivos-capitulo-resumido">
-                      <label>Objetivos del Capítulo</label>
-                      <textarea className="textarea-objetivos-resumido" value={Array.isArray(cap?.objetivos_capitulo) ? cap.objetivos_capitulo.join('\n') : cap?.objetivos_capitulo || ''} onChange={(e) => handleFieldChange(capIndex, null, 'objetivos_capitulo', e.target.value.split('\n'))} />
-                    </div>
-
-                    <div className="subcapitulos-resumidos">
-                      {(cap?.subcapitulos || []).map((sub, subIndex) => {
-                        const subObj = typeof sub === 'object' ? sub : { nombre: sub };
-                        return (
-                          <div key={subIndex} className="subcapitulo-item">
-                            <span className="subcapitulo-numero">{capIndex + 1}.{subIndex + 1}</span>
-                            <input className="input-subcapitulo-resumido" value={subObj?.nombre || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'nombre', e.target.value)} placeholder="Nombre del subcapítulo" />
-                            <div className="subcapitulo-tiempos">
-                              <input className="input-tiempo-sub" type="number" value={subObj?.tiempo_subcapitulo_min || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'tiempo_subcapitulo_min', e.target.value)} placeholder="min" />
-                              <input className="input-sesion-sub" type="number" value={subObj?.sesion || ''} onChange={(e) => handleFieldChange(capIndex, subIndex, 'sesion', e.target.value)} placeholder="sesión" />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+      {temario.temario.map((cap, i) => (
+        <div key={i} className="capitulo-editor">
+          <h4>Capítulo {i + 1}</h4>
+          <input
+            value={cap.capitulo}
+            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+            className="input-capitulo"
+          />
+          <div className="duracion-total">
+            ⏱️ Duración total: <strong>{cap.tiempo_capitulo_min || 0} min</strong>
           </div>
-        )}
+
+          <label>Objetivos del Capítulo</label>
+          <textarea
+            value={
+              Array.isArray(cap.objetivos_capitulo)
+                ? cap.objetivos_capitulo.join("\n")
+                : cap.objetivos_capitulo
+            }
+            onChange={(e) =>
+              handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
+            }
+            className="textarea-objetivos-capitulo"
+          />
+
+          <ul>
+            {cap.subcapitulos.map((sub, j) => (
+              <li key={j} className="subcapitulo-item">
+                <span>{i + 1}.{j + 1}</span>
+                <input
+                  value={sub.nombre}
+                  onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+                />
+                <input
+                  type="number"
+                  value={sub.tiempo_subcapitulo_min}
+                  onChange={(e) =>
+                    handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                  }
+                  placeholder="min"
+                />
+                <input
+                  type="number"
+                  value={sub.sesion}
+                  onChange={(e) => handleFieldChange(i, j, "sesion", e.target.value)}
+                  placeholder="sesión"
+                />
+              </li>
+            ))}
+          </ul>
+
+          <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
+            ➕ Agregar Tema
+          </button>
+        </div>
+      ))}
+
+      {/* Botón alineado a la derecha */}
+      <div className="btn-agregar-capitulo-container">
+        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
+          ➕ Agregar Capítulo
+        </button>
       </div>
 
       <div className="acciones-footer">
-        <button onClick={() => setMostrarFormRegenerar(prev => !prev)}>Ajustar y Regenerar</button>
-        <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>{guardando ? "Guardando..." : "Guardar Versión"}</button>
-        <button className="btn-secundario" onClick={abrirExportar}>Exportar...</button>
+        <button className="btn-primario" onClick={ajustarTiempos}>
+          Ajustar Tiempos
+        </button>
+        <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>
+          {guardando ? "Guardando..." : "Guardar Versión"}
+        </button>
+        <button className="btn-secundario" onClick={() => setModalExportar(true)}>
+          Exportar
+        </button>
       </div>
-
-      {mostrarFormRegenerar && (
-        <div className="regenerar-form">{/* Campos de ajuste opcionales */}</div>
-      )}
 
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Exportar</h3>
-              <button className="modal-close" onClick={() => setModalExportar(false)}>✕</button>
+              <button className="modal-close" onClick={() => setModalExportar(false)}>
+                ✕
+              </button>
             </div>
             <div className="modal-body">
-              <div className="export-format">
-                <label><input type="radio" checked={exportTipo === "pdf"} onChange={() => setExportTipo("pdf")} /> PDF</label>
-                <label><input type="radio" checked={exportTipo === "excel"} onChange={() => setExportTipo("excel")} /> Excel</label>
-              </div>
+              <label>
+                <input
+                  type="radio"
+                  checked={exportTipo === "pdf"}
+                  onChange={() => setExportTipo("pdf")}
+                />{" "}
+                PDF
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={exportTipo === "excel"}
+                  onChange={() => setExportTipo("excel")}
+                />{" "}
+                Excel
+              </label>
             </div>
             <div className="modal-footer">
-              {exportTipo === "pdf" ? (
-                <button onClick={exportarPDF} className="btn-guardar">Exportar PDF</button>
-              ) : (
-                <button onClick={exportarExcel} className="btn-guardar">Exportar Excel</button>
-              )}
+              <button
+                onClick={() => {
+                  exportTipo === "pdf" ? exportarPDF() : exportarExcel();
+                  setModalExportar(false);
+                }}
+                className="btn-guardar"
+              >
+                Exportar {exportTipo.toUpperCase()}
+              </button>
             </div>
           </div>
         </div>
@@ -540,4 +415,3 @@ setGuardando(false);
 }
 
 export default EditorDeTemario;
-

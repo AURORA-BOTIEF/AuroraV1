@@ -1,313 +1,223 @@
-/* src/components/EditorDeTemario.css (CÓDIGO COMPLETO Y FINAL) */
-
 .editor-container {
   padding: 2rem;
-  background: #ffffff;
+  background: #fff;
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-  margin-top: 2rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  margin-top: 1rem;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* --- SISTEMA DE MENSAJES UI --- */
-.ui-messages {
-  margin-bottom: 1rem;
-}
-.ui-messages .msg {
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin-bottom: 8px;
-  font-size: 0.95rem;
-}
-.ui-messages .msg.error {
-  background: #fdecec;
-  color: #a02222;
-  border: 1px solid #f6caca;
-}
-.ui-messages .msg.ok {
-  background: #eaf8ed;
-  color: #1d6b2d;
-  border: 1px solid #c8ebd0;
-}
-
-.spinner-container {
-    text-align: center;
-    padding: 3rem;
-}
-
-.spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #1b5784;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 1rem auto;
-}
-@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-/* --- ESTILOS PARA EL SELECTOR DE VISTA --- */
-.vista-selector {
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  padding: 0.5rem;
-  background-color: #e9ecef;
-  border-radius: 8px;
-  width: fit-content;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.vista-selector .btn-vista {
-  padding: 8px 16px;
-  border: none;
-  background-color: transparent;
+/* Mensajes */
+.msg.ok {
+  background: #e6f4ea;
+  color: #1b5e20;
+  border: 1px solid #a5d6a7;
+  padding: 10px 15px;
   border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  color: #495057;
+  margin-bottom: 1rem;
+}
+
+.msg.error {
+  background: #fdecea;
+  color: #c62828;
+  border: 1px solid #f5b7b1;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+/* Capítulos */
+.capitulo-editor {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: box-shadow 0.2s ease;
+}
+
+.capitulo-editor:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+}
+
+.capitulo-editor h4 {
+  color: #035b6e;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+/* Inputs y textareas */
+.input-capitulo,
+.textarea-objetivos-capitulo {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: #333;
+  background-color: #fff;
   transition: all 0.2s ease;
 }
 
-.vista-selector .btn-vista.activo {
-  background-color: white;
-  color: #1b5784;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-.vista-info {
-  text-align: center;
-  margin-bottom: 1.5rem;
-}
-
-.vista-info p {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #666;
-  font-style: italic;
-}
-
-/* --- ESTILOS PARA LA VISTA DETALLADA (EDITABLE) --- */
-.editor-label {
-  display: block;
-  margin-top: 1.5rem;
-  margin-bottom: 0.5rem;
-  font-weight: bold;
-  font-size: 0.9rem;
-  color: #555;
-}
-
-.input-titulo {
-  font-size: 1.8rem;
-  font-weight: bold;
-  border: none;
-  border-bottom: 2px solid #eee;
-  width: 100%;
-  margin-bottom: 1rem;
-  padding: 0.5rem 0;
-  transition: border-color 0.3s;
-  background-color: transparent;
-}
-.input-titulo:focus {
-  border-bottom-color: #1b5784;
+.input-capitulo:focus,
+.textarea-objetivos-capitulo:focus {
   outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
 }
-.textarea-descripcion {
-  width: 100%;
+
+.textarea-objetivos-capitulo {
   min-height: 80px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 0.75rem;
-  font-size: 1rem;
-  font-family: inherit;
   resize: vertical;
-  margin-bottom: 1.5rem;
 }
-.capitulo-editor {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  background: #f9f9f9;
-  border-radius: 6px;
-  border: 1px solid #eee;
-}
-.input-capitulo {
-  font-size: 1.2rem;
-  font-weight: bold;
-  border: none;
-  width: 100%;
-  border-bottom: 1px solid #ccc;
-  padding-bottom: 0.5rem;
-  margin-bottom: 1rem;
-  background: transparent;
-}
-.input-subcapitulo {
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  width: 100%;
-  margin-top: 0.5rem;
-  padding: 0.5rem;
+
+.duracion-total {
   font-size: 0.95rem;
+  color: #333;
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.capitulo-editor ul {
-  list-style-type: none;
-  padding-left: 0;
-}
-.capitulo-editor li {
+
+/* Subcapítulos */
+.subcapitulo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-bottom: 0.5rem;
 }
 
-/* --- ESTILOS PARA LA VISTA RESUMIDA --- */
-.vista-resumida {
-  text-align: left;
-  padding: 1rem;
+.subcapitulo-item input {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #333;
+  transition: all 0.2s ease;
 }
-.vista-resumida h1 {
-  font-size: 1.8rem;
-  color: #1b5784;
-  text-align: center;
-  margin-bottom: 2rem;
+
+.subcapitulo-item input:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
 }
-.vista-resumida .seccion-resumen {
-  margin-bottom: 1.5rem;
+
+.subcapitulo-item span {
+  font-weight: 600;
+  width: 30px;
+  color: #035b6e;
 }
-.vista-resumida h2 {
-  font-size: 1.2rem;
-  color: #343a40;
-  border-bottom: 2px solid #e9ecef;
-  padding-bottom: 0.5rem;
-  margin-bottom: 1rem;
+
+/* === BOTONES === */
+.btn-primario,
+.btn-secundario {
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease-in-out;
+  color: #fff;
+  font-family: inherit;
 }
-.vista-resumida ul {
-  list-style-type: disc;
-  padding-left: 25px;
+
+.btn-primario {
+  background-color: #035b6e;
 }
-.vista-resumida li {
-  margin-bottom: 0.5rem;
+
+.btn-secundario {
+  background-color: #197fa6;
 }
-.vista-resumida .capitulo-resumido {
-  margin-bottom: 1rem;
+
+.btn-primario:hover,
+.btn-secundario:hover {
+  filter: brightness(1.1);
 }
-.vista-resumida .capitulo-resumido strong {
+
+.btn-primario:active,
+.btn-secundario:active {
+  background-color: #023f50;
+  transform: scale(0.98);
+}
+
+/* Agregar tema / capítulo */
+.btn-agregar-tema,
+.btn-agregar-capitulo {
+  background: linear-gradient(90deg, #45ab9f, #035b6e);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.4rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-family: inherit;
+}
+
+/* 🔄 Reemplazo del icono "➕" por un símbolo más estilizado */
+.btn-agregar-tema::before,
+.btn-agregar-capitulo::before {
+  content: "＋"; /* símbolo más limpio */
+  font-weight: 700;
   font-size: 1.1rem;
+  color: #fff;
+  margin-right: 0.3rem;
 }
 
-/* --- ESTILOS PARA LOS BOTONES DE ACCIÓN --- */
+/* Hover y active */
+.btn-agregar-tema:hover,
+.btn-agregar-capitulo:hover {
+  transform: scale(1.03);
+  filter: brightness(1.1);
+}
+
+.btn-agregar-tema:active,
+.btn-agregar-capitulo:active {
+  transform: scale(0.97);
+  filter: brightness(0.9);
+}
+
+/* === POSICIÓN DE BOTONES === */
 .acciones-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 1rem;
   margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #eee;
-}
-.acciones-footer button {
-  padding: 10px 20px;
-  border-radius: 5px;
-  cursor: pointer;
-  border: 1px solid #ccc;
-  background-color: #f0f0f0;
-  font-weight: 500;
-}
-.btn-guardar {
-  background-color: #1b5784 !important;
-  color: white;
-  border-color: #1b5784 !important;
-}
-.btn-guardar:disabled { 
-  opacity: 0.6; 
-  cursor: not-allowed; 
+  flex-wrap: wrap;
 }
 
-.btn-secundario { 
-  background: #eef3f7; 
-  border-color: #cfd7de; 
-  color: #234; 
-}
-.btn-secundario:hover { 
-  background: #e4edf5; 
-}
-
-.btn-exportar {
-  background-color: #e74c3c !important;
-  color: white !important;
-  border-color: #e74c3c !important;
-  transition: background-color 0.2s;
-}
-
-.btn-exportar:hover {
-  background-color: #c0392b !important;
-  border-color: #c0392b !important;
-}
-.regenerar-form {
+.btn-agregar-capitulo-container {
+  display: flex;
+  justify-content: flex-end;
   margin-top: 1.5rem;
-  padding: 1.5rem;
-  background: #f0f8ff;
-  border-radius: 8px;
-  border: 1px solid #cfe7fc;
-}
-
-.regenerar-form h4 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  color: #1b5784;
-}
-
-.regenerar-form .form-group {
-  margin-bottom: 1rem;
-}
-
-.regenerar-form .form-group label {
-  display: block;
   margin-bottom: 0.5rem;
-  font-weight: 600;
-  color: #495057;
-  font-size: 0.9rem;
 }
 
-.regenerar-form .form-group input,
-.regenerar-form .form-group select,
-.regenerar-form .form-group textarea {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 0.9rem;
+/* Botón guardar dentro de modales */
+.btn-guardar {
+  background: #035b6e;
+  color: white;
+  padding: 0.7rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
   font-family: inherit;
 }
 
-.regenerar-form .form-group textarea {
-  min-height: 70px;
-  resize: vertical;
+.btn-guardar:hover {
+  filter: brightness(1.1);
 }
 
-.regenerar-form .form-group input:focus,
-.regenerar-form .form-group select:focus,
-.regenerar-form .form-group textarea:focus {
-  border-color: #1b5784;
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(27, 87, 132, 0.1);
-}
-
-.regenerar-form button {
-  background-color: #1b5784;
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 1rem;
-  transition: background-color 0.2s;
-}
-
-.regenerar-form button:hover {
-  background-color: #154660;
-}
-
-/* --- SISTEMA DE MODALES --- */
+/* === MODAL === */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -317,708 +227,51 @@
   justify-content: center;
   z-index: 1000;
 }
+
 .modal {
-  width: min(720px, 94vw);
-  max-height: 85vh;
-  overflow: auto;
   background: #fff;
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  padding: 1.5rem;
+  width: 320px;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+  font-family: inherit;
 }
+
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #eee;
-}
-.modal-header h3 { 
-  margin: 0; 
-}
-.modal-close {
-  border: none;
-  background: transparent;
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-.modal-body { 
-  padding: 16px; 
-}
-.modal-footer {
-  padding: 12px 16px;
-  border-top: 1px solid #eee;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* --- ESTILOS PARA EXPORTACIÓN --- */
-.export-format { 
-  display: flex; 
-  gap: 16px; 
-}
-.export-format label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-/* --- RESPONSIVE DESIGN --- */
-@media (max-width: 768px) {
-  .vista-selector {
-    flex-direction: column;
-    width: 100%;
-  }
-  
-  .vista-selector .btn-vista {
-    width: 100%;
-    text-align: center;
-  }
-  
-  .info-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .info-grid-capitulo {
-    grid-template-columns: 1fr;
-  }
-  
-  .capitulo-info-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .acciones-footer {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  
-  .acciones-footer button {
-    width: 100%;
-  }
-  
-  .editor-container {
-    padding: 1rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .input-titulo {
-    font-size: 1.4rem;
-  }
-  
-  .input-titulo-resumido {
-    font-size: 1.3rem;
-  }
-  
-  .subcapitulos-resumidos {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* --- ESTILOS ESPECÍFICOS PARA PDF --- */
-@media print {
-  .vista-selector,
-  .vista-info,
-  .acciones-footer,
-  .regenerar-form,
-  .modal-overlay,
-  .ui-messages {
-    display: none !important;
-  }
-  
-  .editor-container {
-    box-shadow: none;
-    border: none;
-    padding: 0;
-  }
-  
-  .input-titulo,
-  .input-titulo-resumido,
-  .input-campo,
-  .input-capitulo,
-  .input-subcapitulo,
-  .textarea-descripcion,
-  .textarea-objetivos-capitulo,
-  .textarea-objetivos-resumido {
-    border: none;
-    background: transparent;
-    resize: none;
-    outline: none;
-  }
-}
-
-/* --- ESTILOS PARA LA VISTA RESUMIDA EDITABLE --- */
-.vista-resumida-editable {
-  background: #fafafa;
-  padding: 1.5rem;
-  border-radius: 8px;
-  border: 1px solid #e0e0e0;
-}
-
-.input-titulo-resumido {
-  font-size: 1.6rem;
-  font-weight: bold;
-  border: none;
-  border-bottom: 2px solid #eee;
-  width: 100%;
-  margin-bottom: 1.5rem;
-  padding: 0.5rem 0;
-  background: transparent;
-  transition: border-color 0.3s;
-}
-.input-titulo-resumido:focus {
-  border-bottom-color: #1b5784;
-  outline: none;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.info-item label {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: #555;
-}
-
-.input-info {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 0.9rem;
-}
-.input-info:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-.seccion-editable {
-  margin-bottom: 1.5rem;
-}
-
-.seccion-editable h3 {
-  margin: 0 0 0.5rem 0;
-  color: #1b5784;
-  font-size: 1.1rem;
-}
-
-.textarea-resumido {
-  width: 100%;
-  min-height: 80px;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  resize: vertical;
-  font-family: inherit;
-}
-.textarea-resumido:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-.capitulo-resumido {
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-}
-
-.input-capitulo-resumido {
-  width: 100%;
-  font-size: 1.2rem;
-  font-weight: 600;
-  padding: 0.5rem;
-  border: none;
-  border-bottom: 2px solid #eee;
-  background: transparent;
   margin-bottom: 1rem;
-  color: #333;
-}
-.input-capitulo-resumido:focus {
-  border-bottom-color: #1b5784;
-  outline: none;
 }
 
-.subcapitulos-resumidos {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.subcapitulo-item {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.input-subcapitulo-resumido {
-  flex: 1;
-  min-width: 200px;
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  background: #f9f9f9;
-}
-.input-subcapitulo-resumido:focus {
-  border-color: #1b5784;
-  outline: none;
-  background: white;
-}
-
-.subcapitulo-tiempos {
-  display: flex;
-  gap: 0.25rem;
-  align-items: center;
-}
-
-.input-tiempo-sub, .input-sesion-sub {
-  width: 60px;
-  padding: 0.4rem;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  font-size: 0.85rem;
-  text-align: center;
-}
-
-.input-tiempo-sub:focus, .input-sesion-sub:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-.info-grid-capitulo {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
-  padding: 0.5rem;
-  background: #f0f8ff;
-  border-radius: 4px;
-  border: 1px solid #ddd;
-}
-
-.info-grid-capitulo .info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.info-grid-capitulo .info-item label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #555;
-}
-
-.input-info-small {
-  padding: 0.4rem;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  font-size: 0.85rem;
-}
-.input-info-small:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-.input-campo {
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-  font-size: 1rem;
-}
-.input-campo:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-/* --- ESTILOS PARA LOS NUEVOS ELEMENTOS --- */
-.capitulo-info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin: 1rem 0;
-  padding: 1rem;
-  background-color: #f8f9fa;
-  border-radius: 6px;
-}
-
-.capitulo-info-grid .info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.capitulo-info-grid .info-item label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #495057;
-}
-
-.capitulo-info-grid .input-info {
-  padding: 0.5rem;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 0.9rem;
-}
-
-.capitulo-info-grid .input-info:focus {
-  border-color: #1b5784;
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(27, 87, 132, 0.1);
-}
-
-.objetivos-capitulo {
-  margin: 1rem 0;
-}
-
-.objetivos-capitulo label {
+.modal-body label {
   display: block;
-  font-weight: 600;
-  color: #495057;
   margin-bottom: 0.5rem;
 }
 
-.textarea-objetivos-capitulo {
-  width: 100%;
-  min-height: 80px;
-  padding: 0.75rem;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  resize: vertical;
-  font-family: inherit;
+.modal-footer {
+  text-align: right;
 }
 
-.textarea-objetivos-capitulo:focus {
-  border-color: #1b5784;
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(27, 87, 132, 0.1);
+/* Responsividad */
+@media (max-width: 768px) {
+  .acciones-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .btn-agregar-capitulo-container {
+    justify-content: center;
+  }
 }
-
-.objetivos-capitulo-resumido {
-  margin: 1rem 0;
+/* 🔧 Corrige el doble ícono en los botones Agregar */
+.btn-agregar-tema::before,
+.btn-agregar-capitulo::before {
+  content: "+"; /* Un solo símbolo claro */
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  margin-right: 0.4rem;
+  filter: none !important; /* elimina interferencia de gradientes */
 }
-
-.objetivos-capitulo-resumido label {
-  display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #495057;
-  margin-bottom: 0.3rem;
-}
-
-.textarea-objetivos-resumido {
-  width: 100%;
-  min-height: 60px;
-  padding: 0.5rem;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  resize: vertical;
-  font-family: inherit;
-}
-
-.textarea-objetivos-resumido:focus {
-  border-color: #1b5784;
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(27, 87, 132, 0.1);
-}
-
-/* --- ESTILOS PARA PDF (VERSIÓN CORREGIDA) --- */
-
-/* 1. Ocultamos el div de forma segura por defecto */
-#temario-pdf .pdf-clean {
-  display: none;
-}
-
-/* 2. Lo mostramos para exportar, pero fuera de la pantalla */
-#temario-pdf .pdf-clean.pdf-exporting {
-  display: block;
-  position: absolute;
-  left: -99999px;
-  top: 0;
-  width: 794px; /* Ancho A4 aproximado */
-  /* Forzamos una altura mínima para que el fondo se vea en páginas vacías si las hubiera */
-  min-height: 1123px; /* Alto A4 aproximado */
-}
-
-/* 3. Ajustamos el padding para que el contenido encaje en la plantilla */
-#temario-pdf .pdf-body {
-  position: relative;
-  z-index: 1;
-  /* padding: 2.5in 1in 1.5in 1in; ELIMINAR ESTA LÍNEA */
-}
-
-/* --- El resto de tus estilos (.pdf-title, .pdf-meta, etc.) --- */
-.pdf-title {
-  font-size: 24px;
-  font-weight: bold;
-  color: #1b5784;
-  text-align: center;
-  margin: 0 0 20px 0; /* Ajustamos el margen superior a 0 */
-  padding-bottom: 15px;
-  border-bottom: 1px solid #eee;
-}
-
-/* ================================================================= */
-/* ========= REGLA AÑADIDA PARA RESPETAR EL ENCABEZADO ========= */
-/* ================================================================= */
-/* Esta regla fuerza a que el primer título de una nueva página
-   también respete el espacio del encabezado. */
-h2.pdf-section-title {
-    page-break-before: always; /* Inicia en una nueva página */
-    padding-top: 2.8in; /* Un espacio superior igual al margen */
-}
-.pdf-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 10px;
-  background: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  margin: 20px 0;
-}
-.pdf-meta div { font-size: 14px; padding: 5px 0; }
-.pdf-meta strong { color: #1b5784; font-weight: 600; }
-
-.pdf-body h2 {
-  color: #1b5784;
-  font-size: 20px;
-  font-weight: bold;
-  margin: 25px 0 15px 0;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #1b5784;
-}
-
-.pdf-body h3 {
-  color: #333;
-  font-size: 16px;
-  font-weight: 600;
-  margin: 20px 0 10px 0;
-  border-left: 4px solid #1b5784;
-  padding-left: 12px;
-}
-
-.pdf-justify {
-  text-align: justify;
-  margin: 10px 0;
-  font-size: 14px;
-}
-
-.pdf-capitulo {
-  margin: 20px 0;
-  border-left: 4px solid #1b5784;
-  padding: 0 0 0 15px;
-}
-
-.pdf-cap-meta {
-  font-size: 13px;
-  color: #666;
-  margin: 8px 0;
-  font-style: italic;
-}
-.pdf-cap-meta strong { color: #1b5784; font-weight: 600; }
-
-.pdf-objetivos-cap {
-  margin: 12px 0;
-  padding: 10px;
-  background: #f0f8ff;
-  border-radius: 6px;
-}
-.pdf-objetivos-cap strong { color: #1b5784; font-size: 14px; font-weight: 600; }
-.pdf-objetivos-lista { margin-top: 8px; }
-.pdf-objetivo-item { font-size: 13px; color: #333; margin: 4px 0; }
-
-.pdf-subcapitulos {
-  list-style: none;
-  padding-left: 0;
-  margin: 15px 0;
-}
-.pdf-subcapitulos li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  margin: 4px 0;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  font-size: 13px;
-}
-.pdf-subcapitulos li:nth-child(odd) { background: #f8f9fa; }
-
-.pdf-sub-meta {
-  font-size: 11px;
-  color: #666;
-  font-weight: 500;
-}
-
-.html2pdf__page-break {
-  page-break-before: always;
-}
-
-/* --- Estilos para alinear los nuevos campos de subcapítulos --- */
-
-/* Contenedor principal para un subcapítulo en la Vista Detallada */
-.subcapitulo-item-detallado {
-  display: flex; /* Pone los elementos en línea */
-  align-items: center; /* Centra verticalmente */
-  gap: 10px; /* Espacio entre el nombre y los otros campos */
-  margin-bottom: 5px; /* Pequeño espacio inferior */
-}
-
-/* Hace que el campo del nombre ocupe todo el espacio disponible */
-.subcapitulo-item-detallado .input-subcapitulo {
-  flex-grow: 1;
-}
-
-/* Contenedor para los campos de minutos y sesión */
-.subcapitulo-meta-inputs {
-  display: flex; /* Pone los dos campos pequeños en línea */
-  gap: 5px; /* Espacio entre minutos y sesión */
-}
-
-/* Estilo para los campos pequeños de minutos y sesión */
-.subcapitulo-meta-inputs input {
-  width: 70px; /* Un ancho fijo para que no sean muy grandes */
-  text-align: center;
-  padding: 0.5rem; /* Un poco de espacio interno */
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-
-/* ========================================================= */
-/* =====================  MOD NUEVAS UI  ==================== */
-/* ========================================================= */
-
-/* Botón utilitario */
-.btn {
-  padding: 8px 14px;
-  border: 1px solid #cfd7de;
-  background: #f6f8fa;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-.btn:hover {
-  background: #eef3f7;
-}
-
-/* Botón de 3 puntitos */
-.btn-icon {
-  background: transparent;
-  border: none;
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 8px;
-  color: #555;
-}
-.btn-icon:hover { color: #000; }
-
-/* Menú contextual ⋮ */
-.menu-contextual {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
-  width: 180px;
-  z-index: 1001;
-  display: flex;
-  flex-direction: column;
-}
-.menu-item {
-  background: transparent;
-  border: none;
-  text-align: left;
-  padding: 10px 12px;
-  font-size: 0.92rem;
-  cursor: pointer;
-}
-.menu-item:hover {
-  background: #f5f7fa;
-}
-
-/* Modal ancho para la lista de versiones */
-.modal.modal-xl {
-  width: min(980px, 96vw);
-  max-height: 86vh;
-}
-
-/* Barra de búsqueda de versiones */
-.search-bar-container {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-  padding: 10px;
-  background-color: #f7f7f7;
-  border-radius: 8px;
-}
-.search-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  font-size: 0.95rem;
-}
-
-/* Tabla de versiones */
-.tabla-versiones-scroll {
-  max-height: 60vh;
-  overflow: auto;
-  border: 1px solid #eee;
-  border-radius: 8px;
-}
-.versiones-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.versiones-table th,
-.versiones-table td {
-  border-bottom: 1px solid #eee;
-  padding: 10px 12px;
-  text-align: left;
-  vertical-align: middle;
-}
-.versiones-table th {
-  background: #f5f7fa;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-.versiones-table tr:nth-child(even) { background: #fafafa; }
-.versiones-table tr:hover { background: #f0f4f8; }
-
-/* Ver temario (solo lectura) */
-.pre-wrap { white-space: pre-wrap; }
-.lista-capitulos { padding-left: 18px; }
-.lista-capitulos > li { margin-bottom: 6px; }
-
-
-
 
 
