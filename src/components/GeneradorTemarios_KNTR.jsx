@@ -386,3 +386,5 @@ function GeneradorTemarios_KNTR() {
     </div>
   );
 }
+
+export default GeneradorTemarios_KNTR;
