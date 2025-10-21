@@ -31,7 +31,7 @@ function GeneradorTemarios() {
   });
 
   // API nueva -> Incorpora OpenAi.
-  // const apiUrl = "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/version2";
+const API_URL_KNTR = "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
 
 // CÓDIGO CORREGIDO
 const handleParamChange = (e) => {
@@ -63,7 +63,7 @@ const handleParamChange = (e) => {
       }
 
       const token = localStorage.getItem("id_token");
-      const response = await fetch(apiUrl, {
+      const response = await fetch(API_URL_KNTR, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -97,7 +97,7 @@ const handleParamChange = (e) => {
 
   return (
     <div className="generador-temarios-container">
-      <h2>Generador de Temarios a la Medida</h2>
+      <h2>Generador de Temarios - Knowledge transfer</h2>
       <p>Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.</p>
 
       <div className="formulario-inicial">
