@@ -592,18 +592,80 @@ function BookEditor({ projectFolder, onClose }) {
         let out = '';
         let inUl = false;
         let inOl = false;
+        let inCodeBlock = false;
+        let codeBlockContent = '';
+        let codeBlockLanguage = '';
 
         const closeLists = () => {
             if (inUl) { out += '</ul>'; inUl = false; }
             if (inOl) { out += '</ol>'; inOl = false; }
         };
 
+        // Helper function to apply inline formatting (bold, italic, inline code)
+        const applyInlineFormatting = (text) => {
+            // Remove standalone triple quotes that are not part of code blocks
+            // This handles cases where ''' or """ or ``` appear in regular text
+            let result = text
+                .replace(/^'''$/g, '') // Remove lines with only '''
+                .replace(/^"""$/g, '') // Remove lines with only """
+                .replace(/^```$/g, '') // Remove lines with only ```
+                .replace(/\s'''(\s|$)/g, '$1') // Remove ''' with surrounding spaces
+                .replace(/\s"""(\s|$)/g, '$1') // Remove """ with surrounding spaces
+                .replace(/\s```(\s|$)/g, '$1'); // Remove ``` with surrounding spaces
+
+            // Apply inline code, bold, italic formatting
+            return result
+                .replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: \'Courier New\', monospace;">$1</code>')
+                .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^\*]+)\*/g, '<em>$1</em>');
+        };
+
         for (let rawLine of lines) {
             const line = rawLine.trimEnd();
+
+            // Check for code block fences (```, """, ''') - with or without language
+            // Match trimmed line to handle any leading/trailing whitespace
+            const trimmedLine = line.trim();
+
+            // Check for fence markers (with or without language identifier)
+            const isFence = trimmedLine.startsWith('```') || trimmedLine.startsWith('"""') || trimmedLine.startsWith("'''");
+
+            if (isFence) {
+                // Extract language if present (e.g., ```yaml -> 'yaml')
+                const langMatch = trimmedLine.match(/^(?:```|"""|''')(\w+)?/);
+
+                if (!inCodeBlock) {
+                    // Starting a code block
+                    closeLists();
+                    inCodeBlock = true;
+                    codeBlockLanguage = (langMatch && langMatch[1]) ? langMatch[1] : '';
+                    codeBlockContent = '';
+                } else {
+                    // Ending a code block
+                    inCodeBlock = false;
+                    if (codeBlockContent.trim()) {
+                        const escapedCode = codeBlockContent
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                        out += `<pre style="background: #f4f4f4; padding: 1rem; border-radius: 5px; overflow-x: auto; font-family: 'Courier New', monospace;"><code>${escapedCode}</code></pre>`;
+                    }
+                    codeBlockLanguage = '';
+                    codeBlockContent = '';
+                }
+                continue; // Skip the fence line itself
+            }
+
+            // If inside code block, accumulate content (but don't process images here)
+            if (inCodeBlock) {
+                codeBlockContent += line + '\n';
+                continue;
+            }
+
             if (/^\s*$/.test(line)) {
-                // blank line closes lists and adds paragraph separation
-                closeLists();
-                out += '<p></p>';
+                // blank line - only close lists if not in a list context
+                // Check if next non-empty line is also a list item to keep lists open
+                out += '<br/>';
                 continue;
             }
 
@@ -612,7 +674,7 @@ function BookEditor({ projectFolder, onClose }) {
             if (hMatch) {
                 closeLists();
                 const level = Math.min(6, hMatch[1].length);
-                out += `<h${level}>${hMatch[2].trim()}</h${level}>`;
+                out += `<h${level}>${applyInlineFormatting(hMatch[2].trim())}</h${level}>`;
                 console.log(`Converted heading: "${line}" -> <h${level}>`);
                 continue;
             }
@@ -621,23 +683,45 @@ function BookEditor({ projectFolder, onClose }) {
             const bq = line.match(/^>\s?(.*)$/);
             if (bq) {
                 closeLists();
-                out += `<blockquote>${bq[1]}</blockquote>`;
+                out += `<blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
                 continue;
             }
 
-            // Unordered list item
-            const ul = line.match(/^[-\*]\s+(.*)$/);
+            // Unordered list item (including indented ones)
+            const ul = line.match(/^(\s*)[-\*]\s+(.*)$/);
             if (ul) {
-                if (!inUl) { closeLists(); out += '<ul>'; inUl = true; }
-                out += `<li>${ul[1]}</li>`;
+                const indent = ul[1].length;
+                if (!inUl) {
+                    if (inOl) out += '</ol>';
+                    inOl = false;
+                    out += '<ul>';
+                    inUl = true;
+                }
+                out += `<li>${applyInlineFormatting(ul[2])}</li>`;
                 continue;
             }
 
-            // Ordered list item
-            const ol = line.match(/^\d+\.\s+(.*)$/);
+            // Ordered list item (including indented ones)
+            const ol = line.match(/^(\s*)\d+\.\s+(.*)$/);
             if (ol) {
-                if (!inOl) { closeLists(); out += '<ol>'; inOl = true; }
-                out += `<li>${ol[1]}</li>`;
+                const indent = ol[1].length;
+                if (!inOl) {
+                    if (inUl) out += '</ul>';
+                    inUl = false;
+                    out += '<ol>';
+                    inOl = true;
+                }
+                out += `<li>${applyInlineFormatting(ol[2])}</li>`;
+                continue;
+            }
+
+            // If line starts with whitespace and we're in a list, it might be continuation
+            if ((inOl || inUl) && line.match(/^\s{4,}/)) {
+                // Indented content within list item - add as paragraph within last li
+                const content = line.trim();
+                if (content) {
+                    out += `<p style="margin-left: 1.5rem;">${applyInlineFormatting(content)}</p>`;
+                }
                 continue;
             }
 
@@ -653,16 +737,69 @@ function BookEditor({ projectFolder, onClose }) {
                 continue;
             }
 
-            // Inline formatting: bold and emphasis
-            let inline = line
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>');
+            // Table row detection (markdown tables with | separator)
+            // Match lines like: | Header 1 | Header 2 | Header 3 |
+            // or: |----------|----------|----------|
+            const tableMatch = line.match(/^\|(.+)\|$/);
+            if (tableMatch) {
+                closeLists();
+                const cells = tableMatch[1].split('|').map(c => c.trim());
+
+                // Check if this is a separator row (|---|---|)
+                const isSeparator = cells.every(c => /^[-:]+$/.test(c));
+
+                if (isSeparator) {
+                    // Skip separator rows, they're just for markdown formatting
+                    continue;
+                }
+
+                // Check if this is likely a header row (first table row or has bold text)
+                const isHeaderRow = cells.some(c => /^\*\*/.test(c)) || !out.includes('<table');
+
+                // Start table if not already in one
+                if (!out.includes('<table') || out.lastIndexOf('</table>') > out.lastIndexOf('<table')) {
+                    out += '<table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">';
+                    if (isHeaderRow) {
+                        out += '<thead><tr>';
+                        cells.forEach(cell => {
+                            out += `<th style="border: 1px solid #ddd; padding: 0.75rem; background-color: #f4f4f4; text-align: left;">${applyInlineFormatting(cell)}</th>`;
+                        });
+                        out += '</tr></thead><tbody>';
+                    } else {
+                        out += '<tbody><tr>';
+                        cells.forEach(cell => {
+                            out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                        });
+                        out += '</tr>';
+                    }
+                } else {
+                    // Continue existing table
+                    out += '<tr>';
+                    cells.forEach(cell => {
+                        out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                    });
+                    out += '</tr>';
+                }
+                continue;
+            }
+
+            // Close table if we were in one and hit a non-table line
+            if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
+                // Check if this line is not a table row
+                if (!line.match(/^\|(.+)\|$/)) {
+                    out += '</tbody></table>';
+                }
+            }
+
+            // Apply inline formatting to regular text
+            let inline = applyInlineFormatting(line);
 
             // If the line contains HTML-like block tags already, preserve them
             if (/^<\/?(p|div|h\d|ul|ol|li|img|blockquote|span)/i.test(inline)) {
                 closeLists();
                 out += inline;
             } else {
+                closeLists();
                 out += `<p>${inline}</p>`;
             }
         }
