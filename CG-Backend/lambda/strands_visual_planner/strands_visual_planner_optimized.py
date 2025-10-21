@@ -37,18 +37,10 @@ import boto3
 import hashlib
 from datetime import datetime
 from typing import Dict, Any, List
-from botocore.config import Config
-
-# Configure boto3 with extended timeouts for long-running LLM calls
-boto_config = Config(
-    read_timeout=600,  # 10 minutes read timeout
-    connect_timeout=60,  # 1 minute connection timeout
-    retries={'max_attempts': 3, 'mode': 'adaptive'}
-)
 
 # Initialize S3 and Bedrock clients
 s3_client = boto3.client('s3')
-bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=boto_config)
+bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration

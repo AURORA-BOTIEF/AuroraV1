@@ -1,0 +1,376 @@
+course:
+  title: "Desarrollo Web Moderno con React y Node.js"
+  description: "Curso completo de desarrollo web full-stack utilizando React para el frontend y Node.js para el backend, incluyendo bases de datos, autenticación y despliegue en la nube."
+  language: es
+  level: intermediate
+  audience:
+    - "Desarrolladores web que quieren especializarse en JavaScript full-stack"
+    - "Programadores que buscan actualizar sus habilidades con tecnologías modernas"
+    - "Estudiantes de informática interesados en desarrollo web profesional"
+  prerequisites:
+    - "Conocimientos básicos de HTML, CSS y JavaScript"
+    - "Familiaridad con la línea de comandos"
+    - "Conceptos básicos de programación"
+  total_duration_minutes: 2400
+  learning_outcomes:
+    - "Dominar React para construir interfaces de usuario interactivas y escalables"
+    - "Desarrollar APIs RESTful robustas con Node.js y Express"
+    - "Implementar autenticación y autorización seguras en aplicaciones web"
+    - "Trabajar con bases de datos relacionales y NoSQL"
+    - "Desplegar aplicaciones web completas en servicios cloud"
+    - "Aplicar mejores prácticas de testing, debugging y optimización"
+
+
+modules:
+  - title: "Módulo 1 — Fundamentos de React y Componentes"
+    summary: "Introducción a React, JSX, componentes funcionales y hooks básicos para construir interfaces dinámicas."
+    duration_minutes: 300
+    percent_theory: 50
+    percent_practice: 50
+    bloom_level: "Comprender / Aplicar"
+    lessons:
+      - title: "Introducción a React y Configuración del Entorno"
+        duration_minutes: 75
+        bloom_level: "Comprender"
+        topics:
+          - title: "¿Qué es React y por qué usarlo?"
+            duration_minutes: 15
+            bloom_level: "Comprender"
+          - title: "Create React App y Vite: herramientas de configuración"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Estructura de un proyecto React y JSX"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "Renderizado de elementos y componentes"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+      - title: "Componentes Funcionales y Hooks Básicos"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Componentes funcionales y props"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "useState: manejo de estado local"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "useEffect: efectos secundarios y ciclo de vida"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Manejo de eventos en React"
+            duration_minutes: 10
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Construcción de una Aplicación de Lista de Tareas con React"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 2 — Estado Avanzado y Context API"
+    summary: "Gestión de estado complejo, Context API para compartir datos globalmente y patrones de composición."
+    duration_minutes: 300
+    percent_theory: 45
+    percent_practice: 55
+    bloom_level: "Aplicar / Analizar"
+    lessons:
+      - title: "useReducer y Gestión de Estado Complejo"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Limitaciones de useState para estado complejo"
+            duration_minutes: 15
+            bloom_level: "Comprender"
+          - title: "useReducer: patrón reducer y actions"
+            duration_minutes: 30
+            bloom_level: "Aplicar"
+          - title: "Patrones de inmutabilidad en JavaScript"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Combinando múltiples reducers"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+      - title: "Context API y Estado Global"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Prop drilling y Context API"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "createContext, Provider y useContext"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "Patrones de contexto y separación de concerns"
+            duration_minutes: 15
+            bloom_level: "Analizar"
+          - title: "Performance: React.memo, useMemo y useCallback"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Sistema de Carrito de Compras con Context API"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 3 — React Router y Navegación"
+    summary: "Implementación de navegación y routing en aplicaciones React de una sola página (SPA)."
+    duration_minutes: 300
+    percent_theory: 45
+    percent_practice: 55
+    bloom_level: "Aplicar / Crear"
+    lessons:
+      - title: "Fundamentos de React Router"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Instalación y configuración de React Router v6"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "BrowserRouter, Routes y Route"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Link, NavLink y parámetros de URL"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Rutas anidadas y Outlet"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+      - title: "Navegación Avanzada y Rutas Protegidas"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "useNavigate y navegación programática"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "useLocation y useSearchParams"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Rutas protegidas con autenticación"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "Lazy loading y manejo de rutas 404"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Aplicación Multi-Página con Autenticación"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 4 — Consumo de APIs y Manejo Asíncrono"
+    summary: "Integración con APIs REST, manejo de peticiones HTTP y gestión de datos asincrónicos."
+    duration_minutes: 300
+    percent_theory: 45
+    percent_practice: 55
+    bloom_level: "Aplicar / Crear"
+    lessons:
+      - title: "Fetch API y Axios"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "fetch API: GET, POST, PUT, DELETE"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "Axios: instalación y configuración"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Interceptores y configuración global"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Manejo de errores, timeouts y estados de carga"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+      - title: "Custom Hooks y React Query"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Creación de custom hooks reutilizables"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "Patrón de hooks para fetching de datos"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Introducción a React Query (TanStack Query)"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Caché, refetch, mutations y sincronización"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Dashboard con Datos en Tiempo Real"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 5 — Introducción a Node.js y Express"
+    summary: "Fundamentos de Node.js, creación de servidores y desarrollo de APIs REST con Express."
+    duration_minutes: 300
+    percent_theory: 50
+    percent_practice: 50
+    bloom_level: "Comprender / Aplicar"
+    lessons:
+      - title: "Fundamentos de Node.js"
+        duration_minutes: 75
+        bloom_level: "Comprender"
+        topics:
+          - title: "¿Qué es Node.js y cómo funciona?"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "Event loop y programación asíncrona"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "NPM y sistema de módulos"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Sistema de archivos y módulos built-in"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+      - title: "Express y APIs RESTful"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Instalación y configuración de Express"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Routing: GET, POST, PUT, DELETE"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "Middleware: concepto y uso"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Body parsing, validación y manejo de errores"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "API REST para Gestión de Productos"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 6 — Bases de Datos y Persistencia"
+    summary: "Integración con bases de datos MongoDB y PostgreSQL, modelado de datos y ORMs."
+    duration_minutes: 300
+    percent_theory: 45
+    percent_practice: 55
+    bloom_level: "Aplicar / Crear"
+    lessons:
+      - title: "MongoDB y Mongoose"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Introducción a MongoDB y MongoDB Atlas"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "Mongoose: esquemas y modelos"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "CRUD operations con Mongoose"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Validaciones y middleware de Mongoose"
+            duration_minutes: 10
+            bloom_level: "Aplicar"
+      - title: "PostgreSQL y Sequelize"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Bases de datos relacionales y PostgreSQL"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "Sequelize: ORM para Node.js"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Modelos, migraciones y seeds"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Relaciones: one-to-many, many-to-many"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Sistema de Blog con Base de Datos"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 7 — Autenticación y Autorización"
+    summary: "Implementación de sistemas seguros de autenticación con JWT y OAuth, protección de rutas."
+    duration_minutes: 300
+    percent_theory: 45
+    percent_practice: 55
+    bloom_level: "Aplicar / Crear"
+    lessons:
+      - title: "JWT y Autenticación Basada en Tokens"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Conceptos de autenticación y autorización"
+            duration_minutes: 15
+            bloom_level: "Comprender"
+          - title: "JSON Web Tokens (JWT): estructura y uso"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Bcrypt: hashing de contraseñas"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Registro, login y refresh tokens"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+      - title: "OAuth y Middleware de Autorización"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "OAuth 2.0 y Passport.js"
+            duration_minutes: 20
+            bloom_level: "Comprender"
+          - title: "Google, Facebook, GitHub authentication"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "Middleware de autorización por roles"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Protección de rutas en frontend y backend"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Sistema de Login Completo con JWT y OAuth"
+            duration_minutes: 150
+            bloom_level: "Crear"
+
+  - title: "Módulo 8 — Testing, Optimización y Despliegue"
+    summary: "Testing de aplicaciones, optimización de rendimiento y despliegue en plataformas cloud."
+    duration_minutes: 300
+    percent_theory: 40
+    percent_practice: 60
+    bloom_level: "Aplicar / Evaluar"
+    lessons:
+      - title: "Testing y Calidad de Código"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Jest: configuración y tests unitarios"
+            duration_minutes: 25
+            bloom_level: "Aplicar"
+          - title: "React Testing Library: testing de componentes"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Supertest: testing de APIs"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Coverage, ESLint y Prettier"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+      - title: "Optimización y Despliegue"
+        duration_minutes: 75
+        bloom_level: "Aplicar"
+        topics:
+          - title: "Code splitting y lazy loading"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Performance optimization en React y Node.js"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+          - title: "Variables de entorno y configuración"
+            duration_minutes: 15
+            bloom_level: "Aplicar"
+          - title: "Despliegue: Vercel, Netlify, Railway, AWS"
+            duration_minutes: 20
+            bloom_level: "Aplicar"
+        lab_activities:
+          - title: "Despliegue de Aplicación Full-Stack Completa"
+            duration_minutes: 150
+            bloom_level: "Evaluar"
+

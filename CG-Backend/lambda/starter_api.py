@@ -305,6 +305,7 @@ def lambda_handler(event, context):
             "course_topic": course_topic or "Custom Course",
             "course_duration_hours": course_duration_hours,
             "modules_to_generate": modules_to_generate,  # NEW: List of modules [1, 3, 5]
+            "total_modules": len(modules_to_generate),  # Count for dynamic coordination delay
             "lesson_to_generate": lesson_to_generate,
             "performance_mode": performance_mode,
             "model_provider": model_provider,

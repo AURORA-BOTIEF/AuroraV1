@@ -18,22 +18,155 @@ function BookEditor({ projectFolder, onClose }) {
     const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
     const [versions, setVersions] = useState([]);
+    const [labGuideVersions, setLabGuideVersions] = useState([]);
     const [sessionVersionKey, setSessionVersionKey] = useState(null);
     const [showVersionHistory, setShowVersionHistory] = useState(false);
     const [newVersionName, setNewVersionName] = useState('');
+    const [newLabGuideVersionName, setNewLabGuideVersionName] = useState('');
     const [viewingVersion, setViewingVersion] = useState(null);
     const [viewingContent, setViewingContent] = useState('');
     const [loadingVersion, setLoadingVersion] = useState(false);
     const editorRef = useRef(null);
     const lastAppliedLessonRef = useRef({ index: null, content: null, isEditing: null });
+    const lastAppliedLabGuideRef = useRef({ isEditing: null, content: null });
     const [editingHtml, setEditingHtml] = useState(null);
+    const [labGuideEditingHtml, setLabGuideEditingHtml] = useState(null);
     const selectionRef = useRef(null);
+    const [collapsedModules, setCollapsedModules] = useState({});
+    const [labGuideData, setLabGuideData] = useState(null);
+    const [showLabGuide, setShowLabGuide] = useState(false);
+    const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
+
+    // Function to extract module number from lesson filename or title
+    const extractModuleInfo = (lesson, index) => {
+        // PRIORITY 1: Check if lesson already has moduleNumber from conversion
+        if (lesson.moduleNumber) {
+            return {
+                moduleNumber: lesson.moduleNumber,
+                lessonNumber: lesson.lessonNumberInModule || (index + 1)
+            };
+        }
+
+        // PRIORITY 2: Try to extract from filename (e.g., "lesson_01-01.md" or "01-01-lesson.md")
+        if (lesson.filename) {
+            const match = lesson.filename.match(/(\d+)-(\d+)/);
+            if (match) {
+                return {
+                    moduleNumber: parseInt(match[1]),
+                    lessonNumber: parseInt(match[2])
+                };
+            }
+        }
+
+        // PRIORITY 3: Try to extract from title (e.g., "Module 1: Lesson 2 - Title")
+        if (lesson.title) {
+            const match = lesson.title.match(/Module\s*(\d+)/i);
+            if (match) {
+                return {
+                    moduleNumber: parseInt(match[1]),
+                    lessonNumber: index + 1
+                };
+            }
+        }
+
+        // FALLBACK: assume 3 lessons per module if no clear structure
+        const lessonsPerModule = 3;
+        return {
+            moduleNumber: Math.floor(index / lessonsPerModule) + 1,
+            lessonNumber: (index % lessonsPerModule) + 1
+        };
+    };
+
+    // Group lessons by module
+    const groupLessonsByModule = () => {
+        if (!bookData || !bookData.lessons || !Array.isArray(bookData.lessons)) return {};
+
+        const modules = {};
+        bookData.lessons.forEach((lesson, index) => {
+            const { moduleNumber } = extractModuleInfo(lesson, index);
+            if (!modules[moduleNumber]) {
+                modules[moduleNumber] = {
+                    moduleNumber,
+                    lessons: []
+                };
+            }
+            modules[moduleNumber].lessons.push({
+                ...lesson,
+                originalIndex: index
+            });
+        });
+
+        return modules;
+    };    // Toggle module collapse state
+    const toggleModule = (moduleNumber) => {
+        setCollapsedModules(prev => ({
+            ...prev,
+            [moduleNumber]: !prev[moduleNumber]
+        }));
+    };
+
+    // Toggle all modules at once
+    const toggleAllModules = () => {
+        const modules = groupLessonsByModule();
+        const moduleNumbers = Object.keys(modules);
+        const anyCollapsed = moduleNumbers.some(num => collapsedModules[num]);
+
+        const newState = {};
+        moduleNumbers.forEach(num => {
+            newState[num] = !anyCollapsed; // If any collapsed, expand all; otherwise collapse all
+        });
+        setCollapsedModules(newState);
+    };
+
+    // Render lessons grouped by module
+    const renderLessonsByModule = () => {
+        const modules = groupLessonsByModule();
+        const moduleNumbers = Object.keys(modules).sort((a, b) => parseInt(a) - parseInt(b));
+
+        return moduleNumbers.map(moduleNum => {
+            const module = modules[moduleNum];
+            const isCollapsed = collapsedModules[moduleNum];
+
+            // Get module title from first lesson's moduleTitle property, or use default
+            const firstLesson = module.lessons[0];
+            const moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum}`;
+
+            return (
+                <div key={moduleNum} className="module-section">
+                    <div
+                        className="module-header"
+                        onClick={() => toggleModule(moduleNum)}
+                    >
+                        <span className="module-toggle">{isCollapsed ? '▶' : '▼'}</span>
+                        <span className="module-title">{moduleTitle}</span>
+                        <span className="module-count">({module.lessons.length})</span>
+                    </div>
+                    {!isCollapsed && (
+                        <div className="module-lessons">
+                            {module.lessons.map((lesson) => (
+                                <div
+                                    key={lesson.originalIndex}
+                                    className={`lesson-item ${lesson.originalIndex === currentLessonIndex ? 'active' : ''}`}
+                                    onClick={() => setCurrentLessonIndex(lesson.originalIndex)}
+                                >
+                                    <span className="lesson-number">L{lesson.lessonNumberInModule || extractModuleInfo(lesson, lesson.originalIndex).lessonNumber}</span>
+                                    <span className="lesson-title-text">{lesson.title || `Lección ${lesson.originalIndex + 1}`}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        });
+    };
 
     useEffect(() => {
         if (projectFolder) {
             loadBook();
             loadVersions();
+            loadLabGuide();
+            loadLabGuideVersions();
         }
     }, [projectFolder]);
 
@@ -79,18 +212,107 @@ function BookEditor({ projectFolder, onClose }) {
 
             const data = await response.json();
 
+            console.log('=== Book Data Response ===');
+            console.log('Keys:', Object.keys(data));
+            console.log('Has bookData:', !!data.bookData);
+            console.log('Has bookContent:', !!data.bookContent);
+            console.log('Has bookJsonUrl:', !!data.bookJsonUrl);
+            console.log('Has bookMdUrl:', !!data.bookMdUrl);
+
+            if (data.bookData) {
+                console.log('bookData structure:', {
+                    keys: Object.keys(data.bookData),
+                    hasLessons: !!data.bookData.lessons,
+                    lessonsIsArray: Array.isArray(data.bookData.lessons),
+                    lessonsCount: data.bookData.lessons ? data.bookData.lessons.length : 'N/A'
+                });
+            }
+
             let bookToSet = null;
+
+            // Helper function to convert modules structure to lessons array
+            const convertModulesToLessons = (bookData) => {
+                if (bookData.modules && Array.isArray(bookData.modules)) {
+                    console.log('Converting modules structure to lessons array...');
+                    const lessons = [];
+                    bookData.modules.forEach((module, moduleIdx) => {
+                        if (module.lessons && Array.isArray(module.lessons)) {
+                            module.lessons.forEach((lesson, lessonIdx) => {
+                                lessons.push({
+                                    ...lesson,
+                                    moduleNumber: moduleIdx + 1,
+                                    lessonNumberInModule: lessonIdx + 1,
+                                    moduleTitle: module.title || `Module ${moduleIdx + 1}`,
+                                    // Ensure filename follows the pattern for module grouping
+                                    filename: lesson.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(lessonIdx + 1).padStart(2, '0')}.md`
+                                });
+                            });
+                        }
+                    });
+                    console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons`);
+                    return {
+                        ...bookData,
+                        lessons: lessons,
+                        metadata: {
+                            ...(bookData.metadata || {}),
+                            total_lessons: lessons.length,
+                            total_modules: bookData.modules.length
+                        }
+                    };
+                }
+                return bookData;
+            };
 
             // Priority: inline bookData > inline bookContent > presigned URLs
             if (data.bookData) {
-                // Process images in bookData lessons
-                console.log('Loading images from S3 (inlined bookData)...');
-                for (let lesson of data.bookData.lessons) {
-                    if (lesson.content) {
-                        lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
-                    }
+                console.log('Processing book data...');
+
+                // Check if we have modules structure instead of lessons
+                if (!data.bookData.lessons && data.bookData.modules) {
+                    data.bookData = convertModulesToLessons(data.bookData);
                 }
-                bookToSet = data.bookData;
+
+                // Ensure lessons is an array
+                if (data.bookData.lessons && Array.isArray(data.bookData.lessons)) {
+                    // Set book data immediately WITHOUT waiting for images
+                    bookToSet = data.bookData;
+                    setBookData(bookToSet);
+                    setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
+                    setLoading(false); // Show UI immediately
+
+                    // Load images progressively in the background
+                    console.log('Loading images progressively in background...');
+                    setLoadingImages(true);
+
+                    // Process images for current lesson first (priority)
+                    const currentLesson = bookToSet.lessons[0];
+                    if (currentLesson && currentLesson.content) {
+                        console.log('Loading images for current lesson (priority)...');
+                        currentLesson.content = await replaceS3UrlsWithDataUrls(currentLesson.content);
+                        setBookData({ ...bookToSet }); // Trigger re-render
+                    }
+
+                    // Then load remaining lessons in background
+                    setTimeout(async () => {
+                        for (let i = 1; i < bookToSet.lessons.length; i++) {
+                            const lesson = bookToSet.lessons[i];
+                            if (lesson.content) {
+                                lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                                // Update state every few lessons to show progress
+                                if (i % 5 === 0 || i === bookToSet.lessons.length - 1) {
+                                    setBookData({ ...bookToSet });
+                                }
+                            }
+                        }
+                        console.log('All images loaded');
+                        setLoadingImages(false);
+                    }, 100);
+
+                    return; // Exit early since we've set the state
+                } else {
+                    console.error('bookData.lessons is not an array or is missing:', data.bookData);
+                    throw new Error('El formato del libro no es válido: lessons no es un array');
+                }
             } else if (data.bookContent) {
                 // Replace S3 URLs with data URLs before parsing
                 console.log('Loading images from S3 (inlined bookContent)...');
@@ -102,9 +324,20 @@ function BookEditor({ projectFolder, onClose }) {
                 console.log('Fetching book JSON from presigned URL...');
                 const jsonResp = await fetch(data.bookJsonUrl);
                 if (!jsonResp.ok) throw new Error('Failed to fetch book JSON from S3');
-                const fetchedJson = await jsonResp.json();
+                let fetchedJson = await jsonResp.json();
+
+                // Check if we have modules structure instead of lessons
+                if (!fetchedJson.lessons && fetchedJson.modules) {
+                    fetchedJson = convertModulesToLessons(fetchedJson);
+                }
+
+                // Ensure lessons exists and is an array
+                if (!fetchedJson.lessons || !Array.isArray(fetchedJson.lessons)) {
+                    console.error('Fetched JSON lessons is not valid:', fetchedJson);
+                    throw new Error('El formato del libro no es válido: lessons no es un array');
+                }
                 // Process images
-                for (let lesson of fetchedJson.lessons || []) {
+                for (let lesson of fetchedJson.lessons) {
                     if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
                 }
                 bookToSet = fetchedJson;
@@ -130,6 +363,178 @@ function BookEditor({ projectFolder, onClose }) {
             setLoadingImages(false);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadLabGuide = async () => {
+        try {
+            console.log('=== Loading Lab Guide ===');
+
+            // Get authenticated credentials from Amplify
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                console.log('No credentials available for lab guide loading');
+                return;
+            }
+
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials,
+            });
+
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+            const labGuidePrefix = `${projectFolder}/book/`;
+
+            // List files in the book folder to find lab guide
+            const response = await s3.send(new ListObjectsV2Command({
+                Bucket: bucketName,
+                Prefix: labGuidePrefix,
+                MaxKeys: 50
+            }));
+
+            if (!response.Contents) {
+                console.log('No contents found in book folder');
+                return;
+            }
+
+            console.log('Files in book folder:');
+            response.Contents.forEach(obj => {
+                console.log('  -', obj.Key);
+            });
+
+            // Look for lab guide file (_LabGuide_complete)
+            const labGuideFile = response.Contents.find(obj =>
+                obj.Key && obj.Key.includes('_LabGuide_complete')
+            );
+
+            if (!labGuideFile) {
+                console.log('No lab guide file found. Searched for files containing "_LabGuide_complete"');
+                console.log('Available files:', response.Contents.map(obj => obj.Key).join(', '));
+                return;
+            }
+
+            console.log('Found lab guide:', labGuideFile.Key);
+
+            // Download the lab guide content
+            const labGuideResponse = await s3.send(new GetObjectCommand({
+                Bucket: bucketName,
+                Key: labGuideFile.Key
+            }));
+
+            const labGuideContent = await labGuideResponse.Body.transformToString();
+
+            // Process images in lab guide content
+            console.log('Processing images in lab guide...');
+            const contentWithImages = await replaceS3UrlsWithDataUrls(labGuideContent);
+
+            setLabGuideData({
+                content: contentWithImages,
+                filename: labGuideFile.Key.split('/').pop(),
+                lastModified: labGuideFile.LastModified
+            });
+
+            console.log('Lab guide loaded successfully');
+        } catch (error) {
+            console.error('Error loading lab guide:', error);
+            // Don't show alert - lab guide is optional
+        }
+    };
+
+    const saveLabGuide = async () => {
+        if (!labGuideData) {
+            alert('No hay guía de laboratorios cargada');
+            return;
+        }
+
+        if (!newLabGuideVersionName.trim()) {
+            alert('Por favor ingresa un nombre para la versión del Lab Guide');
+            return;
+        }
+
+        try {
+            console.log('=== Saving Lab Guide Version ===');
+
+            const safeVersionName = newLabGuideVersionName.replace(/\s+/g, '_');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const versionFilename = `${labGuideData.filename.replace('.md', '')}_${safeVersionName}_${timestamp}.md`;
+
+            // Get authenticated credentials
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                throw new Error('No se encontraron credenciales autenticadas');
+            }
+
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials,
+            });
+
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Get the current content - use editing HTML if available
+            const currentContent = labGuideEditingHtml || labGuideData.content;
+
+            // Convert HTML back to markdown for storage
+            const markdown = convertHtmlToMarkdown(currentContent);
+
+            // Save as a version in lab-versions folder
+            const versionKey = `${projectFolder}/lab-versions/${versionFilename}`;
+
+            // Check if version with this name already exists
+            const existingVersion = labGuideVersions.find(v => v.name.includes(safeVersionName));
+            if (existingVersion) {
+                const override = confirm(`Ya existe una versión con el nombre "${newLabGuideVersionName}".\n\n¿Deseas sobrescribirla?`);
+                if (!override) {
+                    return;
+                }
+            }
+
+            console.log('Saving lab guide version to:', versionKey);
+
+            // Upload to S3
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: versionKey,
+                Body: markdown,
+                ContentType: 'text/markdown'
+            }));
+
+            // Also update the main lab guide file
+            const labGuideKey = `${projectFolder}/book/${labGuideData.filename}`;
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: labGuideKey,
+                Body: markdown,
+                ContentType: 'text/markdown'
+            }));
+
+            // Add to versions list
+            if (existingVersion) {
+                setLabGuideVersions(prev => prev.map(v =>
+                    v.name.includes(safeVersionName)
+                        ? { ...v, timestamp: new Date(), key: versionKey }
+                        : v
+                ));
+            } else {
+                setLabGuideVersions(prev => [{
+                    name: versionFilename.replace('.md', ''),
+                    timestamp: new Date(),
+                    key: versionKey
+                }, ...prev]);
+            }
+
+            // Update lab guide data with the current content
+            setLabGuideData({
+                ...labGuideData,
+                content: currentContent
+            });
+
+            setNewLabGuideVersionName('');
+            alert('¡Versión de Lab Guide guardada exitosamente!');
+            console.log('Lab guide version saved successfully');
+        } catch (error) {
+            console.error('Error saving lab guide:', error);
+            alert('Error al guardar la guía de laboratorios: ' + error.message);
         }
     };
 
@@ -187,18 +592,80 @@ function BookEditor({ projectFolder, onClose }) {
         let out = '';
         let inUl = false;
         let inOl = false;
+        let inCodeBlock = false;
+        let codeBlockContent = '';
+        let codeBlockLanguage = '';
 
         const closeLists = () => {
             if (inUl) { out += '</ul>'; inUl = false; }
             if (inOl) { out += '</ol>'; inOl = false; }
         };
 
+        // Helper function to apply inline formatting (bold, italic, inline code)
+        const applyInlineFormatting = (text) => {
+            // Remove standalone triple quotes that are not part of code blocks
+            // This handles cases where ''' or """ or ``` appear in regular text
+            let result = text
+                .replace(/^'''$/g, '') // Remove lines with only '''
+                .replace(/^"""$/g, '') // Remove lines with only """
+                .replace(/^```$/g, '') // Remove lines with only ```
+                .replace(/\s'''(\s|$)/g, '$1') // Remove ''' with surrounding spaces
+                .replace(/\s"""(\s|$)/g, '$1') // Remove """ with surrounding spaces
+                .replace(/\s```(\s|$)/g, '$1'); // Remove ``` with surrounding spaces
+
+            // Apply inline code, bold, italic formatting
+            return result
+                .replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: \'Courier New\', monospace;">$1</code>')
+                .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^\*]+)\*/g, '<em>$1</em>');
+        };
+
         for (let rawLine of lines) {
             const line = rawLine.trimEnd();
+
+            // Check for code block fences (```, """, ''') - with or without language
+            // Match trimmed line to handle any leading/trailing whitespace
+            const trimmedLine = line.trim();
+
+            // Check for fence markers (with or without language identifier)
+            const isFence = trimmedLine.startsWith('```') || trimmedLine.startsWith('"""') || trimmedLine.startsWith("'''");
+
+            if (isFence) {
+                // Extract language if present (e.g., ```yaml -> 'yaml')
+                const langMatch = trimmedLine.match(/^(?:```|"""|''')(\w+)?/);
+
+                if (!inCodeBlock) {
+                    // Starting a code block
+                    closeLists();
+                    inCodeBlock = true;
+                    codeBlockLanguage = (langMatch && langMatch[1]) ? langMatch[1] : '';
+                    codeBlockContent = '';
+                } else {
+                    // Ending a code block
+                    inCodeBlock = false;
+                    if (codeBlockContent.trim()) {
+                        const escapedCode = codeBlockContent
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                        out += `<pre style="background: #f4f4f4; padding: 1rem; border-radius: 5px; overflow-x: auto; font-family: 'Courier New', monospace;"><code>${escapedCode}</code></pre>`;
+                    }
+                    codeBlockLanguage = '';
+                    codeBlockContent = '';
+                }
+                continue; // Skip the fence line itself
+            }
+
+            // If inside code block, accumulate content (but don't process images here)
+            if (inCodeBlock) {
+                codeBlockContent += line + '\n';
+                continue;
+            }
+
             if (/^\s*$/.test(line)) {
-                // blank line closes lists and adds paragraph separation
-                closeLists();
-                out += '<p></p>';
+                // blank line - only close lists if not in a list context
+                // Check if next non-empty line is also a list item to keep lists open
+                out += '<br/>';
                 continue;
             }
 
@@ -207,7 +674,7 @@ function BookEditor({ projectFolder, onClose }) {
             if (hMatch) {
                 closeLists();
                 const level = Math.min(6, hMatch[1].length);
-                out += `<h${level}>${hMatch[2].trim()}</h${level}>`;
+                out += `<h${level}>${applyInlineFormatting(hMatch[2].trim())}</h${level}>`;
                 console.log(`Converted heading: "${line}" -> <h${level}>`);
                 continue;
             }
@@ -216,23 +683,45 @@ function BookEditor({ projectFolder, onClose }) {
             const bq = line.match(/^>\s?(.*)$/);
             if (bq) {
                 closeLists();
-                out += `<blockquote>${bq[1]}</blockquote>`;
+                out += `<blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
                 continue;
             }
 
-            // Unordered list item
-            const ul = line.match(/^[-\*]\s+(.*)$/);
+            // Unordered list item (including indented ones)
+            const ul = line.match(/^(\s*)[-\*]\s+(.*)$/);
             if (ul) {
-                if (!inUl) { closeLists(); out += '<ul>'; inUl = true; }
-                out += `<li>${ul[1]}</li>`;
+                const indent = ul[1].length;
+                if (!inUl) {
+                    if (inOl) out += '</ol>';
+                    inOl = false;
+                    out += '<ul>';
+                    inUl = true;
+                }
+                out += `<li>${applyInlineFormatting(ul[2])}</li>`;
                 continue;
             }
 
-            // Ordered list item
-            const ol = line.match(/^\d+\.\s+(.*)$/);
+            // Ordered list item (including indented ones)
+            const ol = line.match(/^(\s*)\d+\.\s+(.*)$/);
             if (ol) {
-                if (!inOl) { closeLists(); out += '<ol>'; inOl = true; }
-                out += `<li>${ol[1]}</li>`;
+                const indent = ol[1].length;
+                if (!inOl) {
+                    if (inUl) out += '</ul>';
+                    inUl = false;
+                    out += '<ol>';
+                    inOl = true;
+                }
+                out += `<li>${applyInlineFormatting(ol[2])}</li>`;
+                continue;
+            }
+
+            // If line starts with whitespace and we're in a list, it might be continuation
+            if ((inOl || inUl) && line.match(/^\s{4,}/)) {
+                // Indented content within list item - add as paragraph within last li
+                const content = line.trim();
+                if (content) {
+                    out += `<p style="margin-left: 1.5rem;">${applyInlineFormatting(content)}</p>`;
+                }
                 continue;
             }
 
@@ -248,16 +737,69 @@ function BookEditor({ projectFolder, onClose }) {
                 continue;
             }
 
-            // Inline formatting: bold and emphasis
-            let inline = line
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>');
+            // Table row detection (markdown tables with | separator)
+            // Match lines like: | Header 1 | Header 2 | Header 3 |
+            // or: |----------|----------|----------|
+            const tableMatch = line.match(/^\|(.+)\|$/);
+            if (tableMatch) {
+                closeLists();
+                const cells = tableMatch[1].split('|').map(c => c.trim());
+
+                // Check if this is a separator row (|---|---|)
+                const isSeparator = cells.every(c => /^[-:]+$/.test(c));
+
+                if (isSeparator) {
+                    // Skip separator rows, they're just for markdown formatting
+                    continue;
+                }
+
+                // Check if this is likely a header row (first table row or has bold text)
+                const isHeaderRow = cells.some(c => /^\*\*/.test(c)) || !out.includes('<table');
+
+                // Start table if not already in one
+                if (!out.includes('<table') || out.lastIndexOf('</table>') > out.lastIndexOf('<table')) {
+                    out += '<table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">';
+                    if (isHeaderRow) {
+                        out += '<thead><tr>';
+                        cells.forEach(cell => {
+                            out += `<th style="border: 1px solid #ddd; padding: 0.75rem; background-color: #f4f4f4; text-align: left;">${applyInlineFormatting(cell)}</th>`;
+                        });
+                        out += '</tr></thead><tbody>';
+                    } else {
+                        out += '<tbody><tr>';
+                        cells.forEach(cell => {
+                            out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                        });
+                        out += '</tr>';
+                    }
+                } else {
+                    // Continue existing table
+                    out += '<tr>';
+                    cells.forEach(cell => {
+                        out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                    });
+                    out += '</tr>';
+                }
+                continue;
+            }
+
+            // Close table if we were in one and hit a non-table line
+            if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
+                // Check if this line is not a table row
+                if (!line.match(/^\|(.+)\|$/)) {
+                    out += '</tbody></table>';
+                }
+            }
+
+            // Apply inline formatting to regular text
+            let inline = applyInlineFormatting(line);
 
             // If the line contains HTML-like block tags already, preserve them
             if (/^<\/?(p|div|h\d|ul|ol|li|img|blockquote|span)/i.test(inline)) {
                 closeLists();
                 out += inline;
             } else {
+                closeLists();
                 out += `<p>${inline}</p>`;
             }
         }
@@ -296,6 +838,28 @@ function BookEditor({ projectFolder, onClose }) {
         }
     };
 
+    const loadLabGuideVersions = async () => {
+        try {
+            // Load lab guide version files from S3 under projectFolder/lab-versions/
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) return;
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+            const prefix = `${projectFolder}/lab-versions/`;
+
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            const items = resp.Contents || [];
+            const vers = items
+                .filter(i => i.Key && i.Key.endsWith('.md'))
+                .map(i => ({ name: i.Key.replace(prefix, '').replace('.md', ''), timestamp: i.LastModified, key: i.Key }))
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            setLabGuideVersions(vers);
+        } catch (error) {
+            console.error('Error al cargar versiones de lab guide:', error);
+        }
+    };
+
     const deleteVersion = async (version) => {
         if (!confirm(`¿Eliminar la versión "${version.name}"? Esta acción no se puede deshacer.`)) return;
         try {
@@ -319,6 +883,25 @@ function BookEditor({ projectFolder, onClose }) {
             alert('Versión eliminada');
         } catch (e) {
             console.error('Failed to delete version:', e);
+            alert('Error al eliminar versión: ' + String(e));
+        }
+    };
+
+    const deleteLabGuideVersion = async (version) => {
+        if (!confirm(`¿Eliminar la versión de Lab Guide "${version.name}"? Esta acción no se puede deshacer.`)) return;
+        try {
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: version.key }));
+
+            setLabGuideVersions(prev => prev.filter(v => v.key !== version.key));
+            alert('Versión de Lab Guide eliminada');
+        } catch (e) {
+            console.error('Failed to delete lab guide version:', e);
             alert('Error al eliminar versión: ' + String(e));
         }
     };
@@ -853,6 +1436,8 @@ function BookEditor({ projectFolder, onClose }) {
     // avoid runtime errors that would unmount the component (blank page).
     // Apply innerHTML only when switching lessons or toggling edit mode.
     useEffect(() => {
+        if (viewMode !== 'book') return; // Only run for book view
+
         const editor = editorRef.current;
         if (!editor) return;
 
@@ -874,7 +1459,53 @@ function BookEditor({ projectFolder, onClose }) {
 
         lastAppliedLessonRef.current = { index: currentLessonIndex, content: formatted, isEditing };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentLessonIndex, isEditing, bookData]);
+    }, [viewMode, currentLessonIndex, isEditing, bookData]);
+
+    // Similar useEffect for lab guide editing
+    useEffect(() => {
+        if (viewMode !== 'lab') return;
+
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        const labContent = labGuideData?.content || '';
+        const formatted = formatContentForEditing(labContent);
+
+        // Check if we need to update (avoid unnecessary re-renders)
+        const lastApplied = lastAppliedLabGuideRef.current;
+        if (lastApplied.isEditing === isEditing && lastApplied.content === formatted) {
+            return; // No change needed
+        }
+
+        if (isEditing) {
+            // Only set HTML if we're transitioning to edit mode or content changed
+            if (lastApplied.isEditing !== isEditing) {
+                // Transitioning to edit mode
+                const initial = labGuideEditingHtml ?? formatted;
+                try {
+                    editor.innerHTML = initial;
+                } catch (e) {
+                    console.error('Failed to set lab guide editor HTML:', e);
+                }
+                setLabGuideEditingHtml(initial);
+                // Only focus on initial transition to edit mode
+                setTimeout(() => {
+                    try { editor.focus(); } catch (e) { }
+                }, 0);
+            }
+        } else {
+            // Render canonical content in read-only
+            try {
+                editor.innerHTML = formatted;
+            } catch (e) {
+                console.error('Failed to set lab guide editor HTML:', e);
+            }
+            setLabGuideEditingHtml(null);
+        }
+
+        lastAppliedLabGuideRef.current = { isEditing, content: formatted };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewMode, isEditing, labGuideData]);
 
     // Helpers to map node -> path and back so caret can be restored after innerHTML changes
     function getNodePath(root, node) {
@@ -1022,6 +1653,12 @@ function BookEditor({ projectFolder, onClose }) {
 
     // Save editingHtml back into bookData (convert to markdown) when finalizing edit
     const finalizeEditing = async () => {
+        // Don't process book data if we're in lab guide mode
+        if (viewMode === 'lab') {
+            setIsEditing(false);
+            return;
+        }
+
         if (!bookData) return;
 
         console.log('=== Finalizing Edit START ===');
@@ -1174,10 +1811,23 @@ function BookEditor({ projectFolder, onClose }) {
         return <div className="book-editor-error">No se encontraron datos del libro para este proyecto.</div>;
     }
 
+    if (!bookData.lessons || !Array.isArray(bookData.lessons)) {
+        return <div className="book-editor-error">El libro no tiene un formato válido (lessons no es un array).</div>;
+    }
+
+    if (bookData.lessons.length === 0) {
+        return <div className="book-editor-error">Este libro no contiene lecciones.</div>;
+    }
+
     const currentLesson = bookData.lessons?.[currentLessonIndex] || { title: '', content: '' };
 
     return (
         <div className="book-editor">
+            {loadingImages && (
+                <div className="image-loading-indicator">
+                    🖼️ Cargando imágenes en segundo plano...
+                </div>
+            )}
             {loadingVersion && (
                 <div className="version-loading-overlay">
                     <div className="version-loading-content">
@@ -1224,13 +1874,23 @@ function BookEditor({ projectFolder, onClose }) {
                     <button onClick={() => handleApplyFormat()} title="Aplicar Formato">🖌️</button>
                 </div>
                 <div className="book-editor-actions">
+                    {labGuideData && (
+                        <button
+                            className={viewMode === 'lab' ? 'btn-active' : ''}
+                            onClick={() => setViewMode(viewMode === 'book' ? 'lab' : 'book')}
+                            title={viewMode === 'book' ? 'Ver Guía de Laboratorios' : 'Ver Libro'}
+                        >
+                            {viewMode === 'book' ? '🧪 Lab Guide' : '📚 Libro'}
+                        </button>
+                    )}
                     <button
                         className={isEditing ? 'btn-editing' : 'btn-edit'}
-                        onClick={() => {
+                        onClick={async () => {
                             console.log('=== Edit button clicked ===', isEditing ? 'Finalizing' : 'Entering edit mode');
                             const startTime = performance.now();
 
                             if (isEditing) {
+                                // Just finalize editing - versions are saved separately
                                 finalizeEditing();
                             } else {
                                 setIsEditing(true);
@@ -1244,113 +1904,215 @@ function BookEditor({ projectFolder, onClose }) {
                     </button>
                     {/* Save button intentionally removed: use "Guardar Versión" to create versions */}
                     <button onClick={() => setShowVersionHistory(!showVersionHistory)}>
-                        📋 Versiones ({versions.length + 1})
+                        📋 Versiones ({viewMode === 'lab' ? labGuideVersions.length : versions.length + 1})
                     </button>
                     <button onClick={onClose} className="btn-close">✕ Cerrar</button>
                 </div>
             </div>
             {showVersionHistory && (
                 <div className="version-history">
-                    <h3>Historial de Versiones</h3>
-                    <div className="version-list">
-                        {/* Original version entry */}
-                        <div className="version-item version-original">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                    <button className="version-name" onClick={viewOriginal}>Ver</button>
-                                    <button onClick={editOriginal}>Editar</button>
-                                    <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>📄 Original</div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                    <div className="version-meta" style={{ fontStyle: 'italic', color: '#666' }}>Versión inicial del libro</div>
-                                </div>
-                            </div>
-                        </div>
-                        {/* Saved versions */}
-                        {versions.map((version, index) => (
-                            <div key={index} className={`version-item ${version.isCurrent ? 'current' : ''}`}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                        <button className="version-name" onClick={() => viewVersion(version)}>Ver</button>
-                                        <button onClick={() => editVersion(version)}>Editar</button>
-                                        <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                        <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
-                                        <button onClick={() => deleteVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
+                    <h3>Historial de Versiones {viewMode === 'lab' ? '- Lab Guide' : '- Libro'}</h3>
+                    {viewMode === 'book' ? (
+                        <>
+                            <div className="version-list">
+                                {/* Original version entry */}
+                                <div className="version-item version-original">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <button className="version-name" onClick={viewOriginal}>Ver</button>
+                                            <button onClick={editOriginal}>Editar</button>
+                                            <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>📄 Original</div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <div className="version-meta" style={{ fontStyle: 'italic', color: '#666' }}>Versión inicial del libro</div>
+                                        </div>
                                     </div>
                                 </div>
+                                {/* Saved versions */}
+                                {versions.map((version, index) => (
+                                    <div key={index} className={`version-item ${version.isCurrent ? 'current' : ''}`}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <button className="version-name" onClick={() => viewVersion(version)}>Ver</button>
+                                                <button onClick={() => editVersion(version)}>Editar</button>
+                                                <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
+                                                <button onClick={() => deleteVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
-                    </div>
-                    <div className="save-version">
-                        <input value={newVersionName} onChange={e => setNewVersionName(e.target.value)} placeholder="Nombre de la versión" />
-                        <button onClick={saveVersion} disabled={!newVersionName.trim()}>Guardar Versión</button>
-                    </div>
+                            <div className="save-version">
+                                <input value={newVersionName} onChange={e => setNewVersionName(e.target.value)} placeholder="Nombre de la versión" />
+                                <button onClick={saveVersion} disabled={!newVersionName.trim()}>Guardar Versión</button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="version-list">
+                                {/* Lab Guide Versions */}
+                                {labGuideVersions.length === 0 ? (
+                                    <div style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
+                                        No hay versiones guardadas del Lab Guide
+                                    </div>
+                                ) : (
+                                    labGuideVersions.map((version, index) => (
+                                        <div key={index} className="version-item">
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
+                                                    <button onClick={() => deleteLabGuideVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            <div className="save-version">
+                                <input value={newLabGuideVersionName} onChange={e => setNewLabGuideVersionName(e.target.value)} placeholder="Nombre de la versión" />
+                                <button onClick={saveLabGuide} disabled={!newLabGuideVersionName.trim()}>Guardar Versión Lab Guide</button>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
             <div className="book-editor-content">
-                <div className="lesson-navigator">
-                    <h3>Lecciones</h3>
-                    <div className="lesson-list">
-                        {bookData.lessons.map((lesson, idx) => (
-                            <div key={idx} className={`lesson-item ${idx === currentLessonIndex ? 'active' : ''}`} onClick={() => setCurrentLessonIndex(idx)}>
-                                {lesson.title || `Lección ${idx + 1}`}
+                {viewMode === 'book' ? (
+                    <>
+                        <div className="lesson-navigator">
+                            <h3>Contenido del Libro</h3>
+                            <div className="navigator-stats">
+                                {Object.keys(groupLessonsByModule()).length} módulos · {bookData.lessons.length} lecciones
                             </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="lesson-editor">
-                    {isEditing && (
-                        <div className="save-version-inline">
-                            <input
-                                value={newVersionName}
-                                onChange={e => setNewVersionName(e.target.value)}
-                                placeholder="Nombre de la versión"
-                                className="version-name-input"
-                            />
-                            <button
-                                onClick={saveVersion}
-                                disabled={!newVersionName.trim()}
-                                className="btn-save-version"
-                                title="Guardar una nueva versión de este libro"
-                            >
-                                💾 Guardar Versión
-                            </button>
+                            <div className="navigator-actions">
+                                <button
+                                    className="btn-toggle-all"
+                                    onClick={toggleAllModules}
+                                    title={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
+                                >
+                                    {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "📂 Expandir Todo" : "📁 Colapsar Todo"}
+                                </button>
+                            </div>
+                            <div className="lesson-list">
+                                {renderLessonsByModule()}
+                            </div>
                         </div>
-                    )}
-                    <div className="lesson-header">
-                        <h3>{currentLesson.title}</h3>
-                        <div className="lesson-stats">Palabras: {currentLesson.content.split(/\s+/).filter(Boolean).length}</div>
-                    </div>
-                    <div className="editor-container">
-                        {isEditing ? (
-                            // Use the classic contentEditable editor while editing so the
-                            // user sees the same rendered HTML (images, headings, lists)
-                            // they see in read-only mode. This keeps the toolbar and
-                            // execCommand behaviour working and avoids Lexical image
-                            // node registration complexity.
-                            <div
-                                ref={editorRef}
-                                className="content-editor"
-                                contentEditable={true}
-                                suppressContentEditableWarning={true}
-                                onInput={handleContentChange}
-                                onPaste={handlePaste}
-                                tabIndex={0}
-                            />
-                        ) : (
-                            // Read-only visualization: use contentEditable with HTML rendering
-                            // The useEffect will populate this with formatted HTML
-                            <div
-                                ref={editorRef}
-                                className="content-editor"
-                                contentEditable={false}
-                                dangerouslySetInnerHTML={{ __html: formatContentForEditing(currentLesson.content) }}
-                            />
+                        <div className="lesson-editor">
+                            {isEditing && (
+                                <div className="save-version-inline">
+                                    <input
+                                        value={newVersionName}
+                                        onChange={e => setNewVersionName(e.target.value)}
+                                        placeholder="Nombre de la versión"
+                                        className="version-name-input"
+                                    />
+                                    <button
+                                        onClick={saveVersion}
+                                        disabled={!newVersionName.trim()}
+                                        className="btn-save-version"
+                                        title="Guardar una nueva versión de este libro"
+                                    >
+                                        💾 Guardar Versión
+                                    </button>
+                                </div>
+                            )}
+                            <div className="lesson-header">
+                                <h3>{currentLesson.title}</h3>
+                                <div className="lesson-stats">Palabras: {currentLesson.content.split(/\s+/).filter(Boolean).length}</div>
+                            </div>
+                            <div className="editor-container">
+                                {isEditing ? (
+                                    <div
+                                        ref={editorRef}
+                                        className="content-editor"
+                                        contentEditable={true}
+                                        suppressContentEditableWarning={true}
+                                        onInput={handleContentChange}
+                                        onPaste={handlePaste}
+                                        tabIndex={0}
+                                    />
+                                ) : (
+                                    <div
+                                        ref={editorRef}
+                                        className="content-editor"
+                                        contentEditable={false}
+                                        dangerouslySetInnerHTML={{ __html: formatContentForEditing(currentLesson.content) }}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <div className="lab-guide-viewer">
+                        <div className="lab-guide-header">
+                            <div>
+                                <h2>🧪 Guía de Laboratorios</h2>
+                                <div className="lab-guide-info">
+                                    <span>📄 {labGuideData?.filename}</span>
+                                    {labGuideData?.lastModified && (
+                                        <span>📅 {new Date(labGuideData.lastModified).toLocaleDateString('es-ES')}</span>
+                                    )}
+                                </div>
+                            </div>
+                            {isEditing && (
+                                <div className="editor-toolbar">
+                                    <button onClick={() => applyHeading(1)} title="Título 1">H1</button>
+                                    <button onClick={() => applyHeading(2)} title="Título 2">H2</button>
+                                    <button onClick={() => applyHeading(3)} title="Título 3">H3</button>
+                                    <button onClick={() => document.execCommand('bold', false, null)} title="Negrita">B</button>
+                                    <button onClick={() => document.execCommand('italic', false, null)} title="Cursiva">I</button>
+                                    <button onClick={() => document.execCommand('insertUnorderedList', false, null)} title="Lista">•</button>
+                                    <button onClick={() => handleImageUpload()} title="Agregar Imagen">🖼️</button>
+                                    <button onClick={() => handleCopyFormat()} title="Copiar Formato">📋</button>
+                                    <button onClick={() => handleApplyFormat()} title="Aplicar Formato">🖌️</button>
+                                </div>
+                            )}
+                        </div>
+                        {isEditing && (
+                            <div className="save-version-inline">
+                                <input
+                                    value={newLabGuideVersionName}
+                                    onChange={e => setNewLabGuideVersionName(e.target.value)}
+                                    placeholder="Nombre de la versión del Lab Guide"
+                                    className="version-name-input"
+                                />
+                                <button
+                                    onClick={saveLabGuide}
+                                    disabled={!newLabGuideVersionName.trim()}
+                                    className="btn-save-version"
+                                    title="Guardar una nueva versión del Lab Guide"
+                                >
+                                    💾 Guardar Versión Lab Guide
+                                </button>
+                            </div>
                         )}
+                        <div className="lab-guide-content">
+                            {isEditing ? (
+                                <div
+                                    ref={editorRef}
+                                    className="content-editor"
+                                    contentEditable={true}
+                                    suppressContentEditableWarning={true}
+                                    onInput={(e) => {
+                                        // Just track the HTML - don't update labGuideData to avoid re-render
+                                        setLabGuideEditingHtml(e.currentTarget.innerHTML);
+                                    }}
+                                />
+                            ) : (
+                                <div
+                                    className="content-viewer"
+                                    dangerouslySetInnerHTML={{ __html: formatContentForEditing(labGuideData?.content || '') }}
+                                />
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );

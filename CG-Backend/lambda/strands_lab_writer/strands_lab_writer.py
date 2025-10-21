@@ -580,11 +580,16 @@ def lambda_handler(event, context):
         master_plan_key = event['master_plan_key']
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
+        lab_ids_to_process = event.get('lab_ids', [])  # NEW: For batch processing
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📋 Master Plan: {master_plan_key}")
         print(f"📁 Project: {project_folder}")
         print(f"🤖 Model: {model_provider}")
+        if lab_ids_to_process:
+            print(f"🎯 Batch Mode: Processing specific labs: {', '.join(lab_ids_to_process)}")
+        else:
+            print(f"🎯 Full Mode: Processing all labs")
         
         # Step 1: Load master plan
         master_plan = load_master_plan_from_s3(course_bucket, master_plan_key)
@@ -596,6 +601,12 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'error': 'No lab plans found in master plan'
             }
+        
+        # NEW: Filter to only process specified labs if batch mode
+        if lab_ids_to_process:
+            original_count = len(lab_plans)
+            lab_plans = [lab for lab in lab_plans if lab['lab_id'] in lab_ids_to_process]
+            print(f"📊 Filtered {original_count} labs → {len(lab_plans)} labs for this batch")
         
         # Extract language from metadata
         course_language = master_plan.get('metadata', {}).get('course_language', 'en')
@@ -621,8 +632,8 @@ def lambda_handler(event, context):
             'target_language': target_language  # NEW: Pass language to prompt
         }
         
-        # Step 2: Generate lab guides in BATCHES (2 labs per API call to avoid token limits)
-        BATCH_SIZE = 2
+        # Step 2: Generate lab guides in BATCHES (1 lab per API call for reliability)
+        BATCH_SIZE = 1
         labs_markdown = {}
         
         for i in range(0, len(lab_plans), BATCH_SIZE):

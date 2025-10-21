@@ -111,11 +111,22 @@ def lambda_handler(event, context):
         
         print(f"Using {len(image_mappings)} image mappings for visual tag replacement")
 
-        # Collect all lessons content
-        book_content = []
-        toc_entries = []
+        # Collect all lessons content and organize by module
+        modules = {}  # module_number -> {'title': str, 'lessons': []}
+        all_lessons = []
 
-        for lesson_key in lesson_keys:
+        # lesson_keys may be a list of strings (s3 keys) or list of objects with 's3_key'
+        for entry in lesson_keys:
+            # Normalize to s3_key string
+            if isinstance(entry, dict):
+                lesson_key = entry.get('s3_key') or entry.get('key') or entry.get('path')
+            else:
+                lesson_key = entry
+
+            if not lesson_key:
+                print(f"Skipping invalid lesson entry: {entry}")
+                continue
+
             try:
                 # Download lesson content
                 response = s3_client.get_object(Bucket=course_bucket, Key=lesson_key)
@@ -123,45 +134,91 @@ def lambda_handler(event, context):
 
                 # Extract lesson title from filename or content
                 lesson_filename = lesson_key.split('/')[-1]
-                lesson_title = extract_lesson_title(lesson_content, lesson_filename)
+                raw_title = extract_lesson_title(lesson_content, lesson_filename)
+
+                # Extract module and lesson numbers from filename
+                # Expected format: module-1-lesson-1-title.md or module-01-lesson-01-title.md
+                module_num, lesson_num = extract_module_lesson_numbers(lesson_filename)
+                
+                # Normalize the title to remove incorrect "Lesson X.Y:" prefixes
+                lesson_title = normalize_lesson_title(raw_title, lesson_num)
 
                 # Replace visual tags with images for this lesson
                 processed_content = replace_visual_tags(lesson_content, image_mappings, course_bucket)
 
-                book_content.append({
+                lesson_data = {
                     'title': lesson_title,
                     'filename': lesson_filename,
                     'content': processed_content,
-                    'word_count': len(processed_content.split())
-                })
+                    'word_count': len(processed_content.split()),
+                    'module_number': module_num,
+                    'lesson_number': lesson_num
+                }
 
-                toc_entries.append(f"- {lesson_title}")
+                all_lessons.append(lesson_data)
+
+                # Organize by module
+                if module_num not in modules:
+                    modules[module_num] = {
+                        'title': f"Module {module_num}",  # Will try to extract better title later
+                        'lessons': []
+                    }
+                modules[module_num]['lessons'].append(lesson_data)
 
             except Exception as e:
                 print(f"Warning: Failed to process lesson {lesson_key}: {e}")
+                # continue processing remaining lessons instead of failing
                 continue
 
-        # Generate table of contents
-        toc_content = f"# Table of Contents\n\n" + "\n".join(toc_entries) + "\n\n---\n\n"
+        # Sort modules and lessons within each module
+        sorted_modules = sorted(modules.items(), key=lambda x: x[0])
+        for module_num, module_data in sorted_modules:
+            module_data['lessons'].sort(key=lambda x: x['lesson_number'])
+
+        # Try to extract module titles from first lesson of each module
+        for module_num, module_data in sorted_modules:
+            if module_data['lessons']:
+                first_lesson = module_data['lessons'][0]
+                # Look for module title in lesson content
+                module_title = extract_module_title(first_lesson['content'], module_num)
+                if module_title:
+                    module_data['title'] = module_title
+
+        # Generate hierarchical table of contents
+        toc_lines = []
+        for module_num, module_data in sorted_modules:
+            toc_lines.append(f"\n## {module_data['title']}")
+            for lesson in module_data['lessons']:
+                toc_lines.append(f"  - Lesson {lesson['lesson_number']}: {lesson['title']}")
+        
+        toc_content = f"# Table of Contents\n" + "\n".join(toc_lines) + "\n\n---\n\n"
 
         # Generate book front matter
-        front_matter = generate_front_matter(book_title, author, len(book_content))
+        total_lessons = len(all_lessons)
+        front_matter = generate_front_matter(book_title, author, total_lessons)
 
-        # Combine all content
+        # Combine all content with module hierarchy
         full_book_content = front_matter + toc_content
 
-        for i, lesson in enumerate(book_content, 1):
-            full_book_content += f"# Lesson {i}: {lesson['title']}\n\n"
-            full_book_content += lesson['content']
-            full_book_content += "\n\n---\n\n"
+        for module_num, module_data in sorted_modules:
+            # Add module header
+            full_book_content += f"\n\n# {module_data['title']}\n\n"
+            full_book_content += "---\n\n"
+            
+            # Add lessons within this module
+            for lesson in module_data['lessons']:
+                full_book_content += f"## Lesson {lesson['lesson_number']}: {lesson['title']}\n\n"
+                full_book_content += lesson['content']
+                full_book_content += "\n\n---\n\n"
 
         # Add book statistics
-        total_words = sum(lesson['word_count'] for lesson in book_content)
+        total_words = sum(lesson['word_count'] for lesson in all_lessons)
         stats_content = f"""## Book Statistics
 
-- **Total Lessons**: {len(book_content)}
+- **Total Modules**: {len(modules)}
+- **Total Lessons**: {len(all_lessons)}
 - **Total Words**: {total_words}
-- **Average Words per Lesson**: {total_words // len(book_content) if book_content else 0}
+- **Average Words per Lesson**: {total_words // len(all_lessons) if all_lessons else 0}
 - **Generated on**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
 - **Generated by**: Aurora AI Course Generator
 
@@ -185,12 +242,19 @@ def lambda_handler(event, context):
                 'title': book_title,
                 'author': author,
                 'generated_at': datetime.now().isoformat(),
-                'total_lessons': len(book_content),
+                'total_modules': len(modules),
+                'total_lessons': len(all_lessons),
                 'total_words': total_words,
                 'project_folder': project_folder
             },
-            'table_of_contents': toc_entries,
-            'lessons': book_content,
+            'modules': [
+                {
+                    'module_number': module_num,
+                    'module_title': module_data['title'],
+                    'lessons': module_data['lessons']
+                }
+                for module_num, module_data in sorted_modules
+            ],
             's3_key': book_filename,
             'bucket': course_bucket
         }
@@ -205,20 +269,23 @@ def lambda_handler(event, context):
 
         response = {
             "statusCode": 200,
-            "message": f"Successfully built book '{book_title}' with {len(book_content)} lessons",
+            "message": f"Successfully built book '{book_title}' with {len(all_lessons)} lessons",
             "book_title": book_title,
             "book_s3_key": book_filename,
             "book_json_key": book_json_key,
             "course_bucket": course_bucket,
             "project_folder": project_folder,
-            "lesson_count": len(book_content),
-            "total_words": total_words,
-            "book_content": book_json
+            "module_count": len(modules),
+            "lesson_count": len(all_lessons),
+            "total_words": total_words
+            # Note: book_content removed to avoid States.DataLimitExceeded error
+            # Full book content is already saved to S3 at book_s3_key and book_json_key
         }
 
         print(f"--- Book Builder Complete ---")
         print(f"Generated book: {book_filename}")
-        print(f"Lessons included: {len(book_content)}")
+        print(f"Modules included: {len(modules)}")
+        print(f"Lessons included: {len(all_lessons)}")
 
         return {
             "statusCode": 200,
@@ -248,6 +315,32 @@ def lambda_handler(event, context):
             })
         }
 
+def normalize_lesson_title(title, lesson_num):
+    """Normalize lesson title to use correct lesson numbering.
+    
+    Converts titles like:
+    - "Lesson 1.6: Title" -> "Title"
+    - "Lesson 2.3: Title" -> "Title"
+    - "Lesson 1: Title" -> "Title"
+    
+    The lesson number will be added separately in the book structure.
+    """
+    import re
+    
+    # Remove "Lesson X.Y:" or "Lesson X:" patterns (in English and Spanish)
+    patterns = [
+        r'^Lesson\s+\d+\.\d+:\s*',  # Lesson 1.6:
+        r'^Lesson\s+\d+:\s*',        # Lesson 1:
+        r'^Lección\s+\d+\.\d+:\s*',  # Lección 1.6:
+        r'^Lección\s+\d+:\s*',       # Lección 1:
+    ]
+    
+    cleaned_title = title
+    for pattern in patterns:
+        cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
+    
+    return cleaned_title.strip()
+
 def extract_lesson_title(content, filename):
     """Extract lesson title from content or filename."""
     # Try to find title in first heading
@@ -258,6 +351,58 @@ def extract_lesson_title(content, filename):
 
     # Fallback to filename
     return filename.replace('.md', '').replace('_', ' ').title()
+
+def extract_module_lesson_numbers(filename):
+    """Extract module and lesson numbers from filename.
+    
+    Expected formats:
+    - module-1-lesson-1-title.md
+    - module-01-lesson-01-title.md
+    
+    Returns: (module_num, lesson_num) as integers
+    """
+    import re
+    
+    # Pattern: module-X-lesson-Y (with optional leading zeros)
+    pattern = r'module-(\d+)-lesson-(\d+)'
+    match = re.search(pattern, filename.lower())
+    
+    if match:
+        module_num = int(match.group(1))
+        lesson_num = int(match.group(2))
+        return module_num, lesson_num
+    
+    # Fallback: return 1, 1
+    print(f"Warning: Could not extract module/lesson numbers from {filename}, using defaults")
+    return 1, 1
+
+def extract_module_title(lesson_content, module_num):
+    """Try to extract module title from lesson content metadata or headings.
+    
+    Looks for patterns like:
+    - **Module:** Title
+    - Module X: Title
+    - # Module X: Title
+    """
+    import re
+    
+    lines = lesson_content.split('\n')
+    
+    # Look in first 20 lines for module title
+    for line in lines[:20]:
+        # Pattern 1: **Module:** Title or **Módulo:** Title
+        if re.match(r'\*\*M[oó]dulo:?\*\*', line, re.IGNORECASE):
+            title = re.sub(r'\*\*M[oó]dulo:?\*\*\s*', '', line, flags=re.IGNORECASE).strip()
+            if title:
+                return f"Module {module_num}: {title}"
+        
+        # Pattern 2: # Module X: Title
+        match = re.match(r'#\s*M[oó]dulo\s+\d+:?\s*(.+)', line, re.IGNORECASE)
+        if match:
+            return f"Module {module_num}: {match.group(1).strip()}"
+    
+    # Fallback
+    return f"Module {module_num}"
 
 def replace_visual_tags(content, mappings, bucket):
     """Replace [VISUAL: description] tags with actual image references."""
