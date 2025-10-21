@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
 import './GeneradorTemarios.css';
 
+const API_URL_KNTR = 
+  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
+
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
   "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
@@ -29,9 +32,6 @@ function GeneradorTemarios() {
     objetivo_tipo: 'saber_hacer',
     codigo_certificacion: ''
   });
-
-  // API nueva -> Incorpora OpenAi.
-const API_URL_KNTR = "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
 
 // CÓDIGO CORREGIDO
 const handleParamChange = (e) => {
