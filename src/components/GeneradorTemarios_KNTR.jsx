@@ -1,4 +1,4 @@
-// Generador de temarios para KNOWLEDGE TRANSFER (KNTR)
+// Generador de temarios para KNOWLEDGE TRANSFER (KNTR) hola
 
 import React, { useState } from 'react';
 import EditorDeTemario from './EditorDeTemario'; 
