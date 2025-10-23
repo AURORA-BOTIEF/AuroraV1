@@ -1,10 +1,10 @@
-// src/components/GeneradorTemarios_Seminarios.jsx
+// src/components/GeneradorTemarios_KNTR.jsx
 import React, { useState } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
-const API_URL_SEMINARIOS =
-  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
+const API_URL_KNTR =
+  "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/default/Generador_Temario_Knowledge_Transfer";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -13,7 +13,7 @@ const asesoresComerciales = [
   "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
-export default function GeneradorTemarios_Seminarios() {
+export default function GeneradorTemarios_KNTR() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
@@ -58,7 +58,7 @@ export default function GeneradorTemarios_Seminarios() {
   // Payload para Lambda
   const buildPayload = () => {
     const payload = {
-      type: "seminar",
+      type: "KNTR",
       tecnologia: form.tecnologia.trim(),
       tema_curso: form.tema_curso.trim(),
       nivel_dificultad: form.nivel_dificultad,
@@ -94,10 +94,10 @@ export default function GeneradorTemarios_Seminarios() {
       data?.notes ||
       (data?.assessment?.reason
         ? `Nivel sugerido: ${data.depth || form.nivel_dificultad}. ${data.assessment.reason}`
-        : `Seminario de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
+        : `Knowledge transfer de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
 
     return {
-      nombre_curso: `Seminario: ${form.tema_curso}`,
+      nombre_curso: `Knowledge transfer: ${form.tema_curso}`,
       descripcion_general: descripcion,
       audiencia: form.sector,
       prerrequisitos: [],
@@ -124,7 +124,7 @@ export default function GeneradorTemarios_Seminarios() {
       const payload = buildPayload();
       const token = localStorage.getItem("id_token");
 
-      const res = await fetch(API_URL_SEMINARIOS, {
+      const res = await fetch(API_URL_KNTR, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -139,7 +139,7 @@ export default function GeneradorTemarios_Seminarios() {
       const editorObj = toEditorSchema(data);
       setTemarioGenerado(editorObj);
     } catch (e) {
-      console.error("Error al generar el seminario:", e);
+      console.error("Error al generar knowledge transfer:", e);
       setError(e.message);
     } finally {
       setIsLoading(false);
@@ -152,25 +152,11 @@ export default function GeneradorTemarios_Seminarios() {
     alert("Funcionalidad de guardado en desarrollo.");
   };
 
-  // Listar versiones (simulado)
-  const handleListarVersiones = async () => {
-    setVersiones([
-      {
-        nombre_curso: "Seminario IA Educativa",
-        tecnologia: "OpenAI",
-        asesor_comercial: "Lezly Durán",
-        fecha_creacion: new Date().toISOString(),
-        autor: "juan.londono@netec.com.co",
-      },
-    ]);
-    setMostrarModal(true);
-  };
-
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <h2>Generador de Temarios - Seminarios</h2>
-        <p>Genera una propuesta de seminario con Inteligencia Artificial.</p>
+        <h2>Generador de Temarios - Knowledge transfer</h2>
+        <p>Genera una propuesta de knowledge transfer con inteligencia artificial.</p>
 
         {/* Campos principales */}
         <div className="form-grid">
@@ -209,7 +195,7 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Tema Principal del Seminario *</label>
+            <label>Tema principal del knowledge transfer *</label>
             <input
               name="tema_curso"
               value={form.tema_curso}
@@ -232,12 +218,12 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Duración del Seminario (1–4 horas) *</label>
+            <label>Duración por sesión del knowledge transfer (1–7 horas) *</label>
             <div className="slider-container">
               <input
                 type="range"
                 min="1"
-                max="4"
+                max="7"
                 step="0.5"
                 name="horas_por_sesion"
                 value={form.horas_por_sesion}
@@ -317,7 +303,7 @@ export default function GeneradorTemarios_Seminarios() {
             onClick={handleGenerate}
             disabled={isLoading}
           >
-            {isLoading ? "Generando..." : "Generar Propuesta de Seminario"}
+            {isLoading ? "Generando..." : "Generar Propuesta de knowledge transfer"}
           </button>
           <button
             className="btn-versiones"
