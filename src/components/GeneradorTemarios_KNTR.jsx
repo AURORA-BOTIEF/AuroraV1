@@ -103,7 +103,7 @@ const handleParamChange = (e) => {
 
       <div className="formulario-inicial">
         <div className="form-grid">
-                    <div className="form-group">
+          <div className="form-group">
             <label>Nombre Preventa Asociado *</label>
             <input
               name="nombre_preventa"
@@ -126,6 +126,7 @@ const handleParamChange = (e) => {
               ))}
             </select>
           </div>
+          
           <div className="form-group">
             <label>Tecnología</label>
             <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
