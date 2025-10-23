@@ -58,7 +58,7 @@ export default function GeneradorTemarios_KNTR() {
   // Payload para Lambda
   const buildPayload = () => {
     const payload = {
-      type: "KNTR",
+      type: "seminar",
       tecnologia: form.tecnologia.trim(),
       tema_curso: form.tema_curso.trim(),
       nivel_dificultad: form.nivel_dificultad,
