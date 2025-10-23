@@ -920,6 +920,7 @@ Resources:
             Parameters:
               course_bucket.$: $.course_bucket
               project_folder.$: $.project_folder
+              content_type.$: $.content_type
               all_lesson_keys.$: $.all_batches_results[*].lesson_keys[*]
               all_image_mappings.$: $.all_batches_results[*].image_mappings
             Next: InvokeBookBuilder
