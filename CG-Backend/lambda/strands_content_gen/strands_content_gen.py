@@ -286,12 +286,13 @@ def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
 
 
 def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:
-    """Call OpenAI API."""
+    """Call OpenAI API using openai>=1.0.0 syntax."""
     try:
-        import openai
-        openai.api_key = api_key
+        from openai import OpenAI
         
-        response = openai.ChatCompletion.create(
+        client = OpenAI(api_key=api_key)
+        
+        response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "You are an expert technical educator."},
