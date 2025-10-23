@@ -103,6 +103,29 @@ const handleParamChange = (e) => {
 
       <div className="formulario-inicial">
         <div className="form-grid">
+                    <div className="form-group">
+            <label>Nombre Preventa Asociado *</label>
+            <input
+              name="nombre_preventa"
+              value={form.nombre_preventa}
+              onChange={handleChange}
+              placeholder="Ej: Juan Pérez"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Asesor(a) Comercial Asociado *</label>
+            <select
+              name="asesor_comercial"
+              value={form.asesor_comercial}
+              onChange={handleChange}
+            >
+              <option value="">Selecciona un asesor(a)</option>
+              {asesoresComerciales.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </div>
           <div className="form-group">
             <label>Tecnología</label>
             <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
