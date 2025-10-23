@@ -1,0 +1,8 @@
+{
+    "course_bucket": "crewai-course-artifacts",
+    "project_folder": "test-project-20251021",
+    "book_version_key": "test-project-20251021/book/course_book_data.json",
+    "model_provider": "bedrock",
+    "slides_per_lesson": 6,
+    "presentation_style": "professional"
+}

@@ -36,6 +36,13 @@ function BookEditor({ projectFolder, onClose }) {
     const [labGuideData, setLabGuideData] = useState(null);
     const [showLabGuide, setShowLabGuide] = useState(false);
     const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
+    // PPT Generation states
+    const [showPPTModal, setShowPPTModal] = useState(false);
+    const [pptGenerating, setPptGenerating] = useState(false);
+    const [selectedPPTVersion, setSelectedPPTVersion] = useState('current');
+    const [pptStyle, setPptStyle] = useState('professional');
+    const [slidesPerLesson, setSlidesPerLesson] = useState(6);
+    const [pptModelProvider, setPptModelProvider] = useState('bedrock');
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Function to extract module number from lesson filename or title
@@ -691,13 +698,20 @@ function BookEditor({ projectFolder, onClose }) {
             const ul = line.match(/^(\s*)[-\*]\s+(.*)$/);
             if (ul) {
                 const indent = ul[1].length;
+                const itemContent = ul[2].trim();
+
+                // Skip empty list items (where content is only whitespace or just triple quotes)
+                if (!itemContent || itemContent === "'''" || itemContent === '"""' || itemContent === '```') {
+                    continue;
+                }
+
                 if (!inUl) {
                     if (inOl) out += '</ol>';
                     inOl = false;
                     out += '<ul>';
                     inUl = true;
                 }
-                out += `<li>${applyInlineFormatting(ul[2])}</li>`;
+                out += `<li>${applyInlineFormatting(itemContent)}</li>`;
                 continue;
             }
 
@@ -705,13 +719,20 @@ function BookEditor({ projectFolder, onClose }) {
             const ol = line.match(/^(\s*)\d+\.\s+(.*)$/);
             if (ol) {
                 const indent = ol[1].length;
+                const itemContent = ol[2].trim();
+
+                // Skip empty list items (where content is only whitespace or just triple quotes)
+                if (!itemContent || itemContent === "'''" || itemContent === '"""' || itemContent === '```') {
+                    continue;
+                }
+
                 if (!inOl) {
                     if (inUl) out += '</ul>';
                     inUl = false;
                     out += '<ol>';
                     inOl = true;
                 }
-                out += `<li>${applyInlineFormatting(ol[2])}</li>`;
+                out += `<li>${applyInlineFormatting(itemContent)}</li>`;
                 continue;
             }
 
@@ -727,14 +748,61 @@ function BookEditor({ projectFolder, onClose }) {
 
             // Check if this line contains an image markdown (including those with long data URLs)
             // Support both ![alt](url) and ![[VISUAL: description]](url) formats
-            const imgMatch = line.match(/!\[{1,2}([^\]]*)\]{1,2}\(([^)]+)\)/);
-            if (imgMatch) {
-                closeLists();
-                const alt = imgMatch[1];
-                const src = imgMatch[2];
-                // Add styling to ensure images display properly
-                out += `<p style="text-align: center;"><img alt="${alt}" src="${src}" style="max-width: 100%; height: auto; display: inline-block;" /></p>`;
-                continue;
+            // Use a more flexible pattern that handles very long base64 data URLs
+            if (line.includes('![')) {
+                console.log('🖼️ Found image line, length:', line.length);
+                console.log('First 100 chars:', line.substring(0, 100));
+
+                // Find the image markdown pattern - more robust for long URLs
+                const imgStartIdx = line.indexOf('![');
+                const imgEndBracketIdx = line.indexOf('](', imgStartIdx);
+
+                console.log('Image indices:', { imgStartIdx, imgEndBracketIdx });
+
+                if (imgStartIdx !== -1 && imgEndBracketIdx !== -1) {
+                    // Extract alt text (between ![ and ])
+                    let altStartIdx = imgStartIdx + 2;
+                    let altEndIdx = imgEndBracketIdx;
+
+                    // Handle double brackets ![[VISUAL: ...]]
+                    if (line[altStartIdx] === '[') {
+                        altStartIdx++;
+                        // Find the closing ]]
+                        const doubleCloseBracket = line.indexOf(']]', altStartIdx);
+                        if (doubleCloseBracket !== -1 && doubleCloseBracket < imgEndBracketIdx) {
+                            altEndIdx = doubleCloseBracket;
+                        }
+                    }
+
+                    const alt = line.substring(altStartIdx, altEndIdx).trim();
+
+                    // Extract URL (after ]( until the end of line or closing ))
+                    const srcStartIdx = imgEndBracketIdx + 2;
+                    let srcEndIdx = line.indexOf(')', srcStartIdx);
+
+                    // If no closing paren found, the URL extends to end of line
+                    if (srcEndIdx === -1) {
+                        srcEndIdx = line.length;
+                    }
+
+                    const src = line.substring(srcStartIdx, srcEndIdx).trim();
+
+                    console.log('Extracted alt:', alt);
+                    console.log('Extracted src length:', src.length);
+                    console.log('Src starts with:', src.substring(0, 50));
+
+                    // Only render as image if we found valid src
+                    if (src) {
+                        closeLists();
+                        console.log('✅ Rendering image with alt:', alt);
+                        out += `<p style="text-align: center;"><img alt="${alt}" src="${src}" style="max-width: 100%; height: auto; display: inline-block;" /></p>`;
+                        continue;
+                    } else {
+                        console.log('❌ No valid src found');
+                    }
+                } else {
+                    console.log('❌ Image pattern not complete (missing ]( or ))');
+                }
             }
 
             // Table row detection (markdown tables with | separator)
@@ -1797,6 +1865,120 @@ function BookEditor({ projectFolder, onClose }) {
         // Visual feedback
         alert('✅ Formato aplicado');
     }
+
+    // Generate PowerPoint Presentation
+    const generatePowerPoint = async () => {
+        try {
+            setPptGenerating(true);
+
+            // Get authenticated session
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                throw new Error('No se encontraron credenciales autenticadas. Por favor inicia sesión.');
+            }
+
+            // Determine which book version to use
+            let bookVersionKey = null; // Let Lambda auto-discover the book file
+
+            if (selectedPPTVersion !== 'current' && selectedPPTVersion !== 'original') {
+                // User selected a specific version from the versions list
+                const version = versions.find(v => v.key === selectedPPTVersion);
+                if (version) {
+                    bookVersionKey = version.key;
+                } else {
+                    throw new Error('Versión seleccionada no encontrada');
+                }
+            }
+            // For 'current' or 'original', we leave bookVersionKey as null
+            // and let the Lambda discover the latest _data.json file
+
+            console.log('🎯 Generating PPT from version:', bookVersionKey || 'auto-discover latest');
+
+            const requestBody = {
+                course_bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                project_folder: projectFolder,
+                book_version_key: bookVersionKey, // null means auto-discover
+                model_provider: pptModelProvider,
+                slides_per_lesson: slidesPerLesson,
+                presentation_style: pptStyle
+            };
+
+            console.log('📤 Request:', requestBody);
+
+            const response = await fetch(`${API_BASE}/generate-ppt`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch {
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                }
+                throw new Error(`Error generando PPT: ${errorMessage}`);
+            }
+
+            // Fix: Response is already JSON, no need to parse body as string
+            const data = await response.json();
+
+            // Check for backend errors
+            if (data.error) {
+                throw new Error(`Backend error: ${data.error}`);
+            }
+
+            console.log('✅ PPT generated:', data);
+
+            // Enhanced success message with download link
+            const successMessage = `✅ Presentación generada exitosamente!
+
+📊 ${data.total_slides} diapositivas creadas
+📁 Ubicación: ${data.pptx_s3_key || data.structure_s3_key}
+⏱️ Generado: ${new Date(data.generated_at).toLocaleString()}
+🎨 Estilo: ${pptStyle}
+📝 Diapositivas por lección: ${slidesPerLesson}`;
+
+            // Create download link for the PPTX file
+            if (data.pptx_s3_key) {
+                const downloadUrl = `https://crewai-course-artifacts.s3.amazonaws.com/${data.pptx_s3_key}`;
+                const downloadLink = `\n\n🔗 Descargar: ${downloadUrl}`;
+
+                // Show alert with download option
+                if (confirm(successMessage + downloadLink + '\n\n¿Deseas descargar el archivo ahora?')) {
+                    window.open(downloadUrl, '_blank');
+                }
+            } else {
+                alert(successMessage);
+            }
+
+            setShowPPTModal(false);
+
+        } catch (error) {
+            console.error('❌ Error generating PPT:', error);
+
+            let userMessage = 'Error al generar presentación PowerPoint';
+            if (error.message.includes('credentials')) {
+                userMessage += '\n\nVerifica que estés autenticado correctamente.';
+            } else if (error.message.includes('ImportError') || error.message.includes('ModuleNotFoundError')) {
+                userMessage += '\n\nError de dependencias en el servidor. Contacta al administrador.';
+            } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+                userMessage += '\n\nEl proceso está tardando más de lo esperado. Intenta con menos diapositivas por lección.';
+            } else if (error.message.includes('No book files')) {
+                userMessage += '\n\nNo se encontró el archivo del libro. Verifica que el proyecto tenga un libro válido.';
+            }
+
+            alert(userMessage + '\n\nDetalles técnicos: ' + error.message);
+        } finally {
+            setPptGenerating(false);
+        }
+    };
+
     // Defensive rendering: show loading or error if data not ready
     if (loading) {
         return (
@@ -1883,6 +2065,13 @@ function BookEditor({ projectFolder, onClose }) {
                             {viewMode === 'book' ? '🧪 Lab Guide' : '📚 Libro'}
                         </button>
                     )}
+                    <button
+                        className="btn-generate-ppt"
+                        onClick={() => setShowPPTModal(true)}
+                        title="Generar presentación PowerPoint"
+                    >
+                        📊 Generar PPT
+                    </button>
                     <button
                         className={isEditing ? 'btn-editing' : 'btn-edit'}
                         onClick={async () => {
@@ -2110,6 +2299,116 @@ function BookEditor({ projectFolder, onClose }) {
                                     dangerouslySetInnerHTML={{ __html: formatContentForEditing(labGuideData?.content || '') }}
                                 />
                             )}
+                        </div>
+                    </div>
+                )}
+
+                {/* PowerPoint Generation Modal */}
+                {showPPTModal && (
+                    <div className="ppt-modal-overlay" onClick={() => !pptGenerating && setShowPPTModal(false)}>
+                        <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
+                            <div className="ppt-modal-header">
+                                <h2>📊 Generar Presentación PowerPoint</h2>
+                                <button
+                                    className="ppt-modal-close"
+                                    onClick={() => setShowPPTModal(false)}
+                                    disabled={pptGenerating}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <div className="ppt-modal-body">
+                                <div className="ppt-form-group">
+                                    <label>Versión del Libro:</label>
+                                    <select
+                                        value={selectedPPTVersion}
+                                        onChange={(e) => setSelectedPPTVersion(e.target.value)}
+                                        disabled={pptGenerating}
+                                    >
+                                        <option value="current">📄 Versión Actual</option>
+                                        <option value="original">📄 Versión Original</option>
+                                        {versions.map((v, idx) => (
+                                            <option key={idx} value={v.key}>
+                                                📋 {v.name} ({new Date(v.timestamp).toLocaleDateString()})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <small>Selecciona qué versión del libro usar para generar las diapositivas</small>
+                                </div>
+
+                                <div className="ppt-form-group">
+                                    <label>Estilo de Presentación:</label>
+                                    <select
+                                        value={pptStyle}
+                                        onChange={(e) => setPptStyle(e.target.value)}
+                                        disabled={pptGenerating}
+                                    >
+                                        <option value="professional">💼 Profesional - Diseño corporativo limpio</option>
+                                        <option value="educational">📚 Educativo - Amigable para estudiantes</option>
+                                        <option value="modern">✨ Moderno - Minimalista y dinámico</option>
+                                    </select>
+                                </div>
+
+                                <div className="ppt-form-group">
+                                    <label>Diapositivas por Lección:</label>
+                                    <input
+                                        type="number"
+                                        min="3"
+                                        max="10"
+                                        value={slidesPerLesson}
+                                        onChange={(e) => setSlidesPerLesson(parseInt(e.target.value))}
+                                        disabled={pptGenerating}
+                                    />
+                                    <small>Número aproximado de diapositivas por cada lección (3-10)</small>
+                                </div>
+
+                                <div className="ppt-form-group">
+                                    <label>Modelo de IA:</label>
+                                    <select
+                                        value={pptModelProvider}
+                                        onChange={(e) => setPptModelProvider(e.target.value)}
+                                        disabled={pptGenerating}
+                                    >
+                                        <option value="bedrock">AWS Bedrock (Claude 4.5 Sonnet)</option>
+                                        <option value="openai">OpenAI (GPT-5)</option>
+                                    </select>
+                                </div>
+
+                                <div className="ppt-info-box">
+                                    <strong>ℹ️ Información:</strong>
+                                    <ul>
+                                        <li>Se generarán aproximadamente {slidesPerLesson * (bookData?.lessons?.length || 0)} diapositivas</li>
+                                        <li>Las imágenes del libro se reutilizarán automáticamente</li>
+                                        <li>El proceso puede tardar 5-10 minutos</li>
+                                        <li>La presentación se guardará en S3 para descargar</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div className="ppt-modal-footer">
+                                <button
+                                    className="btn-cancel"
+                                    onClick={() => setShowPPTModal(false)}
+                                    disabled={pptGenerating}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    className="btn-generate-ppt-submit"
+                                    onClick={generatePowerPoint}
+                                    disabled={pptGenerating}
+                                >
+                                    {pptGenerating ? (
+                                        <>
+                                            <span className="spinner-small"></span>
+                                            Generando...
+                                        </>
+                                    ) : (
+                                        '📊 Generar Presentación'
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}

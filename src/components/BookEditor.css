@@ -841,3 +841,236 @@
     color: white !important;
     font-weight: 600;
 }
+/* PowerPoint Generation Modal */
+.ppt-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.ppt-modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(30px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.ppt-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 2px solid #007bff;
+    background: linear-gradient(to right, #007bff, #0056b3);
+}
+
+.ppt-modal-header h2 {
+    margin: 0;
+    color: white;
+    font-size: 1.5rem;
+}
+
+.ppt-modal-close {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.ppt-modal-close:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.ppt-modal-close:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ppt-modal-body {
+    padding: 2rem;
+}
+
+.ppt-form-group {
+    margin-bottom: 1.5rem;
+}
+
+.ppt-form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: #333;
+    font-size: 0.95rem;
+}
+
+.ppt-form-group select,
+.ppt-form-group input[type="number"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    transition: border-color 0.2s;
+}
+
+.ppt-form-group select:focus,
+.ppt-form-group input[type="number"]:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.ppt-form-group select:disabled,
+.ppt-form-group input[type="number"]:disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.ppt-form-group small {
+    display: block;
+    margin-top: 0.5rem;
+    color: #666;
+    font-size: 0.85rem;
+}
+
+.ppt-info-box {
+    background: #e3f2fd;
+    border-left: 4px solid #2196F3;
+    padding: 1rem;
+    border-radius: 6px;
+    margin-top: 1.5rem;
+}
+
+.ppt-info-box strong {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #1976D2;
+}
+
+.ppt-info-box ul {
+    margin: 0.5rem 0 0 1.5rem;
+    padding: 0;
+    color: #555;
+}
+
+.ppt-info-box li {
+    margin-bottom: 0.3rem;
+    font-size: 0.9rem;
+}
+
+.ppt-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+    background: #f9f9f9;
+}
+
+.ppt-modal-footer .btn-cancel {
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #666;
+    background: white;
+    color: #666;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.ppt-modal-footer .btn-cancel:hover:not(:disabled) {
+    background: #666;
+    color: white;
+}
+
+.ppt-modal-footer .btn-generate-ppt-submit {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    background: linear-gradient(to right, #007bff, #0056b3);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ppt-modal-footer .btn-generate-ppt-submit:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.ppt-modal-footer .btn-generate-ppt-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.spinner-small {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.btn-generate-ppt {
+    padding: 0.5rem 1rem;
+    border: 2px solid #007bff;
+    background: linear-gradient(to right, #007bff, #0056b3);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 123, 255, 0.2);
+}
+
+.btn-generate-ppt:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+}
