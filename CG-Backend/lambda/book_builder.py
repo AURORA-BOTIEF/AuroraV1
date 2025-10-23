@@ -86,28 +86,63 @@ def lambda_handler(event, context):
             image_mappings = merged_mappings
             print(f"Merged result: {len(image_mappings)} total image mappings")
         
-        # If no image_mappings provided, scan for existing images and create mappings
+        # If no image_mappings provided, scan prompts folder to build correct mappings
         if not image_mappings:
-            print("No image_mappings provided, scanning for existing images...")
-            images_prefix = f"{project_folder}/images/"
+            print("No image_mappings provided, scanning prompts folder to reconstruct mappings...")
+            prompts_prefix = f"{project_folder}/prompts/"
             try:
-                images_response = s3_client.list_objects_v2(
+                # Scan prompts folder for visual tag descriptions
+                prompts_response = s3_client.list_objects_v2(
                     Bucket=course_bucket,
-                    Prefix=images_prefix
+                    Prefix=prompts_prefix
                 )
-                if 'Contents' in images_response:
-                    for img_obj in images_response['Contents']:
-                        img_key = img_obj['Key']
-                        if img_key.endswith('.png'):
-                            # Extract ID from filename (e.g., "01-01-0001.png" -> "[VISUAL: 01-01-0001]")
-                            img_filename = img_key.split('/')[-1]
-                            img_id = img_filename.replace('.png', '')
-                            visual_tag = f"[VISUAL: {img_id}]"
-                            image_mappings[visual_tag] = img_key
-                            print(f"✅ Found existing image mapping: {visual_tag} -> {img_key}")
-                print(f"Created {len(image_mappings)} image mappings from existing images")
+                if 'Contents' in prompts_response:
+                    for prompt_obj in prompts_response['Contents']:
+                        prompt_key = prompt_obj['Key']
+                        if prompt_key.endswith('.json'):
+                            # Download and parse prompt JSON
+                            try:
+                                prompt_response = s3_client.get_object(Bucket=course_bucket, Key=prompt_key)
+                                prompt_data = json.loads(prompt_response['Body'].read().decode('utf-8'))
+                                
+                                # Extract description and ID
+                                description = prompt_data.get('description', '')
+                                img_id = prompt_data.get('id', '')
+                                
+                                if description and img_id:
+                                    # Build visual tag from description
+                                    visual_tag = f"[VISUAL: {description}]"
+                                    # Build image path (images are stored as id.png)
+                                    image_path = f"{project_folder}/images/{img_id}.png"
+                                    image_mappings[visual_tag] = image_path
+                                    print(f"✅ Mapped: {visual_tag[:80]}... -> {img_id}.png")
+                            except Exception as e:
+                                print(f"Warning: Could not parse prompt {prompt_key}: {e}")
+                                continue
+                
+                print(f"Created {len(image_mappings)} image mappings from prompts folder")
             except Exception as e:
-                print(f"Warning: Could not scan existing images: {e}")
+                print(f"Warning: Could not scan prompts folder: {e}")
+                # Fallback: try to scan images folder (old behavior)
+                print("Falling back to image filename-based mapping...")
+                images_prefix = f"{project_folder}/images/"
+                try:
+                    images_response = s3_client.list_objects_v2(
+                        Bucket=course_bucket,
+                        Prefix=images_prefix
+                    )
+                    if 'Contents' in images_response:
+                        for img_obj in images_response['Contents']:
+                            img_key = img_obj['Key']
+                            if img_key.endswith('.png'):
+                                img_filename = img_key.split('/')[-1]
+                                img_id = img_filename.replace('.png', '')
+                                visual_tag = f"[VISUAL: {img_id}]"
+                                image_mappings[visual_tag] = img_key
+                                print(f"✅ Fallback mapping: {visual_tag} -> {img_key}")
+                    print(f"Created {len(image_mappings)} fallback image mappings")
+                except Exception as fallback_error:
+                    print(f"Warning: Fallback image scan also failed: {fallback_error}")
         
         print(f"Using {len(image_mappings)} image mappings for visual tag replacement")
 
