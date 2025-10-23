@@ -53,13 +53,13 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
-          <div className="opcion-menu disabled">
+          <Link to="temario-practico" className="opcion-menu">
             <div className="icono">🛠️</div>
             <div className="texto">
               <h3>Generador Temario Taller Práctico</h3>
               <p>Crea un temario 100% enfocado en "hands-on labs" y ejercicios.</p>
             </div>
-          </div>
+          </Link>
 
           <Link to="Temario-seminarios" className="opcion-menu">
             <div className="icono">👥</div>

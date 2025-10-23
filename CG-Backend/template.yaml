@@ -74,6 +74,17 @@ Resources:
       CompatibleArchitectures:
         - arm64
 
+  PPTLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: ppt-dependencies
+      Description: PowerPoint generation dependencies (python-pptx)
+      Content: ./lambda-layers/ppt-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
   # ======================================
   # STRANDS AGENTS - COURSE GENERATION
   # ======================================
@@ -220,6 +231,58 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  StrandsPPTGenerator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsPPTGenerator
+      Description: Generate PowerPoint presentations from theory book content using Strands Agents
+      Runtime: python3.12
+      Handler: strands_ppt_generator.lambda_handler
+      CodeUri: ./lambda/strands_ppt_generator/
+      Layers:
+        - !Ref StrandsAgentsLayer
+        - !Ref PPTLayer
+      Timeout: 900
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+      Events:
+        GeneratePPTApi:
+          Type: Api
+          Properties:
+            Path: /generate-ppt
+            Method: post
+            Auth:
+              Authorizer: NONE
 
   ImagesGen:
     Type: AWS::Serverless::Function
@@ -582,6 +645,13 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
+        GeneratePPTOptions:
+          Type: Api
+          Properties:
+            Path: /generate-ppt
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   StarterApiFunction:
     Type: AWS::Serverless::Function
@@ -850,10 +920,9 @@ Resources:
             Parameters:
               course_bucket.$: $.course_bucket
               project_folder.$: $.project_folder
+              content_type.$: $.content_type
               all_lesson_keys.$: $.all_batches_results[*].lesson_keys[*]
               all_image_mappings.$: $.all_batches_results[*].image_mappings
-              # CRITICAL: Preserve master_lab_plan_result for labs generation
-              master_lab_plan_result.$: $.master_lab_plan_result
             Next: InvokeBookBuilder
           
           InvokeBookBuilder:
@@ -882,8 +951,8 @@ Resources:
             Type: Choice
             Comment: "Check if we need to generate labs (both mode)"
             Choices:
-              - Variable: $.master_lab_plan_result.Payload.statusCode
-                NumericEquals: 200
+              - Variable: $.content_type
+                StringEquals: "both"
                 Next: ExpandLabsToBatchesBoth
             Default: SuccessState
           
@@ -898,6 +967,8 @@ Resources:
                 master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
                 project_folder.$: $.project_folder
                 model_provider.$: $.model_provider
+            ResultPath: $.labs_batch_expansion
+            Next: ProcessLabsInParallel
             Retry:
               - ErrorEquals:
                   - Lambda.ServiceException
@@ -1192,6 +1263,11 @@ Outputs:
   StrandsLabWriterArn:
     Description: Strands Lab Writer Lambda ARN
     Value: !GetAtt StrandsLabWriter.Arn
+  
+  # Strands Agents Lambdas - PowerPoint Generation
+  StrandsPPTGeneratorArn:
+    Description: Strands PPT Generator Lambda ARN
+    Value: !GetAtt StrandsPPTGenerator.Arn
 
   # Supporting Lambdas
   BookBuilderFunction:
@@ -1248,3 +1324,7 @@ Outputs:
   ExecStatusEndpoint:
     Description: Execution status endpoint
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/exec-status"
+  
+  GeneratePPTEndpoint:
+    Description: Generate PowerPoint presentation endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/generate-ppt"

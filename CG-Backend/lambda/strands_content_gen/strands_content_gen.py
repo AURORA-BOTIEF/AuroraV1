@@ -286,20 +286,32 @@ def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
 
 
 def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:
-    """Call OpenAI API."""
+    """Call OpenAI API using openai>=1.0.0 syntax with GPT-5 compatibility."""
     try:
-        import openai
-        openai.api_key = api_key
+        from openai import OpenAI
         
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are an expert technical educator."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=32000,
-            temperature=0.7
-        )
+        client = OpenAI(api_key=api_key)
+        
+        # GPT-5 (o1 models) use max_completion_tokens and don't support temperature or system messages
+        if model.startswith("o1-") or model == "gpt-5":
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=32000
+            )
+        else:
+            # GPT-4 and earlier models
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical educator."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=32000,
+                temperature=0.7
+            )
         
         return response.choices[0].message.content
     

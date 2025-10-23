@@ -333,9 +333,14 @@ def lambda_handler(event: Dict[str, Any], context):
         generated_prompts = []
         request_id = context.aws_request_id if hasattr(context, 'aws_request_id') else 'unknown'
         
+        # Create a lookup for original descriptions to preserve them
+        original_descriptions = {f"{v['lesson_id']}-{i+1}": v['description'] for i, v in enumerate(all_visuals)}
+        
         for idx, visual in enumerate(enhanced_visuals, start=1):
             lesson_id = visual.get('lesson_id', '00-00')
-            description = visual.get('description', '')
+            # IMPORTANT: Use original description from lesson, not LLM's rewritten version
+            original_key = f"{lesson_id}-{idx}"
+            description = original_descriptions.get(original_key, visual.get('description', ''))
             visual_type = visual.get('type', 'diagram')
             enhanced_prompt = visual.get('enhanced_prompt', description)
             
