@@ -923,6 +923,8 @@ Resources:
               content_type.$: $.content_type
               all_lesson_keys.$: $.all_batches_results[*].lesson_keys[*]
               all_image_mappings.$: $.all_batches_results[*].image_mappings
+              master_lab_plan_result.$: $.master_lab_plan_result
+              model_provider.$: $.model_provider
             Next: InvokeBookBuilder
           
           InvokeBookBuilder:
