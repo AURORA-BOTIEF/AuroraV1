@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
-const API_URL_SEMINARIOS =
+const API_URL_KNTR =
   "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/knowledge/openai";
 
 const asesoresComerciales = [
@@ -30,8 +30,8 @@ export default function GeneradorTemarios_KNTR() {
     objetivo_tipo: "saber_hacer",
     codigo_certificacion: "",
     sector: "",
-    enfoque: "",
-    horas_por_sesion: 2,
+    enfoque: "Teórico",
+    horas_por_sesion: 3,
   });
 
   // Control de cambios
@@ -58,7 +58,6 @@ export default function GeneradorTemarios_KNTR() {
   // Payload para Lambda
   const buildPayload = () => {
     const payload = {
-      type: "seminar",
       tecnologia: form.tecnologia.trim(),
       tema_curso: form.tema_curso.trim(),
       nivel_dificultad: form.nivel_dificultad,
@@ -124,7 +123,7 @@ export default function GeneradorTemarios_KNTR() {
       const payload = buildPayload();
       const token = localStorage.getItem("id_token");
 
-      const res = await fetch(API_URL_SEMINARIOS, {
+      const res = await fetch(API_URL_KNTR, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
