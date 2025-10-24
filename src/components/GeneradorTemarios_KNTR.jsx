@@ -13,7 +13,7 @@ const asesoresComerciales = [
   "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
-export default function GeneradorTemarios_KNTR() {
+function GeneradorTemarios_KNTR() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
@@ -363,3 +363,5 @@ export default function GeneradorTemarios_KNTR() {
     </div>
   );
 }
+
+export default GeneradorTemarios_KNTR;
