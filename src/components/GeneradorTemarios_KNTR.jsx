@@ -4,7 +4,7 @@ import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
 const API_URL_KNTR =
-  "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/default/Generador_Temario_Knowledge_Transfer";
+  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/knowledge/openai";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -13,7 +13,13 @@ const asesoresComerciales = [
   "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
-function GeneradorTemarios_KNTR() {
+export default function GeneradorTemarios_KNTR() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [temarioGenerado, setTemarioGenerado] = useState(null);
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [versiones, setVersiones] = useState([]);
+
   // Formulario
   const [form, setForm] = useState({
     nombre_preventa: "",
@@ -24,15 +30,9 @@ function GeneradorTemarios_KNTR() {
     objetivo_tipo: "saber_hacer",
     codigo_certificacion: "",
     sector: "",
-    enfoque: "teórico",
+    enfoque: "Teórico",
     horas_por_sesion: 3,
   });
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [mostrarModal, setMostrarModal] = useState(false);
-  const [versiones, setVersiones] = useState([]);
 
   // Control de cambios
   const handleChange = (e) => {
@@ -63,7 +63,7 @@ function GeneradorTemarios_KNTR() {
       nivel_dificultad: form.nivel_dificultad,
       objetivo_tipo: form.objetivo_tipo,
       sector: form.sector.trim(),
-      enfoque: "teórico",
+      enfoque: form.enfoque.trim(),
       durationHours: form.horas_por_sesion,
       nombre_preventa: form.nombre_preventa,
       asesor_comercial: form.asesor_comercial,
@@ -138,7 +138,7 @@ function GeneradorTemarios_KNTR() {
       const editorObj = toEditorSchema(data);
       setTemarioGenerado(editorObj);
     } catch (e) {
-      console.error("Error al generar knowledge transfer:", e);
+      console.error("Error al generar el knowledge transfer:", e);
       setError(e.message);
     } finally {
       setIsLoading(false);
@@ -151,11 +151,25 @@ function GeneradorTemarios_KNTR() {
     alert("Funcionalidad de guardado en desarrollo.");
   };
 
+  // Listar versiones (simulado)
+  const handleListarVersiones = async () => {
+    setVersiones([
+      {
+        nombre_curso: "Knowledge transfer IA Educativa",
+        tecnologia: "OpenAI",
+        asesor_comercial: "Lezly Durán",
+        fecha_creacion: new Date().toISOString(),
+        autor: "juan.londono@netec.com.co",
+      },
+    ]);
+    setMostrarModal(true);
+  };
+
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <h2>Generador de Temarios - Knowledge transfer</h2>
-        <p>Genera una propuesta de knowledge transfer con inteligencia artificial.</p>
+        <h2>Generador de Temarios - Knowledge Transfer</h2>
+        <p>Genera una propuesta de Knowledge Transfer con Inteligencia Artificial.</p>
 
         {/* Campos principales */}
         <div className="form-grid">
@@ -194,7 +208,7 @@ function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Tema principal del knowledge transfer *</label>
+            <label>Tema Principal del Knowledge Transfer *</label>
             <input
               name="tema_curso"
               value={form.tema_curso}
@@ -217,7 +231,7 @@ function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Duración por sesión del knowledge transfer (1–7 horas) *</label>
+            <label>Duración del Knowledge Transfer por sesión (1–7 horas) *</label>
             <div className="slider-container">
               <input
                 type="range"
@@ -302,7 +316,7 @@ function GeneradorTemarios_KNTR() {
             onClick={handleGenerate}
             disabled={isLoading}
           >
-            {isLoading ? "Generando..." : "Generar Propuesta de knowledge transfer"}
+            {isLoading ? "Generando..." : "Generar Propuesta de Knowledge Transfer"}
           </button>
           <button
             className="btn-versiones"
@@ -363,5 +377,3 @@ function GeneradorTemarios_KNTR() {
     </div>
   );
 }
-
-export default GeneradorTemarios_KNTR;
