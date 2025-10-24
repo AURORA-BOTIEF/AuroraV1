@@ -93,10 +93,10 @@ export default function GeneradorTemarios_KNTR() {
       data?.notes ||
       (data?.assessment?.reason
         ? `Nivel sugerido: ${data.depth || form.nivel_dificultad}. ${data.assessment.reason}`
-        : `Seminario de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
+        : `Knowledge transfer de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
 
     return {
-      nombre_curso: `Seminario: ${form.tema_curso}`,
+      nombre_curso: `Knowledge transfer: ${form.tema_curso}`,
       descripcion_general: descripcion,
       audiencia: form.sector,
       prerrequisitos: [],
@@ -138,7 +138,7 @@ export default function GeneradorTemarios_KNTR() {
       const editorObj = toEditorSchema(data);
       setTemarioGenerado(editorObj);
     } catch (e) {
-      console.error("Error al generar el seminario:", e);
+      console.error("Error al generar el knowledge transfer:", e);
       setError(e.message);
     } finally {
       setIsLoading(false);
@@ -155,7 +155,7 @@ export default function GeneradorTemarios_KNTR() {
   const handleListarVersiones = async () => {
     setVersiones([
       {
-        nombre_curso: "Seminario IA Educativa",
+        nombre_curso: "Knowledge transfer IA Educativa",
         tecnologia: "OpenAI",
         asesor_comercial: "Lezly Durán",
         fecha_creacion: new Date().toISOString(),
