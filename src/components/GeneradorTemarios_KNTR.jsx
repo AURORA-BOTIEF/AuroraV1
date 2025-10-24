@@ -14,12 +14,6 @@ const asesoresComerciales = [
 ].sort();
 
 function GeneradorTemarios_KNTR() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [mostrarModal, setMostrarModal] = useState(false);
-  const [versiones, setVersiones] = useState([]);
-
   // Formulario
   const [form, setForm] = useState({
     nombre_preventa: "",
@@ -33,6 +27,12 @@ function GeneradorTemarios_KNTR() {
     enfoque: "teórico",
     horas_por_sesion: 3,
   });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [temarioGenerado, setTemarioGenerado] = useState(null);
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [versiones, setVersiones] = useState([]);
 
   // Control de cambios
   const handleChange = (e) => {
