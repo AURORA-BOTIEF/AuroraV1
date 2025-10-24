@@ -30,8 +30,8 @@ export default function GeneradorTemarios_KNTR() {
     objetivo_tipo: "saber_hacer",
     codigo_certificacion: "",
     sector: "",
-    enfoque: "",
-    horas_por_sesion: 2,
+    enfoque: "teórico",
+    horas_por_sesion: 3,
   });
 
   // Control de cambios
@@ -58,13 +58,12 @@ export default function GeneradorTemarios_KNTR() {
   // Payload para Lambda
   const buildPayload = () => {
     const payload = {
-      type: "seminar",
       tecnologia: form.tecnologia.trim(),
       tema_curso: form.tema_curso.trim(),
       nivel_dificultad: form.nivel_dificultad,
       objetivo_tipo: form.objetivo_tipo,
       sector: form.sector.trim(),
-      enfoque: form.enfoque.trim(),
+      enfoque: "teórico",
       durationHours: form.horas_por_sesion,
       nombre_preventa: form.nombre_preventa,
       asesor_comercial: form.asesor_comercial,
