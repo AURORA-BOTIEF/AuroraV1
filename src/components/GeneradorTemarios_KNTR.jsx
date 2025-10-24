@@ -1,10 +1,10 @@
-// src/components/GeneradorTemarios_KNTR.jsx
+// src/components/GeneradorTemarios_Seminarios.jsx
 import React, { useState } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
-const API_URL_KNTR =
-  "https://icskzsda7d.execute-api.us-east-1.amazonaws.com/default/Generador_Temario_Knowledge_Transfer";
+const API_URL_SEMINARIOS =
+  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -13,7 +13,13 @@ const asesoresComerciales = [
   "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
-function GeneradorTemarios_KNTR() {
+export default function GeneradorTemarios_Seminarios() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [temarioGenerado, setTemarioGenerado] = useState(null);
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [versiones, setVersiones] = useState([]);
+
   // Formulario
   const [form, setForm] = useState({
     nombre_preventa: "",
@@ -24,15 +30,9 @@ function GeneradorTemarios_KNTR() {
     objetivo_tipo: "saber_hacer",
     codigo_certificacion: "",
     sector: "",
-    enfoque: "teórico",
-    horas_por_sesion: 3,
+    enfoque: "",
+    horas_por_sesion: 2,
   });
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [mostrarModal, setMostrarModal] = useState(false);
-  const [versiones, setVersiones] = useState([]);
 
   // Control de cambios
   const handleChange = (e) => {
@@ -58,12 +58,13 @@ function GeneradorTemarios_KNTR() {
   // Payload para Lambda
   const buildPayload = () => {
     const payload = {
+      type: "seminar",
       tecnologia: form.tecnologia.trim(),
       tema_curso: form.tema_curso.trim(),
       nivel_dificultad: form.nivel_dificultad,
       objetivo_tipo: form.objetivo_tipo,
       sector: form.sector.trim(),
-      enfoque: "teórico",
+      enfoque: form.enfoque.trim(),
       durationHours: form.horas_por_sesion,
       nombre_preventa: form.nombre_preventa,
       asesor_comercial: form.asesor_comercial,
@@ -93,10 +94,10 @@ function GeneradorTemarios_KNTR() {
       data?.notes ||
       (data?.assessment?.reason
         ? `Nivel sugerido: ${data.depth || form.nivel_dificultad}. ${data.assessment.reason}`
-        : `Knowledge transfer de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
+        : `Seminario de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
 
     return {
-      nombre_curso: `Knowledge transfer: ${form.tema_curso}`,
+      nombre_curso: `Seminario: ${form.tema_curso}`,
       descripcion_general: descripcion,
       audiencia: form.sector,
       prerrequisitos: [],
@@ -123,7 +124,7 @@ function GeneradorTemarios_KNTR() {
       const payload = buildPayload();
       const token = localStorage.getItem("id_token");
 
-      const res = await fetch(API_URL_KNTR, {
+      const res = await fetch(API_URL_SEMINARIOS, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -138,7 +139,7 @@ function GeneradorTemarios_KNTR() {
       const editorObj = toEditorSchema(data);
       setTemarioGenerado(editorObj);
     } catch (e) {
-      console.error("Error al generar knowledge transfer:", e);
+      console.error("Error al generar el seminario:", e);
       setError(e.message);
     } finally {
       setIsLoading(false);
@@ -151,11 +152,25 @@ function GeneradorTemarios_KNTR() {
     alert("Funcionalidad de guardado en desarrollo.");
   };
 
+  // Listar versiones (simulado)
+  const handleListarVersiones = async () => {
+    setVersiones([
+      {
+        nombre_curso: "Seminario IA Educativa",
+        tecnologia: "OpenAI",
+        asesor_comercial: "Lezly Durán",
+        fecha_creacion: new Date().toISOString(),
+        autor: "juan.londono@netec.com.co",
+      },
+    ]);
+    setMostrarModal(true);
+  };
+
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <h2>Generador de Temarios - Knowledge transfer</h2>
-        <p>Genera una propuesta de knowledge transfer con inteligencia artificial.</p>
+        <h2>Generador de Temarios - Seminarios</h2>
+        <p>Genera una propuesta de seminario con Inteligencia Artificial.</p>
 
         {/* Campos principales */}
         <div className="form-grid">
@@ -194,7 +209,7 @@ function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Tema principal del knowledge transfer *</label>
+            <label>Tema Principal del Seminario *</label>
             <input
               name="tema_curso"
               value={form.tema_curso}
@@ -217,12 +232,12 @@ function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Duración por sesión del knowledge transfer (1–7 horas) *</label>
+            <label>Duración del Seminario (1–4 horas) *</label>
             <div className="slider-container">
               <input
                 type="range"
                 min="1"
-                max="7"
+                max="4"
                 step="0.5"
                 name="horas_por_sesion"
                 value={form.horas_por_sesion}
@@ -302,7 +317,7 @@ function GeneradorTemarios_KNTR() {
             onClick={handleGenerate}
             disabled={isLoading}
           >
-            {isLoading ? "Generando..." : "Generar Propuesta de knowledge transfer"}
+            {isLoading ? "Generando..." : "Generar Propuesta de Seminario"}
           </button>
           <button
             className="btn-versiones"
@@ -363,5 +378,3 @@ function GeneradorTemarios_KNTR() {
     </div>
   );
 }
-
-export default GeneradorTemarios_KNTR;
