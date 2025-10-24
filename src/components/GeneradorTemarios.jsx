@@ -3,10 +3,21 @@ import EditorDeTemario from './EditorDeTemario';
 import './GeneradorTemarios.css';
 
 const asesoresComerciales = [
-  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
-  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
-  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
-  "Natalia García", "Natalia Gomez", "Vianey Miranda",
+  "Alejandra Galvez",
+  "Ana Aragón",
+  "Arely Alvarez",
+  "Benjamin Araya",
+  "Carolina Aguilar",
+  "Cristian Centeno",
+  "Elizabeth Navia",
+  "Eonice Garfías",
+  "Guadalupe Agiz",
+  "Jazmin Soriano",
+  "Lezly Durán",
+  "Lusdey Trujillo",
+  "Natalia García",
+  "Natalia Gomez",
+  "Vianey Miranda",
 ].sort();
 
 
@@ -50,6 +61,7 @@ function GeneradorTemarios() {
       setError("Por favor, completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
     }
+    // --- FIN AJUSTE 1 ---
 
     setIsLoading(true);
     setError('');
