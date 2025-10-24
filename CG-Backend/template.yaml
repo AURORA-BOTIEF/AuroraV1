@@ -969,8 +969,6 @@ Resources:
                 master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
                 project_folder.$: $.project_folder
                 model_provider.$: $.model_provider
-            ResultPath: $.labs_batch_expansion
-            Next: ProcessLabsInParallel
             Retry:
               - ErrorEquals:
                   - Lambda.ServiceException
@@ -1038,6 +1036,7 @@ Resources:
               theory_book_json_key.$: $.book_result.Payload.book_json_key
               all_lab_keys.$: $.all_lab_batches_results[*].lab_guide_keys[*]
               lesson_count.$: $.book_result.Payload.lesson_count
+              book_result.$: $.book_result
             Next: InvokeLabGuideBuilder
           
           InvokeLabGuideBuilder:
