@@ -231,22 +231,6 @@ export default function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Número de sesiones (1-3)</label> 
-            <div className='slider-container'>
-              <input 
-                type="range" 
-                min="1" 
-                max="3" 
-                step="1"
-                name="numero_sesiones_por_semana" 
-                value={params.numero_sesiones_por_semana} 
-                onChange={handleChange} 
-              />
-              <span>{params.numero_sesiones_por_semana} día{params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
-            </div>
-          </div>
-
-          <div className="form-group">
             <label>Horas por sesión (3–7 horas) *</label>
             <div className="slider-container">
               <input
