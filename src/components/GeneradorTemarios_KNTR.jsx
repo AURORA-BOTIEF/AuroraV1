@@ -1,4 +1,4 @@
-// src/components/GeneradorTemarios_Seminarios.jsx
+// src/components/GeneradorTemarios_KNTR.jsx
 import React, { useState } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
@@ -13,7 +13,7 @@ const asesoresComerciales = [
   "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
-export default function GeneradorTemarios_Seminarios() {
+export default function GeneradorTemarios_KNTR() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
