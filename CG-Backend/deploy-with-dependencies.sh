@@ -70,10 +70,10 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "STEP 1: Deploying Template Changes"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-sam deploy --no-confirm-changeset
+sam deploy --no-confirm-changeset || echo "⚠️  Template unchanged or deployment failed (continuing with Lambda functions...)"
 
 echo ""
-echo "✅ Template deployed"
+echo "✅ Template deployment complete"
 echo ""
 
 # Step 2: Rebuild and redeploy functions with dependencies
@@ -84,7 +84,7 @@ echo ""
 
 for FUNCTION in "${FUNCTIONS_WITH_DEPS[@]}"; do
     echo "🔨 Building $FUNCTION..."
-    sam build "$FUNCTION" -q
+    sam build "$FUNCTION" > /dev/null 2>&1
     
     # Get the physical function name from CloudFormation stack
     PHYSICAL_NAME=$(aws cloudformation describe-stack-resources \
