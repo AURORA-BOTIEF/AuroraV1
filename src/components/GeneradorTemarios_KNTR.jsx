@@ -4,7 +4,7 @@ import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
 const API_URL_SEMINARIOS =
-  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
+  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/knowledge/openai";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
