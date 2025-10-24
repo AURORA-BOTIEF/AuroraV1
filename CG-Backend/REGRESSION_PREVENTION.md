@@ -99,6 +99,58 @@ model_provider.$: $.model_provider
 
 ---
 
+### Issue #5: SAM Deploy Overwrites Lambda Dependencies (Oct 24, 2025) ⚠️ CRITICAL
+**Problem**: `sam deploy` re-uploads ALL Lambda functions, overwriting manually-deployed versions  
+**Symptom**: Functions that were fixed and working suddenly break again with "No module named 'yaml'"  
+**Impact**: **CATASTROPHIC** - Every template deployment breaks all Lambda functions with dependencies  
+
+**Root Cause**:
+- When you run `sam deploy`, SAM re-packages and uploads ALL Lambda functions defined in template.yaml
+- This includes functions that were manually rebuilt with `sam build` and deployed with dependencies
+- The template deployment uses the raw source code WITHOUT running `sam build` first
+- Result: All manually-fixed functions are overwritten with dependency-less versions
+
+**Timeline of Discovery**:
+1. 18:43 UTC - Fixed StarterApi with dependencies ✅
+2. 19:18 UTC - Fixed Lab Planner ✅
+3. 19:31 UTC - Fixed BatchExpander ✅
+4. 19:32 UTC - Fixed LabBatchExpander ✅
+5. 20:08 UTC - Deployed template.yaml changes (Step Functions fix) ✅
+6. 20:14 UTC - Frontend broke again! ❌
+7. 20:14 UTC - Discovered StarterApi missing yaml module AGAIN ❌
+8. Root cause: `sam deploy` at 20:08 overwrote ALL Lambda functions
+
+**Fix Applied**:
+Created `deploy-with-dependencies.sh` script that:
+1. Deploys template changes first (`sam deploy`)
+2. Then rebuilds and redeploys EACH function with dependencies
+3. Uses `sam build <FunctionName>` to include requirements.txt
+4. Manually deploys each function with `aws lambda update-function-code`
+
+**The ONLY Safe Deployment Method**:
+```bash
+# From CG-Backend directory:
+./deploy-with-dependencies.sh full
+```
+
+**Never Run These Commands Alone**:
+```bash
+sam deploy                    # ❌ BREAKS Lambda functions!
+sam deploy --no-confirm      # ❌ BREAKS Lambda functions!
+sam sync --stack-name ...    # ❌ BREAKS Lambda functions!
+```
+
+**Prevention**:
+- ✅ ALWAYS use `deploy-with-dependencies.sh` script for ANY deployment
+- ✅ Script is version-controlled and documented
+- ✅ Script rebuilds: StarterApiFunction, StrandsLabPlanner, BatchExpander, LabBatchExpander
+- ✅ Add new functions to script if they need external dependencies
+- ⚠️  **MEMORIZE THIS**: Template changes = Must redeploy Lambda functions with deps
+
+**Re-deployment**: 2025-10-24 20:19:12 UTC (StarterApi fixed again)
+
+---
+
 ## 📋 Pre-Deployment Checklist
 
 Before deploying ANY changes to AWS:
