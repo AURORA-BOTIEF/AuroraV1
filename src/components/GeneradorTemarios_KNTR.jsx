@@ -168,8 +168,8 @@ export default function GeneradorTemarios_KNTR() {
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <h2>Generador de Temarios - Seminarios</h2>
-        <p>Genera una propuesta de seminario con Inteligencia Artificial.</p>
+        <h2>Generador de Temarios - Knowledge Transfer</h2>
+        <p>Genera una propuesta de Knowledge Transfer con Inteligencia Artificial.</p>
 
         {/* Campos principales */}
         <div className="form-grid">
@@ -208,7 +208,7 @@ export default function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Tema Principal del Seminario *</label>
+            <label>Tema Principal del Knowledge Transfer *</label>
             <input
               name="tema_curso"
               value={form.tema_curso}
@@ -231,12 +231,12 @@ export default function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Duración del Seminario (1–4 horas) *</label>
+            <label>Duración del Knowledge Transfer por sesión (1–7 horas) *</label>
             <div className="slider-container">
               <input
                 type="range"
                 min="1"
-                max="4"
+                max="7"
                 step="0.5"
                 name="horas_por_sesion"
                 value={form.horas_por_sesion}
@@ -316,7 +316,7 @@ export default function GeneradorTemarios_KNTR() {
             onClick={handleGenerate}
             disabled={isLoading}
           >
-            {isLoading ? "Generando..." : "Generar Propuesta de Seminario"}
+            {isLoading ? "Generando..." : "Generar Propuesta de Knowledge Transfer"}
           </button>
           <button
             className="btn-versiones"
