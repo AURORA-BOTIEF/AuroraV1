@@ -231,13 +231,27 @@ export default function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Duración del Knowledge Transfer por sesión (1–7 horas) *</label>
+            <label>Número de sesiones (1-3)</label> 
+            <div className='slider-container'>
+              <input 
+                type="range" 
+                min="1" 
+                max="3" 
+                value={params.numero_sesiones_por_semana} 
+                onChange={handleParamChange} 
+              />
+              <span>{params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? 'sesiones' : 'sesión'}</span>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Horas por sesión (3–7 horas) *</label>
             <div className="slider-container">
               <input
                 type="range"
-                min="1"
+                min="3"
                 max="7"
-                step="0.5"
+                step="1"
                 name="horas_por_sesion"
                 value={form.horas_por_sesion}
                 onChange={handleChange}
@@ -245,6 +259,7 @@ export default function GeneradorTemarios_KNTR() {
               <span>{form.horas_por_sesion} h</span>
             </div>
           </div>
+
         </div>
 
         {/* Tipo de Objetivo */}
@@ -295,7 +310,7 @@ export default function GeneradorTemarios_KNTR() {
             name="sector"
             value={form.sector}
             onChange={handleChange}
-            placeholder="Ej: Sector financiero, docentes universitarios..."
+            placeholder="Ej: Sector financiero, docentes, universitarios..."
           />
         </div>
 
