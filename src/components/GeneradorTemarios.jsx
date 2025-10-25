@@ -550,7 +550,13 @@ function GeneradorTemarios() {
                           {menuActivo === i && (
                             <div className="menu-opciones">
                               <button onClick={() => handleCargarVersion(v)}>
-                                Editar
+                                ✏️ Editar
+                              </button>
+                              <button onClick={() => handleExportarPDF(v)}>
+                                📄 Exportar PDF
+                              </button>
+                              <button onClick={() => handleVerVersion(v)}>
+                                👁️ Ver
                               </button>
                             </div>
                           )}
