@@ -1239,6 +1239,7 @@ Resources:
                 - !GetAtt StrandsVisualPlanner.Arn
                 - !GetAtt ImagesGen.Arn
                 - !GetAtt BookBuilder.Arn
+                - !GetAtt LabGuideBuilder.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
 

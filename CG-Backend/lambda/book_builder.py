@@ -322,16 +322,25 @@ def lambda_handler(event, context):
         print(f"Modules included: {len(modules)}")
         print(f"Lessons included: {len(all_lessons)}")
 
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-                "Access-Control-Allow-Methods": "OPTIONS,POST"
-            },
-            "body": json.dumps(response)
-        }
+        # Check if this is a Step Functions invocation (no 'body' in event) or API Gateway (has 'body')
+        # Step Functions passes parameters directly, API Gateway wraps them in 'body'
+        is_step_functions = 'body' not in event
+        
+        if is_step_functions:
+            # Return data directly for Step Functions (no API Gateway wrapper)
+            return response
+        else:
+            # Return API Gateway response format
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "Access-Control-Allow-Methods": "OPTIONS,POST"
+                },
+                "body": json.dumps(response)
+            }
 
     except Exception as e:
         error_msg = f"Error in book building: {str(e)}"

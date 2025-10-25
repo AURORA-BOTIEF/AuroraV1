@@ -15,11 +15,14 @@ def lambda_handler(event, context):
     try:
         print("--- Loading Book Data ---")
 
-        # Extract project folder from path parameters or query parameters
+        # Extract project folder and book type from path parameters or query parameters
         path_params = event.get('pathParameters', {})
         query_params = event.get('queryStringParameters', {})
 
         project_folder = path_params.get('projectFolder') or query_params.get('projectFolder')
+        book_type = query_params.get('bookType') or 'theory'  # 'theory' or 'lab'
+        
+        print(f"Project: {project_folder}, Book Type: {book_type}")
 
         if not project_folder:
             return {
@@ -71,7 +74,7 @@ def lambda_handler(event, context):
 
             if 'Contents' in response:
                 # Prioritize files ending with _data.json and _complete.md
-                # If multiple exist, prefer the most recently modified
+                # Filter by book_type: 'theory' looks for Generated_Course_Book, 'lab' looks for Lab_Guide
                 json_files = []
                 md_files = []
                 
@@ -79,10 +82,19 @@ def lambda_handler(event, context):
                     key = obj['Key']
                     last_modified = obj.get('LastModified')
                     
-                    if key.endswith('_data.json'):
-                        json_files.append((key, last_modified))
-                    elif key.endswith('_complete.md'):
-                        md_files.append((key, last_modified))
+                    # Filter based on book_type
+                    if book_type == 'lab':
+                        # Lab guide: Look for files with 'Lab_Guide' or 'LabGuide' in name
+                        if key.endswith('_data.json') and ('Lab_Guide' in key or 'LabGuide' in key):
+                            json_files.append((key, last_modified))
+                        elif key.endswith('_complete.md') and ('Lab_Guide' in key or 'LabGuide' in key):
+                            md_files.append((key, last_modified))
+                    else:
+                        # Theory book: Look for Generated_Course_Book or exclude Lab_Guide
+                        if key.endswith('_data.json') and 'Lab_Guide' not in key and 'LabGuide' not in key:
+                            json_files.append((key, last_modified))
+                        elif key.endswith('_complete.md') and 'Lab_Guide' not in key and 'LabGuide' not in key:
+                            md_files.append((key, last_modified))
                 
                 # Sort by last modified (most recent first) and pick the first
                 if json_files:
