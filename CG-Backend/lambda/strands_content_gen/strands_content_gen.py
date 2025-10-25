@@ -201,12 +201,18 @@ REQUIREMENTS:
 4. Include all specified topics and activities (if provided)
 5. Use Markdown formatting with proper headings, lists, code blocks
 6. Meet the target word count for each lesson
-7. Maintain technical accuracy and professional tone
-8. Include practical examples where appropriate
-9. **IMPORTANT**: When a concept would benefit from visual representation (diagrams, screenshots, illustrations), add a visual tag using this format: [VISUAL: Brief description of the image needed]
-   - Place visual tags inline where the image should appear
-   - Be specific about what the image should show
-   - Examples: [VISUAL: Diagram showing the MVC architecture flow], [VISUAL: Screenshot of the IDE debugger panel], [VISUAL: Flowchart of the authentication process]
+8. Maintain technical accuracy and professional tone
+9. Include practical examples where appropriate
+10. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: description]
+   - Format: [VISUAL: description] (capital letters, single space after colon, no period at end)
+   - Place inline where the image should appear (on its own line for best results)
+   - Keep descriptions concise but specific (5-15 words)
+   - DO NOT use quotes, parentheses, or special characters in descriptions
+   - Examples:
+     * [VISUAL: Diagram showing the MVC architecture flow]
+     * [VISUAL: Screenshot of the IDE debugger panel]
+     * [VISUAL: Flowchart of the authentication process]
+     * [VISUAL: Table comparing synchronous vs asynchronous operations]
 
 OUTPUT FORMAT:
 Generate the lessons separated by this exact delimiter:

@@ -9,7 +9,7 @@ const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 const IDENTITY_POOL_ID = import.meta.env.VITE_IDENTITY_POOL_ID || import.meta.env.VITE_AWS_IDENTITY_POOL_ID || '';
 const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
-function BookEditor({ projectFolder, onClose }) {
+function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const [bookData, setBookData] = useState(null);
     const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
     const [loading, setLoading] = useState(true);
@@ -204,7 +204,7 @@ function BookEditor({ projectFolder, onClose }) {
             setLoading(true);
             setLoadingImages(true);
 
-            const response = await fetch(`${API_BASE}/load-book/${projectFolder}`, {
+            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -243,20 +243,22 @@ function BookEditor({ projectFolder, onClose }) {
                     console.log('Converting modules structure to lessons array...');
                     const lessons = [];
                     bookData.modules.forEach((module, moduleIdx) => {
-                        if (module.lessons && Array.isArray(module.lessons)) {
-                            module.lessons.forEach((lesson, lessonIdx) => {
+                        // Handle both 'lessons' (theory) and 'labs' (lab guides)
+                        const items = module.lessons || module.labs;
+                        if (items && Array.isArray(items)) {
+                            items.forEach((item, itemIdx) => {
                                 lessons.push({
-                                    ...lesson,
+                                    ...item,
                                     moduleNumber: moduleIdx + 1,
-                                    lessonNumberInModule: lessonIdx + 1,
-                                    moduleTitle: module.title || `Module ${moduleIdx + 1}`,
+                                    lessonNumberInModule: itemIdx + 1,
+                                    moduleTitle: module.module_title || module.title || `Module ${moduleIdx + 1}`,
                                     // Ensure filename follows the pattern for module grouping
-                                    filename: lesson.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(lessonIdx + 1).padStart(2, '0')}.md`
+                                    filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });
                             });
                         }
                     });
-                    console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons`);
+                    console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons (or labs)`);
                     return {
                         ...bookData,
                         lessons: lessons,
@@ -1905,76 +1907,95 @@ function BookEditor({ projectFolder, onClose }) {
 
             console.log('📤 Request:', requestBody);
 
-            const response = await fetch(`${API_BASE}/generate-ppt`, {
+            // Close modal immediately and show async message
+            setShowPPTModal(false);
+            setPptGenerating(false);
+
+            // Show async generation message
+            alert('🚀 Generación de Presentación Iniciada\n\n' +
+                'La presentación PowerPoint se está generando en segundo plano.\n' +
+                'Este proceso puede tardar varios minutos dependiendo del tamaño del libro.\n\n' +
+                '📊 Configuración:\n' +
+                `- Estilo: ${pptStyle}\n` +
+                `- Diapositivas por lección: ${slidesPerLesson}\n` +
+                `- Modelo: ${pptModelProvider}\n\n` +
+                'Puedes continuar trabajando mientras se genera.\n' +
+                'La presentación se guardará automáticamente en S3.');
+
+            // Make async request without blocking the UI
+            fetch(`${API_BASE}/generate-ppt`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(requestBody)
+            }).then(async response => {
+                if (!response.ok) {
+                    let errorMessage = `HTTP ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorMessage;
+                    } catch {
+                        const errorText = await response.text();
+                        errorMessage = errorText || errorMessage;
+                    }
+                    throw new Error(`Error generando PPT: ${errorMessage}`);
+                }
+                return response.json();
+            }).then(data => {
+                // Check for backend errors
+                if (data.error) {
+                    throw new Error(`Backend error: ${data.error}`);
+                }
+
+                console.log('✅ PPT generated:', data);
+
+                // Enhanced success notification
+                const successMessage = `✅ ¡Presentación Generada Exitosamente!\n\n` +
+                    `📊 ${data.total_slides} diapositivas creadas\n` +
+                    `📁 Ubicación: S3/${data.pptx_s3_key || data.structure_s3_key}\n` +
+                    `⏱️ Generado: ${new Date(data.generated_at).toLocaleString()}\n` +
+                    `🎨 Estilo: ${pptStyle}\n` +
+                    `📝 Diapositivas por lección: ${slidesPerLesson}`;
+
+                // Create download link for the PPTX file
+                if (data.pptx_s3_key) {
+                    const downloadUrl = `https://crewai-course-artifacts.s3.amazonaws.com/${data.pptx_s3_key}`;
+                    const fullMessage = successMessage + `\n\n🔗 URL: ${downloadUrl}\n\n¿Deseas descargar el archivo ahora?`;
+
+                    // Show notification with download option
+                    if (confirm(fullMessage)) {
+                        window.open(downloadUrl, '_blank');
+                    }
+                } else {
+                    alert(successMessage);
+                }
+            }).catch(error => {
+                console.error('❌ Error generating PPT:', error);
+
+                let userMessage = '❌ Error al generar presentación PowerPoint';
+                if (error.message.includes('credentials')) {
+                    userMessage += '\n\nVerifica que estés autenticado correctamente.';
+                } else if (error.message.includes('ImportError') || error.message.includes('ModuleNotFoundError')) {
+                    userMessage += '\n\nError de dependencias en el servidor. Contacta al administrador.';
+                } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+                    userMessage += '\n\nEl proceso tardó demasiado. Intenta con menos diapositivas por lección.';
+                } else if (error.message.includes('No book files')) {
+                    userMessage += '\n\nNo se encontró el archivo del libro. Verifica que el proyecto tenga un libro válido.';
+                }
+
+                alert(userMessage + '\n\nDetalles técnicos: ' + error.message);
             });
 
-            if (!response.ok) {
-                let errorMessage = `HTTP ${response.status}`;
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.error || errorMessage;
-                } catch {
-                    const errorText = await response.text();
-                    errorMessage = errorText || errorMessage;
-                }
-                throw new Error(`Error generando PPT: ${errorMessage}`);
-            }
-
-            // Fix: Response is already JSON, no need to parse body as string
-            const data = await response.json();
-
-            // Check for backend errors
-            if (data.error) {
-                throw new Error(`Backend error: ${data.error}`);
-            }
-
-            console.log('✅ PPT generated:', data);
-
-            // Enhanced success message with download link
-            const successMessage = `✅ Presentación generada exitosamente!
-
-📊 ${data.total_slides} diapositivas creadas
-📁 Ubicación: ${data.pptx_s3_key || data.structure_s3_key}
-⏱️ Generado: ${new Date(data.generated_at).toLocaleString()}
-🎨 Estilo: ${pptStyle}
-📝 Diapositivas por lección: ${slidesPerLesson}`;
-
-            // Create download link for the PPTX file
-            if (data.pptx_s3_key) {
-                const downloadUrl = `https://crewai-course-artifacts.s3.amazonaws.com/${data.pptx_s3_key}`;
-                const downloadLink = `\n\n🔗 Descargar: ${downloadUrl}`;
-
-                // Show alert with download option
-                if (confirm(successMessage + downloadLink + '\n\n¿Deseas descargar el archivo ahora?')) {
-                    window.open(downloadUrl, '_blank');
-                }
-            } else {
-                alert(successMessage);
-            }
-
-            setShowPPTModal(false);
-
         } catch (error) {
-            console.error('❌ Error generating PPT:', error);
+            console.error('❌ Error initiating PPT generation:', error);
 
-            let userMessage = 'Error al generar presentación PowerPoint';
+            let userMessage = '❌ Error al iniciar generación de presentación PowerPoint';
             if (error.message.includes('credentials')) {
                 userMessage += '\n\nVerifica que estés autenticado correctamente.';
-            } else if (error.message.includes('ImportError') || error.message.includes('ModuleNotFoundError')) {
-                userMessage += '\n\nError de dependencias en el servidor. Contacta al administrador.';
-            } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
-                userMessage += '\n\nEl proceso está tardando más de lo esperado. Intenta con menos diapositivas por lección.';
-            } else if (error.message.includes('No book files')) {
-                userMessage += '\n\nNo se encontró el archivo del libro. Verifica que el proyecto tenga un libro válido.';
             }
 
             alert(userMessage + '\n\nDetalles técnicos: ' + error.message);
-        } finally {
             setPptGenerating(false);
         }
     };

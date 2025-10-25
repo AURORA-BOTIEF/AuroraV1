@@ -75,8 +75,8 @@ function BookBuilderPage() {
         }
     };
 
-    const openBookEditor = (project) => {
-        setSelectedProject(project);
+    const openBookEditor = (project, bookType = 'theory') => {
+        setSelectedProject({ ...project, bookType });
         setShowEditor(true);
     };
 
@@ -95,6 +95,7 @@ function BookBuilderPage() {
         return (
             <BookEditor
                 projectFolder={selectedProject.folder}
+                bookType={selectedProject.bookType || 'theory'}
                 onClose={closeBookEditor}
             />
         );
@@ -140,12 +141,23 @@ function BookBuilderPage() {
 
                             <div className="project-actions">
                                 {project.hasBook ? (
-                                    <button
-                                        className="btn-primary"
-                                        onClick={() => openBookEditor(project)}
-                                    >
-                                        Editar Libro
-                                    </button>
+                                    <>
+                                        <button
+                                            className="btn-primary"
+                                            onClick={() => openBookEditor(project, 'theory')}
+                                        >
+                                            📚 Libro Teoría
+                                        </button>
+                                        {project.hasLabGuide && (
+                                            <button
+                                                className="btn-primary"
+                                                onClick={() => openBookEditor(project, 'lab')}
+                                                style={{ marginLeft: '10px' }}
+                                            >
+                                                🧪 Guía de Labs
+                                            </button>
+                                        )}
+                                    </>
                                 ) : (
                                     <div className="no-book-message">
                                         <span>📖 El libro se generará automáticamente con el curso</span>

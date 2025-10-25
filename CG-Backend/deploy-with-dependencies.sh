@@ -28,6 +28,7 @@ FUNCTIONS_WITH_DEPS=(
     "StrandsLabPlanner"
     "BatchExpander"
     "LabBatchExpander"
+    "BookBuilder"
 )
 
 echo ""
