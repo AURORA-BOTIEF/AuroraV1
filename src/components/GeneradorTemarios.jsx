@@ -37,7 +37,7 @@ function GeneradorTemarios() {
 
   // --- AJUSTE API: Se usan tus URLs ---
   const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
-  const guardarApiUrl = "https://wng2h5l0cd.execute-api.us-east-1.amazonaws.com/versiones";
+  const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
   // --- FIN AJUSTE API ---
 
   useEffect(() => {
