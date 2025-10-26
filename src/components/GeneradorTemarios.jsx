@@ -24,6 +24,7 @@ function GeneradorTemarios() {
     sector: "",
     enfoque: "", 
     codigo_certificacion: "",
+    syllabus_text: "", // Inicializa el campo syllabus_text
   });
 
   const [userEmail, setUserEmail] = useState("");
@@ -284,7 +285,6 @@ function GeneradorTemarios() {
               value={params.nombre_preventa} 
               onChange={handleParamChange} 
               disabled={isLoading}
-              placeholder="Ej: Juan Pérez"
             />
           </div>
 
@@ -437,25 +437,41 @@ function GeneradorTemarios() {
           />
         </div>
 
-        <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea 
-            name="enfoque" 
-            value={params.enfoque} 
-            onChange={handleParamChange} 
-            disabled={isLoading}
-            rows="3"
-            placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
-          />
-        </div>
+{/* --- Campo existente: Enfoque Adicional (Opcional) --- */}
+<div className="form-group">
+  <label>Enfoque Adicional (Opcional)</label>
+  <textarea 
+    name="enfoque"
+    value={params.enfoque}
+    onChange={handleParamChange}
+    disabled={isLoading}
+    rows="3"
+    placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
+  />
+</div>
 
+{/* --- NUEVO CAMPO: Syllabus Base (Opcional) --- */}
+<div className="form-group">
+  <label>Syllabus Base (Opcional)</label>
+  <textarea
+    name="syllabus_text"
+    value={params.syllabus_text || ""}
+    onChange={handleParamChange}
+    disabled={isLoading}
+    rows="6"
+    placeholder="Copia y pega aquí el contenido del syllabus o temario base (texto plano, sin formato)..."
+  />
+  <small className="hint">
+    💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al contenido original.
+  </small>
+</div>
         <div className="botones">
           <button 
             className="btn-generar" 
             onClick={handleGenerar} 
             disabled={isLoading}
           >
-            {isLoading ? "⏳ Generando..." : "🚀 Generar Propuesta de Temario"}
+            {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
           <button 
             className="btn-versiones" 
@@ -471,7 +487,7 @@ function GeneradorTemarios() {
             <span>⚠️</span> {error}
           </div>
         )}
-      </div>
+      </div> 
 
       {temarioGenerado && (
         <EditorDeTemario 
