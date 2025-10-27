@@ -1,4 +1,3 @@
-// src/components/EditorDeTemario.jsx (FINAL con botón alineado a la derecha)
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
@@ -21,13 +20,19 @@ const toDataURL = async (url) => {
 const slugify = (str = "") =>
   String(str)
     .normalize("NFD")
-    .replace(/[\u00-~]/g, "")
+    .replace(/[\u0300-\u036f]/g, "") // limpiar acentos
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
 
 function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
-  const [temario, setTemario] = useState(temarioInicial);
+  // ✅ Si viene null o undefined, se inicializa seguro
+  const [temario, setTemario] = useState(() => ({
+    ...temarioInicial,
+    temario: Array.isArray(temarioInicial?.temario)
+      ? temarioInicial.temario
+      : [],
+  }));
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
@@ -48,18 +53,30 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   }, []);
 
   useEffect(() => {
-    setTemario(temarioInicial);
+    setTemario({
+      ...temarioInicial,
+      temario: Array.isArray(temarioInicial?.temario)
+        ? temarioInicial.temario
+        : [],
+    });
   }, [temarioInicial]);
 
   // ===== CAMBIO DE CAMPOS =====
   const handleFieldChange = (capIndex, subIndex, field, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
+    if (!Array.isArray(nuevo.temario)) nuevo.temario = [];
+    if (!nuevo.temario[capIndex]) return;
+
     if (subIndex === null) {
       nuevo.temario[capIndex][field] = value;
     } else {
+      if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
+        nuevo.temario[capIndex].subcapitulos = [];
       if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
         nuevo.temario[capIndex].subcapitulos[subIndex] = {
-          nombre: nuevo.temario[capIndex].subcapitulos[subIndex],
+          nombre: String(
+            nuevo.temario[capIndex].subcapitulos[subIndex] || "Tema"
+          ),
         };
       }
       nuevo.temario[capIndex].subcapitulos[subIndex][field] =
@@ -67,10 +84,10 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           ? parseInt(value, 10) || 0
           : value;
     }
-    // recalcular duración total
-    nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[
+
+    nuevo.temario[capIndex].tiempo_capitulo_min = (nuevo.temario[
       capIndex
-    ].subcapitulos.reduce(
+    ].subcapitulos || []).reduce(
       (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
       0
     );
@@ -80,6 +97,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   // ===== AGREGAR CAPÍTULO =====
   const agregarCapitulo = () => {
     const nuevo = JSON.parse(JSON.stringify(temario));
+    if (!Array.isArray(nuevo.temario)) nuevo.temario = [];
     nuevo.temario.push({
       capitulo: `Nuevo capítulo ${nuevo.temario.length + 1}`,
       tiempo_capitulo_min: 0,
@@ -94,6 +112,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   // ===== AGREGAR TEMA =====
   const agregarTema = (capIndex) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
+    if (!Array.isArray(nuevo.temario)) return;
+    if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
+      nuevo.temario[capIndex].subcapitulos = [];
     nuevo.temario[capIndex].subcapitulos.push({
       nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1}`,
       tiempo_subcapitulo_min: 30,
@@ -102,9 +123,10 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setTemario(nuevo);
   };
 
-  // ===== AJUSTAR TIEMPOS SEGÚN HORAS =====
+  // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
-    const horas = temario?.horas_por_sesion || 7;
+    if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
+    const horas = temario?.horas_por_sesion || 2;
     const minutosTotales = horas * 60;
     const totalTemas = temario.temario.reduce(
       (acc, cap) => acc + (cap.subcapitulos?.length || 0),
@@ -114,6 +136,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     const minutosPorTema = Math.floor(minutosTotales / totalTemas);
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario.forEach((cap) => {
+      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
       cap.subcapitulos.forEach((sub) => {
         sub.tiempo_subcapitulo_min = minutosPorTema;
       });
@@ -123,17 +146,18 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       );
     });
     setTemario(nuevo);
-    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h totales` });
+    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
 
-  // ===== GUARDAR VERSIÓN =====
+  // ===== GUARDAR =====
   const handleSaveClick = async () => {
+    if (!onSave) return;
     setGuardando(true);
     setMensaje({ tipo: "", texto: "" });
     const nota =
       window.prompt("Escribe una nota para esta versión (opcional):") || "";
     try {
-      await onSave?.({ ...temario, autor: userEmail }, nota);
+      await onSave({ ...temario, autor: userEmail }, nota);
       setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
     } catch (err) {
       console.error(err);
@@ -147,6 +171,11 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {
     try {
+      if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
+        setMensaje({ tipo: "error", texto: "No hay contenido para exportar." });
+        return;
+      }
+
       const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
       const azul = "#005A9C";
       const negro = "#000000";
@@ -173,33 +202,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       });
       y += 40;
 
-      const secciones = [
-        { titulo: "Descripción General", texto: temario?.descripcion_general },
-        { titulo: "Audiencia", texto: temario?.audiencia },
-        { titulo: "Prerrequisitos", texto: temario?.prerrequisitos },
-        { titulo: "Objetivos", texto: temario?.objetivos },
-      ];
-
-      secciones.forEach((s) => {
-        if (!s.texto) return;
-        addPageIfNeeded(60);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.setTextColor(azul);
-        doc.text(s.titulo, margin.left, y);
-        y += 18;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-        doc.setTextColor(negro);
-        const lineas = doc.splitTextToSize(s.texto, contentWidth);
-        lineas.forEach((linea) => {
-          addPageIfNeeded(14);
-          doc.text(linea, margin.left, y);
-          y += 14;
-        });
-        y += 10;
-      });
-
       addPageIfNeeded(50);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
@@ -207,35 +209,25 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       doc.text("Temario", margin.left, y);
       y += 25;
 
-      temario.temario.forEach((cap, i) => {
+      (temario.temario || []).forEach((cap, i) => {
         addPageIfNeeded(60);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(13);
         doc.setTextColor(azul);
-        doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+        doc.text(`Capítulo ${i + 1}: ${cap.capitulo || "Sin título"}`, margin.left, y);
         y += 16;
 
         doc.setFont("helvetica", "italic");
         doc.setFontSize(9);
         doc.setTextColor(negro);
-        doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+        doc.text(
+          `Duración total: ${cap.tiempo_capitulo_min || 0} min`,
+          margin.left + 10,
+          y
+        );
         y += 12;
 
-        if (cap.objetivos_capitulo) {
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(10);
-          const objetivos = Array.isArray(cap.objetivos_capitulo)
-            ? cap.objetivos_capitulo.join(" ")
-            : cap.objetivos_capitulo;
-          const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
-          lines.forEach((line) => {
-            addPageIfNeeded(12);
-            doc.text(line, margin.left + 15, y);
-            y += 12;
-          });
-        }
-
-        cap.subcapitulos.forEach((sub, j) => {
+        (cap.subcapitulos || []).forEach((sub, j) => {
           addPageIfNeeded(16);
           const subObj = typeof sub === "object" ? sub : { nombre: sub };
           const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${
@@ -266,12 +258,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           margin.left,
           pageHeight - 70
         );
-        doc.text(
-          `Página ${i} de ${totalPages}`,
-          pageWidth / 2,
-          pageHeight - 55,
-          { align: "center" }
-        );
+        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
+          align: "center",
+        });
       }
 
       doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
@@ -283,21 +272,26 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   };
 
   const exportarExcel = () => {
+    if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
+      setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
+      return;
+    }
     downloadExcelTemario(temario);
     setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
 
+  // === RENDER ===
   return (
     <div className="editor-container">
       {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
       <h3>Temario Detallado</h3>
 
-      {temario.temario.map((cap, i) => (
+      {(temario.temario || []).map((cap, i) => (
         <div key={i} className="capitulo-editor">
           <h4>Capítulo {i + 1}</h4>
           <input
-            value={cap.capitulo}
+            value={cap.capitulo || ""}
             onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
             className="input-capitulo"
           />
@@ -310,7 +304,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
             value={
               Array.isArray(cap.objetivos_capitulo)
                 ? cap.objetivos_capitulo.join("\n")
-                : cap.objetivos_capitulo
+                : cap.objetivos_capitulo || ""
             }
             onChange={(e) =>
               handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
@@ -319,16 +313,18 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           />
 
           <ul>
-            {cap.subcapitulos.map((sub, j) => (
+            {(cap.subcapitulos || []).map((sub, j) => (
               <li key={j} className="subcapitulo-item">
-                <span>{i + 1}.{j + 1}</span>
+                <span>
+                  {i + 1}.{j + 1}
+                </span>
                 <input
-                  value={sub.nombre}
+                  value={sub.nombre || ""}
                   onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
                 />
                 <input
                   type="number"
-                  value={sub.tiempo_subcapitulo_min}
+                  value={sub.tiempo_subcapitulo_min || 0}
                   onChange={(e) =>
                     handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
                   }
@@ -336,7 +332,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                 />
                 <input
                   type="number"
-                  value={sub.sesion}
+                  value={sub.sesion || 1}
                   onChange={(e) => handleFieldChange(i, j, "sesion", e.target.value)}
                   placeholder="sesión"
                 />
@@ -350,7 +346,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         </div>
       ))}
 
-      {/* Botón alineado a la derecha */}
       <div className="btn-agregar-capitulo-container">
         <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
           ➕ Agregar Capítulo
