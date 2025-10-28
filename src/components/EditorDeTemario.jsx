@@ -247,7 +247,7 @@ temario.temario.forEach((cap, i) => {
       doc.setTextColor(azul);
 
       // 🔹 Capítulo: dividir si es largo
-      const tituloCap = cap.capitulo || "";
+      const tituloCap = `Capítulo ${i + 1}: ${cap.capitulo}`;
       const lineasCap = doc.splitTextToSize(tituloCap, contentWidth - 40);
       lineasCap.forEach((linea) => {
         doc.text(linea, margin.left, y);
