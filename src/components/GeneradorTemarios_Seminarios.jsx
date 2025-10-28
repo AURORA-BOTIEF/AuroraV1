@@ -1,7 +1,7 @@
 // src/components/GeneradorTemarios_Seminarios.jsx
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
-import EditorDeTemario from "./EditorDeTemario";
+import EditorDeTemario_seminario from "./EditorDeTemario_seminario";
 import "./GeneradorTemarios.css"; // usa el CSS del generador 'Prácticos'
 
 // === URLs de tus APIs ===
@@ -66,7 +66,7 @@ export default function GeneradorTemarios_Seminarios() {
 
   // === Validación ===
   const validate = () => {
-    const required = ["nombre_preventa", "asesor_comercial", "tecnologia", "tema_curso", "sector"];
+    const required = ["tecnologia", "tema_curso", "sector"];
     const missing = required.filter((f) => !params[f]?.trim());
     if (missing.length) return `Completa: ${missing.join(", ")}.`;
     if (params.objetivo_tipo === "certificacion" && !params.codigo_certificacion.trim())
@@ -233,12 +233,12 @@ export default function GeneradorTemarios_Seminarios() {
           <h2>Generador de Temarios - Seminarios </h2>
         </div>
         <p className="descripcion-practico" style={{ marginTop: "0px" }}>
-          Crea seminarios o talleres cortos con Inteligencia Artificial.
+          Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
         </p>
 
         <div className="form-grid">
           <div className="form-group">
-            <label>Nombre Preventa *</label>
+            <label>Nombre Preventa Asociado (Opcional)</label>
             <input
               name="nombre_preventa"
               value={params.nombre_preventa}
@@ -248,7 +248,7 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Asesor(a) Comercial *</label>
+            <label>Asesor(a)  (Opcional)</label>
             <select
               name="asesor_comercial"
               value={params.asesor_comercial}
@@ -269,12 +269,12 @@ export default function GeneradorTemarios_Seminarios() {
               value={params.tecnologia}
               onChange={handleChange}
               disabled={isLoading}
-              placeholder="Ej: Power BI, Excel, Azure"
+              placeholder="Ej: AWS, React, Python"
             />
           </div>
 
           <div className="form-group">
-            <label>Tema del Seminario *</label>
+            <label>Tema Principal del Seminario *</label>
             <input
               name="tema_curso"
               value={params.tema_curso}
@@ -285,7 +285,7 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Nivel *</label>
+            <label>Nivel de Dificultad</label>
             <select
               name="nivel_dificultad"
               value={params.nivel_dificultad}
@@ -366,26 +366,26 @@ export default function GeneradorTemarios_Seminarios() {
             onChange={handleChange}
             disabled={isLoading}
             rows="3"
-            placeholder="Ej: Ejecutivos de negocio, analistas de datos, banca..."
+            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
           />
         </div>
 
         <div className="form-group">
-          <label>Enfoque (opcional)</label>
+          <label>Enfoque Adicional (opcional)</label>
           <textarea
             name="enfoque"
             value={params.enfoque}
             onChange={handleChange}
             disabled={isLoading}
             rows="3"
-            placeholder="Ej: Orientado a la toma de decisiones con dashboards"
+            placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
           />
         </div>
 
 
         <div className="botones">
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
-            {isLoading ? "Generando..." : "Generar Temario Seminario"}
+            {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
           <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
             Ver Versiones Guardadas
@@ -401,7 +401,7 @@ export default function GeneradorTemarios_Seminarios() {
 
 
       {temarioGenerado && (
-        <EditorDeTemario
+        <EditorDeTemario_seminario
           temarioInicial={temarioGenerado}
           onSave={handleGuardarVersion}
           onRegenerate={handleGenerar}
