@@ -47,7 +47,7 @@ function GeneradorTemariosPracticos() {
         const email = session?.tokens?.idToken?.payload?.email;
         setUserEmail(email || "sin-correo");
       } catch (err) {
-        console.error("⚠️ Error obteniendo usuario:", err);
+        console.error(" Error obteniendo usuario:", err);
       }
     };
     getUser();
@@ -102,7 +102,7 @@ function GeneradorTemariosPracticos() {
 
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
 
-      console.log("📦 Enviando payload:", payload);
+      console.log("Enviando payload:", payload);
 
       const token = localStorage.getItem("id_token");
       const response = await fetch(generarApiUrl, {
@@ -129,7 +129,7 @@ function GeneradorTemariosPracticos() {
 
       setTemarioGenerado(temarioCompleto);
     } catch (err) {
-      console.error("❌ Error:", err);
+      console.error("Error:", err);
       setError(err.message || "No se pudo generar el temario. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
@@ -292,8 +292,8 @@ function GeneradorTemariosPracticos() {
         <div className="form-group-radio">
           <label>Tipo de Objetivo</label>
           <div className="radio-group">
-            <label><input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange}/> Saber Hacer</label>
-            <label><input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange}/> Certificación</label>
+            <label><input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange}/> Saber Hacer (Enfocado en habilidades)</label>
+            <label><input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange}/> Certificación (Enfocado en examen)</label>
           </div>
         </div>
 
