@@ -116,6 +116,8 @@ useEffect(() => {
       const token = localStorage.getItem("id_token");
       const response = await fetch(generarApiUrl, {
         method: "POST",
+        mode: "cors",
+        credentials: "omit", 
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
