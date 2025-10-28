@@ -17,7 +17,7 @@ function GeneradorTemariosPracticos() {
     tecnologia: "",
     tema_curso: "",
     nivel_dificultad: "basico",
-    numero_sesiones_por_semana: 1,
+    numero_sesiones: 1,
     horas_por_sesion: 7,
     objetivo_tipo: "saber_hacer",
     sector: "",
@@ -40,18 +40,27 @@ function GeneradorTemariosPracticos() {
   const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   // === Obtener usuario autenticado ===
-  useEffect(() => {
-    const getUser = async () => {
-      try {
-        const session = await fetchAuthSession();
-        const email = session?.tokens?.idToken?.payload?.email;
-        setUserEmail(email || "sin-correo");
-      } catch (err) {
-        console.error(" Error obteniendo usuario:", err);
+useEffect(() => {
+  const getUser = async () => {
+    try {
+      const session = await fetchAuthSession();
+      const idToken = session?.tokens?.idToken?.toString();
+      const email = session?.tokens?.idToken?.payload?.email;
+
+      // Guarda el token solo si existe
+      if (idToken) {
+        localStorage.setItem("id_token", idToken);
       }
-    };
-    getUser();
-  }, []);
+
+      setUserEmail(email || "sin-correo");
+    } catch (err) {
+      console.error("Error obteniendo usuario:", err);
+    }
+  };
+
+  getUser();
+}, []);
+
 
   // === Handlers generales ===
   const handleParamChange = (e) => {
@@ -64,7 +73,7 @@ function GeneradorTemariosPracticos() {
       return;
     }
 
-    if (name === "horas_por_sesion" || name === "numero_sesiones_por_semana") {
+    if (name === "horas_por_sesion" || name === "numero_sesiones") {
       setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
       return;
     }
@@ -89,7 +98,7 @@ function GeneradorTemariosPracticos() {
       return;
     }
 
-    const horasTotales = params.horas_por_sesion * params.numero_sesiones_por_semana;
+    const horasTotales = params.horas_por_sesion * params.numero_sesiones;
 
     setIsLoading(true);
     setError("");
@@ -271,8 +280,8 @@ function GeneradorTemariosPracticos() {
           {/* === Sliders === */}
           <div className="form-group">
             <label>Número de Sesiones (1–7)</label>
-            <input type="range" min="1" max="7" name="numero_sesiones_por_semana" value={params.numero_sesiones_por_semana} onChange={handleSliderChange} />
-            <span>{params.numero_sesiones_por_semana} sesión(es)</span>
+            <input type="range" min="1" max="7" name="numero_sesiones" value={params.numero_sesiones} onChange={handleSliderChange} />
+            <span>{params.numero_sesiones} sesión(es)</span>
           </div>
 
           <div className="form-group">
@@ -284,7 +293,7 @@ function GeneradorTemariosPracticos() {
           {/* === Total calculado === */}
           <div className="form-group total-horas">
             <label>Total del Curso</label>
-            <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones_por_semana} horas</div>
+            <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones} horas</div>
           </div>
         </div>
 
