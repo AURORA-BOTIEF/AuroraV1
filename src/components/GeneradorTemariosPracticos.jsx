@@ -435,4 +435,4 @@ function GeneradorTemariosPracticos() {
   );
 }
 
-export default GeneradorTemarios
+export default GeneradorTemariosPracticos;
