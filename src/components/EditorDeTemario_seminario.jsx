@@ -246,8 +246,8 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     );
     descLineas.forEach((linea) => {
       addPageIfNeeded(16);
-      doc.text(descLineas, linea, margin.left, y, { maxwidth: contentWidth, align: "justify"});
-      y += descLineas.length * 14;
+      doc.text(linea, margin.left, y);
+      y += 16;
     });
     y += 20;
 
@@ -271,7 +271,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       const capLines = doc.splitTextToSize(capTitle, contentWidth);
       capLines.forEach((line) => {
         doc.text(line, margin.left, y);
-        y += 14;
+        y += 16;
       });
 
       // Duración
@@ -292,7 +292,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         );
         objLines.forEach((linea) => {
           addPageIfNeeded(14);
-          doc.text(linea, margin.left + 15, y, {maxWidth: contentWidth - 30, align: "justify"});
+          doc.text(linea, margin.left + 15, y);
           y += 14;
         });
       }
