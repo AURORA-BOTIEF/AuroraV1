@@ -165,7 +165,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     }
   };
 
-  // === Exportar PDF profesional (APA-like) ===  
+  // === Exportar PDF profesional (APA-like) ===
   const exportarPDF = async () => {
   try {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
@@ -181,11 +181,12 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = { top: 150, bottom: 90, left: 72, right: 72 };
     const contentWidth = pageWidth - margin.left - margin.right;
+
     const encabezado = await toDataURL(encabezadoImagen);
     const pie = await toDataURL(pieDePaginaImagen);
     let y = margin.top;
 
-    // === función para encabezado/pie por página ===
+    // === Dibujar encabezado y pie ===
     const drawHeaderFooter = () => {
       const encProps = doc.getImageProperties(encabezado);
       const encAlto = (encProps.height / encProps.width) * pageWidth;
@@ -199,18 +200,19 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       doc.setFontSize(9);
       doc.setTextColor("#444");
       doc.text(
-        "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
+        "Documento generado automáticamente con plantilla Netec.",
         margin.left,
-        pageHeight - 70
+        pageHeight - 65
       );
       doc.text(
         `Página ${doc.internal.getCurrentPageInfo().pageNumber}`,
         pageWidth / 2,
-        pageHeight - 55,
+        pageHeight - 50,
         { align: "center" }
       );
     };
 
+    // === Agregar nueva página cuando se llena ===
     const addPageIfNeeded = (extra = 40) => {
       if (y + extra > pageHeight - margin.bottom) {
         doc.addPage();
@@ -219,7 +221,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       }
     };
 
-    // === Página 1 ===
+    // === Primera página ===
     drawHeaderFooter();
 
     // === Título del curso ===
@@ -229,19 +231,13 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     const titulo = temario?.nombre_curso || "Seminario Profesional";
     const tituloLineas = doc.splitTextToSize(titulo, contentWidth);
     tituloLineas.forEach((linea) => {
-      doc.text(linea, margin.left, y, { align: "left" }); // margen respetado
-      y += 22;
+      doc.text(linea, margin.left, y);
+      y += 24;
     });
-    y += 15;
+    y += 10;
 
-    // === Descripción general ===
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(azul);
-    doc.text("Descripción General", margin.left, y);
-    y += 18;
-
-    doc.setFont("times", "normal");
+    // === Descripción ===
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(negro);
     const descLineas = doc.splitTextToSize(
@@ -250,13 +246,13 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     );
     descLineas.forEach((linea) => {
       addPageIfNeeded(16);
-      doc.text(linea, margin.left, y, { align: "justify" });
+      doc.text(linea, margin.left, y);
       y += 16;
     });
-    y += 15;
+    y += 20;
 
     // === Temario Detallado ===
-    addPageIfNeeded(60);
+    addPageIfNeeded(50);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(azul);
@@ -265,18 +261,20 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
     // === Capítulos ===
     temario.temario.forEach((cap, i) => {
-      addPageIfNeeded(60);
+      addPageIfNeeded(70);
+
+      // Título del capítulo
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(azul);
-
       const capTitle = `Capítulo ${i + 1}: ${cap.capitulo}`;
       const capLines = doc.splitTextToSize(capTitle, contentWidth);
-      capLines.forEach((l) => {
-        doc.text(l, margin.left, y);
+      capLines.forEach((line) => {
+        doc.text(line, margin.left, y);
         y += 14;
       });
 
+      // Duración
       doc.setFont("helvetica", "italic");
       doc.setFontSize(9);
       doc.setTextColor(gris);
@@ -288,31 +286,30 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         doc.setFont("times", "normal");
         doc.setFontSize(11);
         doc.setTextColor(negro);
-        const objetivos = Array.isArray(cap.objetivos_capitulo)
-          ? cap.objetivos_capitulo.join(" ")
-          : cap.objetivos_capitulo;
-        const objLines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth - 15);
+        const objLines = doc.splitTextToSize(
+          `Objetivos: ${cap.objetivos_capitulo}`,
+          contentWidth - 15
+        );
         objLines.forEach((linea) => {
           addPageIfNeeded(14);
-          doc.text(linea, margin.left + 15, y, { align: "justify" });
+          doc.text(linea, margin.left + 15, y);
           y += 14;
         });
       }
       y += 10;
 
-      // Subtemas
+      // Subcapítulos
       cap.subcapitulos.forEach((sub, j) => {
         addPageIfNeeded(16);
-        const subObj = typeof sub === "object" ? sub : { nombre: sub };
         doc.setFont("times", "normal");
         doc.setFontSize(10);
-        const tema = `${i + 1}.${j + 1} ${subObj.nombre}`;
+        const tema = `${i + 1}.${j + 1} ${sub.nombre}`;
         const temaLineas = doc.splitTextToSize(tema, contentWidth - 80);
 
         temaLineas.forEach((linea, idx) => {
           doc.text(linea, margin.left + 25, y);
           if (idx === 0) {
-            doc.text(`${subObj.tiempo_subcapitulo_min || 0} min`, pageWidth - margin.right, y, {
+            doc.text(`${sub.tiempo_subcapitulo_min || 0} min`, pageWidth - margin.right, y, {
               align: "right",
             });
           }
@@ -321,7 +318,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       });
 
       // Línea divisoria
-      y += 8;
+      y += 10;
       doc.setDrawColor(180);
       doc.setLineWidth(0.5);
       doc.line(margin.left, y, pageWidth - margin.right, y);
