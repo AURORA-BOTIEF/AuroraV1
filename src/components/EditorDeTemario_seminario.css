@@ -1,0 +1,281 @@
+.editor-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  margin-top: 1rem;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* === Mensajes === */
+.msg.ok {
+  background: #e6f4ea;
+  color: #1b5e20;
+  border: 1px solid #a5d6a7;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.msg.error {
+  background: #fdecea;
+  color: #c62828;
+  border: 1px solid #f5b7b1;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+/* === Capítulos === */
+.capitulo-editor {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.capitulo-editor:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+  transform: translateY(-2px);
+}
+
+.capitulo-editor h4 {
+  color: #035b6e;
+  font-weight: 700;
+  margin-bottom: 0.8rem;
+  font-size: 1.1rem;
+  border-bottom: 2px solid #035b6e15;
+  padding-bottom: 4px;
+}
+
+/* === Inputs y textareas === */
+.input-capitulo,
+.textarea-objetivos-capitulo {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: #333;
+  background-color: #fff;
+  transition: all 0.2s ease;
+}
+
+.input-capitulo:focus,
+.textarea-objetivos-capitulo:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+.textarea-objetivos-capitulo {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.duracion-total {
+  font-size: 0.95rem;
+  color: #333;
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* === Subcapítulos === */
+.subcapitulo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.subcapitulo-item input {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #333;
+  transition: all 0.2s ease;
+}
+
+.subcapitulo-item input:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
+}
+
+.subcapitulo-item span {
+  font-weight: 600;
+  width: 30px;
+  color: #035b6e;
+}
+
+/* 🔧 Ajuste de inputs de subtemas */
+.subcapitulo-item input[type="text"] {
+  flex: 2;
+}
+
+.subcapitulo-item input[type="number"] {
+  width: 70px;
+  text-align: center;
+}
+
+/* === Botones generales === */
+.btn-primario,
+.btn-secundario {
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease-in-out;
+  color: #fff;
+  font-family: inherit;
+}
+
+.btn-primario {
+  background-color: #035b6e;
+}
+
+.btn-secundario {
+  background-color: #197fa6;
+}
+
+.btn-primario:hover,
+.btn-secundario:hover {
+  filter: brightness(1.1);
+}
+
+.btn-primario:active,
+.btn-secundario:active {
+  background-color: #023f50;
+  transform: scale(0.98);
+}
+
+/* === Botones Agregar === */
+.btn-agregar-tema,
+.btn-agregar-capitulo {
+  background: linear-gradient(90deg, #45ab9f, #035b6e);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.4rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-family: inherit;
+  margin-top: 0.5rem;
+}
+
+/* 🔧 Ícono único */
+.btn-agregar-tema::before,
+.btn-agregar-capitulo::before {
+  content: "+";
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  margin-right: 0.4rem;
+}
+
+.btn-agregar-tema:hover,
+.btn-agregar-capitulo:hover {
+  transform: scale(1.03);
+  filter: brightness(1.1);
+}
+
+.btn-agregar-tema:active,
+.btn-agregar-capitulo:active {
+  transform: scale(0.97);
+  filter: brightness(0.9);
+}
+
+/* === Posición de botones === */
+.acciones-footer {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.btn-agregar-capitulo-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* === Botón guardar (modal) === */
+.btn-guardar {
+  background: #035b6e;
+  color: white;
+  padding: 0.7rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-guardar:hover {
+  filter: brightness(1.1);
+}
+
+/* === Modal === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 320px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+  font-family: inherit;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-body label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.modal-footer {
+  text-align: right;
+}
+
+/* === Responsividad === */
+@media (max-width: 768px) {
+  .acciones-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .btn-agregar-capitulo-container {
+    justify-content: center;
+  }
+}

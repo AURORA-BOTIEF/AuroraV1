@@ -4,7 +4,7 @@ import { fetchAuthSession } from "aws-amplify/auth";
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
-import "./EditorDeTemario.css";
+import "./EditorDeTemario_seminario.css";
 
 // === Utilidad para convertir imágenes a base64 ===
 const toDataURL = async (url) => {
@@ -165,164 +165,175 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     }
   };
 
-  // === Exportar PDF profesional (APA-like) ===
+  // === Exportar PDF profesional (APA-like) ===  
   const exportarPDF = async () => {
-    try {
-      if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
-        setMensaje({ tipo: "error", texto: "No hay contenido para exportar." });
-        return;
+  try {
+    if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
+      setMensaje({ tipo: "error", texto: "No hay contenido para exportar." });
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+    const azul = "#005A9C";
+    const negro = "#000000";
+    const gris = "#555";
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = { top: 150, bottom: 90, left: 72, right: 72 };
+    const contentWidth = pageWidth - margin.left - margin.right;
+    const encabezado = await toDataURL(encabezadoImagen);
+    const pie = await toDataURL(pieDePaginaImagen);
+    let y = margin.top;
+
+    // === función para encabezado/pie por página ===
+    const drawHeaderFooter = () => {
+      const encProps = doc.getImageProperties(encabezado);
+      const encAlto = (encProps.height / encProps.width) * pageWidth;
+      doc.addImage(encabezado, "PNG", 0, 0, pageWidth, encAlto);
+
+      const pieProps = doc.getImageProperties(pie);
+      const pieAlto = (pieProps.height / pieProps.width) * pageWidth;
+      doc.addImage(pie, "PNG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
+
+      doc.setFont("times", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor("#444");
+      doc.text(
+        "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
+        margin.left,
+        pageHeight - 70
+      );
+      doc.text(
+        `Página ${doc.internal.getCurrentPageInfo().pageNumber}`,
+        pageWidth / 2,
+        pageHeight - 55,
+        { align: "center" }
+      );
+    };
+
+    const addPageIfNeeded = (extra = 40) => {
+      if (y + extra > pageHeight - margin.bottom) {
+        doc.addPage();
+        drawHeaderFooter();
+        y = margin.top;
       }
+    };
 
-      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
-      const azul = "#005A9C";
-      const negro = "#000000";
-      const gris = "#555";
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = { top: 220, bottom: 90, left: 72, right: 72 }; // 1 pulgada
-      const contentWidth = pageWidth - margin.left - margin.right;
-      const encabezado = await toDataURL(encabezadoImagen);
-      const pie = await toDataURL(pieDePaginaImagen);
-      let y = margin.top;
+    // === Página 1 ===
+    drawHeaderFooter();
 
-      const addPageIfNeeded = (extra = 40) => {
-        if (y + extra > pageHeight - margin.bottom) {
-          doc.addPage();
-          y = margin.top;
-        }
-      };
+    // === Título del curso ===
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor(azul);
+    const titulo = temario?.nombre_curso || "Seminario Profesional";
+    const tituloLineas = doc.splitTextToSize(titulo, contentWidth);
+    tituloLineas.forEach((linea) => {
+      doc.text(linea, margin.left, y, { align: "left" }); // margen respetado
+      y += 22;
+    });
+    y += 15;
 
-      // === Título del curso ===
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(20);
-      doc.setTextColor(azul);
-      const titulo = temario?.nombre_curso || "Seminario Profesional";
-      const tituloLineas = doc.splitTextToSize(titulo, contentWidth);
-      tituloLineas.forEach((linea) => {
-        doc.text(linea, pageWidth / 2, y, { align: "center" });
-        y += 22;
-      });
-      y += 20;
+    // === Descripción general ===
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(azul);
+    doc.text("Descripción General", margin.left, y);
+    y += 18;
 
-      // === Descripción general ===
+    doc.setFont("times", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(negro);
+    const descLineas = doc.splitTextToSize(
+      temario?.descripcion_general || "",
+      contentWidth
+    );
+    descLineas.forEach((linea) => {
+      addPageIfNeeded(16);
+      doc.text(linea, margin.left, y, { align: "justify" });
+      y += 16;
+    });
+    y += 15;
+
+    // === Temario Detallado ===
+    addPageIfNeeded(60);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(azul);
+    doc.text("Temario Detallado", margin.left, y);
+    y += 25;
+
+    // === Capítulos ===
+    temario.temario.forEach((cap, i) => {
+      addPageIfNeeded(60);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(azul);
-      doc.text("Descripción General", margin.left, y);
-      y += 18;
 
-      doc.setFont("times", "normal");
-      doc.setFontSize(11);
-      doc.setTextColor(negro);
-      const descLineas = doc.splitTextToSize(temario?.descripcion_general || "", contentWidth);
-      descLineas.forEach((linea) => {
-        addPageIfNeeded(16);
-        doc.text(linea, margin.left, y, { align: "justify" });
-        y += 16;
+      const capTitle = `Capítulo ${i + 1}: ${cap.capitulo}`;
+      const capLines = doc.splitTextToSize(capTitle, contentWidth);
+      capLines.forEach((l) => {
+        doc.text(l, margin.left, y);
+        y += 14;
       });
-      y += 15;
 
-      // === Sección: Temario Detallado ===
-      addPageIfNeeded(60);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(azul);
-      doc.text("Temario Detallado", margin.left, y);
-      y += 25;
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(gris);
+      doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+      y += 14;
 
-      // === Capítulos ===
-      temario.temario.forEach((cap, i) => {
-        addPageIfNeeded(60);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(13);
-        doc.setTextColor(azul);
-
-        const capTitle = `Capítulo ${i + 1}: ${cap.capitulo}`;
-        const capLines = doc.splitTextToSize(capTitle, contentWidth);
-        capLines.forEach((l) => {
-          doc.text(l, margin.left, y);
+      // Objetivos
+      if (cap.objetivos_capitulo) {
+        doc.setFont("times", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(negro);
+        const objetivos = Array.isArray(cap.objetivos_capitulo)
+          ? cap.objetivos_capitulo.join(" ")
+          : cap.objetivos_capitulo;
+        const objLines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth - 15);
+        objLines.forEach((linea) => {
+          addPageIfNeeded(14);
+          doc.text(linea, margin.left + 15, y, { align: "justify" });
           y += 14;
         });
+      }
+      y += 10;
 
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(9);
-        doc.setTextColor(gris);
-        doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
-        y += 14;
+      // Subtemas
+      cap.subcapitulos.forEach((sub, j) => {
+        addPageIfNeeded(16);
+        const subObj = typeof sub === "object" ? sub : { nombre: sub };
+        doc.setFont("times", "normal");
+        doc.setFontSize(10);
+        const tema = `${i + 1}.${j + 1} ${subObj.nombre}`;
+        const temaLineas = doc.splitTextToSize(tema, contentWidth - 80);
 
-        // Objetivos
-        if (cap.objetivos_capitulo) {
-          doc.setFont("times", "normal");
-          doc.setFontSize(11);
-          doc.setTextColor(negro);
-          const objetivos = Array.isArray(cap.objetivos_capitulo)
-            ? cap.objetivos_capitulo.join(" ")
-            : cap.objetivos_capitulo;
-          const objLines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth - 15);
-          objLines.forEach((linea) => {
-            addPageIfNeeded(14);
-            doc.text(linea, margin.left + 15, y, { align: "justify" });
-            y += 14;
-          });
-        }
-        y += 10;
-
-        // Subtemas
-        cap.subcapitulos.forEach((sub, j) => {
-          addPageIfNeeded(16);
-          const subObj = typeof sub === "object" ? sub : { nombre: sub };
-          doc.setFont("times", "normal");
-          doc.setFontSize(10);
-          const tema = `${i + 1}.${j + 1} ${subObj.nombre}`;
-          const temaLineas = doc.splitTextToSize(tema, contentWidth - 80);
-
-          temaLineas.forEach((linea, idx) => {
-            doc.text(linea, margin.left + 25, y);
-            if (idx === 0) {
-              doc.text(`${subObj.tiempo_subcapitulo_min || 0} min`, pageWidth - margin.right, y, {
-                align: "right",
-              });
-            }
-            y += 12;
-          });
+        temaLineas.forEach((linea, idx) => {
+          doc.text(linea, margin.left + 25, y);
+          if (idx === 0) {
+            doc.text(`${subObj.tiempo_subcapitulo_min || 0} min`, pageWidth - margin.right, y, {
+              align: "right",
+            });
+          }
+          y += 12;
         });
-
-        // Línea divisoria entre capítulos
-        y += 8;
-        doc.setDrawColor(200);
-        doc.line(margin.left, y, pageWidth - margin.right, y);
-        y += 20;
       });
 
-      // === Encabezado y pie ===
-      const totalPages = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        const encProps = doc.getImageProperties(encabezado);
-        const encAlto = (encProps.height / encProps.width) * pageWidth;
-        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, encAlto);
-        const pieProps = doc.getImageProperties(pie);
-        const pieAlto = (pieProps.height / pieProps.width) * pageWidth;
-        doc.addImage(pie, "PNG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
-        doc.setFont("times", "italic");
-        doc.setFontSize(9);
-        doc.setTextColor("#444");
-        doc.text(
-          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
-          margin.left,
-          pageHeight - 70
-        );
-        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
-          align: "center",
-        });
-      }
+      // Línea divisoria
+      y += 8;
+      doc.setDrawColor(180);
+      doc.setLineWidth(0.5);
+      doc.line(margin.left, y, pageWidth - margin.right, y);
+      y += 20;
+    });
 
-      doc.save(`Seminario_${slugify(temario?.nombre_curso)}.pdf`);
-      setMensaje({ tipo: "ok", texto: "✅ PDF exportado correctamente" });
-    } catch (err) {
-      console.error(err);
-      setMensaje({ tipo: "error", texto: "❌ Error al generar PDF" });
-    }
+    doc.save(`Seminario_${slugify(temario?.nombre_curso)}.pdf`);
+    setMensaje({ tipo: "ok", texto: "✅ PDF exportado correctamente" });
+  } catch (err) {
+    console.error(err);
+    setMensaje({ tipo: "error", texto: "❌ Error al generar PDF" });
+  }
   };
 
   // === Exportar Excel ===
