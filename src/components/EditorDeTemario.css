@@ -274,4 +274,26 @@
   filter: none !important; /* elimina interferencia de gradientes */
 }
 
+/* 🔧 Alinea los inputs de subtemas para que tengan igual tamaño */
+.subcapitulo-item input[type="text"] {
+  flex: 2;
+}
+.subcapitulo-item input[type="number"] {
+  width: 70px;
+  text-align: center;
+}
+
+/* 🔧 Mejora visual del contador de capítulos */
+.capitulo-editor h4 {
+  font-size: 1.1rem;
+  border-bottom: 2px solid #035b6e15;
+  padding-bottom: 4px;
+  margin-bottom: 0.8rem;
+}
+
+/* 🔧 Espaciado del botón Agregar Tema */
+.btn-agregar-tema {
+  margin-top: 0.5rem;
+}
+
 
