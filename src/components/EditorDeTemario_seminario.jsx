@@ -179,7 +179,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     const gris = "#555";
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = { top: 150, bottom: 90, left: 72, right: 72 };
+    const margin = { top: 220, bottom: 90, left: 72, right: 72 };
     const contentWidth = pageWidth - margin.left - margin.right;
 
     const encabezado = await toDataURL(encabezadoImagen);
@@ -231,10 +231,10 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     const titulo = temario?.nombre_curso || "Seminario Profesional";
     const tituloLineas = doc.splitTextToSize(titulo, contentWidth);
     tituloLineas.forEach((linea) => {
-      doc.text(linea, margin.left, y);
+      doc.text(linea, margin.left, y, {align: "left"});
       y += 24;
     });
-    y += 10;
+    y += 20;
 
     // === Descripción ===
     doc.setFont("helvetica", "normal");
@@ -246,8 +246,8 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     );
     descLineas.forEach((linea) => {
       addPageIfNeeded(16);
-      doc.text(linea, margin.left, y);
-      y += 16;
+      doc.text(descLineas, linea, margin.left, y, { maxwidth: contentWidth, align: "justify"});
+      y += descLineas.length * 14;
     });
     y += 20;
 
@@ -292,7 +292,7 @@ export default function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         );
         objLines.forEach((linea) => {
           addPageIfNeeded(14);
-          doc.text(linea, margin.left + 15, y);
+          doc.text(linea, margin.left + 15, y, {maxWidth: contentWidth - 30, align: "justify"});
           y += 14;
         });
       }
