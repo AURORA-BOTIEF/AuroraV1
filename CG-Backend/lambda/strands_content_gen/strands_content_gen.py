@@ -203,16 +203,18 @@ REQUIREMENTS:
 6. Meet the target word count for each lesson
 8. Maintain technical accuracy and professional tone
 9. Include practical examples where appropriate
-10. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: description]
-   - Format: [VISUAL: description] (capital letters, single space after colon, no period at end)
+10. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-NNNN - description]
+   - Format: [VISUAL: MM-LL-NNNN - description] where:
+     * MM = Module number (2 digits, zero-padded) - USE {module_number:02d}
+     * LL = Lesson number within module (2 digits, zero-padded)
+     * NNNN = Sequential figure number starting at 0001
+     * description = Clear, detailed description for image generation (10-20 words)
    - Place inline where the image should appear (on its own line for best results)
-   - Keep descriptions concise but specific (5-15 words)
-   - DO NOT use quotes, parentheses, or special characters in descriptions
-   - Examples:
-     * [VISUAL: Diagram showing the MVC architecture flow]
-     * [VISUAL: Screenshot of the IDE debugger panel]
-     * [VISUAL: Flowchart of the authentication process]
-     * [VISUAL: Table comparing synchronous vs asynchronous operations]
+   - Number figures sequentially within each lesson (0001, 0002, 0003, etc.)
+   - Examples for Module {module_number}, Lesson 1:
+     * [VISUAL: {module_number:02d}-01-0001 - Diagram showing the MVC architecture flow with models, views, and controllers]
+     * [VISUAL: {module_number:02d}-01-0002 - Screenshot of the IDE debugger panel with breakpoints and variable inspection]
+     * [VISUAL: {module_number:02d}-01-0003 - Flowchart of the authentication process from login to session creation]
 
 OUTPUT FORMAT:
 Generate the lessons separated by this exact delimiter:
@@ -432,7 +434,9 @@ def lambda_handler(event, context):
         
         # Support both 'course' and 'course_metadata' keys
         course_info = outline_data.get('course', outline_data.get('course_metadata', {}))
-        modules = outline_data.get('modules', [])
+        # Get modules from course structure (support both nested and flat formats)
+        course_data = outline_data.get('course', outline_data)
+        modules = course_data.get('modules', [])
         
         # Validate module
         if module_num > len(modules) or module_num < 1:

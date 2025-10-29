@@ -101,10 +101,9 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
             target_modules = None
     
     # Modules can be at top level OR under 'course'
-    modules = outline_data.get('modules', [])
-    if not modules:
-        course_data = outline_data.get('course', {})
-        modules = course_data.get('modules', [])
+    # Support both nested and flat formats (prefer nested)
+    course_data = outline_data.get('course', outline_data)
+    modules = course_data.get('modules', [])
     
     print(f"\n{'='*70}")
     print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")

@@ -1900,6 +1900,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 course_bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
                 project_folder: projectFolder,
                 book_version_key: bookVersionKey, // null means auto-discover
+                book_type: bookType, // 'theory' or 'lab' - tells Lambda which book to use
                 model_provider: pptModelProvider,
                 slides_per_lesson: slidesPerLesson,
                 presentation_style: pptStyle
