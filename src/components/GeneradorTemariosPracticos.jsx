@@ -36,7 +36,7 @@ function GeneradorTemariosPracticos() {
   const [menuActivo, setMenuActivo] = useState(null);
 
   // === URLs de API ===
-  const generarApiUrl = "https://ot4ml4tkxl.execute-api.us-east-1.amazonaws.com/default/tem_practico_openai";
+  const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
   const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   // === Obtener usuario autenticado ===
