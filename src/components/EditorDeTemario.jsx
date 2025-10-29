@@ -148,25 +148,59 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setTemario(nuevo);
     setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
+// ===== GUARDAR ===== (CORREGIDO)
+const handleSaveClick = async () => {
+  setGuardando(true);
+  setMensaje({ tipo: "", texto: "" });
 
-  // ===== GUARDAR =====
-  const handleSaveClick = async () => {
-    if (!onSave) return;
-    setGuardando(true);
-    setMensaje({ tipo: "", texto: "" });
-    const nota =
-      window.prompt("Escribe una nota para esta versión (opcional):") || "";
-    try {
-      await onSave({ ...temario, autor: userEmail }, nota);
-      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
-    } catch (err) {
-      console.error(err);
-      setMensaje({ tipo: "error", texto: "❌ Error al guardar la versión" });
-    } finally {
-      setGuardando(false);
-      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
-    }
-  };
+  const nota =
+    window.prompt("Escribe una nota para esta versión (opcional):") || "";
+
+  try {
+    const token = localStorage.getItem("id_token");
+
+    const bodyData = {
+      cursoId: temario?.tema_curso || temario?.nombre_curso || "curso_sin_nombre",
+      contenido: temario,
+      autor: userEmail,
+      nombre_curso: temario?.nombre_curso || "",
+      tecnologia: temario?.tecnologia || "",
+      asesor_comercial: temario?.asesor_comercial || "",
+      nombre_preventa: temario?.nombre_preventa || "",
+      nota_version: nota,
+      fecha_creacion: new Date().toISOString(),
+    };
+
+    const response = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(bodyData),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success)
+      throw new Error(data.error || "Error al guardar versión");
+
+    setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
+  } catch (err) {
+    console.error("Error al guardar versión:", err);
+    setMensaje({
+      tipo: "error",
+      texto: "❌ Error al guardar versión (ver consola)",
+    });
+  } finally {
+    setGuardando(false);
+    setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
+  }
+};
+
 
   // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {
