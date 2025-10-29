@@ -1213,6 +1213,15 @@ Resources:
           BothTheoryAndLabsBranch:
             Type: Pass
             Comment: "Generate theory first, then labs (both use parallel batch processing)"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              outline_s3_key.$: $.outline_s3_key
+              project_folder.$: $.project_folder
+              model_provider.$: $.model_provider
+              content_source.$: $.content_source
+              modules_to_generate.$: $.modules_to_generate
+              content_type.$: $.content_type
+              master_lab_plan_result.$: $.master_lab_plan_result
             Next: ExpandModulesToBatches
           
           # ===== FAIL STATES =====

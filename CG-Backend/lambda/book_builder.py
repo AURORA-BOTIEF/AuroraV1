@@ -110,8 +110,8 @@ def lambda_handler(event, context):
                                 img_id = prompt_data.get('id', '')
                                 
                                 if description and img_id:
-                                    # Build visual tag from description
-                                    visual_tag = f"[VISUAL: {description}]"
+                                    # Build visual tag with ID and description (new format)
+                                    visual_tag = f"[VISUAL: {img_id} - {description}]"
                                     # Build image path (images are stored as id.png)
                                     image_path = f"{project_folder}/images/{img_id}.png"
                                     image_mappings[visual_tag] = image_path

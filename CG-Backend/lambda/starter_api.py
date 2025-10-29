@@ -84,11 +84,9 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
                 outline_content = outline_obj['Body'].read().decode('utf-8')
                 outline_data = yaml.safe_load(outline_content)
                 
-                # Support both 'course' and top-level 'modules'
-                modules = outline_data.get('modules', [])
-                if not modules:
-                    course_data = outline_data.get('course', {})
-                    modules = course_data.get('modules', [])
+                # Support both 'course' and top-level 'modules' (prefer nested)
+                course_data = outline_data.get('course', outline_data)
+                modules = course_data.get('modules', [])
                 
                 total_modules = len(modules)
                 print(f"📊 'all' detected: generating all {total_modules} modules")

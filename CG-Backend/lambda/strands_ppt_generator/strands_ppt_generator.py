@@ -639,6 +639,110 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
         # Set 16:9 widescreen format (standard for modern displays)
         prs.slide_width = Inches(13.333)  # 16:9 aspect ratio
         prs.slide_height = Inches(7.5)
+        # cache slide dimensions for layout helpers
+        slide_width = prs.slide_width
+        slide_height = prs.slide_height
+
+        # small helper to horizontally center a shape and set a relative width
+        def center_shape_horizontally(shape, width_ratio: float = 0.8):
+            """Set shape.width to width_ratio * slide_width and center it horizontally."""
+            try:
+                desired_width = int(slide_width * width_ratio)
+                shape.width = desired_width
+                shape.left = int((slide_width - desired_width) // 2)
+            except Exception:
+                # If shape doesn't support width/left or values fail, ignore silently
+                pass
+
+        # In-memory image cache to avoid double downloads: {url: bytes}
+        image_cache: Dict[str, bytes] = {}
+
+        # Helpers for adaptive layout decisions
+        def estimate_text_word_count(slide_data: Dict) -> int:
+            """Count words in title, bullets and caption to estimate text length."""
+            words = 0
+            title = slide_data.get('title', '') or ''
+            caption = slide_data.get('caption', '') or ''
+            bullets = slide_data.get('bullets', []) or []
+            words += len(title.split())
+            words += len(caption.split())
+            for b in bullets:
+                words += len(str(b).split())
+            return words
+
+        # Delegate robust image tasks to image_manager
+        try:
+            from . import image_manager
+        except Exception:
+            # fallback to local helper if relative import fails (module may be run as script)
+            try:
+                import image_manager
+            except Exception:
+                image_manager = None
+
+        def get_image_dimensions(image_url: str) -> Optional[Dict[str, int]]:
+            """Try to retrieve image and return its pixel dimensions {width, height}.
+            Returns None on failure.
+            """
+            # If we have the helper module, use it (it handles caching and Pillow checks)
+            if image_manager is not None:
+                try:
+                    # Try to use cache first
+                    if image_url in image_cache:
+                        dims = image_manager.get_image_size_from_bytes(image_cache[image_url])
+                        if dims:
+                            return {'width': dims[0], 'height': dims[1]}
+
+                    raw = image_manager.fetch_image_bytes(image_url, s3_client=s3_client)
+                    if not raw:
+                        return None
+                    # store in cache
+                    image_cache[image_url] = raw
+                    dims = image_manager.get_image_size_from_bytes(raw)
+                    if dims:
+                        return {'width': dims[0], 'height': dims[1]}
+                    return None
+                except Exception:
+                    return None
+
+            # Fallback: no image_manager available -> return None
+            return None
+
+        def decide_layout_for_slide(slide_data: Dict) -> str:
+            """Decide layout: 'image-only', 'split-right', 'split-top', or 'text-only'."""
+            WORD_SHORT = 35
+            WORD_MEDIUM = 100
+
+            text_words = estimate_text_word_count(slide_data)
+            image_url = slide_data.get('image_url')
+
+            if not image_url:
+                return 'text-only'
+
+            dims = get_image_dimensions(image_url)
+            # If we couldn't get dimensions, be conservative and use split-right
+            if not dims:
+                if text_words <= WORD_SHORT:
+                    return 'image-only'
+                return 'split-right'
+
+            w = dims.get('width', 0)
+            h = dims.get('height', 1)
+            if h == 0:
+                h = 1
+            aspect = w / h
+
+            # Decision rules
+            if text_words <= WORD_SHORT:
+                # Favor large visual slide when text is short
+                return 'image-only'
+            if text_words <= WORD_MEDIUM:
+                # Medium text: if image is wide, place on top; if tall or square, place on right
+                if aspect >= 1.3:
+                    return 'split-top'
+                return 'split-right'
+            # Long text -> text only (split into more slides upstream)
+            return 'text-only'
         
         # Define slide layouts
         title_slide_layout = prs.slide_layouts[0]  # Title Slide
@@ -704,6 +808,14 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
                 title_para.font.bold = True
                 title_para.font.color.rgb = colors['primary']  # Use primary color instead of white
                 title_para.alignment = PP_ALIGN.CENTER
+
+                # Center the title and subtitle shapes horizontally on the slide
+                center_shape_horizontally(title_shape, width_ratio=0.82)
+                try:
+                    if subtitle is not None:
+                        center_shape_horizontally(subtitle, width_ratio=0.6)
+                except Exception:
+                    pass
                 
                 # Subtitle formatting
                 if subtitle.has_text_frame:
@@ -728,64 +840,86 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
                 title_shape.text = slide_title
                 title_frame = title_shape.text_frame
                 title_para = title_frame.paragraphs[0]
-                title_para.font.size = Pt(36)
+                title_para.font.size = Pt(28)  # SMALLER, professional title
                 title_para.font.bold = True
                 title_para.font.color.rgb = colors['primary']
+                # Ensure the title is visually centered (placeholder defaults can be off)
+                title_para.alignment = PP_ALIGN.CENTER
+                center_shape_horizontally(title_shape, width_ratio=0.85)
                 
                 # Add subtle background to title
                 title_shape.fill.solid()
                 title_shape.fill.fore_color.rgb = RGBColor(248, 249, 250)
                 
-                # Check if there's an image for this slide
-                has_image = slide_data.get('image_url') and slide_data.get('image_url') not in ['', None]
+                # Adaptive layout selection based on text length and image dimensions
+                image_url = slide_data.get('image_url')
+                layout = decide_layout_for_slide(slide_data) if image_url else 'text-only'
+
+                # Default assignments
+                content_left = Inches(2.0)
+                content_width = Inches(9.5)
+                image_left = None
+                image_top = None
+                image_width = None
+                image_height = None
+
+                if layout == 'text-only':
+                    has_image = False
+                    content_left = Inches(2.0)
+                    content_width = Inches(9.5)
+                elif layout == 'image-only':
+                    has_image = True
+                    # Large full-width image with short caption below
+                    content_left = Inches(2.0)
+                    content_width = Inches(9.5)
+                    image_left = Inches(1.0)
+                    image_top = Inches(1.6)
+                    image_width = Inches(11.3)
+                    image_height = Inches(4.8)
+                elif layout == 'split-top':
+                    has_image = True
+                    # Top image spanning the page, text below
+                    image_left = Inches(1.0)
+                    image_top = Inches(1.2)
+                    image_width = Inches(11.3)
+                    image_height = Inches(3.2)
+                    content_left = Inches(1.0)
+                    content_width = Inches(9.0)
+                else:  # split-right and default conservative split
+                    has_image = True
+                    content_left = Inches(0.6)
+                    content_width = Inches(5.8)
+                    image_left = Inches(7.0)
+                    image_top = Inches(2.0)
+                    image_width = Inches(5.5)
+                    image_height = Inches(4.5)
                 
-                # Optimal layout for 16:9 format with balanced proportions
-                if has_image:
-                    # Two-column layout: 60% text, 35% image, 5% margins
-                    # This prevents text overflow and image overwhelming
-                    content_left = Inches(0.8)
-                    content_width = Inches(7.5)  # Wider text area (60% of usable space)
-                    
-                    # Image will be smaller and positioned in remaining space
-                    image_left = Inches(8.8)  # Start after text with small gap
-                    image_top = Inches(2.2)
-                    image_width = Inches(4.0)  # Smaller image (30% of slide width)
-                    image_height = Inches(4.5)  # Constrain height too
-                else:
-                    # Full-width centered layout for better 16:9 appearance
-                    content_left = Inches(1.5)
-                    content_width = Inches(10.5)
-                    image_left = None
-                    image_top = None
-                    image_width = None
-                    image_height = None
-                
-                # Content body with enhanced bullets
+                # Content body with conservative spacing
                 body = slide.placeholders[1]
                 body.left = content_left
                 body.top = Inches(1.8)
                 body.width = content_width
-                body.height = Inches(5.2)  # Slightly taller for more content
+                body.height = Inches(5.2)
                 
                 text_frame = body.text_frame
                 text_frame.clear()
                 text_frame.word_wrap = True
                 
-                # Limit bullets to prevent overwhelming text
+                # STRICT bullet limits for professional appearance
                 bullets = slide_data.get('bullets', [])
-                max_bullets = 7 if has_image else 8  # Fewer bullets when image present
+                max_bullets = 5 if has_image else 6  # STRICT LIMITS
                 bullets_to_show = bullets[:max_bullets]
                 
                 for i, bullet in enumerate(bullets_to_show):
                     p = text_frame.add_paragraph()
                     p.text = bullet
                     p.level = 0
-                    # Smaller font size for better fit with images
-                    p.font.size = Pt(16) if has_image else Pt(18)
+                    # Smaller, professional font sizes
+                    p.font.size = Pt(14) if has_image else Pt(16)  # SMALLER FONTS
                     p.font.name = 'Calibri'
-                    # Tighter spacing when image present
-                    p.space_before = Pt(8) if has_image else Pt(12)
-                    p.space_after = Pt(6) if has_image else Pt(8)
+                    # Tight spacing for clean look
+                    p.space_before = Pt(6) if has_image else Pt(8)
+                    p.space_after = Pt(4) if has_image else Pt(6)
                     
                     # Alternate bullet colors for visual interest
                     if i % 2 == 0:
@@ -805,87 +939,214 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
                 if image_url and has_image:
                     try:
                         img_data = None
-                        
-                        # If it's an S3 URL, use S3 client directly (avoids HTTP 403 issues)
-                        if 's3.amazonaws.com' in image_url or image_url.startswith('s3://'):
+                        # Try cache first
+                        if image_url in image_cache:
                             try:
-                                # Parse S3 URL
-                                if image_url.startswith('s3://'):
-                                    # s3://bucket/key format
-                                    parts = image_url[5:].split('/', 1)
-                                    bucket = parts[0]
-                                    key = parts[1] if len(parts) > 1 else ''
-                                else:
-                                    # https://bucket.s3.amazonaws.com/key format
-                                    url_parts = image_url.replace('https://', '').replace('http://', '').split('/')
-                                    bucket = url_parts[0].split('.')[0]
-                                    key = '/'.join(url_parts[1:])
-                                
-                                print(f"🔄 Retrieving from S3: s3://{bucket}/{key}")
-                                s3_response = s3_client.get_object(Bucket=bucket, Key=key)
-                                img_data = io.BytesIO(s3_response['Body'].read())
-                                print(f"✅ Retrieved image from S3: {bucket}/{key}")
-                            except Exception as s3_error:
-                                print(f"❌ S3 access failed: {s3_error}")
-                                # Fall back to HTTP
-                                if image_url.startswith('http'):
-                                    try:
-                                        img_resp = requests.get(image_url, timeout=10)
-                                        if img_resp.status_code == 200:
-                                            img_data = io.BytesIO(img_resp.content)
-                                            print(f"✅ Downloaded via HTTP: {image_url}")
-                                    except:
-                                        pass
-                        elif image_url.startswith('http'):
-                            # Regular HTTP URL
-                            try:
-                                img_resp = requests.get(image_url, timeout=10)
-                                if img_resp.status_code == 200:
-                                    img_data = io.BytesIO(img_resp.content)
-                                    print(f"✅ Downloaded image: {image_url}")
-                            except requests.exceptions.RequestException as e:
-                                print(f"⚠️ Network error downloading image: {e}")
+                                img_data = io.BytesIO(image_cache[image_url])
+                            except Exception:
+                                img_data = None
+
+                        # If not cached, download and cache
+                        if not img_data:
+                            if 's3.amazonaws.com' in image_url or image_url.startswith('s3://'):
+                                try:
+                                    # Parse S3 URL
+                                    if image_url.startswith('s3://'):
+                                        parts = image_url[5:].split('/', 1)
+                                        bucket = parts[0]
+                                        key = parts[1] if len(parts) > 1 else ''
+                                    else:
+                                        url_parts = image_url.replace('https://', '').replace('http://', '').split('/')
+                                        bucket = url_parts[0].split('.')[0]
+                                        key = '/'.join(url_parts[1:])
+
+                                    print(f"🔄 Retrieving from S3: s3://{bucket}/{key}")
+                                    s3_response = s3_client.get_object(Bucket=bucket, Key=key)
+                                    raw = s3_response['Body'].read()
+                                    img_data = io.BytesIO(raw)
+                                    image_cache[image_url] = raw
+                                    print(f"✅ Retrieved image from S3: {bucket}/{key}")
+                                except Exception as s3_error:
+                                    print(f"❌ S3 access failed: {s3_error}")
+                                    # Fall back to HTTP
+                                    if image_url.startswith('http'):
+                                        try:
+                                            img_resp = requests.get(image_url, timeout=10)
+                                            if img_resp.status_code == 200:
+                                                raw = img_resp.content
+                                                img_data = io.BytesIO(raw)
+                                                image_cache[image_url] = raw
+                                                print(f"✅ Downloaded via HTTP: {image_url}")
+                                        except Exception:
+                                            pass
+                            elif image_url.startswith('http'):
+                                # Regular HTTP URL
+                                try:
+                                    img_resp = requests.get(image_url, timeout=10)
+                                    if img_resp.status_code == 200:
+                                        raw = img_resp.content
+                                        img_data = io.BytesIO(raw)
+                                        image_cache[image_url] = raw
+                                        print(f"✅ Downloaded image: {image_url}")
+                                except requests.exceptions.RequestException as e:
+                                    print(f"⚠️ Network error downloading image: {e}")
 
                         if img_data:
                             # Add image with optimized size and position (prevents overwhelming)
                             # Use the variables set earlier based on layout
                             if image_left is not None:
-                                # Use constrained size to prevent image from overwhelming slide
-                                # Width constraint is primary to fit in allocated space
-                                pic = slide.shapes.add_picture(img_data, image_left, image_top, width=image_width)
-                                
-                                # If the image is too tall after width constraint, adjust it
-                                if pic.height > image_height:
-                                    # Recalculate to fit height instead
-                                    aspect_ratio = pic.width / pic.height
-                                    pic.height = image_height
-                                    pic.width = int(image_height * aspect_ratio)
-                                    # Re-center horizontally if narrower
-                                    if pic.width < image_width:
-                                        pic.left = image_left + (image_width - pic.width) // 2
-                                
-                                print(f"✅ Inserted image: {pic.width.inches:.2f}\"x{pic.height.inches:.2f}\" at ({pic.left.inches:.2f}\", {pic.top.inches:.2f}\")")
+                                try:
+                                    # Ensure we have raw bytes
+                                    raw_bytes = None
+                                    if isinstance(img_data, io.BytesIO):
+                                        raw_bytes = img_data.getvalue()
+                                    elif isinstance(img_data, (bytes, bytearray)):
+                                        raw_bytes = bytes(img_data)
+
+                                    pic_stream = None
+                                    DPI = 150  # target DPI for resizing (tunable)
+                                    if raw_bytes and image_manager is not None:
+                                        try:
+                                            max_w = int(image_width.inches * DPI)
+                                            max_h = int(image_height.inches * DPI)
+                                            resized = image_manager.resize_image_bytes(raw_bytes, max_w, max_h, fmt='PNG')
+                                            if resized:
+                                                pic_stream = io.BytesIO(resized)
+                                        except Exception:
+                                            pic_stream = None
+
+                                    # If we couldn't resize, use the original stream
+                                    if not pic_stream:
+                                        try:
+                                            pic_stream = img_data if isinstance(img_data, io.BytesIO) else io.BytesIO(raw_bytes)
+                                        except Exception:
+                                            pic_stream = img_data
+
+                                    pic = slide.shapes.add_picture(pic_stream, image_left, image_top, width=image_width)
+
+                                    # If the image is too tall after width constraint, adjust it
+                                    if pic.height > image_height:
+                                        # Recalculate to fit height instead
+                                        aspect_ratio = pic.width / pic.height
+                                        pic.height = image_height
+                                        pic.width = int(image_height * aspect_ratio)
+                                        # Re-center horizontally if narrower
+                                        if pic.width < image_width:
+                                            pic.left = image_left + (image_width - pic.width) // 2
+
+                                    print(f"✅ Inserted image: {pic.width.inches:.2f}\"x{pic.height.inches:.2f}\" at ({pic.left.inches:.2f}\", {pic.top.inches:.2f}\")")
+                                except Exception as e:
+                                    print(f"⚠️ Error inserting/resizing image: {e}")
                         else:
                             print(f"⚠️ Could not access image, adding visual placeholder")
-                            # Add professional-looking placeholder with same sizing as images
-                            if image_left is not None:
-                                # Create a rectangle shape as placeholder
+                            # Try to create a professional-looking placeholder image via image_manager
+                            if image_left is not None and image_manager is not None:
+                                try:
+                                    placeholder_text = slide_data.get('image_reference') or slide_title or 'Visual'
+                                    # Create placeholder at target pixel size using DPI
+                                    DPI = 150
+                                    px_w = int(image_width.inches * DPI)
+                                    px_h = int(image_height.inches * DPI)
+                                    ph = image_manager.create_placeholder_image(text=placeholder_text, size=(px_w, px_h))
+                                    if ph:
+                                        pic_stream = io.BytesIO(ph)
+                                        pic = slide.shapes.add_picture(pic_stream, image_left, image_top, width=image_width)
+                                        try:
+                                            pic.name = 'aurora_placeholder'
+                                        except Exception:
+                                            pass
+                                    else:
+                                        raise Exception('placeholder generation returned None')
+                                except Exception as pe:
+                                    print(f"⚠️ Placeholder image creation failed: {pe}. Attempting inline PNG creation or shape fallback.")
+                                    # Try to create a minimal PNG inline using Pillow if available
+                                    inline_ph = None
+                                    try:
+                                        from PIL import Image, ImageDraw, ImageFont
+                                        pw = int(image_width.inches * DPI)
+                                        ph_h = int(image_height.inches * DPI)
+                                        im = Image.new('RGB', (max(1, pw), max(1, ph_h)), color=(245, 247, 250))
+                                        draw = ImageDraw.Draw(im)
+                                        try:
+                                            font = ImageFont.truetype('DejaVuSans-Bold.ttf', 24)
+                                        except Exception:
+                                            try:
+                                                font = ImageFont.load_default()
+                                            except Exception:
+                                                font = None
+                                        text = placeholder_text if placeholder_text else 'Visual'
+                                        try:
+                                            bbox = draw.textbbox((0, 0), text, font=font)
+                                            tw = bbox[2] - bbox[0]
+                                            th = bbox[3] - bbox[1]
+                                        except Exception:
+                                            try:
+                                                tw, th = font.getsize(text) if font else (int(pw * 0.6), 24)
+                                            except Exception:
+                                                tw, th = (int(pw * 0.6), 24)
+                                        tx = max(0, (pw - tw) // 2)
+                                        ty = max(0, (ph_h - th) // 2)
+                                        try:
+                                            draw.text((tx, ty), text, fill=(108, 117, 125), font=font)
+                                        except Exception:
+                                            pass
+                                        out = io.BytesIO()
+                                        im.save(out, format='PNG')
+                                        inline_ph = out.getvalue()
+                                    except Exception:
+                                        inline_ph = None
+
+                                    if inline_ph:
+                                        try:
+                                            pic_stream = io.BytesIO(inline_ph)
+                                            pic = slide.shapes.add_picture(pic_stream, image_left, image_top, width=image_width)
+                                            try:
+                                                pic.name = 'aurora_placeholder'
+                                            except Exception:
+                                                pass
+                                        except Exception:
+                                            inline_ph = None
+
+                                    # Final fallback: shape placeholder
+                                    if not inline_ph:
+                                        placeholder = slide.shapes.add_shape(
+                                            1,  # Rectangle
+                                            image_left, image_top, image_width, image_height
+                                        )
+                                        fill = placeholder.fill
+                                        fill.solid()
+                                        fill.fore_color.rgb = RGBColor(240, 240, 240)
+                                        line = placeholder.line
+                                        line.color.rgb = colors['secondary']
+                                        line.width = Pt(2)
+                                        text_frame = placeholder.text_frame
+                                        text_frame.text = "📊 Visual [PLACEHOLDER]"
+                                        try:
+                                            placeholder.name = 'aurora_placeholder'
+                                        except Exception:
+                                            pass
+                                        p = text_frame.paragraphs[0]
+                                        p.alignment = PP_ALIGN.CENTER
+                                        p.font.size = Pt(14)
+                                        p.font.color.rgb = colors['secondary']
+                            elif image_left is not None:
+                                # No image_manager available; draw a simple rectangle placeholder
                                 placeholder = slide.shapes.add_shape(
                                     1,  # Rectangle
                                     image_left, image_top, image_width, image_height
                                 )
-                                # Style the placeholder
                                 fill = placeholder.fill
                                 fill.solid()
                                 fill.fore_color.rgb = RGBColor(240, 240, 240)
-                                
                                 line = placeholder.line
                                 line.color.rgb = colors['secondary']
                                 line.width = Pt(2)
-                                
-                                # Add text to placeholder
                                 text_frame = placeholder.text_frame
-                                text_frame.text = "📊 Visual"
+                                text_frame.text = "📊 Visual [PLACEHOLDER]"
+                                try:
+                                    placeholder.name = 'aurora_placeholder'
+                                except Exception:
+                                    pass
                                 p = text_frame.paragraphs[0]
                                 p.alignment = PP_ALIGN.CENTER
                                 p.font.size = Pt(14)
@@ -905,6 +1166,7 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
                 fill.fore_color.rgb = RGBColor(245, 247, 250)
                 
                 # Title with modern styling
+                # Create a centered textbox for the title to ensure perfect centering
                 txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.5), Inches(1))
                 tf = txBox.text_frame
                 p = tf.paragraphs[0]
@@ -913,61 +1175,192 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
                 p.font.bold = True
                 p.font.color.rgb = colors['primary']
                 p.alignment = PP_ALIGN.CENTER
+                # Center the textbox horizontally using our helper
+                center_shape_horizontally(txBox, width_ratio=0.92)
                 
                 # Add image with border and shadow
                 image_url = slide_data.get('image_url')
                 if image_url:
                     try:
                         img_data = None
-                        
-                        # Use S3 client for S3 URLs
-                        if 's3.amazonaws.com' in image_url or image_url.startswith('s3://'):
+                        # Try cache first
+                        if image_url in image_cache:
                             try:
-                                if image_url.startswith('s3://'):
-                                    parts = image_url[5:].split('/', 1)
-                                    bucket = parts[0]
-                                    key = parts[1] if len(parts) > 1 else ''
-                                else:
-                                    url_parts = image_url.replace('https://', '').replace('http://', '').split('/')
-                                    bucket = url_parts[0].split('.')[0]
-                                    key = '/'.join(url_parts[1:])
-                                
-                                print(f"🔄 Retrieving image from S3: s3://{bucket}/{key}")
-                                s3_response = s3_client.get_object(Bucket=bucket, Key=key)
-                                img_data = io.BytesIO(s3_response['Body'].read())
-                                print(f"✅ Retrieved image from S3")
-                            except Exception as s3_error:
-                                print(f"❌ S3 access failed: {s3_error}")
+                                img_data = io.BytesIO(image_cache[image_url])
+                            except Exception:
+                                img_data = None
+
+                        # If not cached, download and cache
+                        if not img_data:
+                            if 's3.amazonaws.com' in image_url or image_url.startswith('s3://'):
+                                try:
+                                    if image_url.startswith('s3://'):
+                                        parts = image_url[5:].split('/', 1)
+                                        bucket = parts[0]
+                                        key = parts[1] if len(parts) > 1 else ''
+                                    else:
+                                        url_parts = image_url.replace('https://', '').replace('http://', '').split('/')
+                                        bucket = url_parts[0].split('.')[0]
+                                        key = '/'.join(url_parts[1:])
+
+                                    print(f"🔄 Retrieving image from S3: s3://{bucket}/{key}")
+                                    s3_response = s3_client.get_object(Bucket=bucket, Key=key)
+                                    raw = s3_response['Body'].read()
+                                    img_data = io.BytesIO(raw)
+                                    image_cache[image_url] = raw
+                                    print(f"✅ Retrieved image from S3")
+                                except Exception as s3_error:
+                                    print(f"❌ S3 access failed: {s3_error}")
 
                         if img_data:
                             # Center the image
                             left = Inches(1.5)
                             top = Inches(1.5)
                             width = Inches(7)
-                            pic = slide.shapes.add_picture(img_data, left, top, width=width)
-                            print(f"✅ Inserted image into slide")
+                            try:
+                                raw_bytes = None
+                                if isinstance(img_data, io.BytesIO):
+                                    raw_bytes = img_data.getvalue()
+                                elif isinstance(img_data, (bytes, bytearray)):
+                                    raw_bytes = bytes(img_data)
+
+                                pic_stream = None
+                                DPI = 150
+                                if raw_bytes and image_manager is not None:
+                                    try:
+                                        max_w = int(width.inches * DPI)
+                                        max_h = int((Inches(4).inches) * DPI)  # approximate height limit
+                                        resized = image_manager.resize_image_bytes(raw_bytes, max_w, max_h, fmt='PNG')
+                                        if resized:
+                                            pic_stream = io.BytesIO(resized)
+                                    except Exception:
+                                        pic_stream = None
+
+                                if not pic_stream:
+                                    try:
+                                        pic_stream = img_data if isinstance(img_data, io.BytesIO) else io.BytesIO(raw_bytes)
+                                    except Exception:
+                                        pic_stream = img_data
+
+                                pic = slide.shapes.add_picture(pic_stream, left, top, width=width)
+                                print(f"✅ Inserted image into slide")
+                            except Exception as e:
+                                print(f"⚠️ Error inserting image into image slide: {e}")
                         else:
-                            # Professional placeholder
-                            left = Inches(2)
-                            top = Inches(2)
-                            width = Inches(6)
-                            height = Inches(4)
-                            
-                            placeholder = slide.shapes.add_shape(1, left, top, width, height)
-                            fill = placeholder.fill
-                            fill.solid()
-                            fill.fore_color.rgb = RGBColor(255, 255, 255)
-                            
-                            line = placeholder.line
-                            line.color.rgb = colors['secondary']
-                            line.width = Pt(3)
-                            
-                            text_frame = placeholder.text_frame
-                            text_frame.text = "📊 Diagram"
-                            p = text_frame.paragraphs[0]
-                            p.alignment = PP_ALIGN.CENTER
-                            p.font.size = Pt(32)
-                            p.font.color.rgb = colors['secondary']
+                            # Professional placeholder - try to generate via image_manager where possible
+                            if image_manager is not None:
+                                try:
+                                    left = Inches(2)
+                                    top = Inches(2)
+                                    width = Inches(6)
+                                    height = Inches(4)
+                                    DPI = 150
+                                    px_w = int(width.inches * DPI)
+                                    px_h = int(height.inches * DPI)
+                                    ph = image_manager.create_placeholder_image(text=slide_data.get('caption', 'Diagram'), size=(px_w, px_h))
+                                    if ph:
+                                        pic_stream = io.BytesIO(ph)
+                                        pic = slide.shapes.add_picture(pic_stream, left, top, width=width)
+                                        try:
+                                            pic.name = 'aurora_placeholder'
+                                        except Exception:
+                                            pass
+                                    else:
+                                        raise Exception('placeholder returned None')
+                                except Exception as e:
+                                    print(f"⚠️ Failed to create placeholder image for image slide: {e}. Attempting inline PNG creation or shape fallback.")
+                                    inline_ph = None
+                                    try:
+                                        from PIL import Image, ImageDraw, ImageFont
+                                        pw = int(width.inches * DPI)
+                                        ph_h = int(height.inches * DPI)
+                                        im = Image.new('RGB', (max(1, pw), max(1, ph_h)), color=(245, 247, 250))
+                                        draw = ImageDraw.Draw(im)
+                                        try:
+                                            font = ImageFont.truetype('DejaVuSans-Bold.ttf', 36)
+                                        except Exception:
+                                            try:
+                                                font = ImageFont.load_default()
+                                            except Exception:
+                                                font = None
+                                        text = slide_data.get('caption', 'Diagram')
+                                        try:
+                                            bbox = draw.textbbox((0, 0), text, font=font)
+                                            tw = bbox[2] - bbox[0]
+                                            th = bbox[3] - bbox[1]
+                                        except Exception:
+                                            try:
+                                                tw, th = font.getsize(text) if font else (int(pw * 0.6), 24)
+                                            except Exception:
+                                                tw, th = (int(pw * 0.6), 24)
+                                        tx = max(0, (pw - tw) // 2)
+                                        ty = max(0, (ph_h - th) // 2)
+                                        try:
+                                            draw.text((tx, ty), text, fill=(108, 117, 125), font=font)
+                                        except Exception:
+                                            pass
+                                        out = io.BytesIO()
+                                        im.save(out, format='PNG')
+                                        inline_ph = out.getvalue()
+                                    except Exception:
+                                        inline_ph = None
+
+                                    if inline_ph:
+                                        try:
+                                            pic_stream = io.BytesIO(inline_ph)
+                                            pic = slide.shapes.add_picture(pic_stream, left, top, width=width)
+                                            try:
+                                                pic.name = 'aurora_placeholder'
+                                            except Exception:
+                                                pass
+                                        except Exception:
+                                            inline_ph = None
+
+                                    if not inline_ph:
+                                        # fallback to a simple shape
+                                        left = Inches(2)
+                                        top = Inches(2)
+                                        width = Inches(6)
+                                        height = Inches(4)
+                                        placeholder = slide.shapes.add_shape(1, left, top, width, height)
+                                        fill = placeholder.fill
+                                        fill.solid()
+                                        fill.fore_color.rgb = RGBColor(255, 255, 255)
+                                        line = placeholder.line
+                                        line.color.rgb = colors['secondary']
+                                        line.width = Pt(3)
+                                        text_frame = placeholder.text_frame
+                                        text_frame.text = "📊 Diagram [PLACEHOLDER]"
+                                        try:
+                                            placeholder.name = 'aurora_placeholder'
+                                        except Exception:
+                                            pass
+                                        p = text_frame.paragraphs[0]
+                                        p.alignment = PP_ALIGN.CENTER
+                                        p.font.size = Pt(32)
+                                        p.font.color.rgb = colors['secondary']
+                            else:
+                                left = Inches(2)
+                                top = Inches(2)
+                                width = Inches(6)
+                                height = Inches(4)
+                                placeholder = slide.shapes.add_shape(1, left, top, width, height)
+                                fill = placeholder.fill
+                                fill.solid()
+                                fill.fore_color.rgb = RGBColor(255, 255, 255)
+                                line = placeholder.line
+                                line.color.rgb = colors['secondary']
+                                line.width = Pt(3)
+                                text_frame = placeholder.text_frame
+                                text_frame.text = "📊 Diagram [PLACEHOLDER]"
+                                try:
+                                    placeholder.name = 'aurora_placeholder'
+                                except Exception:
+                                    pass
+                                p = text_frame.paragraphs[0]
+                                p.alignment = PP_ALIGN.CENTER
+                                p.font.size = Pt(32)
+                                p.font.color.rgb = colors['secondary']
                     except Exception as e:
                         print(f"⚠️ Error inserting image: {e}")
                 
@@ -1002,6 +1395,9 @@ def generate_pptx_file(presentation_structure: Dict, book_data: Dict) -> bytes:
                 title_para.font.size = Pt(40)
                 title_para.font.bold = True
                 title_para.font.color.rgb = colors['primary']
+                # Center the title placeholder horizontally
+                title_para.alignment = PP_ALIGN.CENTER
+                center_shape_horizontally(title_shape, width_ratio=0.85)
                 
                 # Summary points with checkmarks
                 body = slide.placeholders[1]
@@ -1059,6 +1455,7 @@ def lambda_handler(event, context):
         course_bucket = body.get('course_bucket')
         project_folder = body.get('project_folder')
         book_version_key = body.get('book_version_key')
+        book_type = body.get('book_type', 'theory').lower()  # 'theory' or 'lab'
         model_provider = body.get('model_provider', 'bedrock').lower()
         slides_per_lesson = int(body.get('slides_per_lesson', 6))
         presentation_style = body.get('presentation_style', 'professional')
@@ -1066,9 +1463,9 @@ def lambda_handler(event, context):
         if not course_bucket or not project_folder:
             raise ValueError("course_bucket and project_folder are required")
         
-        # Auto-discover book file if no version specified (same logic as load_book.py)
+        # Auto-discover book file if no version specified (filter by book_type)
         if not book_version_key:
-            print(f"\n🔍 Auto-discovering book file in {project_folder}/book/")
+            print(f"\n🔍 Auto-discovering {book_type} book file in {project_folder}/book/")
             book_prefix = f"{project_folder}/book/"
             response = s3_client.list_objects_v2(
                 Bucket=course_bucket,
@@ -1077,21 +1474,31 @@ def lambda_handler(event, context):
             )
             
             if 'Contents' in response:
-                # Look for files ending with _data.json
+                # Look for files ending with _data.json, filter by book_type
                 json_files = []
                 for obj in response['Contents']:
                     key = obj['Key']
                     last_modified = obj.get('LastModified')
-                    if key.endswith('_data.json'):
-                        json_files.append((key, last_modified))
+                    filename = key.split('/')[-1]
+                    
+                    if filename.endswith('_data.json'):
+                        # Filter by book type
+                        is_lab_guide = 'Lab_Guide' in filename or 'LabGuide' in filename
+                        
+                        if book_type == 'lab' and is_lab_guide:
+                            json_files.append((key, last_modified))
+                            print(f"   📋 Found lab guide: {filename}")
+                        elif book_type == 'theory' and not is_lab_guide:
+                            json_files.append((key, last_modified))
+                            print(f"   📚 Found theory book: {filename}")
                 
                 if json_files:
                     # Sort by last modified (most recent first)
                     json_files.sort(key=lambda x: x[1], reverse=True)
                     book_version_key = json_files[0][0]
-                    print(f"✅ Auto-discovered book file: {book_version_key}")
+                    print(f"✅ Auto-discovered {book_type} book: {book_version_key}")
                 else:
-                    raise ValueError(f"No book files (*_data.json) found in {book_prefix}")
+                    raise ValueError(f"No {book_type} book files found in {book_prefix}. Found {len(response.get('Contents', []))} total files.")
             else:
                 raise ValueError(f"No files found in {book_prefix}")
         

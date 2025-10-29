@@ -15,12 +15,24 @@ cd /home/juan/AuroraV1/CG-Backend
 ./deploy-with-dependencies.sh
 ```
 
-**NEVER** run `sam deploy` directly without first running `sam build`. The deployment script:
-- Rebuilds all Lambda functions with dependencies (pyyaml, etc.)
-- Prevents "module not found" errors in production
-- Updates all 4 critical functions: StarterApi, StrandsLabPlanner, BatchExpander, LabBatchExpander
+**CRITICAL: NEVER run `sam deploy` alone!** Even if you only changed template.yaml, `sam deploy` will re-upload Lambda functions from build artifacts (without dependencies), breaking the system.
 
-**Why:** Lambda functions lose their dependencies if you deploy template changes without rebuilding the code packages.
+The deployment script:
+- First deploys template changes (Step Functions, IAM, etc.)
+- Then rebuilds all Lambda functions WITH dependencies (pyyaml, etc.)
+- Prevents "module not found" errors in production
+- Updates all 5 critical functions: StarterApi, StrandsLabPlanner, BatchExpander, LabBatchExpander, BookBuilder
+
+**Why this happens:**
+- `sam deploy` always re-uploads Lambda code from `.aws-sam/build/` directory
+- That directory only contains code from last `sam build` (no dependencies)
+- Result: Functions work until you deploy, then break with import errors
+
+**Exception:** If you're 100% sure you only need template changes and can rebuild functions after, you can:
+1. Run `sam deploy --no-confirm-changeset` for template only
+2. Immediately run `./deploy-with-dependencies.sh` to restore function dependencies
+
+**Safest approach:** Just always use `./deploy-with-dependencies.sh` for ANY change!
 
 ---
 

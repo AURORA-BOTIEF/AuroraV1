@@ -30,6 +30,12 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Google Cloud Service Account Keys (NEVER COMMIT THESE!)
+gen-lang-client-*.json
+*-service-account.json
+service-account-*.json
+*.json.key
 # Python
 __pycache__/
 *.py[cod]

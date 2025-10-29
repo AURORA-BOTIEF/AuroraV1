@@ -26,6 +26,7 @@ set -e  # Exit on error
 FUNCTIONS_WITH_DEPS=(
     "StarterApiFunction"
     "StrandsLabPlanner"
+    "StrandsContentGen"
     "BatchExpander"
     "LabBatchExpander"
     "BookBuilder"
