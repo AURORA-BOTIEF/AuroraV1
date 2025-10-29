@@ -106,7 +106,7 @@ useEffect(() => {
     try {
       const payload = {
         ...params,
-        horas_totales: horasTotales,
+        duracion_total_horas: horasTotales,
       };
 
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
@@ -132,7 +132,7 @@ useEffect(() => {
         ...data,
         nombre_preventa: params.nombre_preventa,
         asesor_comercial: params.asesor_comercial,
-        horas_totales: horasTotales,
+        duracion_total_horas: horasTotales,
         enfoque: params.enfoque,
         tecnologia: params.tecnologia,
         tema_curso: params.tema_curso,
