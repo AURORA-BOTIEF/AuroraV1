@@ -182,26 +182,39 @@ useEffect(() => {
     }
   };
 
-  // === Listar versiones ===
-  const handleListarVersiones = async () => {
-    try {
-      const token = localStorage.getItem("id_token");
-      const res = await fetch(guardarApiUrl, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
+// === Listar versiones con filtros dinámicos ===
+const handleListarVersiones = async () => {
+  try {
+    const token = localStorage.getItem("id_token");
 
-      const data = await res.json();
-      const sortedData = data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
-      setVersiones(sortedData);
-      setMostrarModal(true);
-    } catch (error) {
-      console.error("Error al obtener versiones:", error);
-    }
-  };
+    // Construir query string con filtros activos
+    const queryParams = new URLSearchParams();
+    if (filtros.curso) queryParams.append("curso", filtros.curso);
+    if (filtros.tecnologia) queryParams.append("tecnologia", filtros.tecnologia);
+    if (filtros.nivel) queryParams.append("nivel", filtros.nivel);
+
+    const url = `${generarApiUrl}?${queryParams.toString()}`;
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error("Respuesta inesperada del servidor");
+
+    const sortedData = data.sort(
+      (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+    );
+    setVersiones(sortedData);
+    setMostrarModal(true);
+  } catch (error) {
+    console.error("Error al obtener versiones:", error);
+  }
+};
 
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
