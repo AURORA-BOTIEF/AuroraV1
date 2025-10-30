@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generador 'Practicos'
+import { exportarPDF } from "./EditorDeTemario";
+
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
