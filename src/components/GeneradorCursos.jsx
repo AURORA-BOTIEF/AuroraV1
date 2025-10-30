@@ -15,6 +15,7 @@ function GeneradorCursos() {
     const [moduleInput, setModuleInput] = useState('1');
     const [generateFullCourse, setGenerateFullCourse] = useState(false);
     const [modelProvider, setModelProvider] = useState('bedrock');
+    const [imageModel, setImageModel] = useState('gemini'); // 'gemini' or 'imagen'
     const [contentType, setContentType] = useState('theory'); // 'theory', 'labs', 'both'
     const [labRequirements, setLabRequirements] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
@@ -138,6 +139,7 @@ function GeneradorCursos() {
                 project_folder: projectFolder,
                 module_number: modules, // For single module or first module
                 model_provider: modelProvider,
+                image_model: imageModel, // 'gemini' or 'imagen'
                 content_type: contentType, // 'theory', 'labs', or 'both'
                 lab_requirements: labRequirements.trim() || undefined, // Optional
                 // Note: NOT sending lesson_number = MODULE mode
@@ -351,6 +353,23 @@ function GeneradorCursos() {
                                 </select>
                                 <small className="form-hint">
                                     Modelo de IA que se utilizará para generar el contenido
+                                </small>
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="imageModel">Modelo de Generación de Imágenes</label>
+                                <select
+                                    id="imageModel"
+                                    value={imageModel}
+                                    onChange={(e) => setImageModel(e.target.value)}
+                                    disabled={isProcessing}
+                                    className="form-select"
+                                >
+                                    <option value="gemini">Gemini 2.5 Flash Image (Rápido, menor costo)</option>
+                                    <option value="imagen">Imagen 4.0 Ultra (Mejor calidad de texto, mayor costo)</option>
+                                </select>
+                                <small className="form-hint">
+                                    Imagen 4.0 es superior para diagramas con texto y etiquetas precisas
                                 </small>
                             </div>
                         </div>

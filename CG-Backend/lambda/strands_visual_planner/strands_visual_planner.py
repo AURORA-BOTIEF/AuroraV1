@@ -75,18 +75,20 @@ def create_unique_filename(description: str, prefix: str = "visual") -> str:
 
 def extract_visual_tags_from_lesson(lesson_content: str, lesson_id: str) -> List[Dict[str, Any]]:
     """
-    Extract [VISUAL: ...] tags from lesson content.
+    Extract [VISUAL: MM-LL-NNNN - description] tags from lesson content.
     
     Returns:
-        List of visual tags with context: [{"lesson_id": "01-01", "description": "...", "context": "..."}, ...]
+        List of visual tags with ID and description: [{"id": "01-01-0001", "description": "...", "context": "..."}, ...]
     """
-    visual_tag_regex = re.compile(r'\[VISUAL:\s*(.*?)\]')
-    descriptions = visual_tag_regex.findall(lesson_content)
+    # Updated regex to capture ID and description: [VISUAL: 01-01-0001 - description]
+    visual_tag_regex = re.compile(r'\[VISUAL:\s*(\d{2}-\d{2}-\d{4})\s*-\s*(.*?)\]')
+    matches = visual_tag_regex.findall(lesson_content)
     
     visuals = []
-    for desc in descriptions:
+    for visual_id, desc in matches:
         # Extract surrounding context (100 chars before/after the tag)
-        match = re.search(re.escape(f'[VISUAL: {desc}]'), lesson_content)
+        full_tag = f'[VISUAL: {visual_id} - {desc}]'
+        match = re.search(re.escape(full_tag), lesson_content)
         if match:
             start = max(0, match.start() - 100)
             end = min(len(lesson_content), match.end() + 100)
@@ -95,6 +97,7 @@ def extract_visual_tags_from_lesson(lesson_content: str, lesson_id: str) -> List
             context = ""
         
         visuals.append({
+            "id": visual_id,  # Use the ID from the tag
             "lesson_id": lesson_id,
             "description": desc.strip(),
             "context": context
@@ -333,25 +336,25 @@ def lambda_handler(event: Dict[str, Any], context):
         generated_prompts = []
         request_id = context.aws_request_id if hasattr(context, 'aws_request_id') else 'unknown'
         
-        # Create a lookup for original descriptions to preserve them
-        original_descriptions = {f"{v['lesson_id']}-{i+1}": v['description'] for i, v in enumerate(all_visuals)}
+        # Create a lookup for original visuals (with IDs)
+        original_visuals = {v.get('id', f"{v['lesson_id']}-{i+1:04d}"): v for i, v in enumerate(all_visuals)}
         
         for idx, visual in enumerate(enhanced_visuals, start=1):
-            lesson_id = visual.get('lesson_id', '00-00')
+            # Use the ID from the visual tag if available
+            prompt_id = visual.get('id', f"{visual.get('lesson_id', '00-00')}-{idx:04d}")
+            original_visual = original_visuals.get(prompt_id, visual)
+            
             # IMPORTANT: Use original description from lesson, not LLM's rewritten version
-            original_key = f"{lesson_id}-{idx}"
-            description = original_descriptions.get(original_key, visual.get('description', ''))
+            description = original_visual.get('description', visual.get('description', ''))
             visual_type = visual.get('type', 'diagram')
             enhanced_prompt = visual.get('enhanced_prompt', description)
             
-            # Create unique prompt ID
-            prompt_id = f"{lesson_id}-{idx:04d}"
             filename = create_unique_filename(description, prefix=prompt_id)
             
             # Create prompt JSON
             prompt_data = {
                 "id": prompt_id,
-                "lesson_id": lesson_id,
+                "lesson_id": original_visual.get('lesson_id', '00-00'),
                 "description": description,
                 "visual_type": visual_type,
                 "enhanced_prompt": enhanced_prompt,

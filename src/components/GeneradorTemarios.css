@@ -347,5 +347,10 @@
   font-size: 1rem;
 }
 
-
+.hint {
+  font-size: 0.85rem;
+  color: #666;
+  display: block;
+  margin-top: 4px;
+}
 

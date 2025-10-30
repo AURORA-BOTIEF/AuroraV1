@@ -110,8 +110,8 @@ def lambda_handler(event, context):
                                 img_id = prompt_data.get('id', '')
                                 
                                 if description and img_id:
-                                    # Build visual tag from description
-                                    visual_tag = f"[VISUAL: {description}]"
+                                    # Build visual tag with ID and description (new format)
+                                    visual_tag = f"[VISUAL: {img_id} - {description}]"
                                     # Build image path (images are stored as id.png)
                                     image_path = f"{project_folder}/images/{img_id}.png"
                                     image_mappings[visual_tag] = image_path
@@ -322,16 +322,25 @@ def lambda_handler(event, context):
         print(f"Modules included: {len(modules)}")
         print(f"Lessons included: {len(all_lessons)}")
 
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-                "Access-Control-Allow-Methods": "OPTIONS,POST"
-            },
-            "body": json.dumps(response)
-        }
+        # Check if this is a Step Functions invocation (no 'body' in event) or API Gateway (has 'body')
+        # Step Functions passes parameters directly, API Gateway wraps them in 'body'
+        is_step_functions = 'body' not in event
+        
+        if is_step_functions:
+            # Return data directly for Step Functions (no API Gateway wrapper)
+            return response
+        else:
+            # Return API Gateway response format
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "Access-Control-Allow-Methods": "OPTIONS,POST"
+                },
+                "body": json.dumps(response)
+            }
 
     except Exception as e:
         error_msg = f"Error in book building: {str(e)}"

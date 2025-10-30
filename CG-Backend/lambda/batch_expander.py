@@ -74,8 +74,9 @@ def lambda_handler(event, context):
         outline_content = outline_obj['Body'].read().decode('utf-8')
         outline_data = yaml.safe_load(outline_content)
         
-        # Get modules
-        modules = outline_data.get('modules', [])
+        # Get modules from course structure
+        course_data = outline_data.get('course', outline_data)  # Support both formats
+        modules = course_data.get('modules', [])
         
         if not modules_to_generate:
             # If not specified, generate all modules

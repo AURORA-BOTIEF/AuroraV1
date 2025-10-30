@@ -1,11 +1,16 @@
 // src/components/GeneradorTemarios_Seminarios.jsx
-import React, { useState } from "react";
-import EditorDeTemario from "./EditorDeTemario";
-import "./GeneradorTemarios.css";
+import React, { useState, useEffect } from "react";
+import { fetchAuthSession } from "aws-amplify/auth";
+import EditorDeTemario_seminario from "./EditorDeTemario_seminario";
+import "./GeneradorTemarios.css"; // usa el CSS del generador 'Prácticos'
 
-const API_URL_SEMINARIOS =
-  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/seminario/openai";
+// === URLs de tus APIs ===
+const generarApiUrl =
+  "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/temario_seminario";
+const guardarApiUrl =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
+// === Asesores Comerciales ===
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
   "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
@@ -14,14 +19,7 @@ const asesoresComerciales = [
 ].sort();
 
 export default function GeneradorTemarios_Seminarios() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [mostrarModal, setMostrarModal] = useState(false);
-  const [versiones, setVersiones] = useState([]);
-
-  // Formulario
-  const [form, setForm] = useState({
+  const [params, setParams] = useState({
     nombre_preventa: "",
     asesor_comercial: "",
     tecnologia: "",
@@ -34,97 +32,75 @@ export default function GeneradorTemarios_Seminarios() {
     horas_por_sesion: 2,
   });
 
-  // Control de cambios
+  const [userEmail, setUserEmail] = useState("");
+  const [temarioGenerado, setTemarioGenerado] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [versiones, setVersiones] = useState([]);
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+  const [menuActivo, setMenuActivo] = useState(null);
+
+  // === Obtener email del usuario autenticado ===
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session?.tokens?.idToken?.payload?.email;
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("⚠️ Error obteniendo usuario:", err);
+      }
+    };
+    getUser();
+  }, []);
+
+  // === Manejo de cambios ===
   const handleChange = (e) => {
     const { name, value } = e.target;
-    const numeric = name === "horas_por_sesion" ? parseFloat(value) : value;
-    setForm((prev) => ({ ...prev, [name]: numeric }));
+    setParams((prev) => ({
+      ...prev,
+      [name]: name === "horas_por_sesion" ? parseFloat(value) : value,
+    }));
   };
 
-  // Validación
+  // === Validación ===
   const validate = () => {
-    if (
-      !form.nombre_preventa.trim() ||
-      !form.asesor_comercial.trim() ||
-      !form.tema_curso.trim() ||
-      !form.tecnologia.trim() ||
-      !form.sector.trim()
-    ) {
-      return "Completa todos los campos obligatorios.";
-    }
+    const required = ["tecnologia", "tema_curso", "sector"];
+    const missing = required.filter((f) => !params[f]?.trim());
+    if (missing.length) return `Completa: ${missing.join(", ")}.`;
+    if (params.objetivo_tipo === "certificacion" && !params.codigo_certificacion.trim())
+      return "Debes indicar el código de certificación.";
     return "";
   };
 
-  // Payload para Lambda
-  const buildPayload = () => {
-    const payload = {
-      type: "seminar",
-      tecnologia: form.tecnologia.trim(),
-      tema_curso: form.tema_curso.trim(),
-      nivel_dificultad: form.nivel_dificultad,
-      objetivo_tipo: form.objetivo_tipo,
-      sector: form.sector.trim(),
-      enfoque: form.enfoque.trim(),
-      durationHours: form.horas_por_sesion,
-      nombre_preventa: form.nombre_preventa,
-      asesor_comercial: form.asesor_comercial,
-      rules: {
-        outlineUnits: "topics_and_subtopics_only",
-        requireDepth: form.nivel_dificultad,
-        fitTimeWithinMinutesTolerance: 5,
-        concludeOnTimeSufficiency: true,
-      },
-    };
-
-    if (form.objetivo_tipo === "certificacion" && form.codigo_certificacion) {
-      payload.codigo_certificacion = form.codigo_certificacion.trim();
-    }
-
-    return payload;
-  };
-
-  // Adaptar respuesta → EditorDeTemario
-  const toEditorSchema = (data) => {
-    const temarioCapitulos = (data?.outline || []).map((it) => ({
-      capitulo: it.topic,
-      subcapitulos: Array.isArray(it.subtopics) ? it.subtopics : [],
-    }));
-
-    const descripcion =
-      data?.notes ||
-      (data?.assessment?.reason
-        ? `Nivel sugerido: ${data.depth || form.nivel_dificultad}. ${data.assessment.reason}`
-        : `Seminario de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
-
-    return {
-      nombre_curso: `Seminario: ${form.tema_curso}`,
-      descripcion_general: descripcion,
-      audiencia: form.sector,
-      prerrequisitos: [],
-      objetivos: [],
-      nivel_dificultad: form.nivel_dificultad,
-      numero_sesiones: 1,
-      temario: temarioCapitulos,
-    };
-  };
-
-  // Enviar datos → API Gateway → Lambda
-  const handleGenerate = async () => {
-    const v = validate();
-    if (v) {
-      setError(v);
+  // === Generar seminario (GPT-5 Lambda) ===
+  const handleGenerar = async () => {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     setIsLoading(true);
     setError("");
-    setTemarioGenerado(null);
 
     try {
-      const payload = buildPayload();
+      const payload = {
+        tecnologia: params.tecnologia.trim(),
+        tema_curso: params.tema_curso.trim(),
+        nivel_dificultad: params.nivel_dificultad,
+        objetivo_tipo: params.objetivo_tipo,
+        sector: params.sector.trim(),
+        enfoque: params.enfoque.trim(),
+        duracion_total_horas: params.horas_por_sesion,
+        nombre_preventa: params.nombre_preventa.trim(),
+        asesor_comercial: params.asesor_comercial.trim(),
+      };
+
       const token = localStorage.getItem("id_token");
 
-      const res = await fetch(API_URL_SEMINARIOS, {
+      const res = await fetch(generarApiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -134,62 +110,150 @@ export default function GeneradorTemarios_Seminarios() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al generar el temario.");
+      if (!res.ok) throw new Error(data.error || "Error al generar el seminario.");
 
-      const editorObj = toEditorSchema(data);
-      setTemarioGenerado(editorObj);
-    } catch (e) {
-      console.error("Error al generar el seminario:", e);
-      setError(e.message);
+      // 🧩 Protección contra campos undefined (para evitar .map error)
+      const temarioSeguro = Array.isArray(data.temario) ? data.temario : [];
+      const objetivosSeguros = Array.isArray(data.objetivos_generales)
+        ? data.objetivos_generales
+        : [];
+      const metadataSegura =
+        typeof data._metadata === "object" && data._metadata !== null ? data._metadata : {};
+
+      const temarioCompleto = {
+        nombre_curso: data.nombre_curso || "Seminario sin título",
+        descripcion_general: data.descripcion_general || "Sin descripción generada",
+        objetivos_generales: objetivosSeguros,
+        temario: temarioSeguro,
+        _metadata: metadataSegura,
+        // metadatos adicionales
+        nombre_preventa: params.nombre_preventa,
+        asesor_comercial: params.asesor_comercial,
+        horas_totales: params.horas_por_sesion,
+        enfoque: params.enfoque,
+        tecnologia: params.tecnologia,
+        tema_curso: params.tema_curso,
+      };
+
+      setTemarioGenerado(temarioCompleto);
+      console.log("✅ Respuesta segura:", temarioCompleto);
+    } catch (err) {
+      console.error("❌ Error:", err);
+      setError(err.message || "No se pudo generar el temario.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Guardar versiones (placeholder)
-  const handleGuardarVersion = async (temarioParaGuardar) => {
-    console.log("Guardar versión (simulado):", temarioParaGuardar);
-    alert("Funcionalidad de guardado en desarrollo.");
+  // === Guardar versión (DynamoDB) ===
+  const handleGuardarVersion = async (temarioParaGuardar, nota) => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const body = {
+        cursoId: params.tema_curso.trim().toLowerCase().replace(/\s+/g, "_"),
+        contenido: temarioParaGuardar,
+        nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
+        autor: userEmail || "Desconocido",
+        asesor_comercial: params.asesor_comercial || "No asignado",
+        nombre_preventa: params.nombre_preventa || "No especificado",
+        nombre_curso: params.tema_curso || "Sin título",
+        tecnologia: params.tecnologia || "No especificada",
+        enfoque: params.enfoque || "General",
+        fecha_creacion: new Date().toISOString(),
+        
+      };
+
+      const res = await fetch(guardarApiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al guardar versión");
+
+      return { success: true, message: `✔ Versión guardada (ID: ${data.versionId})` };
+    } catch (err) {
+      console.error(err);
+      return { success: false, message: err.message };
+    }
   };
 
-  // Listar versiones (simulado)
+  // === Listar versiones ===
   const handleListarVersiones = async () => {
-    setVersiones([
-      {
-        nombre_curso: "Seminario IA Educativa",
-        tecnologia: "OpenAI",
-        asesor_comercial: "Lezly Durán",
-        fecha_creacion: new Date().toISOString(),
-        autor: "juan.londono@netec.com.co",
-      },
-    ]);
-    setMostrarModal(true);
+    try {
+      const token = localStorage.getItem("id_token");
+      const res = await fetch(guardarApiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al listar versiones.");
+
+      const sorted = data.sort(
+        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+      );
+      setVersiones(sorted);
+      setMostrarModal(true);
+    } catch (err) {
+      console.error("Error al listar versiones:", err);
+    }
   };
+
+
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+    setFiltros((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
+
+  const versionesFiltradas = versiones.filter((v) => {
+    const curso = v.nombre_curso?.toLowerCase() || "";
+    const asesor = v.asesor_comercial?.toLowerCase() || "";
+    const tecnologia = v.tecnologia?.toLowerCase() || "";
+    return (
+      curso.includes(filtros.curso.toLowerCase()) &&
+      (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
+      tecnologia.includes(filtros.tecnologia.toLowerCase())
+    );
+  });
 
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <h2>Generador de Temarios - Seminarios</h2>
-        <p>Genera una propuesta de seminario con Inteligencia Artificial.</p>
+        <div className="header-practico" style={{ marginBottom: "15px" }}>
+          <h2>Generador de Temarios - Seminarios </h2>
+        </div>
+        <p className="descripcion-practico" style={{ marginTop: "0px" }}>
+          Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
+        </p>
 
-        {/* Campos principales */}
         <div className="form-grid">
           <div className="form-group">
-            <label>Nombre Preventa Asociado *</label>
+            <label>Nombre Preventa Asociado (Opcional)</label>
             <input
               name="nombre_preventa"
-              value={form.nombre_preventa}
+              value={params.nombre_preventa}
               onChange={handleChange}
-              placeholder="Ej: Juan Pérez"
+              disabled={isLoading}
             />
           </div>
 
           <div className="form-group">
-            <label>Asesor(a) Comercial Asociado *</label>
+            <label>Asesor(a)  (Opcional)</label>
             <select
               name="asesor_comercial"
-              value={form.asesor_comercial}
+              value={params.asesor_comercial}
               onChange={handleChange}
+              disabled={isLoading}
             >
               <option value="">Selecciona un asesor(a)</option>
               {asesoresComerciales.map((a) => (
@@ -202,9 +266,10 @@ export default function GeneradorTemarios_Seminarios() {
             <label>Tecnología *</label>
             <input
               name="tecnologia"
-              value={form.tecnologia}
+              value={params.tecnologia}
               onChange={handleChange}
-              placeholder="Ej: Power BI, AWS, Python"
+              disabled={isLoading}
+              placeholder="Ej: AWS, React, Python"
             />
           </div>
 
@@ -212,18 +277,20 @@ export default function GeneradorTemarios_Seminarios() {
             <label>Tema Principal del Seminario *</label>
             <input
               name="tema_curso"
-              value={form.tema_curso}
+              value={params.tema_curso}
               onChange={handleChange}
-              placeholder="Ej: Arquitecturas Serverless, Storytelling con Datos"
+              disabled={isLoading}
+              placeholder="Ej: Análisis ejecutivo de datos"
             />
           </div>
 
           <div className="form-group">
-            <label>Nivel *</label>
+            <label>Nivel de Dificultad</label>
             <select
               name="nivel_dificultad"
-              value={form.nivel_dificultad}
+              value={params.nivel_dificultad}
               onChange={handleChange}
+              disabled={isLoading}
             >
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
@@ -232,7 +299,7 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Duración del Seminario (1–4 horas) *</label>
+            <label>Duración total (1–4h)</label>
             <div className="slider-container">
               <input
                 type="range"
@@ -240,63 +307,66 @@ export default function GeneradorTemarios_Seminarios() {
                 max="4"
                 step="0.5"
                 name="horas_por_sesion"
-                value={form.horas_por_sesion}
+                value={params.horas_por_sesion}
                 onChange={handleChange}
+                disabled={isLoading}
               />
-              <span>{form.horas_por_sesion} h</span>
+              <span className="slider-value">{params.horas_por_sesion} h</span>
             </div>
           </div>
         </div>
 
-        {/* Tipo de Objetivo */}
+
         <div className="form-group-radio">
-          <label>Tipo de Objetivo *</label>
-          <p></p>
-          <div>
-            <label>
+          <label>Tipo de Objetivo</label>
+          <div className="radio-group">
+            <label className="radio-label">
               <input
                 type="radio"
                 name="objetivo_tipo"
                 value="saber_hacer"
-                checked={form.objetivo_tipo === "saber_hacer"}
+                checked={params.objetivo_tipo === "saber_hacer"}
                 onChange={handleChange}
-              />{" "}
-              Saber Hacer (enfocado en habilidades)
+                disabled={isLoading}
+              />
+              <span>Saber Hacer (Habilidades)</span>
             </label>
-            <label>
+            <label className="radio-label">
               <input
                 type="radio"
                 name="objetivo_tipo"
                 value="certificacion"
-                checked={form.objetivo_tipo === "certificacion"}
+                checked={params.objetivo_tipo === "certificacion"}
                 onChange={handleChange}
-              />{" "}
-              Certificación (enfocado en examen)
+                disabled={isLoading}
+              />
+              <span>Certificación (Examen)</span>
             </label>
           </div>
         </div>
-        <p></p>
 
-        {form.objetivo_tipo === "certificacion" && (
-          <div className="form-group">
-            <label>Código de Certificación</label>
+        {params.objetivo_tipo === "certificacion" && (
+          <div className="form-group certificacion-field">
+            <label>Código de Certificación *</label>
             <input
               name="codigo_certificacion"
-              value={form.codigo_certificacion}
+              value={params.codigo_certificacion}
               onChange={handleChange}
-              placeholder="Ej: AZ-900, AWS CLF-C02"
+              disabled={isLoading}
+              placeholder="Ej: PL-300, AZ-900..."
             />
           </div>
         )}
-        <p></p>
 
         <div className="form-group">
           <label>Sector / Audiencia *</label>
           <textarea
             name="sector"
-            value={form.sector}
+            value={params.sector}
             onChange={handleChange}
-            placeholder="Ej: Sector financiero, docentes universitarios..."
+            disabled={isLoading}
+            rows="3"
+            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
           />
         </div>
 
@@ -304,74 +374,109 @@ export default function GeneradorTemarios_Seminarios() {
           <label>Enfoque Adicional (opcional)</label>
           <textarea
             name="enfoque"
-            value={form.enfoque}
+            value={params.enfoque}
             onChange={handleChange}
-            placeholder="Ej: Orientado a casos prácticos o talleres participativos."
+            disabled={isLoading}
+            rows="3"
+            placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
           />
         </div>
 
-        {/* Botones */}
+
         <div className="botones">
-          <button
-            className="btn-generar"
-            onClick={handleGenerate}
-            disabled={isLoading}
-          >
-            {isLoading ? "Generando..." : "Generar Propuesta de Seminario"}
+          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
+            {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button
-            className="btn-versiones"
-            onClick={handleListarVersiones}
-          >
+          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
             Ver Versiones Guardadas
           </button>
         </div>
 
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <div className="error-message">
+            <span>⚠️</span> {error}
+          </div>
+        )}
       </div>
 
-      {/* Resultado */}
+
       {temarioGenerado && (
-        <EditorDeTemario
+        <EditorDeTemario_seminario
           temarioInicial={temarioGenerado}
-          onRegenerate={handleGenerate}
           onSave={handleGuardarVersion}
+          onRegenerate={handleGenerar}
           isLoading={isLoading}
         />
-      )}
+      )}      
 
-      {/* Modal de versiones */}
+
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="close-btn" onClick={() => setMostrarModal(false)}>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>
                 ✕
               </button>
             </div>
-            <table className="tabla-versiones">
-              <thead>
-                <tr>
-                  <th>Curso</th>
-                  <th>Tecnología</th>
-                  <th>Asesor</th>
-                  <th>Fecha</th>
-                  <th>Autor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {versiones.map((v, i) => (
-                  <tr key={i}>
-                    <td>{v.nombre_curso}</td>
-                    <td>{v.tecnologia}</td>
-                    <td>{v.asesor_comercial}</td>
-                    <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                    <td>{v.autor}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="modal-body">
+              <div className="filtros-versiones">
+                <input
+                  type="text"
+                  placeholder="Curso"
+                  name="curso"
+                  value={filtros.curso}
+                  onChange={handleFiltroChange}
+                />
+                <select
+                  name="asesor"
+                  value={filtros.asesor}
+                  onChange={handleFiltroChange}
+                >
+                  <option value="">Todos los asesores</option>
+                  {asesoresComerciales.map((a) => (
+                    <option key={a}>{a}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"                  
+                  placeholder="Tecnología"
+                  name="tecnologia"
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+                <button className="btn-secundario" onClick={limpiarFiltros}>
+                  Limpiar
+                </button>
+              </div>
+
+              {versionesFiltradas.length === 0 ? (
+                <p className="no-versiones">No hay versiones guardadas.</p>
+              ) : (
+                <table className="tabla-versiones">
+                  <thead>
+                    <tr>
+                      <th>Curso</th>
+                      <th>Tecnología</th>
+                      <th>Asesor</th>
+                      <th>Fecha</th>
+                      <th>Autor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versionesFiltradas.map((v, i) => (
+                      <tr key={v.versionId || i}>
+                        <td>{v.nombre_curso}</td>
+                        <td>{v.tecnologia}</td>
+                        <td>{v.asesor_comercial}</td>
+                        <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
+                        <td>{v.autor}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}

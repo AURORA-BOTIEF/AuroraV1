@@ -101,10 +101,9 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
             target_modules = None
     
     # Modules can be at top level OR under 'course'
-    modules = outline_data.get('modules', [])
-    if not modules:
-        course_data = outline_data.get('course', {})
-        modules = course_data.get('modules', [])
+    # Support both nested and flat formats (prefer nested)
+    course_data = outline_data.get('course', outline_data)
+    modules = course_data.get('modules', [])
     
     print(f"\n{'='*70}")
     print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")
@@ -171,8 +170,8 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
                 labs.append(lab_info)
                 print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
         
-        # OPTION 2: Extract labs from module level (new format: labs array at module level)
-        module_labs = module.get('labs', [])
+        # OPTION 2: Extract labs from module level (supports both 'labs' and 'lab_activities' keys)
+        module_labs = module.get('labs', []) or module.get('lab_activities', [])
         if module_labs:
             print(f"  📋 Found {len(module_labs)} module-level labs")
             
@@ -187,13 +186,24 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
                         all_context_topics.append(str(topic))
             
             for lab_idx, lab in enumerate(module_labs, 1):
-                lab_number = lab.get('number', lab_idx)
-                lab_title = lab.get('title', f'Lab {lab_number}')
-                lab_duration = lab.get('duration_minutes', 30)
-                lab_bloom = lab.get('bloom_level', module.get('bloom_level', 'Apply'))
-                lab_objectives = lab.get('objectives', [])
-                lab_activities_list = lab.get('activities', [])
-                lab_description = lab.get('description', '')
+                # Handle both dict and string formats
+                if isinstance(lab, dict):
+                    lab_number = lab.get('number', lab_idx)
+                    lab_title = lab.get('title', f'Lab {lab_number}')
+                    lab_duration = lab.get('duration_minutes', 30)
+                    lab_bloom = lab.get('bloom_level', module.get('bloom_level', 'Apply'))
+                    lab_objectives = lab.get('objectives', [])
+                    lab_activities_list = lab.get('activities', [])
+                    lab_description = lab.get('description', '')
+                else:
+                    # String format (simple lab title)
+                    lab_number = lab_idx
+                    lab_title = str(lab)
+                    lab_duration = 30
+                    lab_bloom = module.get('bloom_level', 'Apply')
+                    lab_objectives = []
+                    lab_activities_list = []
+                    lab_description = ''
                 
                 lab_info = {
                     'module_number': mod_idx,
@@ -547,10 +557,18 @@ def lambda_handler(event, context):
         labs = extract_all_labs(outline_data, modules_to_generate)
         
         if not labs:
-            print("⚠️  No labs found in outline!")
+            print("⚠️  No labs found in outline! Returning success with empty plan.")
+            # Return success with empty lab plan instead of error
+            # This allows the workflow to continue with theory-only content
             return {
-                'statusCode': 400,
-                'error': 'No lab activities found in the course outline'
+                'statusCode': 200,
+                'master_plan_key': None,
+                'total_labs': 0,
+                'total_duration_minutes': 0,
+                'project_folder': project_folder,
+                'bucket': course_bucket,
+                'model_provider': model_provider,
+                'message': 'No lab activities found in outline - skipping lab generation'
             }
         
         # Step 3: Generate master plan with AI
