@@ -12,7 +12,7 @@ const generarApiUrl =
 const guardarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 const obtenerVersionApi =
-  "https://tu-api-get-version.amazonaws.com/dev/get"; // ⚙️ Ajusta a tu endpoint real
+  "https://tu-api-get-version.amazonaws.com/dev/get"; // ⚙️ Ajusta este endpoint
 
 // === Asesores Comerciales ===
 const asesoresComerciales = [
@@ -78,7 +78,7 @@ export default function GeneradorTemarios_Seminarios() {
     return "";
   };
 
-  // === Generar seminario (GPT-5 Lambda) ===
+  // === Generar seminario ===
   const handleGenerar = async () => {
     const validationError = validate();
     if (validationError) {
@@ -141,7 +141,7 @@ export default function GeneradorTemarios_Seminarios() {
     }
   };
 
-  // === Guardar versión (DynamoDB) ===
+  // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -202,12 +202,12 @@ export default function GeneradorTemarios_Seminarios() {
     }
   };
 
-  // === Editar versión existente (redirigir al editor) ===
+  // === Editar versión ===
   const handleEditarVersion = (v) => {
     navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
 
-  // === Exportar PDF directo desde historial ===
+  // === Exportar PDF desde historial ===
   const handleExportarDesdeHistorial = async (v) => {
     try {
       const res = await fetch(`${obtenerVersionApi}?id=${v.cursoId}&version=${v.versionId}`);
@@ -251,14 +251,85 @@ export default function GeneradorTemarios_Seminarios() {
         <h2>Generador de Temarios - Seminarios</h2>
         <p>Introduce los detalles para generar una propuesta de temario con IA.</p>
 
-        {/* FORMULARIO ORIGINAL (igual que antes) */}
-        {/* ... Tu formulario de entradas aquí ... */}
+        {/* === FORMULARIO COMPLETO === */}
+        <div className="form-grid">
+          <div className="form-group">
+            <label>Nombre Preventa Asociado (Opcional)</label>
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleChange} disabled={isLoading} />
+          </div>
+
+          <div className="form-group">
+            <label>Asesor(a) (Opcional)</label>
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleChange} disabled={isLoading}>
+              <option value="">Selecciona un asesor(a)</option>
+              {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Tecnología *</label>
+            <input name="tecnologia" value={params.tecnologia} onChange={handleChange} disabled={isLoading} placeholder="Ej: AWS, React, Python" />
+          </div>
+
+          <div className="form-group">
+            <label>Tema Principal del Seminario *</label>
+            <input name="tema_curso" value={params.tema_curso} onChange={handleChange} disabled={isLoading} placeholder="Ej: Análisis ejecutivo de datos" />
+          </div>
+
+          <div className="form-group">
+            <label>Nivel de Dificultad</label>
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleChange} disabled={isLoading}>
+              <option value="basico">Básico</option>
+              <option value="intermedio">Intermedio</option>
+              <option value="avanzado">Avanzado</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Duración total (1–4h)</label>
+            <div className="slider-container">
+              <input type="range" min="1" max="4" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} />
+              <span className="slider-value">{params.horas_por_sesion} h</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="form-group-radio">
+          <label>Tipo de Objetivo</label>
+          <div className="radio-group">
+            <label className="radio-label">
+              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleChange} disabled={isLoading} />
+              <span>Saber Hacer (Habilidades)</span>
+            </label>
+            <label className="radio-label">
+              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleChange} disabled={isLoading} />
+              <span>Certificación (Examen)</span>
+            </label>
+          </div>
+        </div>
+
+        {params.objetivo_tipo === "certificacion" && (
+          <div className="form-group certificacion-field">
+            <label>Código de Certificación *</label>
+            <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleChange} disabled={isLoading} placeholder="Ej: PL-300, AZ-900..." />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label>Sector / Audiencia *</label>
+          <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
+        </div>
+
+        <div className="form-group">
+          <label>Enfoque Adicional (opcional)</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
+        </div>
 
         <div className="botones">
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button className="btn-versiones" onClick={handleListarVersiones}>
+          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
             Ver Versiones Guardadas
           </button>
         </div>
@@ -270,7 +341,6 @@ export default function GeneradorTemarios_Seminarios() {
         )}
       </div>
 
-      {/* EDITOR */}
       {temarioGenerado && (
         <EditorDeTemario_seminario
           temarioInicial={temarioGenerado}
@@ -279,7 +349,6 @@ export default function GeneradorTemarios_Seminarios() {
         />
       )}
 
-      {/* MODAL VERSIONES */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
           <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
