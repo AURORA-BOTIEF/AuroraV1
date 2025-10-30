@@ -245,6 +245,47 @@ function GeneradorTemarios() {
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
+// === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
+const handleExportarPDF = async (version) => {
+  try {
+    setIsLoading(true);
+    setError("");
+
+    const token = localStorage.getItem("id_token");
+
+    // 🔹 Construye la URL con los parámetros esperados por tu Lambda
+    const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
+      version.nombre_curso
+    )}&version=${encodeURIComponent(version.versionId)}`;
+
+    console.log("📡 Solicitando datos a:", apiUrl);
+
+    const response = await fetch(apiUrl, {
+      method: "GET", // ✅ GET porque la Lambda usa queryStringParameters
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error al obtener datos del temario: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("✅ Datos recibidos desde Lambda:", data);
+
+    // 🔹 Llama a tu función existente que genera el PDF
+    exportarPDF(data);
+
+  } catch (err) {
+    console.error("❌ Error exportando PDF:", err);
+    setError("No se pudo generar el PDF. Intenta nuevamente.");
+  } finally {
+    setIsLoading(false);
+  }
+};
+
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
