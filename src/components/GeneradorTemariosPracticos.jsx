@@ -100,7 +100,7 @@ function GeneradorTemariosPracticos() {
       const payload = {
         ...params,
         duracion_total_horas: horasTotales,
-        autor: userEmail, // ✅ NUEVO: se envía el autor a Lambda
+        autor: userEmail, // ✅ Envía el autor a Lambda
       };
 
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
@@ -183,7 +183,7 @@ function GeneradorTemariosPracticos() {
       if (filtros.tecnologia) queryParams.append("tecnologia", filtros.tecnologia);
       if (filtros.nivel) queryParams.append("nivel", filtros.nivel);
 
-      const url = `${guardarApiUrl}?${queryParams.toString()}`; // ✅ NUEVO: usa la URL de versiones, no la de generación
+      const url = `${guardarApiUrl}?${queryParams.toString()}`; // ✅ URL corregida
 
       const res = await fetch(url, {
         method: "GET",
@@ -207,7 +207,7 @@ function GeneradorTemariosPracticos() {
   };
 
   // === Editar versión existente (PUT) ===
-  const handleEditarVersion = async (version) => { // ✅ NUEVO
+  const handleEditarVersion = async (version) => {
     try {
       const token = localStorage.getItem("id_token");
       const body = {
@@ -278,8 +278,98 @@ function GeneradorTemariosPracticos() {
         <h2>Generador de Temarios Prácticos</h2>
         <p>Introduce los detalles para generar una propuesta práctica con IA.</p>
 
-        {/* === formulario principal igual === */}
-        {/* === ... omitido por brevedad ... */}
+        <div className="form-grid">
+          <div className="form-group">
+            <label>Nombre Preventa (Opcional)</label>
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
+          </div>
+
+          <div className="form-group">
+            <label>Asesor(a) Comercial (Opcional)</label>
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange} disabled={isLoading}>
+              <option value="">Selecciona un asesor(a)</option>
+              {asesoresComerciales.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Tecnología *</label>
+            <input name="tecnologia" value={params.tecnologia} onChange={handleParamChange} placeholder="Ej: AWS, React, Python" />
+          </div>
+
+          <div className="form-group">
+            <label>Tema del Curso *</label>
+            <input name="tema_curso" value={params.tema_curso} onChange={handleParamChange} placeholder="Ej: Arquitecturas Serverless" />
+          </div>
+
+          <div className="form-group">
+            <label>Nivel de Dificultad</label>
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange}>
+              <option value="basico">Básico</option>
+              <option value="intermedio">Intermedio</option>
+              <option value="avanzado">Avanzado</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Número de Sesiones (1–7)</label>
+            <input type="range" min="1" max="7" name="numero_sesiones" value={params.numero_sesiones} onChange={handleSliderChange} />
+            <span>{params.numero_sesiones} sesión(es)</span>
+          </div>
+
+          <div className="form-group">
+            <label>Horas por Sesión (4–12)</label>
+            <input type="range" min="4" max="12" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleSliderChange} />
+            <span>{params.horas_por_sesion} horas</span>
+          </div>
+
+          <div className="form-group total-horas">
+            <label>Total del Curso</label>
+            <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones} horas</div>
+          </div>
+        </div>
+
+        <div className="form-group-radio">
+          <label>Tipo de Objetivo</label>
+          <div className="radio-group">
+            <label><input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleParamChange}/> Saber Hacer (Enfocado en habilidades)</label>
+            <label><input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleParamChange}/> Certificación (Enfocado en examen)</label>
+          </div>
+        </div>
+
+        {params.objetivo_tipo === "certificacion" && (
+          <div className="form-group certificacion-field">
+            <label>Código de Certificación *</label>
+            <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleParamChange} placeholder="Ej: AWS CLF-C02, AZ-900" />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label>Sector / Audiencia *</label>
+          <textarea name="sector" value={params.sector} onChange={handleParamChange} rows="3" placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..." />
+        </div>
+
+        <div className="form-group">
+          <label>Enfoque Adicional (Opcional)</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} rows="2" placeholder="Ej: Orientado a patrones de diseño" />
+        </div>
+
+        <div className="form-group">
+          <label>Syllabus Base (Opcional)</label>
+          <textarea
+            name="syllabus_text"
+            value={params.syllabus_text || ""}
+            onChange={handleParamChange}
+            disabled={isLoading}
+            rows="5"
+            placeholder="Copia y pega aquí el contenido del syllabus base (texto plano)..."
+          />
+          <small className="hint">
+            💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al contenido original.
+          </small>
+        </div>
 
         <div className="botones">
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
@@ -307,13 +397,31 @@ function GeneradorTemariosPracticos() {
             </div>
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input type="text" placeholder="Filtrar por curso" name="curso" value={filtros.curso} onChange={handleFiltroChange} />
-                <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
+                <input 
+                  type="text" 
+                  placeholder="Filtrar por curso" 
+                  name="curso" 
+                  value={filtros.curso} 
+                  onChange={handleFiltroChange}
+                />
+                <select 
+                  name="asesor" 
+                  value={filtros.asesor} 
+                  onChange={handleFiltroChange}
+                >
                   <option value="">Todos los asesores</option>
                   {asesoresComerciales.map((a) => <option key={a}>{a}</option>)}
                 </select>
-                <input type="text" placeholder="Filtrar por tecnología" name="tecnologia" value={filtros.tecnologia} onChange={handleFiltroChange} />
-                <button className="btn-secundario" onClick={limpiarFiltros}>Limpiar</button>
+                <input 
+                  type="text" 
+                  placeholder="Filtrar por tecnología" 
+                  name="tecnologia" 
+                  value={filtros.tecnologia} 
+                  onChange={handleFiltroChange}
+                />
+                <button className="btn-secundario" onClick={limpiarFiltros}>
+                  Limpiar
+                </button>
               </div>
 
               {versionesFiltradas.length === 0 ? (
@@ -342,7 +450,7 @@ function GeneradorTemariosPracticos() {
                           <button className="menu-btn" onClick={() => setMenuActivo(menuActivo === i ? null : i)}>⋮</button>
                           {menuActivo === i && (
                             <div className="menu-opciones">
-                              <button onClick={() => handleEditarVersion(v)}>✏️ Editar</button> {/* ✅ NUEVO */}
+                              <button onClick={() => handleEditarVersion(v)}>✏️ Editar</button>
                               <button onClick={() => console.log("Exportar PDF", v)}>📄 Exportar PDF</button>
                               <button onClick={() => handleCargarVersion(v)}>👁️ Ver</button>
                             </div>
