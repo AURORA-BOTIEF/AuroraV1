@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario from "./EditorDeTemario";
-import "./GeneradorTemarios.css"; // Usa el CSS del generador 'Prácticos'
+import "./GeneradorTemarios.css";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -40,27 +40,20 @@ function GeneradorTemariosPracticos() {
   const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   // === Obtener usuario autenticado ===
-useEffect(() => {
-  const getUser = async () => {
-    try {
-      const session = await fetchAuthSession();
-      const idToken = session?.tokens?.idToken?.toString();
-      const email = session?.tokens?.idToken?.payload?.email;
-
-      // Guarda el token solo si existe
-      if (idToken) {
-        localStorage.setItem("id_token", idToken);
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session?.tokens?.idToken?.toString();
+        const email = session?.tokens?.idToken?.payload?.email;
+        if (idToken) localStorage.setItem("id_token", idToken);
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("Error obteniendo usuario:", err);
       }
-
-      setUserEmail(email || "sin-correo");
-    } catch (err) {
-      console.error("Error obteniendo usuario:", err);
-    }
-  };
-
-  getUser();
-}, []);
-
+    };
+    getUser();
+  }, []);
 
   // === Handlers generales ===
   const handleParamChange = (e) => {
@@ -107,17 +100,16 @@ useEffect(() => {
       const payload = {
         ...params,
         duracion_total_horas: horasTotales,
+        autor: userEmail, // ✅ Envía el autor a Lambda
       };
 
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
-
-      console.log("Enviando payload:", payload);
 
       const token = localStorage.getItem("id_token");
       const response = await fetch(generarApiUrl, {
         method: "POST",
         mode: "cors",
-        credentials: "omit", 
+        credentials: "omit",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -182,39 +174,70 @@ useEffect(() => {
     }
   };
 
-// === Listar versiones con filtros dinámicos ===
-const handleListarVersiones = async () => {
-  try {
-    const token = localStorage.getItem("id_token");
+  // === Listar versiones ===
+  const handleListarVersiones = async () => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const queryParams = new URLSearchParams();
+      if (filtros.curso) queryParams.append("curso", filtros.curso);
+      if (filtros.tecnologia) queryParams.append("tecnologia", filtros.tecnologia);
+      if (filtros.nivel) queryParams.append("nivel", filtros.nivel);
 
-    // Construir query string con filtros activos
-    const queryParams = new URLSearchParams();
-    if (filtros.curso) queryParams.append("curso", filtros.curso);
-    if (filtros.tecnologia) queryParams.append("tecnologia", filtros.tecnologia);
-    if (filtros.nivel) queryParams.append("nivel", filtros.nivel);
+      const url = `${guardarApiUrl}?${queryParams.toString()}`; // ✅ URL corregida
 
-    const url = `${generarApiUrl}?${queryParams.toString()}`;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error("Respuesta inesperada del servidor");
 
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error("Respuesta inesperada del servidor");
+      const sortedData = data.sort(
+        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+      );
+      setVersiones(sortedData);
+      setMostrarModal(true);
+    } catch (error) {
+      console.error("Error al obtener versiones:", error);
+    }
+  };
 
-    const sortedData = data.sort(
-      (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
-    );
-    setVersiones(sortedData);
-    setMostrarModal(true);
-  } catch (error) {
-    console.error("Error al obtener versiones:", error);
-  }
-};
+  // === Editar versión existente (PUT) ===
+  const handleEditarVersion = async (version) => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const body = {
+        id: version.id,
+        nombre_curso: version.nombre_curso,
+        tecnologia: version.tecnologia,
+        asesor_comercial: version.asesor_comercial,
+        autor: userEmail,
+        nombre_preventa: version.nombre_preventa || params.nombre_preventa,
+      };
+
+      const res = await fetch(guardarApiUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al actualizar versión");
+
+      alert("✅ Versión actualizada correctamente");
+      await handleListarVersiones();
+    } catch (error) {
+      console.error("Error al editar versión:", error);
+      alert("⚠️ No se pudo editar la versión.");
+    }
+  };
 
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
@@ -231,7 +254,6 @@ const handleListarVersiones = async () => {
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
-  // === Filtros del modal ===
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
@@ -257,7 +279,6 @@ const handleListarVersiones = async () => {
         <p>Introduce los detalles para generar una propuesta práctica con IA.</p>
 
         <div className="form-grid">
-          {/* === Campos básicos === */}
           <div className="form-group">
             <label>Nombre Preventa (Opcional)</label>
             <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
@@ -292,7 +313,6 @@ const handleListarVersiones = async () => {
             </select>
           </div>
 
-          {/* === Sliders === */}
           <div className="form-group">
             <label>Número de Sesiones (1–7)</label>
             <input type="range" min="1" max="7" name="numero_sesiones" value={params.numero_sesiones} onChange={handleSliderChange} />
@@ -305,14 +325,12 @@ const handleListarVersiones = async () => {
             <span>{params.horas_por_sesion} horas</span>
           </div>
 
-          {/* === Total calculado === */}
           <div className="form-group total-horas">
             <label>Total del Curso</label>
             <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones} horas</div>
           </div>
         </div>
 
-        {/* === Objetivo === */}
         <div className="form-group-radio">
           <label>Tipo de Objetivo</label>
           <div className="radio-group">
@@ -328,7 +346,6 @@ const handleListarVersiones = async () => {
           </div>
         )}
 
-        {/* === Sector / Enfoque === */}
         <div className="form-group">
           <label>Sector / Audiencia *</label>
           <textarea name="sector" value={params.sector} onChange={handleParamChange} rows="3" placeholder="Ej: Sector financiero, desarrolladores con 1 año de experiencia..." />
@@ -339,7 +356,6 @@ const handleListarVersiones = async () => {
           <textarea name="enfoque" value={params.enfoque} onChange={handleParamChange} rows="2" placeholder="Ej: Orientado a patrones de diseño" />
         </div>
 
-        {/* === Syllabus === */}
         <div className="form-group">
           <label>Syllabus Base (Opcional)</label>
           <textarea
@@ -355,7 +371,6 @@ const handleListarVersiones = async () => {
           </small>
         </div>
 
-        {/* === Botones === */}
         <div className="botones">
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
@@ -425,24 +440,19 @@ const handleListarVersiones = async () => {
                   </thead>
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
-                      <tr key={v.versionId || i}>
+                      <tr key={v.id || i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
                         <td className="acciones-cell">
-                          <button 
-                            className="menu-btn" 
-                            onClick={() => setMenuActivo(menuActivo === i ? null : i)}
-                          >
-                            ⋮
-                          </button>
+                          <button className="menu-btn" onClick={() => setMenuActivo(menuActivo === i ? null : i)}>⋮</button>
                           {menuActivo === i && (
                             <div className="menu-opciones">
-                              <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
+                              <button onClick={() => handleEditarVersion(v)}>✏️ Editar</button>
                               <button onClick={() => console.log("Exportar PDF", v)}>📄 Exportar PDF</button>
-                              <button onClick={() => console.log("Ver versión", v)}>👁️ Ver</button>
+                              <button onClick={() => handleCargarVersion(v)}>👁️ Ver</button>
                             </div>
                           )}
                         </td>
