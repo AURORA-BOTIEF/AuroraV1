@@ -547,61 +547,170 @@ return (
     </div>
   );
 }
-// 🔹 Exponer la función exportarPDF globalmente para GeneradorTemarios
-if (typeof window !== "undefined") {
-  window.exportarPDF = async (temarioData) => {
-    try {
-      const { jsPDF } = await import("jspdf");
-      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+// ✅ Exportar función exportarPDF para que GeneradorTemarios pueda usar la misma lógica
+export const exportarPDF = async (temarioData) => {
+  if (!temarioData || !Array.isArray(temarioData.temario)) {
+    alert("No hay contenido válido para exportar.");
+    return;
+  }
 
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
+  const { jsPDF } = await import("jspdf");
+  const toDataURL = async (url) => {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.text(temarioData.nombre_curso || "Temario del Curso", pageWidth / 2, 80, { align: "center" });
+  const encabezado = await toDataURL("/src/assets/encabezado.png");
+  const pie = await toDataURL("/src/assets/pie_de_pagina.png");
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
-      let y = 120;
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+  const azul = "#005A9C";
+  const negro = "#000000";
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = { top: 220, bottom: 90, left: 50, right: 50 };
+  const contentWidth = pageWidth - margin.left - margin.right;
+  let y = margin.top;
 
-      // ✅ Recorre los capítulos
-      (temarioData.temario || []).forEach((cap, i) => {
-        doc.setFont("helvetica", "bold");
-        doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, 50, y);
-        y += 14;
-
-        doc.setFont("helvetica", "normal");
-        if (cap.objetivos_capitulo) {
-          const objetivos = Array.isArray(cap.objetivos_capitulo)
-            ? cap.objetivos_capitulo.join(" ")
-            : cap.objetivos_capitulo;
-          const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, pageWidth - 100);
-          lines.forEach(line => {
-            doc.text(line, 60, y);
-            y += 12;
-          });
-        }
-
-        (cap.subcapitulos || []).forEach((sub, j) => {
-          doc.text(`${i + 1}.${j + 1} ${sub.nombre} (${sub.tiempo_subcapitulo_min} min)`, 70, y);
-          y += 12;
-        });
-
-        y += 20;
-        if (y > pageHeight - 80) {
-          doc.addPage();
-          y = 80;
-        }
-      });
-
-      doc.save(`Temario_${temarioData.nombre_curso || "curso"}.pdf`);
-      console.log("✅ PDF generado correctamente");
-    } catch (err) {
-      console.error("❌ Error generando PDF desde window.exportarPDF:", err);
-      alert("Error generando PDF");
+  const addPageIfNeeded = (extra = 40) => {
+    if (y + extra > pageHeight - margin.bottom) {
+      doc.addPage();
+      y = margin.top;
     }
   };
-}
+
+  // 🔹 Título
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor(azul);
+  const tituloCurso = temarioData.nombre_curso || "Temario del Curso";
+  const lineasCurso = doc.splitTextToSize(tituloCurso, contentWidth - 40);
+  lineasCurso.forEach((linea) => {
+    doc.text(linea, pageWidth / 2, y, { align: "center" });
+    y += 18;
+  });
+  y += 20;
+
+  // 🔹 Secciones generales
+  const secciones = [
+    { titulo: "Descripción General", texto: temarioData.descripcion_general },
+    { titulo: "Audiencia", texto: temarioData.audiencia },
+    { titulo: "Prerrequisitos", texto: temarioData.prerrequisitos },
+    { titulo: "Objetivos", texto: temarioData.objetivos },
+  ];
+
+  secciones.forEach((s) => {
+    if (!s.texto) return;
+    addPageIfNeeded(60);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(azul);
+    doc.text(s.titulo, margin.left, y);
+    y += 18;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(negro);
+    const lineas = doc.splitTextToSize(s.texto, contentWidth);
+    lineas.forEach((linea) => {
+      addPageIfNeeded(14);
+      doc.text(linea, margin.left, y, { align: "justify" });
+      y += 14;
+    });
+    y += 10;
+  });
+
+  // 🔹 Temario
+  addPageIfNeeded(50);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(azul);
+  doc.text("Temario", margin.left, y);
+  y += 25;
+
+  temarioData.temario.forEach((cap, i) => {
+    addPageIfNeeded(60);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(azul);
+
+    const tituloCap = `Capítulo ${i + 1}: ${cap.capitulo}`;
+    const lineasCap = doc.splitTextToSize(tituloCap, contentWidth - 40);
+    lineasCap.forEach((linea) => {
+      doc.text(linea, margin.left, y);
+      y += 14;
+    });
+    y += 4;
+
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.setTextColor(negro);
+    doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+    y += 12;
+
+    if (cap.objetivos_capitulo) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const objetivos = Array.isArray(cap.objetivos_capitulo)
+        ? cap.objetivos_capitulo.join(" ")
+        : cap.objetivos_capitulo;
+      const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
+      lines.forEach((line) => {
+        addPageIfNeeded(12);
+        doc.text(line, margin.left + 15, y, { align: "justify" });
+        y += 12;
+      });
+      y += 10;
+    }
+
+    cap.subcapitulos.forEach((sub, j) => {
+      addPageIfNeeded(16);
+      const subObj = typeof sub === "object" ? sub : { nombre: sub };
+      const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${subObj.sesion || 1}`;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const subTitulo = `${i + 1}.${j + 1} ${subObj.nombre}`;
+      const subLineas = doc.splitTextToSize(subTitulo, contentWidth - 120);
+      subLineas.forEach((linea, idx) => {
+        addPageIfNeeded(12);
+        doc.text(linea, margin.left + 25, y);
+        if (idx === 0) {
+          doc.text(meta, pageWidth - margin.right, y, { align: "right" });
+        }
+        y += 12;
+      });
+    });
+    y += 16;
+  });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    const propsEnc = doc.getImageProperties(encabezado);
+    const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
+    doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+    const propsPie = doc.getImageProperties(pie);
+    const altoPie = (propsPie.height / propsPie.width) * pageWidth;
+    doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+    doc.setFontSize(8);
+    doc.setTextColor("#666");
+    doc.text(
+      "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
+      margin.left,
+      pageHeight - 70
+    );
+    doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
+      align: "center",
+    });
+  }
+
+  doc.save(`Temario_${temarioData.nombre_curso || "curso"}.pdf`);
+};
+
 
 export default EditorDeTemario;
