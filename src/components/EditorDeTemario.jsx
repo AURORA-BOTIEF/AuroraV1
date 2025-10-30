@@ -547,5 +547,61 @@ return (
     </div>
   );
 }
+// 🔹 Exponer la función exportarPDF globalmente para GeneradorTemarios
+if (typeof window !== "undefined") {
+  window.exportarPDF = async (temarioData) => {
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text(temarioData.nombre_curso || "Temario del Curso", pageWidth / 2, 80, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      let y = 120;
+
+      // ✅ Recorre los capítulos
+      (temarioData.temario || []).forEach((cap, i) => {
+        doc.setFont("helvetica", "bold");
+        doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, 50, y);
+        y += 14;
+
+        doc.setFont("helvetica", "normal");
+        if (cap.objetivos_capitulo) {
+          const objetivos = Array.isArray(cap.objetivos_capitulo)
+            ? cap.objetivos_capitulo.join(" ")
+            : cap.objetivos_capitulo;
+          const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, pageWidth - 100);
+          lines.forEach(line => {
+            doc.text(line, 60, y);
+            y += 12;
+          });
+        }
+
+        (cap.subcapitulos || []).forEach((sub, j) => {
+          doc.text(`${i + 1}.${j + 1} ${sub.nombre} (${sub.tiempo_subcapitulo_min} min)`, 70, y);
+          y += 12;
+        });
+
+        y += 20;
+        if (y > pageHeight - 80) {
+          doc.addPage();
+          y = 80;
+        }
+      });
+
+      doc.save(`Temario_${temarioData.nombre_curso || "curso"}.pdf`);
+      console.log("✅ PDF generado correctamente");
+    } catch (err) {
+      console.error("❌ Error generando PDF desde window.exportarPDF:", err);
+      alert("Error generando PDF");
+    }
+  };
+}
 
 export default EditorDeTemario;
