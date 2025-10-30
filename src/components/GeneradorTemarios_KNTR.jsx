@@ -4,7 +4,7 @@ import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
 
 const API_URL_KNTR =
-  "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev/generator/knowledge/openai";
+  "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Generador_Temario_Knowledge_Transfer";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
