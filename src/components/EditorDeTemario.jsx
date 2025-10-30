@@ -109,6 +109,28 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setTemario(nuevo);
   };
 
+// ===== ELIMINAR CAPÍTULO =====
+const eliminarCapitulo = (capIndex) => {
+  if (
+    !window.confirm(
+      `¿Seguro que deseas eliminar el capítulo ${
+        capIndex + 1
+      } y todos sus temas?`
+    )
+  )
+    return;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  nuevo.temario.splice(capIndex, 1);
+  // Renumera capítulos restantes
+  nuevo.temario = nuevo.temario.map((c, i) => ({
+    ...c,
+    capitulo: c.capitulo || `Capítulo ${i + 1}`,
+  }));
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "🗑️ Capítulo eliminado" });
+};
+
   // ===== AGREGAR TEMA =====
   const agregarTema = (capIndex) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
@@ -122,6 +144,16 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     });
     setTemario(nuevo);
   };
+
+// ===== ELIMINAR TEMA =====
+const eliminarTema = (capIndex, subIndex) => {
+  if (!window.confirm("¿Seguro que deseas eliminar este tema?")) return;
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
+};
+
 
   // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
@@ -373,126 +405,157 @@ temario.temario.forEach((cap, i) => {
   };
 
   // === RENDER ===
-  return (
-    <div className="editor-container">
-      {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
+return (
+  <div className="editor-container">
+    {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
-      <h3>Temario Detallado</h3>
+    <h3>Temario Detallado</h3>
 
-      {(temario.temario || []).map((cap, i) => (
-        <div key={i} className="capitulo-editor">
-          <h4>Capítulo {i + 1}</h4>
-          <input
-            value={cap.capitulo || ""}
-            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
-            className="input-capitulo"
-          />
-          <div className="duracion-total">
-            ⏱️ Duración total: <strong>{cap.tiempo_capitulo_min || 0} min</strong>
-          </div>
+    {(temario.temario || []).map((cap, i) => (
+      <div key={i} className="capitulo-editor">
+        <h4>Capítulo {i + 1}</h4>
 
-          <label>Objetivos del Capítulo</label>
-          <textarea
-            value={
-              Array.isArray(cap.objetivos_capitulo)
-                ? cap.objetivos_capitulo.join("\n")
-                : cap.objetivos_capitulo || ""
-            }
-            onChange={(e) =>
-              handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
-            }
-            className="textarea-objetivos-capitulo"
-          />
+        <input
+          value={cap.capitulo || ""}
+          onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+          className="input-capitulo"
+          placeholder="Nombre del capítulo"
+        />
 
-          <ul>
-            {(cap.subcapitulos || []).map((sub, j) => (
-              <li key={j} className="subcapitulo-item">
-                <span>
-                  {i + 1}.{j + 1}
-                </span>
-                <input
-                  value={sub.nombre || ""}
-                  onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
-                />
-                <input
-                  type="number"
-                  value={sub.tiempo_subcapitulo_min || 0}
-                  onChange={(e) =>
-                    handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
-                  }
-                  placeholder="min"
-                />
-                <input
-                  type="number"
-                  value={sub.sesion || 1}
-                  onChange={(e) => handleFieldChange(i, j, "sesion", e.target.value)}
-                  placeholder="sesión"
-                />
-              </li>
-            ))}
-          </ul>
+        <div className="duracion-total">
+          ⏱️ Duración total: <strong>{cap.tiempo_capitulo_min || 0} min</strong>
+        </div>
 
+        <label>Objetivos del Capítulo</label>
+        <textarea
+          value={
+            Array.isArray(cap.objetivos_capitulo)
+              ? cap.objetivos_capitulo.join("\n")
+              : cap.objetivos_capitulo || ""
+          }
+          onChange={(e) =>
+            handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
+          }
+          className="textarea-objetivos-capitulo"
+          placeholder="Un objetivo por línea"
+        />
+
+        {/* === SUBCAPÍTULOS === */}
+        <ul>
+          {(cap.subcapitulos || []).map((sub, j) => (
+            <li key={j} className="subcapitulo-item">
+              <span>
+                {i + 1}.{j + 1}
+              </span>
+              <input
+                value={sub.nombre || ""}
+                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+                type="text"
+                placeholder="Nombre del tema"
+              />
+              <input
+                type="number"
+                value={sub.tiempo_subcapitulo_min || 0}
+                onChange={(e) =>
+                  handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                }
+                placeholder="min"
+              />
+              <input
+                type="number"
+                value={sub.sesion || 1}
+                onChange={(e) =>
+                  handleFieldChange(i, j, "sesion", e.target.value)
+                }
+                placeholder="sesión"
+              />
+
+              {/* 🔴 Botón eliminar tema */}
+              <button
+                className="btn-eliminar-tema"
+                onClick={() => eliminarTema(i, j)}
+                title="Eliminar tema"
+              >
+                🗑️
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        {/* 🔹 Acciones del capítulo */}
+        <div className="acciones-capitulo">
           <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
-            ➕ Agregar Tema
+            Agregar Tema
+          </button>
+
+          <button
+            className="btn-eliminar-capitulo"
+            onClick={() => eliminarCapitulo(i)}
+          >
+            Eliminar Capítulo
           </button>
         </div>
-      ))}
-
-      <div className="btn-agregar-capitulo-container">
-        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
-          ➕ Agregar Capítulo
-        </button>
       </div>
+    ))}
 
-      <div className="acciones-footer">
-        <button className="btn-primario" onClick={ajustarTiempos}>
-          Ajustar Tiempos
-        </button>
-        <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>
-          {guardando ? "Guardando..." : "Guardar Versión"}
-        </button>
-        <button className="btn-secundario" onClick={() => setModalExportar(true)}>
-          Exportar
-        </button>
-      </div>
+    {/* === Agregar nuevo capítulo === */}
+    <div className="btn-agregar-capitulo-container">
+      <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
+        Agregar Capítulo
+      </button>
+    </div>
 
-      {modalExportar && (
-        <div className="modal-overlay" onClick={() => setModalExportar(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Exportar</h3>
-              <button className="modal-close" onClick={() => setModalExportar(false)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <label>
-                <input
-                  type="radio"
-                  checked={exportTipo === "pdf"}
-                  onChange={() => setExportTipo("pdf")}
-                />{" "}
-                PDF
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  checked={exportTipo === "excel"}
-                  onChange={() => setExportTipo("excel")}
-                />{" "}
-                Excel
-              </label>
-            </div>
-            <div className="modal-footer">
-              <button
-                onClick={() => {
-                  exportTipo === "pdf" ? exportarPDF() : exportarExcel();
-                  setModalExportar(false);
-                }}
-                className="btn-guardar"
-              >
-                Exportar {exportTipo.toUpperCase()}
-              </button>
+    {/* === Acciones finales === */}
+    <div className="acciones-footer">
+      <button className="btn-primario" onClick={ajustarTiempos}>
+        Ajustar Tiempos
+      </button>
+      <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>
+        {guardando ? "Guardando..." : "Guardar Versión"}
+      </button>
+      <button className="btn-secundario" onClick={() => setModalExportar(true)}>
+        Exportar
+      </button>
+    </div>
+
+    {/* === Modal exportar === */}
+    {modalExportar && (
+      <div className="modal-overlay" onClick={() => setModalExportar(false)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>Exportar</h3>
+            <button className="modal-close" onClick={() => setModalExportar(false)}>
+              ✕
+            </button>
+          </div>
+          <div className="modal-body">
+            <label>
+              <input
+                type="radio"
+                checked={exportTipo === "pdf"}
+                onChange={() => setExportTipo("pdf")}
+              />{" "}
+              PDF
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={exportTipo === "excel"}
+                onChange={() => setExportTipo("excel")}
+              />{" "}
+              Excel
+            </label>
+          </div>
+          <div className="modal-footer">
+            <button
+              onClick={() => {
+                exportTipo === "pdf" ? exportarPDF() : exportarExcel();
+                setModalExportar(false);
+              }}
+              className="btn-guardar"
+            >
+              Exportar {exportTipo.toUpperCase()}
+            </button>
             </div>
           </div>
         </div>
