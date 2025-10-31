@@ -637,9 +637,9 @@ const handleExportarPDF = async (version) => {
                   </tbody>
                 </table>
               )}
-              </div> {/* ← cierre .modal-body */}
-            </div>   {/* ← cierre .modal */}
-          </div>     {/* ← cierre .modal-overlay */}
+              </div>
+            </div>
+          </div>
         )}
 
       {/* === MODAL DE CARGA THOR === */}
