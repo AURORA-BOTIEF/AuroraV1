@@ -77,7 +77,7 @@ export default function EditorDeTemario_seminario({
       if (cursoId && versionId && !temarioInicial) {
         try {
           const res = await fetch(
-            `https://<tu-api-obtener-version>.execute-api.us-east-1.amazonaws.com/dev/obtener_version_sem?id=${cursoId}&version=${versionId}`
+            `https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario?id=${cursoId}&version=${versionId}`
           );
           const data = await res.json();
           if (data?.contenido) {

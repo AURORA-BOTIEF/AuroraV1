@@ -10,9 +10,11 @@ import "./GeneradorTemarios.css";
 const generarApiUrl =
   "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/temario_seminario";
 const guardarApiUrl =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario";
 const obtenerVersionApi =
-  "https://tu-api-get-version.amazonaws.com/dev/get"; // ⚙️ Ajusta este endpoint
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario";
+const listarApiUrl =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario/list "
 
 // === Asesores Comerciales ===
 const asesoresComerciales = [
@@ -181,11 +183,11 @@ export default function GeneradorTemarios_Seminarios() {
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
-      const res = await fetch(guardarApiUrl, {
+      const res = await fetch(listarApiUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? {Authorization:`Bearer ${token}`}:{}),          
         },
       });
 
@@ -204,29 +206,10 @@ export default function GeneradorTemarios_Seminarios() {
 
   // === Editar versión ===
   const handleEditarVersion = (v) => {
+    console.log("📝 Editando versión", v.cusoId, v.versionId);
     navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
-
-  // === Exportar PDF desde historial ===
-  const handleExportarDesdeHistorial = async (v) => {
-    try {
-      const res = await fetch(`${obtenerVersionApi}?id=${v.cursoId}&version=${v.versionId}`);
-      const data = await res.json();
-      const temario = data.contenido;
-      const doc = new jsPDF();
-      doc.setFont("helvetica", "normal");
-      doc.text(temario.nombre_curso || "Seminario", 15, 20);
-      doc.text(
-        "Documento generado mediante tecnología de IA bajo la supervisión de Netec.",
-        15,
-        280
-      );
-      doc.save(`${temario.nombre_curso || "seminario"}.pdf`);
-    } catch (err) {
-      console.error("Error exportando PDF:", err);
-    }
-  };
-
+  
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
@@ -390,8 +373,7 @@ export default function GeneradorTemarios_Seminarios() {
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
                         <td style={{ textAlign: "center" }}>
-                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>📝</button>
-                          <button title="Exportar PDF" className="btn-accion" onClick={() => handleExportarDesdeHistorial(v)}>📄</button>
+                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>📝</button>                          
                         </td>
                       </tr>
                     ))}
