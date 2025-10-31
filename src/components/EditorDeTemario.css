@@ -123,18 +123,37 @@
 }
 
 /* ============================= */
-/* SUBCAPÍTULOS          */
+/* SUBCAPÍTULOS (ajustado para evitar estrechez) */
 /* ============================= */
 .subcapitulo-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 50px 1fr 80px 40px; /* número | tema | duración | ícono */
   align-items: center;
   gap: 0.8rem;
   margin-bottom: 0.7rem;
-  flex-wrap: wrap;
+  width: 100%;
 }
 
-/* Inputs de subcapítulos comparten estilo base de inputs */
-.subcapitulo-item input {
+.subcapitulo-item span {
+  font-weight: 600;
+  color: var(--color-principal);
+  text-align: center;
+}
+
+.subcapitulo-item input[type="text"] {
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: var(--border-radius-base);
+  padding: 0.5rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #333;
+  transition: var(--transition-base);
+}
+
+.subcapitulo-item input[type="number"] {
+  width: 100%;
+  text-align: center;
   border: 1px solid #ccc;
   border-radius: var(--border-radius-base);
   padding: 0.5rem 0.7rem;
@@ -150,20 +169,32 @@
   box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
 }
 
-.subcapitulo-item input[type="text"] {
-  flex: 2;
-  min-width: 200px;
+/* Botón 🗑️ minimalista */
+.subcapitulo-item .btn-eliminar-tema {
+  background: none;
+  border: none;
+  color: #444;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
 }
 
-.subcapitulo-item input[type="number"] {
-  width: 70px;
-  text-align: center;
+.subcapitulo-item .btn-eliminar-tema:hover {
+  transform: scale(1.25);
 }
 
-.subcapitulo-item span {
-  font-weight: 600;
-  width: 30px;
-  color: var(--color-principal);
+.subcapitulo-item .btn-eliminar-tema:active {
+  transform: scale(1.1);
+}
+
+.subcapitulo-item .btn-eliminar-tema svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
 }
 
 /* ============================= */
