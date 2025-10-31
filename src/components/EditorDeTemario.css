@@ -428,3 +428,30 @@
     justify-content: center;
   }
 }
+
+/* ============================= */
+/* INPUT DURACIÓN TOTAL (editable por usuario)
+/* ============================= */
+.input-duracion {
+  border: 1px solid var(--color-borde-input);
+  border-radius: var(--border-radius-base);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+  width: 80px;
+  text-align: center;
+  transition: var(--transition-base);
+  color: var(--color-texto-input);
+  background-color: #fff;
+}
+
+.input-duracion:focus {
+  outline: none;
+  border-color: var(--color-principal);
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+/* 🔹 Opcional: si quieres que se vea más alineado con el texto “min” */
+.duracion-total span {
+  color: var(--color-texto-input);
+  font-weight: 500;
+}
