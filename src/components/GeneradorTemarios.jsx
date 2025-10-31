@@ -611,7 +611,7 @@ const handleExportarPDF = async (version) => {
                               <button onClick={() => handleCargarVersion(v)}>
                                 ✏️ Editar
                               </button>
-                              <button onClick={() => handleExportarPDF(v)}>
+                              <button onClick={() => handleExportarPDF(v.contenido)}>
                                 📄 Exportar PDF
                               </button>
                               <button onClick={() => handleVerVersion(v)}>
