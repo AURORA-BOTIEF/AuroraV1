@@ -1,10 +1,12 @@
 /* ============================= */
-/* VARIABLES            */
+/* VARIABLES            */
 /* ============================= */
 :root {
   /* Colores primarios */
   --color-principal: #035b6e; /* Azul principal */
   --color-secundario: #197fa6; /* Azul secundario */
+  --color-texto-input: #333;
+  --color-borde-input: #ccc;
 
   /* Colores de mensaje */
   --msg-ok-bg: #e6f4ea;
@@ -19,10 +21,11 @@
   --border-radius-lg: 12px;
   --transition-base: all 0.2s ease-in-out;
   --font-family-base: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --shadow-base: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
 /* ============================= */
-/* CONTENEDOR GLOBAL       */
+/* CONTENEDOR GLOBAL       */
 /* ============================= */
 .editor-container {
   padding: 2rem 3rem;
@@ -30,12 +33,12 @@
   margin: 1rem auto;
   background: #fff;
   border-radius: var(--border-radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-base);
   font-family: var(--font-family-base);
 }
 
 /* ============================= */
-/* MENSAJES             */
+/* MENSAJES             */
 /* ============================= */
 /* Propiedades comunes para ambos mensajes */
 .msg.ok,
@@ -43,7 +46,7 @@
   padding: 10px 15px;
   border-radius: 6px;
   margin-bottom: 1rem;
-  border: 1px solid; /* Se define el borde con color en cada modificador */
+  border: 1px solid;
 }
 
 .msg.ok {
@@ -59,7 +62,7 @@
 }
 
 /* ============================= */
-/* CAPÍTULOS            */
+/* CAPÍTULOS            */
 /* ============================= */
 .capitulo-editor {
   background: #fafafa;
@@ -77,14 +80,14 @@
 .capitulo-editor h4 {
   color: var(--color-principal);
   font-weight: 700;
-  font-size: 1.1rem; /* Mejora visual */
-  border-bottom: 2px solid #035b6e15; /* Mejora visual */
-  padding-bottom: 4px; /* Mejora visual */
-  margin-bottom: 0.8rem; /* Espaciado ajustado */
+  font-size: 1.1rem;
+  border-bottom: 2px solid #035b6e15;
+  padding-bottom: 4px;
+  margin-bottom: 0.8rem;
 }
 
 /* ============================= */
-/* INPUTS Y TEXTAREAS COMUNES  */
+/* INPUTS Y TEXTAREAS COMUNES  */
 /* ============================= */
 .input-capitulo,
 .textarea-objetivos-capitulo {
@@ -92,11 +95,11 @@
   width: 100%;
   padding: 0.6rem 0.8rem;
   border-radius: var(--border-radius-base);
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-borde-input);
   margin-bottom: 0.8rem;
   font-size: 0.95rem;
   font-family: inherit;
-  color: #333;
+  color: var(--color-texto-input);
   background-color: #fff;
   transition: var(--transition-base);
 }
@@ -115,7 +118,7 @@
 
 .duracion-total {
   font-size: 0.95rem;
-  color: #333;
+  color: var(--color-texto-input);
   margin-bottom: 0.8rem;
   display: flex;
   align-items: center;
@@ -123,43 +126,28 @@
 }
 
 /* ============================= */
-/* SUBCAPÍTULOS (ajustado para evitar estrechez) */
+/* SUBCAPÍTULOS (Corregido con Flexbox para evitar el salto de línea) */
 /* ============================= */
 .subcapitulo-item {
-  display: grid;
-  grid-template-columns: 50px 1fr 80px 40px; /* número | tema | duración | ícono */
+  display: flex;
   align-items: center;
   gap: 0.8rem;
   margin-bottom: 0.7rem;
-  width: 100%;
+  flex-wrap: nowrap; /* <<-- CLAVE: Evita que los elementos salten a la siguiente línea */
 }
 
-.subcapitulo-item span {
-  font-weight: 600;
-  color: var(--color-principal);
-  text-align: center;
-}
-
-.subcapitulo-item input[type="text"] {
-  width: 100%;
-  border: 1px solid #ccc;
-  border-radius: var(--border-radius-base);
-  padding: 0.5rem 0.7rem;
+/* Base de Input/Span en Subcapítulos (Unificado) */
+.subcapitulo-item span,
+.subcapitulo-item input {
   font-family: inherit;
   font-size: 0.95rem;
-  color: #333;
-  transition: var(--transition-base);
+  color: var(--color-texto-input);
 }
 
-.subcapitulo-item input[type="number"] {
-  width: 100%;
-  text-align: center;
-  border: 1px solid #ccc;
+.subcapitulo-item input {
+  border: 1px solid var(--color-borde-input);
   border-radius: var(--border-radius-base);
   padding: 0.5rem 0.7rem;
-  font-family: inherit;
-  font-size: 0.95rem;
-  color: #333;
   transition: var(--transition-base);
 }
 
@@ -169,39 +157,41 @@
   box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
 }
 
-/* Botón 🗑️ minimalista */
-.subcapitulo-item .btn-eliminar-tema {
-  background: none;
-  border: none;
-  color: #444;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.4rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: transform 0.2s ease-in-out;
+/* 1. Número de Sesión (1.1, 1.2, etc.) */
+.subcapitulo-item span {
+  font-weight: 600;
+  color: var(--color-principal);
+  flex-shrink: 0; /* No debe encogerse */
+  width: 45px; /* Ancho fijo para el número (Ajustar si es necesario) */
 }
 
-.subcapitulo-item .btn-eliminar-tema:hover {
-  transform: scale(1.25);
+/* 2. Input de Texto del Tema */
+.subcapitulo-item input[type="text"] {
+  flex: 1; /* Ocupa el espacio restante */
+  min-width: 150px; /* Asegura un mínimo, pero es flexible */
 }
 
-.subcapitulo-item .btn-eliminar-tema:active {
-  transform: scale(1.1);
+/* 3. Input de Número (Duración) */
+.subcapitulo-item input[type="number"] {
+  width: 60px; /* Ancho justo para un número de 2-3 dígitos */
+  text-align: center;
+  flex-shrink: 0; /* No debe encogerse para mantener su ancho */
 }
 
-.subcapitulo-item .btn-eliminar-tema svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 2;
+/* 4. Input Adicional para la Sesión (El input "1" de tu imagen) */
+/* Asumo que este es un input de texto o número sin clase, si tiene clase, ajusta aquí */
+.subcapitulo-item input:nth-of-type(1) { /* Esto intenta seleccionar el primer input sin clase específica */
+    width: 60px;
+    text-align: center;
+    flex-shrink: 0;
 }
+
 
 /* ============================= */
-/* BOTONES             */
+/* BOTONES             */
 /* ============================= */
 /* Estilo base para todos los botones principales */
-.btn-base {
+.btn-base-principal {
   border: none;
   border-radius: var(--border-radius-base);
   padding: 0.7rem 1.4rem;
@@ -214,12 +204,12 @@
 
 /* Botones Primarios y Secundarios */
 .btn-primario {
-  @extend .btn-base; /* Esto es una notación, en CSS puro se copiarían las propiedades */
+  /* Hereda las propiedades de .btn-base-principal */
   background-color: var(--color-principal);
 }
 
 .btn-secundario {
-  @extend .btn-base;
+  /* Hereda las propiedades de .btn-base-principal */
   background-color: var(--color-secundario);
 }
 
@@ -236,7 +226,7 @@
 
 /* Botón Guardar (usado en modales) */
 .btn-guardar {
-  @extend .btn-base;
+  /* Hereda las propiedades de .btn-base-principal */
   background: var(--color-principal);
   padding: 0.7rem 1.2rem;
 }
@@ -286,7 +276,7 @@
 .btn-agregar-tema,
 .btn-agregar-capitulo {
   background: linear-gradient(90deg, #45ab9f, var(--color-principal));
-  margin-top: 0.5rem; /* Espaciado ajustado para Agregar Tema */
+  margin-top: 0.5rem;
 }
 
 /* Estilo para Eliminar Capítulo */
@@ -296,39 +286,38 @@
 
 /* --- ESTILO ESPECÍFICO PARA EL BOTÓN DE ELIMINAR TEMA (SOLO ÍCONO) --- */
 .subcapitulo-item .btn-eliminar-tema {
-  /* Sobrescribe estilos de botones generales para hacerlo minimalista */
-  background: none; /* Sin fondo de color */
-  border: none; /* Sin borde */
-  color: #444; /* Color oscuro para el ícono, combina con el diseño */
-  padding: 0.4rem; /* Padding ligero para el área del click */
+  /* Sobrescribe estilos de botones generales */
+  background: none;
+  border: none;
+  color: #444;
+  padding: 0.4rem;
   border-radius: 6px;
   font-size: 0.85rem;
   margin-left: 0.3rem;
   transition: transform 0.2s ease-in-out;
-  /* Asegura el formato de inline-flex para el ícono */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Resetea propiedades de texto no deseadas para un botón de solo ícono */
   font-weight: normal;
-  line-height: 1; /* Asegura el tamaño correcto del ícono */
+  line-height: 1;
+  flex-shrink: 0; /* No debe encogerse */
 }
 
 .subcapitulo-item .btn-eliminar-tema:hover {
-  transform: scale(1.25); /* Se agranda ligeramente al pasar el mouse */
-  filter: none; /* Elimina cualquier filtro de brillo si lo hubiera */
-  box-shadow: none; /* Elimina la sombra al pasar el mouse */
+  transform: scale(1.25);
+  filter: none;
+  box-shadow: none;
 }
 
 .subcapitulo-item .btn-eliminar-tema:active {
-  transform: scale(1.1); /* Un toque al hacer clic */
+  transform: scale(1.1);
   filter: none;
 }
 
 /* Correcciones de iconos y alineación */
 .btn-agregar-tema::before,
 .btn-agregar-capitulo::before {
-  content: none; /* Elimina la redundancia del ícono */
+  content: none;
 }
 
 .btn-agregar-tema svg,
@@ -339,14 +328,14 @@
 
 /* Tamaño y estilo para el SVG del botón de eliminar tema */
 .subcapitulo-item .btn-eliminar-tema svg {
-  width: 18px; /* Tamaño del ícono */
-  height: 18px; /* Tamaño del ícono */
-  stroke-width: 2; /* Grosor del trazo del ícono */
-  margin-top: 0; /* Asegura que el ícono esté centrado verticalmente */
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+  margin-top: 0;
 }
 
 /* ============================= */
-/* POSICIÓN Y ACCIONES      */
+/* POSICIÓN Y ACCIONES      */
 /* ============================= */
 .acciones-capitulo {
   display: flex;
@@ -371,7 +360,7 @@
 }
 
 /* ============================= */
-/* MODAL              */
+/* MODAL              */
 /* ============================= */
 .modal-overlay {
   position: fixed;
@@ -409,7 +398,7 @@
 }
 
 /* ============================= */
-/* RESPONSIVIDAD          */
+/* RESPONSIVIDAD          */
 /* ============================= */
 @media (max-width: 768px) {
   .acciones-footer {
