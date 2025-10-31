@@ -1,10 +1,10 @@
 /* ============================= */
-/* VARIABLES            */
+/* VARIABLES 
 /* ============================= */
 :root {
   /* Colores primarios */
-  --color-principal: #035b6e; /* Azul principal */
-  --color-secundario: #197fa6; /* Azul secundario */
+  --color-principal: #035b6e;
+  --color-secundario: #197fa6;
   --color-texto-input: #333;
   --color-borde-input: #ccc;
 
@@ -25,7 +25,7 @@
 }
 
 /* ============================= */
-/* CONTENEDOR GLOBAL       */
+/* CONTENEDOR GLOBAL 
 /* ============================= */
 .editor-container {
   padding: 2rem 3rem;
@@ -38,9 +38,8 @@
 }
 
 /* ============================= */
-/* MENSAJES             */
+/* MENSAJES 
 /* ============================= */
-/* Propiedades comunes para ambos mensajes */
 .msg.ok,
 .msg.error {
   padding: 10px 15px;
@@ -62,7 +61,7 @@
 }
 
 /* ============================= */
-/* CAPÍTULOS            */
+/* CAPÍTULOS 
 /* ============================= */
 .capitulo-editor {
   background: #fafafa;
@@ -87,11 +86,10 @@
 }
 
 /* ============================= */
-/* INPUTS Y TEXTAREAS COMUNES  */
+/* INPUTS Y TEXTAREAS COMUNES 
 /* ============================= */
 .input-capitulo,
 .textarea-objetivos-capitulo {
-  /* Propiedades comunes */
   width: 100%;
   padding: 0.6rem 0.8rem;
   border-radius: var(--border-radius-base);
@@ -126,17 +124,25 @@
 }
 
 /* ============================= */
-/* SUBCAPÍTULOS (Corregido con Flexbox para evitar el salto de línea) */
+/* SUBCAPÍTULOS (VERSIÓN CORREGIDA FINAL)
 /* ============================= */
+
+/* Reseteo para la lista <ul> que contiene los <li> */
+.capitulo-editor ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
 .subcapitulo-item {
   display: flex;
   align-items: center;
   gap: 0.8rem;
   margin-bottom: 0.7rem;
-  flex-wrap: nowrap; /* <<-- CLAVE: Evita que los elementos salten a la siguiente línea */
+  flex-wrap: nowrap; /* CLAVE: Fuerza a estar en una línea */
 }
 
-/* Base de Input/Span en Subcapítulos (Unificado) */
+/* Base de Input/Span en Subcapítulos */
 .subcapitulo-item span,
 .subcapitulo-item input {
   font-family: inherit;
@@ -157,40 +163,84 @@
   box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
 }
 
-/* 1. Número de Sesión (1.1, 1.2, etc.) */
+/* 1. Número de Sesión (7.1, 7.2, etc.) */
 .subcapitulo-item span {
   font-weight: 600;
   color: var(--color-principal);
-  flex-shrink: 0; /* No debe encogerse */
-  width: 45px; /* Ancho fijo para el número (Ajustar si es necesario) */
+  flex-shrink: 0; 
+  width: 45px; 
 }
 
 /* 2. Input de Texto del Tema */
 .subcapitulo-item input[type="text"] {
   flex: 1; /* Ocupa el espacio restante */
-  min-width: 150px; /* Asegura un mínimo, pero es flexible */
+  min-width: 150px; 
 }
 
-/* 3. Input de Número (Duración) */
+/* 3. Input de Número (Genérico - se aplica a Duración) */
 .subcapitulo-item input[type="number"] {
-  width: 60px; /* Ancho justo para un número de 2-3 dígitos */
+  width: 60px; /* Ancho para la Duración (ej: "12") */
   text-align: center;
-  flex-shrink: 0; /* No debe encogerse para mantener su ancho */
+  flex-shrink: 0; 
 }
 
-/* ... (reglas de .subcapitulo-item input[type="number"]) ... */
-
-/* 4. CORRECCIÓN CLAVE: Input de Número de Sesión (1, 2, etc.) */
-.input-sesion {
-    width: 30px; /* Ancho muy pequeño */
-    padding: 0.5rem 0.2rem; /* Padding reducido */
-    text-align: center;
-    flex-shrink: 0; /* IMPEDIR que se encoja o empuje */
+/* * 4. ¡¡CORRECCIÓN DE ESPECIFICIDAD!!
+ * Esta regla ahora es MÁS específica que la anterior (input[type="number"])
+ * y SOBRESCRIBE el ancho del input de sesión.
+*/
+.subcapitulo-item input.input-sesion {
+  width: 35px; /* Ancho MÍNIMO para el número de sesión ("1") */
+  padding: 0.5rem 0.2rem; /* Menos padding lateral */
+  text-align: center;
+  flex-shrink: 0; 
 }
+
+/* --- ESTILO PARA BOTÓN DE ELIMINAR TEMA (SOLO ÍCONO) --- */
+.subcapitulo-item .btn-eliminar-tema {
+  background: none;
+  border: none;
+  color: #444;
+  padding: 0.4rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  margin-left: 0.3rem;
+  transition: transform 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: normal;
+  line-height: 1;
+  flex-shrink: 0; 
+  cursor: pointer;
+}
+
+/* Oculta el texto "Eliminar" dentro del botón del subcapítulo */
+.subcapitulo-item .btn-eliminar-tema span {
+  display: none;
+}
+
+.subcapitulo-item .btn-eliminar-tema:hover {
+  transform: scale(1.25);
+  filter: none;
+  box-shadow: none;
+}
+
+.subcapitulo-item .btn-eliminar-tema:active {
+  transform: scale(1.1);
+  filter: none;
+}
+
+.subcapitulo-item .btn-eliminar-tema svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+  margin-top: 0;
+}
+
+
 /* ============================= */
-/* BOTONES             */
+/* BOTONES (Generales)
 /* ============================= */
-/* Estilo base para todos los botones principales */
 .btn-base-principal {
   border: none;
   border-radius: var(--border-radius-base);
@@ -202,14 +252,23 @@
   font-family: inherit;
 }
 
-/* Botones Primarios y Secundarios */
+.btn-primario,
+.btn-secundario {
+  border: none;
+  border-radius: var(--border-radius-base);
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition-base);
+  color: #fff;
+  font-family: inherit;
+}
+
 .btn-primario {
-  /* Hereda las propiedades de .btn-base-principal */
   background-color: var(--color-principal);
 }
 
 .btn-secundario {
-  /* Hereda las propiedades de .btn-base-principal */
   background-color: var(--color-secundario);
 }
 
@@ -224,23 +283,25 @@
   transform: scale(0.98);
 }
 
-/* Botón Guardar (usado en modales) */
 .btn-guardar {
-  /* Hereda las propiedades de .btn-base-principal */
-  background: var(--color-principal);
+  border: none;
+  border-radius: var(--border-radius-base);
   padding: 0.7rem 1.2rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition-base);
+  color: #fff;
+  font-family: inherit;
+  background: var(--color-principal);
 }
 
 .btn-guardar:hover {
   filter: brightness(1.1);
 }
 
-/* --- Botones Agregar/Eliminar de Contenido (Estilo general) --- */
-
 .btn-agregar-tema,
 .btn-agregar-capitulo,
 .btn-eliminar-capitulo {
-  /* Propiedades comunes para botones de acción con fondo */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -256,7 +317,6 @@
   color: #fff;
 }
 
-/* Modificaciones de Estado Comunes (hover/active) */
 .btn-agregar-tema:hover,
 .btn-agregar-capitulo:hover,
 .btn-eliminar-capitulo:hover {
@@ -272,49 +332,16 @@
   filter: brightness(0.9);
 }
 
-/* Estilo para Agregar */
 .btn-agregar-tema,
 .btn-agregar-capitulo {
   background: linear-gradient(90deg, #45ab9f, var(--color-principal));
   margin-top: 0.5rem;
 }
 
-/* Estilo para Eliminar Capítulo */
 .btn-eliminar-capitulo {
   background: linear-gradient(90deg, #c85050, #a62828);
 }
 
-/* --- ESTILO ESPECÍFICO PARA EL BOTÓN DE ELIMINAR TEMA (SOLO ÍCONO) --- */
-.subcapitulo-item .btn-eliminar-tema {
-  /* Sobrescribe estilos de botones generales */
-  background: none;
-  border: none;
-  color: #444;
-  padding: 0.4rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  margin-left: 0.3rem;
-  transition: transform 0.2s ease-in-out;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: normal;
-  line-height: 1;
-  flex-shrink: 0; /* No debe encogerse */
-}
-
-.subcapitulo-item .btn-eliminar-tema:hover {
-  transform: scale(1.25);
-  filter: none;
-  box-shadow: none;
-}
-
-.subcapitulo-item .btn-eliminar-tema:active {
-  transform: scale(1.1);
-  filter: none;
-}
-
-/* Correcciones de iconos y alineación */
 .btn-agregar-tema::before,
 .btn-agregar-capitulo::before {
   content: none;
@@ -326,16 +353,8 @@
   margin-top: 1px;
 }
 
-/* Tamaño y estilo para el SVG del botón de eliminar tema */
-.subcapitulo-item .btn-eliminar-tema svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 2;
-  margin-top: 0;
-}
-
 /* ============================= */
-/* POSICIÓN Y ACCIONES      */
+/* POSICIÓN Y ACCIONES 
 /* ============================= */
 .acciones-capitulo {
   display: flex;
@@ -360,7 +379,7 @@
 }
 
 /* ============================= */
-/* MODAL              */
+/* MODAL 
 /* ============================= */
 .modal-overlay {
   position: fixed;
@@ -398,7 +417,7 @@
 }
 
 /* ============================= */
-/* RESPONSIVIDAD          */
+/* RESPONSIVIDAD 
 /* ============================= */
 @media (max-width: 768px) {
   .acciones-footer {
