@@ -206,7 +206,7 @@ export default function GeneradorTemarios_Seminarios() {
 
   // === Editar versión ===
   const handleEditarVersion = (v) => {
-    console.log("📝 Editando versión", v.cusoId, v.versionId);
+    console.log("📝 Editando versión", v.cursoId, v.versionId);
     navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
   
