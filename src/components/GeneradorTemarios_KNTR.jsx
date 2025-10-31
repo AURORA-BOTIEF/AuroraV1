@@ -1,10 +1,8 @@
-// src/components/GeneradorTemarios_KNTR.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario from "./EditorDeTemario";
-import "./GeneradorTemarios.css";
-
-const API_URL_KNTR =
-  "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Generador_Temario_Knowledge_Transfer";
+import "./GeneradorTemarios.css"; 
+import { exportarPDF } from "./EditorDeTemario";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -13,182 +11,279 @@ const asesoresComerciales = [
   "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
-export default function GeneradorTemarios_KNTR() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [temarioGenerado, setTemarioGenerado] = useState(null);
-  const [mostrarModal, setMostrarModal] = useState(false);
-  const [versiones, setVersiones] = useState([]);
-
-  // Formulario
-  const [form, setForm] = useState({
+function GeneradorTemarios_KNTR() {
+  const [params, setParams] = useState({
     nombre_preventa: "",
     asesor_comercial: "",
     tecnologia: "",
     tema_curso: "",
     nivel_dificultad: "basico",
-    objetivo_tipo: "saber_hacer",
-    codigo_certificacion: "",
+    numero_sesiones_por_semana: 1,
+    horas_por_sesion: 4,
+    objetivo_tipo: "saber",
     sector: "",
-    enfoque: "Teórico",
-    horas_por_sesion: 3,
+    enfoque: "teorico",
+    codigo_certificacion: "",
+    syllabus_text: "",
   });
 
-  // Control de cambios
-  const handleChange = (e) => {
+  const [userEmail, setUserEmail] = useState("");
+  const [temarioGenerado, setTemarioGenerado] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
+  const [error, setError] = useState("");
+  const [versiones, setVersiones] = useState([]);
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+  const [menuActivo, setMenuActivo] = useState(null);
+
+  // === API ===
+  const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Generador_Temario_Knowledge_Transfer";
+  const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
+
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session?.tokens?.idToken?.payload?.email;
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("⚠️ Error obteniendo usuario:", err);
+      }
+    };
+    getUser();
+  }, []);
+
+  const handleParamChange = (e) => {
     const { name, value } = e.target;
-    const numeric = name === "horas_por_sesion" ? parseFloat(value) : value;
-    setForm((prev) => ({ ...prev, [name]: numeric }));
-  };
 
-  // Validación
-  const validate = () => {
-    if (
-      !form.nombre_preventa.trim() ||
-      !form.asesor_comercial.trim() ||
-      !form.tema_curso.trim() ||
-      !form.tecnologia.trim() ||
-      !form.sector.trim()
-    ) {
-      return "Completa todos los campos obligatorios.";
-    }
-    return "";
-  };
-
-  // Payload para Lambda
-  const buildPayload = () => {
-    const payload = {
-      tecnologia: form.tecnologia.trim(),
-      tema_curso: form.tema_curso.trim(),
-      nivel_dificultad: form.nivel_dificultad,
-      objetivo_tipo: form.objetivo_tipo,
-      sector: form.sector.trim(),
-      enfoque: form.enfoque.trim(),
-      durationHours: form.horas_por_sesion,
-      nombre_preventa: form.nombre_preventa,
-      asesor_comercial: form.asesor_comercial,
-      rules: {
-        outlineUnits: "topics_and_subtopics_only",
-        requireDepth: form.nivel_dificultad,
-        fitTimeWithinMinutesTolerance: 5,
-        concludeOnTimeSufficiency: true,
-      },
-    };
-
-    if (form.objetivo_tipo === "certificacion" && form.codigo_certificacion) {
-      payload.codigo_certificacion = form.codigo_certificacion.trim();
-    }
-
-    return payload;
-  };
-
-  // Adaptar respuesta → EditorDeTemario
-  const toEditorSchema = (data) => {
-    const temarioCapitulos = (data?.outline || []).map((it) => ({
-      capitulo: it.topic,
-      subcapitulos: Array.isArray(it.subtopics) ? it.subtopics : [],
-    }));
-
-    const descripcion =
-      data?.notes ||
-      (data?.assessment?.reason
-        ? `Nivel sugerido: ${data.depth || form.nivel_dificultad}. ${data.assessment.reason}`
-        : `Knowledge transfer de ${form.horas_por_sesion} horas. Nivel ${form.nivel_dificultad}.`);
-
-    return {
-      nombre_curso: `Knowledge transfer: ${form.tema_curso}`,
-      descripcion_general: descripcion,
-      audiencia: form.sector,
-      prerrequisitos: [],
-      objetivos: [],
-      nivel_dificultad: form.nivel_dificultad,
-      numero_sesiones: 1,
-      temario: temarioCapitulos,
-    };
-  };
-
-  // Enviar datos → API Gateway → Lambda
-  const handleGenerate = async () => {
-    const v = validate();
-    if (v) {
-      setError(v);
+    if (name === "objetivo_tipo") {
+      let codigoCert = params.codigo_certificacion;
+      if (value === "saber") {
+        codigoCert = "";
+      }
+      setParams((prev) => ({
+        ...prev,
+        [name]: value,
+        codigo_certificacion: codigoCert,
+      }));
       return;
     }
 
+    if (name === "horas_por_sesion" || name === "numero_sesiones_por_semana") {
+      setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+      return;
+    }
+
+    setParams((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSliderChange = (e) => {
+    const { name, value } = e.target;
+    setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+  };
+
+  const handleGenerar = async () => {
+    if (!params.tecnologia || !params.tema_curso || !params.sector) {
+      setError("Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia.");
+      return;
+    }
+
+    if (params.objetivo_tipo === "certificacion_teorica" && !params.codigo_certificacion) {
+      setError("Para certificación teórica, debes especificar el código de certificación.");
+      return;
+    }
+
+    const horasTotales = params.horas_por_sesion * params.numero_sesiones_por_semana;
+
     setIsLoading(true);
     setError("");
-    setTemarioGenerado(null);
+    setMostrandoModalThor(true);
+    setTimeout(() => setMostrandoModalThor(false), 160000);
 
     try {
-      const payload = buildPayload();
-      const token = localStorage.getItem("id_token");
+      const payload = { ...params, horas_totales: horasTotales };
+      if (payload.objetivo_tipo !== "certificacion_teorica") delete payload.codigo_certificacion;
 
-      const res = await fetch(API_URL_KNTR, {
+      const token = localStorage.getItem("id_token");
+      const response = await fetch(generarApiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al generar el temario.");
+      const data = await response.json();
+      if (!response.ok) {
+        const errorMessage = typeof data.error === "object" ? JSON.stringify(data.error) : data.error;
+        throw new Error(errorMessage || "Ocurrió un error en el servidor.");
+      }
 
-      const editorObj = toEditorSchema(data);
-      setTemarioGenerado(editorObj);
-    } catch (e) {
-      console.error("Error al generar el knowledge transfer:", e);
-      setError(e.message);
+      const temarioCompleto = {
+        ...data,
+        nombre_preventa: params.nombre_preventa,
+        asesor_comercial: params.asesor_comercial,
+        horas_totales: horasTotales,
+        enfoque: params.enfoque,
+        tecnologia: params.tecnologia,
+        tema_curso: params.tema_curso,
+      };
+      setTemarioGenerado(temarioCompleto);
+    } catch (err) {
+      console.error("❌ Error:", err);
+      setError(err.message || "No se pudo generar el temario. Intenta nuevamente.");
+    } finally {
+      setIsLoading(false);
+      setMostrandoModalThor(false);
+    }
+  };
+
+  const handleGuardarVersion = async (temarioParaGuardar, nota) => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const bodyData = {
+        contenido: temarioParaGuardar,
+        nota: nota || `Guardado el ${new Date().toLocaleString()}`,
+        autor: userEmail,
+        asesor_comercial: params.asesor_comercial,
+        nombre_preventa: params.nombre_preventa,
+        nombre_curso: params.tema_curso,
+        tecnologia: params.tecnologia,
+        enfoque: params.enfoque,
+        fecha_creacion: new Date().toISOString(),
+      };
+
+      const res = await fetch(guardarApiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(bodyData),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al guardar versión");
+
+      return { success: true, message: `Versión guardada ✔ (versionId: ${data.versionId})` };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: error.message };
+    }
+  };
+
+  const handleListarVersiones = async () => {
+    try {
+      const token = localStorage.getItem("id_token");
+      const res = await fetch(guardarApiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      const sortedData = data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
+      setVersiones(sortedData);
+      setMostrarModal(true);
+    } catch (error) {
+      console.error("Error al obtener versiones:", error);
+    }
+  };
+
+  const handleCargarVersion = (version) => {
+    setMostrarModal(false);
+    setParams((prev) => ({
+      ...prev,
+      nombre_preventa: version.nombre_preventa || "",
+      asesor_comercial: version.asesor_comercial || "",
+      tecnologia: version.tecnologia || "",
+      tema_curso: version.nombre_curso || "",
+      enfoque: version.enfoque || "",
+      nivel_dificultad: version.contenido?.nivel_dificultad || "basico",
+      sector: version.contenido?.sector || "",
+    }));
+    setTimeout(() => setTemarioGenerado(version.contenido), 300);
+  };
+
+  const handleExportarPDF = async (version) => {
+    try {
+      setIsLoading(true);
+      setError("");
+      const token = localStorage.getItem("id_token");
+      const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
+        version.nombre_curso
+      )}&version=${encodeURIComponent(version.versionId)}`;
+
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error(`Error al obtener datos del temario: ${response.status}`);
+      const data = await response.json();
+      exportarPDF(data);
+    } catch (err) {
+      console.error("❌ Error exportando PDF:", err);
+      setError("No se pudo generar el PDF. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Guardar versiones (placeholder)
-  const handleGuardarVersion = async (temarioParaGuardar) => {
-    console.log("Guardar versión (simulado):", temarioParaGuardar);
-    alert("Funcionalidad de guardado en desarrollo.");
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+    setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Listar versiones (simulado)
-  const handleListarVersiones = async () => {
-    setVersiones([
-      {
-        nombre_curso: "Knowledge transfer IA Educativa",
-        tecnologia: "OpenAI",
-        asesor_comercial: "Lezly Durán",
-        fecha_creacion: new Date().toISOString(),
-        autor: "juan.londono@netec.com.co",
-      },
-    ]);
-    setMostrarModal(true);
-  };
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
+
+  const versionesFiltradas = versiones.filter((v) => {
+    const nombreCurso = v.nombre_curso || "";
+    const tecnologia = v.tecnologia || "";
+    const asesor = v.asesor_comercial || "";
+
+    return (
+      nombreCurso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
+      (filtros.asesor ? asesor === filtros.asesor : true) &&
+      tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
+    );
+  });
 
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <h2>Generador de Temarios - Knowledge Transfer</h2>
-        <p>Genera una propuesta de Knowledge Transfer con Inteligencia Artificial.</p>
+        <div className="header-practico" style={{ marginBottom: "15px" }}>
+          <h2>Generador de Temarios Teóricos (Knowledge Transfer)</h2>
+        </div>
+        <p className="descripcion-practico" style={{ marginTop: "0px" }}>
+          Genera un temario 100% teórico orientado a transferencia de conocimiento.
+        </p>
 
-        {/* Campos principales */}
         <div className="form-grid">
           <div className="form-group">
-            <label>Nombre Preventa Asociado *</label>
+            <label>Nombre Preventa Asociado (Opcional)</label>
             <input
               name="nombre_preventa"
-              value={form.nombre_preventa}
-              onChange={handleChange}
-              placeholder="Ej: Juan Pérez"
+              value={params.nombre_preventa}
+              onChange={handleParamChange}
+              disabled={isLoading}
             />
           </div>
 
           <div className="form-group">
-            <label>Asesor(a) Comercial Asociado *</label>
+            <label>Asesor(a) Comercial (Opcional)</label>
             <select
               name="asesor_comercial"
-              value={form.asesor_comercial}
-              onChange={handleChange}
+              value={params.asesor_comercial}
+              onChange={handleParamChange}
+              disabled={isLoading}
             >
               <option value="">Selecciona un asesor(a)</option>
               {asesoresComerciales.map((a) => (
@@ -201,28 +296,31 @@ export default function GeneradorTemarios_KNTR() {
             <label>Tecnología *</label>
             <input
               name="tecnologia"
-              value={form.tecnologia}
-              onChange={handleChange}
-              placeholder="Ej: Power BI, AWS, Python"
+              value={params.tecnologia}
+              onChange={handleParamChange}
+              disabled={isLoading}
+              placeholder="Ej: ITIL, ISO 27001, Gestión del Conocimiento"
             />
           </div>
 
           <div className="form-group">
-            <label>Tema Principal del Knowledge Transfer *</label>
+            <label>Tema Principal del Curso *</label>
             <input
               name="tema_curso"
-              value={form.tema_curso}
-              onChange={handleChange}
-              placeholder="Ej: Arquitecturas Serverless, Storytelling con Datos"
+              value={params.tema_curso}
+              onChange={handleParamChange}
+              disabled={isLoading}
+              placeholder="Ej: Fundamentos de Knowledge Transfer"
             />
           </div>
 
           <div className="form-group">
-            <label>Nivel *</label>
+            <label>Nivel de Dificultad</label>
             <select
               name="nivel_dificultad"
-              value={form.nivel_dificultad}
-              onChange={handleChange}
+              value={params.nivel_dificultad}
+              onChange={handleParamChange}
+              disabled={isLoading}
             >
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
@@ -231,150 +329,258 @@ export default function GeneradorTemarios_KNTR() {
           </div>
 
           <div className="form-group">
-            <label>Horas por sesión (3–7 horas) *</label>
+            <label>Número de Sesiones (1–7)</label>
             <div className="slider-container">
               <input
                 type="range"
-                min="3"
+                min="1"
                 max="7"
-                step="1"
-                name="horas_por_sesion"
-                value={form.horas_por_sesion}
-                onChange={handleChange}
+                name="numero_sesiones_por_semana"
+                value={params.numero_sesiones_por_semana}
+                onChange={handleSliderChange}
+                disabled={isLoading}
               />
-              <span>{form.horas_por_sesion} h</span>
+              <span className="slider-value">
+                {params.numero_sesiones_por_semana}{" "}
+                {params.numero_sesiones_por_semana > 1 ? "sesiones" : "sesión"}
+              </span>
             </div>
           </div>
 
+          <div className="form-group">
+            <label>Horas por Sesión (1–8)</label>
+            <div className="slider-container">
+              <input
+                type="range"
+                min="1"
+                max="8"
+                name="horas_por_sesion"
+                value={params.horas_por_sesion}
+                onChange={handleSliderChange}
+                disabled={isLoading}
+              />
+              <span className="slider-value">{params.horas_por_sesion} horas</span>
+            </div>
+          </div>
+
+          <div className="form-group total-horas">
+            <label>Total del Curso</label>
+            <div className="total-badge">
+              {params.horas_por_sesion * params.numero_sesiones_por_semana} horas
+            </div>
+          </div>
         </div>
 
-        {/* Tipo de Objetivo */}
         <div className="form-group-radio">
-          <label>Tipo de Objetivo *</label>
-          <p></p>
-          <div>
-            <label>
+          <label>Tipo de Objetivo</label>
+          <div className="radio-group">
+            <label className="radio-label">
               <input
                 type="radio"
                 name="objetivo_tipo"
-                value="saber_hacer"
-                checked={form.objetivo_tipo === "saber_hacer"}
-                onChange={handleChange}
-              />{" "}
-              Saber Hacer (enfocado en habilidades)
+                value="saber"
+                checked={params.objetivo_tipo === "saber"}
+                onChange={handleParamChange}
+                disabled={isLoading}
+              />
+              <span>Conocimiento (Transferencia Teórica)</span>
             </label>
-            <label>
+            <label className="radio-label">
               <input
                 type="radio"
                 name="objetivo_tipo"
-                value="certificacion"
-                checked={form.objetivo_tipo === "certificacion"}
-                onChange={handleChange}
-              />{" "}
-              Certificación (enfocado en examen)
+                value="certificacion_teorica"
+                checked={params.objetivo_tipo === "certificacion_teorica"}
+                onChange={handleParamChange}
+                disabled={isLoading}
+              />
+              <span>Certificación Teórica</span>
             </label>
           </div>
         </div>
-        <p></p>
 
-        {form.objetivo_tipo === "certificacion" && (
-          <div className="form-group">
-            <label>Código de Certificación</label>
+        {params.objetivo_tipo === "certificacion_teorica" && (
+          <div className="form-group certificacion-field">
+            <label>Código de Certificación *</label>
             <input
               name="codigo_certificacion"
-              value={form.codigo_certificacion}
-              onChange={handleChange}
-              placeholder="Ej: AZ-900, AWS CLF-C02"
+              value={params.codigo_certificacion}
+              onChange={handleParamChange}
+              disabled={isLoading}
+              placeholder="Ej: ITIL4-DITS, ISO27001-FUND"
             />
           </div>
         )}
-        <p></p>
 
         <div className="form-group">
           <label>Sector / Audiencia *</label>
           <textarea
             name="sector"
-            value={form.sector}
-            onChange={handleChange}
-            placeholder="Ej: Sector financiero, docentes, universitarios..."
+            value={params.sector}
+            onChange={handleParamChange}
+            disabled={isLoading}
+            rows="3"
+            placeholder="Ej: Sector financiero, equipos de gestión, instructores internos..."
           />
         </div>
 
         <div className="form-group">
-          <label>Enfoque Adicional (opcional)</label>
+          <label>Enfoque Adicional (Opcional)</label>
           <textarea
             name="enfoque"
-            value={form.enfoque}
-            onChange={handleChange}
-            placeholder="Ej: Orientado a casos prácticos o talleres participativos."
+            value={params.enfoque}
+            onChange={handleParamChange}
+            disabled={isLoading}
+            rows="3"
+            placeholder="Ej: Orientado a análisis conceptual, transferencia de conocimiento organizacional..."
           />
         </div>
 
-        {/* Botones */}
-        <div className="botones">
-          <button
-            className="btn-generar"
-            onClick={handleGenerate}
+        <div className="form-group">
+          <label>Syllabus Base (Opcional)</label>
+          <textarea
+            name="syllabus_text"
+            value={params.syllabus_text || ""}
+            onChange={handleParamChange}
             disabled={isLoading}
-          >
-            {isLoading ? "Generando..." : "Generar Propuesta de Knowledge Transfer"}
+            rows="6"
+            placeholder="Copia aquí el contenido del syllabus o programa base (texto plano)..."
+          />
+          <small className="hint">
+            💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al original.
+          </small>
+        </div>
+
+        <div className="botones">
+          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
+            {isLoading ? "Generando..." : "Generar Temario Teórico"}
           </button>
-          <button
-            className="btn-versiones"
-            onClick={handleListarVersiones}
-          >
+          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
             Ver Versiones Guardadas
           </button>
         </div>
 
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <div className="error-message">
+            <span>⚠️</span> {error}
+          </div>
+        )}
       </div>
 
-      {/* Resultado */}
       {temarioGenerado && (
         <EditorDeTemario
           temarioInicial={temarioGenerado}
-          onRegenerate={handleGenerate}
           onSave={handleGuardarVersion}
+          onRegenerate={handleGenerar}
           isLoading={isLoading}
         />
       )}
 
-      {/* Modal de versiones */}
       {mostrarModal && (
         <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="close-btn" onClick={() => setMostrarModal(false)}>
-                ✕
-              </button>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
-            <table className="tabla-versiones">
-              <thead>
-                <tr>
-                  <th>Curso</th>
-                  <th>Tecnología</th>
-                  <th>Asesor</th>
-                  <th>Fecha</th>
-                  <th>Autor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {versiones.map((v, i) => (
-                  <tr key={i}>
-                    <td>{v.nombre_curso}</td>
-                    <td>{v.tecnologia}</td>
-                    <td>{v.asesor_comercial}</td>
-                    <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                    <td>{v.autor}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="modal-body">
+              <div className="filtros-versiones">
+                <input
+                  type="text"
+                  placeholder="Filtrar por curso"
+                  name="curso"
+                  value={filtros.curso}
+                  onChange={handleFiltroChange}
+                />
+                <select
+                  name="asesor"
+                  value={filtros.asesor}
+                  onChange={handleFiltroChange}
+                >
+                  <option value="">Todos los asesores</option>
+                  {asesoresComerciales.map((a) => <option key={a}>{a}</option>)}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Filtrar por tecnología"
+                  name="tecnologia"
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+                <button className="btn-secundario" onClick={limpiarFiltros}>
+                  Limpiar
+                </button>
+              </div>
+
+              {versionesFiltradas.length === 0 ? (
+                <p className="no-versiones">No hay versiones guardadas.</p>
+              ) : (
+                <table className="tabla-versiones">
+                  <thead>
+                    <tr>
+                      <th>Curso</th>
+                      <th>Tecnología</th>
+                      <th>Asesor</th>
+                      <th>Fecha</th>
+                      <th>Autor</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versionesFiltradas.map((v, i) => (
+                      <tr key={v.versionId || i}>
+                        <td>{v.nombre_curso}</td>
+                        <td>{v.tecnologia}</td>
+                        <td>{v.asesor_comercial}</td>
+                        <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
+                        <td>{v.autor}</td>
+                        <td className="acciones-cell">
+                          <button
+                            className="menu-btn"
+                            onClick={() => setMenuActivo(menuActivo === i ? null : i)}
+                          >
+                            ⋮
+                          </button>
+                          {menuActivo === i && (
+                            <div className="menu-opciones">
+                              <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
+                              <button onClick={() => handleExportarPDF(v.contenido)}>📄 Exportar PDF</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mostrandoModalThor && (
+        <div className="modal-overlay-thor">
+          <div className="modal-thor">
+            <h2>⚙️ THOR está generando tu temario teórico...</h2>
+            <p>
+              Mientras se crea el contenido, recuerda que está siendo generado con inteligencia artificial y
+              está pensado como una propuesta base.
+            </p>
+            <ul>
+              <li>✅ Verifica la información antes de compartirla con el equipo.</li>
+              <li>✏️ Adapta los temas según tu contexto y nivel del grupo.</li>
+              <li>🌍 Revisa que el contenido sea inclusivo y respetuoso.</li>
+              <li>🔐 No ingreses datos personales o sensibles.</li>
+              <li>🧠 Usa la IA como apoyo, no como sustituto del criterio pedagógico.</li>
+            </ul>
+            <p className="nota-thor">
+              Este generador crea cursos teóricos (Knowledge Transfer), enfocados en comprensión y análisis conceptual.
+            </p>
           </div>
         </div>
       )}
     </div>
   );
 }
+
+export default GeneradorTemarios_KNTR;
