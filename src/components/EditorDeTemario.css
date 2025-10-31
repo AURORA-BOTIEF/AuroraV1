@@ -144,32 +144,10 @@
   transform: scale(0.98);
 }
 
-/* Agregar tema / capítulo */
-.btn-agregar-tema,
-.btn-agregar-capitulo {
-  background: linear-gradient(90deg, #45ab9f, #035b6e);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 0.65rem 1.4rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease-in-out;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  font-family: inherit;
-}
-
-/* 🔄 Reemplazo del icono "➕" por un símbolo más estilizado */
+/* 🔧 Corrige el doble ícono en los botones Agregar */
 .btn-agregar-tema::before,
 .btn-agregar-capitulo::before {
-  content: "＋"; /* símbolo más limpio */
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: #fff;
-  margin-right: 0.3rem;
+  content: none;
 }
 
 /* Hover y active */
@@ -266,12 +244,7 @@
 /* 🔧 Corrige el doble ícono en los botones Agregar */
 .btn-agregar-tema::before,
 .btn-agregar-capitulo::before {
-  content: "+"; /* Un solo símbolo claro */
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: #fff;
-  margin-right: 0.4rem;
-  filter: none !important; /* elimina interferencia de gradientes */
+  content: none;
 }
 
 /* 🔧 Alinea los inputs de subtemas para que tengan igual tamaño */
@@ -296,4 +269,90 @@
   margin-top: 0.5rem;
 }
 
+/* === BOTONES AGREGAR / ELIMINAR === */
+.btn-agregar-tema,
+.btn-agregar-capitulo,
+.btn-eliminar-tema,
+.btn-eliminar-capitulo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
+  color: #fff;
+}
 
+/* ➕ Agregar */
+.btn-agregar-tema,
+.btn-agregar-capitulo {
+  background: linear-gradient(90deg, #45ab9f, #035b6e);
+}
+
+.btn-agregar-tema:hover,
+.btn-agregar-capitulo:hover {
+  transform: scale(1.03);
+  filter: brightness(1.1);
+}
+
+.btn-agregar-tema:active,
+.btn-agregar-capitulo:active {
+  transform: scale(0.97);
+  filter: brightness(0.9);
+}
+
+/* 🗑️ Eliminar */
+.btn-eliminar-tema,
+.btn-eliminar-capitulo {
+  background: linear-gradient(90deg, #c85050, #a62828);
+}
+
+.btn-eliminar-tema:hover,
+.btn-eliminar-capitulo:hover {
+  transform: scale(1.03);
+  filter: brightness(1.1);
+}
+
+.btn-eliminar-tema:active,
+.btn-eliminar-capitulo:active {
+  transform: scale(0.97);
+  filter: brightness(0.9);
+}
+
+/* Íconos alineados */
+.btn-agregar-tema svg,
+.btn-agregar-capitulo svg,
+.btn-eliminar-tema svg,
+.btn-eliminar-capitulo svg {
+  margin-top: 1px;
+}
+
+.acciones-capitulo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.subcapitulo-item .btn-eliminar-tema {
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.subcapitulo-item .btn-eliminar-tema {
+  margin-left: 0.3rem;
+}
+
+.btn-agregar-tema:hover,
+.btn-agregar-capitulo:hover,
+.btn-eliminar-tema:hover,
+.btn-eliminar-capitulo:hover {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
