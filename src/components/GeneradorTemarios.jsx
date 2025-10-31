@@ -32,6 +32,7 @@ function GeneradorTemarios() {
   const [userEmail, setUserEmail] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
   const [error, setError] = useState("");
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -105,6 +106,12 @@ function GeneradorTemarios() {
     setIsLoading(true);
     setError("");
 
+    setMostrandoModalThor(true);
+    // Ocultar automáticamente después de 2 minutos y 40 segundos
+    setTimeout(() => {
+      setMostrandoModalThor(false);
+    }, 160000);
+
     try {
       // Usamos el payload que tu API original espera
       const payload = {
@@ -158,6 +165,7 @@ function GeneradorTemarios() {
       setError(err.message || "No se pudo generar el temario. Intenta nuevamente.");
     } finally {
       setIsLoading(false);
+      setMostrandoModalThor(false);
     }
   };
 
@@ -600,9 +608,11 @@ const handleExportarPDF = async (version) => {
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
                         <td className="acciones-cell">
-                          <button 
-                            className="menu-btn" 
-                            onClick={() => setMenuActivo(menuActivo === i ? null : i)}
+                          <button
+                            className="menu-btn"
+                            onClick={() =>
+                              setMenuActivo(menuActivo === i ? null : i)
+                            }
                           >
                             ⋮
                           </button>
@@ -611,7 +621,9 @@ const handleExportarPDF = async (version) => {
                               <button onClick={() => handleCargarVersion(v)}>
                                 ✏️ Editar
                               </button>
-                              <button onClick={() => handleExportarPDF(v.contenido)}>
+                              <button
+                                onClick={() => handleExportarPDF(v.contenido)}
+                              >
                                 📄 Exportar PDF
                               </button>
                               <button onClick={() => handleVerVersion(v)}>
@@ -625,7 +637,47 @@ const handleExportarPDF = async (version) => {
                   </tbody>
                 </table>
               )}
-            </div>
+            </div> {/* ← cierre .modal-body */}
+          </div>   {/* ← cierre .modal */}
+        </div>     {/* ← cierre .modal-overlay */}
+      )}
+
+      {/* === MODAL DE CARGA THOR === */}
+      {mostrandoModalThor && (
+        <div className="modal-overlay-thor">
+          <div className="modal-thor">
+            <h2>⚙️ THOR está generando tu temario...</h2>
+            <p>
+              Mientras se crea el contenido, recuerda que está siendo generado
+              con inteligencia artificial y está pensado como una propuesta base
+              para ayudarte a estructurar tus ideas.
+            </p>
+            <ul>
+              <li>
+                ✅ Verifica la información antes de compartirla con el equipo de
+                Preventa.
+              </li>
+              <li>
+                ✏️ Edita y adapta los temas según tus objetivos, el nivel del
+                grupo y el contexto específico.
+              </li>
+              <li>
+                🌍 Revisa y asegúrate de que el contenido sea inclusivo y
+                respetuoso.
+              </li>
+              <li>
+                🔐 Evita ingresar datos personales o sensibles en la plataforma.
+              </li>
+              <li>
+                🧠 Utiliza el contenido como apoyo, no como sustituto de tu
+                criterio pedagógico.
+              </li>
+            </ul>
+            <p className="nota-thor">
+              La IA es una herramienta poderosa, pero requiere tu supervisión
+              como Instructor experto para garantizar calidad, precisión y
+              relevancia educativa.
+            </p>
           </div>
         </div>
       )}
