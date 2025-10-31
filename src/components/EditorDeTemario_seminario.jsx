@@ -444,6 +444,23 @@ export default function EditorDeTemario_seminario({
     <div className="editor-container">
       {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
+      {/* === Botón para volver al generador === */}
+      <button
+        className="btn-secundario"
+        style={{
+          marginBottom: "1rem",
+          backgroundColor: "#0A66C2",
+          color: "white",
+          border: "none",
+          padding: "8px 16px",
+          borderRadius: "6px",
+          cursor: "pointer",
+        }}
+        onClick={() => window.history.back()}
+      >
+        ← Volver al generador de temario
+      </button>
+
       <h3>Temario Detallado</h3>
 
       {(temario.temario || []).map((cap, i) => (
