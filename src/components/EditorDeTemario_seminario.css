@@ -242,3 +242,24 @@ textarea {
   .modal { width: min(95vw, 540px); }
   .modal.modal-xl { width: min(95vw, 900px); }
 }
+
+.btn-volver {
+  background-color: #f1f7fc;
+  color: #1a1a1a;
+  border: 1px solid #d0e2f0;
+  border-radius: 24px;
+  padding: 10px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-volver:hover {
+  background-color: #e5f0fa;
+  border-color: #a5c7e7;
+}
+
+.btn-volver:active {
+  background-color: #d6e7f7;
+}
