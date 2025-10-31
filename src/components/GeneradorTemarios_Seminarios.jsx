@@ -325,11 +325,21 @@ export default function GeneradorTemarios_Seminarios() {
       </div>
 
       {temarioGenerado && (
-        <EditorDeTemario_seminario
-          temarioInicial={temarioGenerado}
-          onSave={handleGuardarVersion}
-          isLoading={isLoading}
-        />
+        <div style={{ marginTop: "2rem" }}>
+          <button
+            className="btn-secundario"
+            style={{ marginBottom: "1rem" }}
+            onClick={() => setTemarioGenerado(null)}
+          >
+            ← Volver al generador de temario
+          </button>
+
+          <EditorDeTemario_seminario
+            temarioInicial={temarioGenerado}
+            onSave={handleGuardarVersion}
+            isLoading={isLoading}
+          />
+        </div>
       )}
 
       {mostrarModal && (
