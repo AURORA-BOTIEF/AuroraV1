@@ -178,15 +178,15 @@
   flex-shrink: 0; /* No debe encogerse para mantener su ancho */
 }
 
-/* 4. Input Adicional para la Sesión (El input "1" de tu imagen) */
-/* Asumo que este es un input de texto o número sin clase, si tiene clase, ajusta aquí */
-.subcapitulo-item input:nth-of-type(1) { /* Esto intenta seleccionar el primer input sin clase específica */
-    width: 60px;
+/* ... (reglas de .subcapitulo-item input[type="number"]) ... */
+
+/* 4. CORRECCIÓN CLAVE: Input de Número de Sesión (1, 2, etc.) */
+.input-sesion {
+    width: 30px; /* Ancho muy pequeño */
+    padding: 0.5rem 0.2rem; /* Padding reducido */
     text-align: center;
-    flex-shrink: 0;
+    flex-shrink: 0; /* IMPEDIR que se encoja o empuje */
 }
-
-
 /* ============================= */
 /* BOTONES             */
 /* ============================= */
