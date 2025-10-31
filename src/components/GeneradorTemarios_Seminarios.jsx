@@ -12,9 +12,9 @@ const generarApiUrl =
 const guardarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario";
 const obtenerVersionApi =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario";
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario?id={cursoId}&version={versionId}";
 const listarApiUrl =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario/list "
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario/list";
 
 // === Asesores Comerciales ===
 const asesoresComerciales = [
