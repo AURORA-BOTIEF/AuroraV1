@@ -515,6 +515,18 @@ return (
       className="textarea-objetivos-capitulo"
       placeholder="Ej: Curso introductorio a Scrum, dirigido a desarrolladores con 1 año de experiencia..."
     />
+
+    {/* 🔹 CAMPO AÑADIDO: AUDIENCIA */}
+    <label>Audiencia</label>
+    <textarea
+      value={temario.audiencia || ""}
+      onChange={(e) =>
+        setTemario({ ...temario, audiencia: e.target.value })
+      }
+      className="textarea-objetivos-capitulo"
+      placeholder="Ej: Desarrolladores, Project Managers, Líderes de equipo..."
+    />
+
     {/* 🔴 CAMPO AÑADIDO: PRERREQUISITOS */}
     <label>Prerrequisitos</label>
     <textarea
@@ -555,6 +567,17 @@ return (
           className="input-capitulo"
           placeholder="Nombre del capítulo"
         />
+
+    {/* 🔹 CAMPO AÑADIDO: OBJETIVOS */}
+    <label>Objetivos</label>
+    <textarea
+    value={temario.objetivos || ""}
+    onChange={(e) =>
+      setTemario({ ...temario, objetivos: e.target.value })
+    }
+    className="textarea-objetivos-capitulo"
+    placeholder="Ej: Al finalizar el curso, los participantes serán capaces de..."
+    />  
 
         <div className="duracion-total">
           ⏱️ Duración total:&nbsp;
