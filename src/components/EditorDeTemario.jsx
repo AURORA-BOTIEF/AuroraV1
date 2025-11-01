@@ -71,6 +71,10 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     });
   }, [temarioInicial]);
 
+// 🔹 Cálculo del total de horas del curso (recibido del generador)
+const totalHorasCurso =
+  (temario?.horas_por_sesion || 0) * (temario?.numero_sesiones || 0);
+
 // ===== CAMBIO DE CAMPOS =====
 const handleFieldChange = (capIndex, subIndex, field, value) => {
   const nuevo = JSON.parse(JSON.stringify(temario));
@@ -148,6 +152,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
       ],
     });
     setTemario(nuevo);
+    ajustarTiempos();
   };
 
 // ===== ELIMINAR CAPÍTULO =====
@@ -169,6 +174,7 @@ const eliminarCapitulo = (capIndex) => {
     capitulo: c.capitulo || `Capítulo ${i + 1}`,
   }));
   setTemario(nuevo);
+  ajustarTiempos();
   setMensaje({ tipo: "ok", texto: "🗑️ Capítulo eliminado" });
 };
 
@@ -184,6 +190,7 @@ const eliminarCapitulo = (capIndex) => {
       sesion: 1,
     });
     setTemario(nuevo);
+    ajustarTiempos();
   };
 
 // ===== ELIMINAR TEMA =====
@@ -192,6 +199,7 @@ const eliminarTema = (capIndex, subIndex) => {
   const nuevo = JSON.parse(JSON.stringify(temario));
   nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
   setTemario(nuevo);
+  ajustarTiempos();
   setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
 };
 
@@ -346,7 +354,7 @@ const eliminarTema = (capIndex, subIndex) => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(azul);
-      doc.text("Temario", margin.left, y);
+      doc.text("Temario", pageWidth / 2, y, { align: "center" });
       y += 25;
 
       temario.temario.forEach((cap, i) => {
@@ -466,12 +474,29 @@ return (
       placeholder="Ej: Conocimientos básicos de gestión de proyectos..."
     />
     <hr style={{ margin: "20px 0" }} /> 
-
+    {/* 🔹 Total del curso (no editable) */}
+    <div
+      style={{
+        background: "#f7fafa",
+        border: "1px solid #d8e4e8",
+        borderRadius: "8px",
+        padding: "10px 15px",
+        marginBottom: "1rem",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        }}
+    >
+      <strong style={{ color: "#035b6e" }}>Duración total del curso:</strong>
+      <span style={{ fontWeight: 600, color: "#197fa6" }}>
+        {temario?.horas_por_sesion || 0} h × {temario?.numero_sesiones || 0} sesiones ={" "}
+        {totalHorasCurso} horas
+      </span>
+    </div>
     <h3>Temario Detallado</h3>
     {(temario.temario || []).map((cap, i) => (
       <div key={i} className="capitulo-editor">
         <h4>Capítulo {i + 1}</h4>
-
         <input
           value={cap.capitulo || ""}
           onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
