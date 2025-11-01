@@ -83,9 +83,22 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
 
     // 🔹 Si el usuario edita la duración total manualmente
     if (field === "tiempo_capitulo_min") {
-      nuevo.temario[capIndex].tiempo_capitulo_min = parseInt(value, 10) || 0;
+      const nuevoTotal = parseInt(value, 10) || 0;
+      nuevo.temario[capIndex].tiempo_capitulo_min = nuevoTotal;
+
+      // 🟢 Repartir equitativamente entre subcapítulos existentes
+      const subcaps = nuevo.temario[capIndex].subcapitulos || [];
+      if (subcaps.length > 0) {
+        const minutosPorSub = Math.floor(nuevoTotal / subcaps.length);
+        const residuo = nuevoTotal % subcaps.length;
+
+        subcaps.forEach((sub, idx) => {
+          sub.tiempo_subcapitulo_min =
+            minutosPorSub + (idx === 0 ? residuo : 0); // reparte residuo al primero
+        });
+      }
     } else {
-      // 🔹 Si el usuario edita otro campo (por ejemplo el título o los objetivos)
+      // 🔹 Si el usuario edita otro campo (nombre, objetivos, etc.)
       // recalculamos la duración total según los subcapítulos actuales
       nuevo.temario[capIndex].tiempo_capitulo_min = (
         nuevo.temario[capIndex].subcapitulos || []
@@ -100,9 +113,8 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
       nuevo.temario[capIndex].subcapitulos = [];
     if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
       nuevo.temario[capIndex].subcapitulos[subIndex] = {
-        nombre: String(
-          nuevo.temario[capIndex].subcapitulos[subIndex] || "Tema"
-        ),
+        nombre:
+          String(nuevo.temario[capIndex].subcapitulos[subIndex]) || "Tema",
       };
     }
 
