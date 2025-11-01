@@ -49,38 +49,54 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
-  useEffect(() => {
-    const getUser = async () => {
-      try {
-        const session = await fetchAuthSession();
-        const email = session?.tokens?.idToken?.payload?.email;
-        setUserEmail(email || "sin-correo");
-      } catch (err) {
-        console.error("Error obteniendo usuario:", err);
-      }
-    };
-    getUser();
-  }, []);
-
+// === Obtener usuario autenticado ===
 useEffect(() => {
-  setTemario({
+  const getUser = async () => {
+    try {
+      const session = await fetchAuthSession();
+      const email = session?.tokens?.idToken?.payload?.email;
+      setUserEmail(email || "sin-correo");
+    } catch (err) {
+      console.error("Error obteniendo usuario:", err);
+    }
+  };
+  getUser();
+}, []);
+
+// === Inicializar temario (respetando tiempos del backend) ===
+useEffect(() => {
+  if (!temarioInicial) return;
+
+  setTemario((prev) => ({
+    ...prev,
     ...temarioInicial,
-    horas_por_sesion: temarioInicial?.horas_por_sesion,
-    numero_sesiones: temarioInicial?.numero_sesiones,
     temario: Array.isArray(temarioInicial?.temario)
-      ? temarioInicial.temario
+      ? temarioInicial.temario.map((cap) => ({
+          ...cap,
+          tiempo_capitulo_min:
+            cap.tiempo_capitulo_min ||
+            (cap.subcapitulos || []).reduce(
+              (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+              0
+            ),
+          subcapitulos: (cap.subcapitulos || []).map((sub) => ({
+            ...sub,
+            tiempo_subcapitulo_min: parseInt(sub.tiempo_subcapitulo_min) || 0,
+            sesion: sub.sesion || 1,
+          })),
+        }))
       : [],
-  });
+  }));
 }, [temarioInicial]);
 
-  // ✅ Este es el nuevo useEffect que agregas
-  useEffect(() => {
-    if (!temario.horas_por_sesion || !temario.numero_sesiones) return;
-    const total = temario.horas_por_sesion * temario.numero_sesiones;
-    console.log("Duración total del curso:", total);
-  }, [temario.horas_por_sesion, temario.numero_sesiones]);
+// === Mostrar total del curso en consola (debug) ===
+useEffect(() => {
+  if (!temario.horas_por_sesion || !temario.numero_sesiones) return;
+  const total = temario.horas_por_sesion * temario.numero_sesiones;
+  console.log("Duración total del curso:", total, "horas");
+}, [temario.horas_por_sesion, temario.numero_sesiones]);
 
-   // ✅ Reajusta tiempos automáticamente si cambia el número de capítulos o temas
+// === Reajustar tiempos si cambia la cantidad de capítulos o temas ===
 useEffect(() => {
   ajustarTiempos();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,7 +113,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
   if (!nuevo.temario[capIndex]) return;
 
   if (subIndex === null) {
-    // 🔹 Estamos modificando un campo del capítulo
+    // 🔹 Modificando un campo del capítulo
     nuevo.temario[capIndex][field] = value;
 
     // 🔹 Si el usuario edita la duración total manualmente
@@ -113,7 +129,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
 
         subcaps.forEach((sub, idx) => {
           sub.tiempo_subcapitulo_min =
-            minutosPorSub + (idx === 0 ? residuo : 0); // reparte residuo al primero
+            minutosPorSub + (idx === 0 ? residuo : 0);
         });
       }
     } else {
@@ -127,7 +143,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
       );
     }
   } else {
-    // 🔹 Estamos modificando un campo de un subcapítulo
+    // 🔹 Modificando un campo de un subcapítulo
     if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
       nuevo.temario[capIndex].subcapitulos = [];
     if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
