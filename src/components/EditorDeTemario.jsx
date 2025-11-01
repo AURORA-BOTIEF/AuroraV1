@@ -444,8 +444,30 @@ return (
   <div className="editor-container">
     {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
-    <h3>Temario Detallado</h3>
+    <h3>Información general del curso</h3>
+    {/* 🔴 CAMPO AÑADIDO: DESCRIPCIÓN GENERAL */}
+    <label>Descripción General</label>
+    <textarea
+      value={temario.descripcion_general || ""}
+      onChange={(e) =>
+        setTemario({ ...temario, descripcion_general: e.target.value })
+      }
+      className="textarea-objetivos-capitulo"
+      placeholder="Ej: Curso introductorio a Scrum, dirigido a desarrolladores con 1 año de experiencia..."
+    />
+    {/* 🔴 CAMPO AÑADIDO: PRERREQUISITOS */}
+    <label>Prerrequisitos</label>
+    <textarea
+      value={temario.prerrequisitos || ""}
+      onChange={(e) =>
+        setTemario({ ...temario, prerrequisitos: e.target.value })
+      }
+      className="textarea-objetivos-capitulo"
+      placeholder="Ej: Conocimientos básicos de gestión de proyectos..."
+    />
+    <hr style={{ margin: "20px 0" }} /> 
 
+    <h3>Temario Detallado</h3>
     {(temario.temario || []).map((cap, i) => (
       <div key={i} className="capitulo-editor">
         <h4>Capítulo {i + 1}</h4>
