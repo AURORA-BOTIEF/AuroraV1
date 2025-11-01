@@ -445,6 +445,19 @@ return (
     {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
     <h3>Información general del curso</h3>
+    {/* 🔹 Campo: Horas Totales del Curso */}
+    <label>Duración total del curso (horas)</label>
+    <input
+      type="number"
+      min="0"
+      value={temario.horas_total_curso || 0}
+      onChange={(e) =>
+        setTemario({ ...temario, horas_total_curso: e.target.value })
+      }
+      className="input-capitulo"
+      placeholder="Ej: 40"
+    />
+
     {/* 🔴 CAMPO AÑADIDO: DESCRIPCIÓN GENERAL */}
     <label>Descripción General</label>
     <textarea
@@ -705,7 +718,8 @@ export const exportarPDF = async (temarioData) => {
     y += 18;
   });
   y += 20;
-
+  doc.text(`Duración total del curso: ${temarioData.horas_total_curso || 0} horas`, margin.left, y);
+  y += 14;
   // 🔹 Secciones generales
   const secciones = [
     { titulo: "Descripción General", texto: temarioData.descripcion_general },
