@@ -62,16 +62,16 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     getUser();
   }, []);
 
-  useEffect(() => {
-    setTemario({
-      ...temarioInicial,
-      horas_por_sesion: temarioInicial?.horas_por_sesion || 1,
-      numero_sesiones: temarioInicial?.numero_sesiones || 1,
-      temario: Array.isArray(temarioInicial?.temario)
-        ? temarioInicial.temario
-        : [],
-    });
-  }, [temarioInicial]);
+useEffect(() => {
+  setTemario({
+    ...temarioInicial,
+    horas_por_sesion: temarioInicial?.horas_por_sesion,
+    numero_sesiones: temarioInicial?.numero_sesiones,
+    temario: Array.isArray(temarioInicial?.temario)
+      ? temarioInicial.temario
+      : [],
+  });
+}, [temarioInicial]);
 
   // ✅ Este es el nuevo useEffect que agregas
   useEffect(() => {
@@ -219,40 +219,38 @@ const eliminarTema = (capIndex, subIndex) => {
 };
 
 
- // ===== AJUSTAR TIEMPOS =====
+ // ===== AJUSTAR TIEMPOS (flexible, mantiene total) =====
 const ajustarTiempos = () => {
   if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
 
-  // 🔹 Total fijo del curso en minutos
+  // 🔹 Total de minutos del curso (fijo)
   const totalMinutosCurso =
     (temario?.horas_por_sesion || 0) * (temario?.numero_sesiones || 0) * 60;
 
-  // 🔹 Contamos cuántos subtemas hay en total
-  const totalTemas = temario.temario.reduce(
-    (acc, cap) => acc + (cap.subcapitulos?.length || 0),
+  // 🔹 Calculamos cuánto dura actualmente el temario
+  const minutosActuales = temario.temario.reduce(
+    (acc, cap) =>
+      acc +
+      (cap.subcapitulos || []).reduce(
+        (suma, sub) => suma + (parseInt(sub.tiempo_subcapitulo_min) || 0),
+        0
+      ),
     0
   );
 
-  if (totalTemas === 0) return;
+  if (minutosActuales === 0) return; // No hay datos que ajustar todavía
 
-  // 🔹 Cuántos minutos por subtema
-  const minutosPorTema = Math.floor(totalMinutosCurso / totalTemas);
-  const residuo = totalMinutosCurso % totalTemas;
+  // 🔹 Factor de ajuste para mantener el total fijo
+  const factor = totalMinutosCurso / minutosActuales;
 
   const nuevo = JSON.parse(JSON.stringify(temario));
-  let contadorTemas = 0;
 
   nuevo.temario.forEach((cap) => {
-    if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
-
-    cap.subcapitulos.forEach((sub, idx) => {
-      // Distribuimos el residuo en los primeros temas
-      sub.tiempo_subcapitulo_min =
-        minutosPorTema + (contadorTemas < residuo ? 1 : 0);
-      contadorTemas++;
+    cap.subcapitulos.forEach((sub) => {
+      sub.tiempo_subcapitulo_min = Math.round(
+        (parseInt(sub.tiempo_subcapitulo_min) || 0) * factor
+      );
     });
-
-    // 🔹 Sumamos el tiempo total de cada capítulo
     cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
       (a, s) => a + (s.tiempo_subcapitulo_min || 0),
       0
@@ -262,9 +260,9 @@ const ajustarTiempos = () => {
   setTemario(nuevo);
   setMensaje({
     tipo: "ok",
-    texto: `⏱️ Tiempos ajustados al total fijo de ${formatDuration(
+    texto: `⏱️ Tiempos ajustados para mantener ${formatDuration(
       totalMinutosCurso
-    )}`,
+    )} totales.`,
   });
 };
 
