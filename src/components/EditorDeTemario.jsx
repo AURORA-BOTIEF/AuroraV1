@@ -5,6 +5,17 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
+import { Plus, Trash2 } from "lucide-react";
+
+// 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
+const formatDuration = (minutos) => {
+  if (!minutos || minutos < 0) return "0 min";
+  const horas = Math.floor(minutos / 60);
+  const mins = minutos % 60;
+  if (horas === 0) return `${mins} min`;
+  if (mins === 0) return `${horas} hr`;
+  return `${horas} hr ${mins} min`;
+};
 
 const toDataURL = async (url) => {
   const res = await fetch(url);
@@ -60,38 +71,57 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     });
   }, [temarioInicial]);
 
-  // ===== CAMBIO DE CAMPOS =====
-  const handleFieldChange = (capIndex, subIndex, field, value) => {
-    const nuevo = JSON.parse(JSON.stringify(temario));
-    if (!Array.isArray(nuevo.temario)) nuevo.temario = [];
-    if (!nuevo.temario[capIndex]) return;
+// ===== CAMBIO DE CAMPOS =====
+const handleFieldChange = (capIndex, subIndex, field, value) => {
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  if (!Array.isArray(nuevo.temario)) nuevo.temario = [];
+  if (!nuevo.temario[capIndex]) return;
 
-    if (subIndex === null) {
-      nuevo.temario[capIndex][field] = value;
+  if (subIndex === null) {
+    // 🔹 Estamos modificando un campo del capítulo
+    nuevo.temario[capIndex][field] = value;
+
+    // 🔹 Si el usuario edita la duración total manualmente
+    if (field === "tiempo_capitulo_min") {
+      nuevo.temario[capIndex].tiempo_capitulo_min = parseInt(value, 10) || 0;
     } else {
-      if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
-        nuevo.temario[capIndex].subcapitulos = [];
-      if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
-        nuevo.temario[capIndex].subcapitulos[subIndex] = {
-          nombre: String(
-            nuevo.temario[capIndex].subcapitulos[subIndex] || "Tema"
-          ),
-        };
-      }
-      nuevo.temario[capIndex].subcapitulos[subIndex][field] =
-        field.includes("tiempo") || field === "sesion"
-          ? parseInt(value, 10) || 0
-          : value;
+      // 🔹 Si el usuario edita otro campo (por ejemplo el título o los objetivos)
+      // recalculamos la duración total según los subcapítulos actuales
+      nuevo.temario[capIndex].tiempo_capitulo_min = (
+        nuevo.temario[capIndex].subcapitulos || []
+      ).reduce(
+        (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+        0
+      );
+    }
+  } else {
+    // 🔹 Estamos modificando un campo de un subcapítulo
+    if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
+      nuevo.temario[capIndex].subcapitulos = [];
+    if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
+      nuevo.temario[capIndex].subcapitulos[subIndex] = {
+        nombre: String(
+          nuevo.temario[capIndex].subcapitulos[subIndex] || "Tema"
+        ),
+      };
     }
 
-    nuevo.temario[capIndex].tiempo_capitulo_min = (nuevo.temario[
-      capIndex
-    ].subcapitulos || []).reduce(
+    nuevo.temario[capIndex].subcapitulos[subIndex][field] =
+      field.includes("tiempo") || field === "sesion"
+        ? parseInt(value, 10) || 0
+        : value;
+
+    // 🔹 Al cambiar un subcapítulo, recalculamos la duración total automáticamente
+    nuevo.temario[capIndex].tiempo_capitulo_min = (
+      nuevo.temario[capIndex].subcapitulos || []
+    ).reduce(
       (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
       0
     );
-    setTemario(nuevo);
-  };
+  }
+
+  setTemario(nuevo);
+};
 
   // ===== AGREGAR CAPÍTULO =====
   const agregarCapitulo = () => {
@@ -416,7 +446,20 @@ return (
         />
 
         <div className="duracion-total">
-          ⏱️ Duración total: <strong>{cap.tiempo_capitulo_min || 0} min</strong>
+          ⏱️ Duración total:&nbsp;
+          <input
+            type="number"
+            min="0"
+            value={cap.tiempo_capitulo_min || 0}
+            onChange={(e) =>
+              handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)
+            }
+            className="input-duracion"
+            style={{ width: "80px", textAlign: "center" }}
+          />
+          <span style={{ marginLeft: "8px", color: "#035b6e", fontWeight: 600 }}>
+            {formatDuration(cap.tiempo_capitulo_min || 0)}
+          </span>
         </div>
 
         <label>Objetivos del Capítulo</label>
@@ -461,15 +504,16 @@ return (
                   handleFieldChange(i, j, "sesion", e.target.value)
                 }
                 placeholder="sesión"
+                className="input-sesion"
               />
 
-              {/* 🔴 Botón eliminar tema */}
               <button
                 className="btn-eliminar-tema"
                 onClick={() => eliminarTema(i, j)}
                 title="Eliminar tema"
               >
-                🗑️
+                <Trash2 size={18} strokeWidth={2} />
+                <span>Eliminar</span>
               </button>
             </li>
           ))}
@@ -478,15 +522,25 @@ return (
         {/* 🔹 Acciones del capítulo */}
         <div className="acciones-capitulo">
           <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
-            ➕ Agregar Tema
-          </button>
+            <Plus size={18} strokeWidth={2} />
+            <span>Agregar Tema</span>
+            </button>
+            <button
+              className="btn-eliminar-capitulo"
+              onClick={() => eliminarCapitulo(i)}
+              title="Eliminar este capítulo"
+            >
+              <Trash2 size={18} strokeWidth={2} />
+              <span>Eliminar Capítulo</span>
+            </button>
+          </div>
         </div>
-      </div>
-    ))}
+      ))}
 
       <div className="btn-agregar-capitulo-container">
         <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
-          ➕ Agregar Capítulo
+          <Plus size={18} strokeWidth={2} />
+          <span>Agregar Capítulo</span>
         </button>
       </div>
 
@@ -650,7 +704,7 @@ export const exportarPDF = async (temarioData) => {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
     doc.setTextColor(negro);
-    doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+    doc.text(`Duración total: ${formatDuration(cap.tiempo_capitulo_min || 0)}`, margin.left + 10, y);
     y += 12;
 
     if (cap.objetivos_capitulo) {
@@ -671,7 +725,7 @@ export const exportarPDF = async (temarioData) => {
     cap.subcapitulos.forEach((sub, j) => {
       addPageIfNeeded(16);
       const subObj = typeof sub === "object" ? sub : { nombre: sub };
-      const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${subObj.sesion || 1}`;
+      const meta = `${formatDuration(subObj.tiempo_subcapitulo_min || 0)} • Sesión ${subObj.sesion || 1}`;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       const subTitulo = `${i + 1}.${j + 1} ${subObj.nombre}`;
