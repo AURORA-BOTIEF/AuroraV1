@@ -316,6 +316,7 @@ const eliminarTema = (capIndex, subIndex) => {
       y += 20;
 
       const secciones = [
+        {duración: `Duración total del curso: ${temario?.horas_total_curso || 0} horas` },
         { titulo: "Descripción General", texto: temario?.descripcion_general },
         { titulo: "Audiencia", texto: temario?.audiencia },
         { titulo: "Prerrequisitos", texto: temario?.prerrequisitos },
@@ -342,12 +343,25 @@ const eliminarTema = (capIndex, subIndex) => {
         y += 10;
       });
 
-      addPageIfNeeded(50);
+      // 🔹 Añadimos un espacio antes del divisor
+      y += 30;
+
+      // 🔹 Dibujamos una línea divisoria para separar secciones
+      doc.setDrawColor(150, 150, 150); // gris claro
+      doc.setLineWidth(0.8);
+      doc.line(margin.left, y, pageWidth - margin.right, y);
+
+      y += 25; // espacio después de la línea
+
+      // 🔹 Agregamos el título "Temario"
+      addPageIfNeeded(70);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(azul);
       doc.text("Temario", margin.left, y);
-      y += 25;
+
+      // 🔹 Espacio adicional antes del primer capítulo
+      y += 35;
 
       temario.temario.forEach((cap, i) => {
         addPageIfNeeded(60);
