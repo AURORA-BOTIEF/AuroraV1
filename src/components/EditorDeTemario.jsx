@@ -314,9 +314,14 @@ const eliminarTema = (capIndex, subIndex) => {
         y += 18;
       });
       y += 20;
-
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(12);
+      doc.setTextColor("#000000");
+      doc.text(`Duración total del curso: ${temario?.horas_total_curso || 0} horas`, margin.left, y + 20);
+      y += 30;
+      // 🔹 Secciones generales
       const secciones = [
-        {duración: `Duración total del curso: ${temario?.horas_total_curso || 0} horas` },
+        { titulo: "Duración total del curso", texto: `${temario?.horas_total_curso || 0} horas` },
         { titulo: "Descripción General", texto: temario?.descripcion_general },
         { titulo: "Audiencia", texto: temario?.audiencia },
         { titulo: "Prerrequisitos", texto: temario?.prerrequisitos },
@@ -344,7 +349,7 @@ const eliminarTema = (capIndex, subIndex) => {
       });
 
       // 🔹 Añadimos un espacio antes del divisor
-      y += 30;
+      y += 12;
 
       // 🔹 Dibujamos una línea divisoria para separar secciones
       doc.setDrawColor(150, 150, 150); // gris claro
