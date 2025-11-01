@@ -80,6 +80,11 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     console.log("Duración total del curso:", total);
   }, [temario.horas_por_sesion, temario.numero_sesiones]);
 
+   // ✅ Reajusta tiempos automáticamente si cambia el número de capítulos o temas
+useEffect(() => {
+  ajustarTiempos();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [temario.temario.length]);
 
 // 🔹 Cálculo del total de horas del curso (recibido del generador)
 const totalHorasCurso =
@@ -214,31 +219,54 @@ const eliminarTema = (capIndex, subIndex) => {
 };
 
 
-  // ===== AJUSTAR TIEMPOS =====
-  const ajustarTiempos = () => {
-    if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
-    const horas = temario?.horas_por_sesion || 2;
-    const minutosTotales = horas * 60;
-    const totalTemas = temario.temario.reduce(
-      (acc, cap) => acc + (cap.subcapitulos?.length || 0),
+ // ===== AJUSTAR TIEMPOS =====
+const ajustarTiempos = () => {
+  if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
+
+  // 🔹 Total fijo del curso en minutos
+  const totalMinutosCurso =
+    (temario?.horas_por_sesion || 0) * (temario?.numero_sesiones || 0) * 60;
+
+  // 🔹 Contamos cuántos subtemas hay en total
+  const totalTemas = temario.temario.reduce(
+    (acc, cap) => acc + (cap.subcapitulos?.length || 0),
+    0
+  );
+
+  if (totalTemas === 0) return;
+
+  // 🔹 Cuántos minutos por subtema
+  const minutosPorTema = Math.floor(totalMinutosCurso / totalTemas);
+  const residuo = totalMinutosCurso % totalTemas;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  let contadorTemas = 0;
+
+  nuevo.temario.forEach((cap) => {
+    if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
+
+    cap.subcapitulos.forEach((sub, idx) => {
+      // Distribuimos el residuo en los primeros temas
+      sub.tiempo_subcapitulo_min =
+        minutosPorTema + (contadorTemas < residuo ? 1 : 0);
+      contadorTemas++;
+    });
+
+    // 🔹 Sumamos el tiempo total de cada capítulo
+    cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
+      (a, s) => a + (s.tiempo_subcapitulo_min || 0),
       0
     );
-    if (totalTemas === 0) return;
-    const minutosPorTema = Math.floor(minutosTotales / totalTemas);
-    const nuevo = JSON.parse(JSON.stringify(temario));
-    nuevo.temario.forEach((cap) => {
-      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
-      cap.subcapitulos.forEach((sub) => {
-        sub.tiempo_subcapitulo_min = minutosPorTema;
-      });
-      cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
-        (a, s) => a + (s.tiempo_subcapitulo_min || 0),
-        0
-      );
-    });
-    setTemario(nuevo);
-    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
-  };
+  });
+
+  setTemario(nuevo);
+  setMensaje({
+    tipo: "ok",
+    texto: `⏱️ Tiempos ajustados al total fijo de ${formatDuration(
+      totalMinutosCurso
+    )}`,
+  });
+};
 
   // ===== GUARDAR ===== (corregido para evitar 400)
   const handleSaveClick = async () => {
