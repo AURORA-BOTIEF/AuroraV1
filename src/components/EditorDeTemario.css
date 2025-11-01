@@ -299,8 +299,8 @@
   filter: brightness(1.1);
 }
 
+/* === BOTONES AGREGAR / ELIMINAR (alineados visualmente) === */
 .btn-agregar-tema,
-.btn-agregar-capitulo,
 .btn-eliminar-capitulo {
   display: inline-flex;
   align-items: center;
@@ -308,17 +308,30 @@
   gap: 0.45rem;
   border: none;
   border-radius: var(--border-radius-base);
-  padding: 0.55rem 1.3rem;
+  padding: 0.65rem 1.4rem; /* mismo padding */
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
   font-size: 0.95rem;
-  transition: var(--transition-base);
+  transition: all 0.2s ease-in-out;
   color: #fff;
+  min-width: 160px; /* 🔹 mismo ancho mínimo */
+  text-align: center;
 }
 
+/* ➕ Agregar */
+.btn-agregar-tema {
+  background: linear-gradient(90deg, #45ab9f, var(--color-principal));
+  margin-top: 0.5rem;
+}
+
+/* 🗑️ Eliminar Capítulo */
+.btn-eliminar-capitulo {
+  background: linear-gradient(90deg, #c85050, #a62828);
+}
+
+/* Efectos hover y active iguales */
 .btn-agregar-tema:hover,
-.btn-agregar-capitulo:hover,
 .btn-eliminar-capitulo:hover {
   transform: scale(1.03);
   filter: brightness(1.1);
@@ -326,29 +339,13 @@
 }
 
 .btn-agregar-tema:active,
-.btn-agregar-capitulo:active,
 .btn-eliminar-capitulo:active {
   transform: scale(0.97);
   filter: brightness(0.9);
 }
 
-.btn-agregar-tema,
-.btn-agregar-capitulo {
-  background: linear-gradient(90deg, #45ab9f, var(--color-principal));
-  margin-top: 0.5rem;
-}
-
-.btn-eliminar-capitulo {
-  background: linear-gradient(90deg, #c85050, #a62828);
-}
-
-.btn-agregar-tema::before,
-.btn-agregar-capitulo::before {
-  content: none;
-}
-
+/* Íconos alineados */
 .btn-agregar-tema svg,
-.btn-agregar-capitulo svg,
 .btn-eliminar-capitulo svg {
   margin-top: 1px;
 }
