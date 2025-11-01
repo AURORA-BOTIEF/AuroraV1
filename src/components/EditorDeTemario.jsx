@@ -314,10 +314,12 @@ const eliminarTema = (capIndex, subIndex) => {
         y += 18;
       });
       y += 20;
-      doc.setFont("helvetica", "normal");
+      // 🔹 Duración total del curso (estilo visual mejorado)
+      doc.setFont("helvetica", "bolditalic"); // ✅ negrita y cursiva
       doc.setFontSize(12);
-      doc.setTextColor("#000000");
-      doc.text(`Duración total del curso: ${temario?.horas_total_curso || 0} horas`, margin.left, y + 20);
+      doc.setTextColor(azul);
+      const duracionTexto = `Duración total del curso: ${temario?.horas_total_curso || 0} horas`;
+      doc.text(duracionTexto, pageWidth - margin.right, y + 10, { align: "right" }); // ✅ alineado derecha
       y += 30;
       // 🔹 Secciones generales
       const secciones = [
