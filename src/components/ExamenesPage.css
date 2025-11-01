@@ -223,8 +223,4 @@
   transform: scale(0.98);
 }
 
-.btn-agregar-capitulo::before,
-.btn-agregar-tema::before {
-  content: "➕ ";
-  font-weight: bold;
-}
+
