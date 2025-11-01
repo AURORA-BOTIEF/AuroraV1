@@ -65,11 +65,21 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   useEffect(() => {
     setTemario({
       ...temarioInicial,
+      horas_por_sesion: temarioInicial?.horas_por_sesion || 1,
+      numero_sesiones: temarioInicial?.numero_sesiones || 1,
       temario: Array.isArray(temarioInicial?.temario)
         ? temarioInicial.temario
         : [],
     });
   }, [temarioInicial]);
+
+  // ✅ Este es el nuevo useEffect que agregas
+  useEffect(() => {
+    if (!temario.horas_por_sesion || !temario.numero_sesiones) return;
+    const total = temario.horas_por_sesion * temario.numero_sesiones;
+    console.log("Duración total del curso:", total);
+  }, [temario.horas_por_sesion, temario.numero_sesiones]);
+
 
 // 🔹 Cálculo del total de horas del curso (recibido del generador)
 const totalHorasCurso =
