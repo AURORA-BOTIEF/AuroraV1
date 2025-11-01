@@ -49,62 +49,27 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
-// === Obtener usuario autenticado ===
-useEffect(() => {
-  const getUser = async () => {
-    try {
-      const session = await fetchAuthSession();
-      const email = session?.tokens?.idToken?.payload?.email;
-      setUserEmail(email || "sin-correo");
-    } catch (err) {
-      console.error("Error obteniendo usuario:", err);
-    }
-  };
-  getUser();
-}, []);
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session?.tokens?.idToken?.payload?.email;
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("Error obteniendo usuario:", err);
+      }
+    };
+    getUser();
+  }, []);
 
-// === Inicializar temario (respetando tiempos del backend) ===
-useEffect(() => {
-  if (!temarioInicial) return;
-
-  setTemario((prev) => ({
-    ...prev,
-    ...temarioInicial,
-    temario: Array.isArray(temarioInicial?.temario)
-      ? temarioInicial.temario.map((cap) => ({
-          ...cap,
-          tiempo_capitulo_min:
-            cap.tiempo_capitulo_min ||
-            (cap.subcapitulos || []).reduce(
-              (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
-              0
-            ),
-          subcapitulos: (cap.subcapitulos || []).map((sub) => ({
-            ...sub,
-            tiempo_subcapitulo_min: parseInt(sub.tiempo_subcapitulo_min) || 0,
-            sesion: sub.sesion || 1,
-          })),
-        }))
-      : [],
-  }));
-}, [temarioInicial]);
-
-// === Mostrar total del curso en consola (debug) ===
-useEffect(() => {
-  if (!temario.horas_por_sesion || !temario.numero_sesiones) return;
-  const total = temario.horas_por_sesion * temario.numero_sesiones;
-  console.log("Duración total del curso:", total, "horas");
-}, [temario.horas_por_sesion, temario.numero_sesiones]);
-
-// === Reajustar tiempos si cambia la cantidad de capítulos o temas ===
-useEffect(() => {
-  ajustarTiempos();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [temario.temario.length]);
-
-// 🔹 Cálculo del total de horas del curso (recibido del generador)
-const totalHorasCurso =
-  (temario?.horas_por_sesion || 0) * (temario?.numero_sesiones || 0);
+  useEffect(() => {
+    setTemario({
+      ...temarioInicial,
+      temario: Array.isArray(temarioInicial?.temario)
+        ? temarioInicial.temario
+        : [],
+    });
+  }, [temarioInicial]);
 
 // ===== CAMBIO DE CAMPOS =====
 const handleFieldChange = (capIndex, subIndex, field, value) => {
@@ -113,7 +78,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
   if (!nuevo.temario[capIndex]) return;
 
   if (subIndex === null) {
-    // 🔹 Modificando un campo del capítulo
+    // 🔹 Estamos modificando un campo del capítulo
     nuevo.temario[capIndex][field] = value;
 
     // 🔹 Si el usuario edita la duración total manualmente
@@ -129,7 +94,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
 
         subcaps.forEach((sub, idx) => {
           sub.tiempo_subcapitulo_min =
-            minutosPorSub + (idx === 0 ? residuo : 0);
+            minutosPorSub + (idx === 0 ? residuo : 0); // reparte residuo al primero
         });
       }
     } else {
@@ -143,7 +108,7 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
       );
     }
   } else {
-    // 🔹 Modificando un campo de un subcapítulo
+    // 🔹 Estamos modificando un campo de un subcapítulo
     if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
       nuevo.temario[capIndex].subcapitulos = [];
     if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
@@ -183,7 +148,6 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
       ],
     });
     setTemario(nuevo);
-    ajustarTiempos();
   };
 
 // ===== ELIMINAR CAPÍTULO =====
@@ -205,7 +169,6 @@ const eliminarCapitulo = (capIndex) => {
     capitulo: c.capitulo || `Capítulo ${i + 1}`,
   }));
   setTemario(nuevo);
-  ajustarTiempos();
   setMensaje({ tipo: "ok", texto: "🗑️ Capítulo eliminado" });
 };
 
@@ -221,7 +184,6 @@ const eliminarCapitulo = (capIndex) => {
       sesion: 1,
     });
     setTemario(nuevo);
-    ajustarTiempos();
   };
 
 // ===== ELIMINAR TEMA =====
@@ -230,57 +192,35 @@ const eliminarTema = (capIndex, subIndex) => {
   const nuevo = JSON.parse(JSON.stringify(temario));
   nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
   setTemario(nuevo);
-  ajustarTiempos();
   setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
 };
 
 
- // ===== AJUSTAR TIEMPOS (flexible, mantiene total) =====
-const ajustarTiempos = () => {
-  if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
-
-  // 🔹 Total de minutos del curso (fijo)
-  const totalMinutosCurso =
-    (temario?.horas_por_sesion || 0) * (temario?.numero_sesiones || 0) * 60;
-
-  // 🔹 Calculamos cuánto dura actualmente el temario
-  const minutosActuales = temario.temario.reduce(
-    (acc, cap) =>
-      acc +
-      (cap.subcapitulos || []).reduce(
-        (suma, sub) => suma + (parseInt(sub.tiempo_subcapitulo_min) || 0),
-        0
-      ),
-    0
-  );
-
-  if (minutosActuales === 0) return; // No hay datos que ajustar todavía
-
-  // 🔹 Factor de ajuste para mantener el total fijo
-  const factor = totalMinutosCurso / minutosActuales;
-
-  const nuevo = JSON.parse(JSON.stringify(temario));
-
-  nuevo.temario.forEach((cap) => {
-    cap.subcapitulos.forEach((sub) => {
-      sub.tiempo_subcapitulo_min = Math.round(
-        (parseInt(sub.tiempo_subcapitulo_min) || 0) * factor
-      );
-    });
-    cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
-      (a, s) => a + (s.tiempo_subcapitulo_min || 0),
+  // ===== AJUSTAR TIEMPOS =====
+  const ajustarTiempos = () => {
+    if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
+    const horas = temario?.horas_por_sesion || 2;
+    const minutosTotales = horas * 60;
+    const totalTemas = temario.temario.reduce(
+      (acc, cap) => acc + (cap.subcapitulos?.length || 0),
       0
     );
-  });
-
-  setTemario(nuevo);
-  setMensaje({
-    tipo: "ok",
-    texto: `⏱️ Tiempos ajustados para mantener ${formatDuration(
-      totalMinutosCurso
-    )} totales.`,
-  });
-};
+    if (totalTemas === 0) return;
+    const minutosPorTema = Math.floor(minutosTotales / totalTemas);
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario.forEach((cap) => {
+      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
+      cap.subcapitulos.forEach((sub) => {
+        sub.tiempo_subcapitulo_min = minutosPorTema;
+      });
+      cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
+        (a, s) => a + (s.tiempo_subcapitulo_min || 0),
+        0
+      );
+    });
+    setTemario(nuevo);
+    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
+  };
 
   // ===== GUARDAR ===== (corregido para evitar 400)
   const handleSaveClick = async () => {
@@ -406,7 +346,7 @@ const ajustarTiempos = () => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(azul);
-      doc.text("Temario", pageWidth / 2, y, { align: "center" });
+      doc.text("Temario", margin.left, y);
       y += 25;
 
       temario.temario.forEach((cap, i) => {
@@ -515,8 +455,7 @@ return (
       className="textarea-objetivos-capitulo"
       placeholder="Ej: Curso introductorio a Scrum, dirigido a desarrolladores con 1 año de experiencia..."
     />
-
-    {/* 🔹 CAMPO AÑADIDO: AUDIENCIA */}
+    {/* 🔴 CAMPO AÑADIDO: AUDIENCIA */}
     <label>Audiencia</label>
     <textarea
       value={temario.audiencia || ""}
@@ -524,7 +463,7 @@ return (
         setTemario({ ...temario, audiencia: e.target.value })
       }
       className="textarea-objetivos-capitulo"
-      placeholder="Ej: Desarrolladores, Project Managers, Líderes de equipo..."
+      placeholder="Ej: Desarrolladores, líderes de proyecto, gerentes de producto..."
     />
 
     {/* 🔴 CAMPO AÑADIDO: PRERREQUISITOS */}
@@ -537,47 +476,29 @@ return (
       className="textarea-objetivos-capitulo"
       placeholder="Ej: Conocimientos básicos de gestión de proyectos..."
     />
+    {/* 🔹 CAMPO AÑADIDO: OBJETIVOS */}
+    <label>Objetivos</label>
+    <textarea
+      value={temario.objetivos || ""}
+      onChange={(e) =>
+        setTemario({ ...temario, objetivos: e.target.value })
+      }
+      className="textarea-objetivos-capitulo"
+      placeholder="Ej: Al finalizar el curso, los participantes podrán..."
+    />
     <hr style={{ margin: "20px 0" }} /> 
-    {/* 🔹 Total del curso (no editable) */}
-    <div
-      style={{
-        background: "#f7fafa",
-        border: "1px solid #d8e4e8",
-        borderRadius: "8px",
-        padding: "10px 15px",
-        marginBottom: "1rem",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        }}
-    >
-      <strong style={{ color: "#035b6e" }}>Duración total del curso:</strong>
-      <span style={{ fontWeight: 600, color: "#197fa6" }}>
-        {temario?.horas_por_sesion || 0} h × {temario?.numero_sesiones || 0} sesiones ={" "}
-        {totalHorasCurso} horas
-      </span>
-    </div>
+
     <h3>Temario Detallado</h3>
     {(temario.temario || []).map((cap, i) => (
       <div key={i} className="capitulo-editor">
         <h4>Capítulo {i + 1}</h4>
+
         <input
           value={cap.capitulo || ""}
           onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
           className="input-capitulo"
           placeholder="Nombre del capítulo"
         />
-
-    {/* 🔹 CAMPO AÑADIDO: OBJETIVOS */}
-    <label>Objetivos</label>
-    <textarea
-    value={temario.objetivos || ""}
-    onChange={(e) =>
-      setTemario({ ...temario, objetivos: e.target.value })
-    }
-    className="textarea-objetivos-capitulo"
-    placeholder="Ej: Al finalizar el curso, los participantes serán capaces de..."
-    />  
 
         <div className="duracion-total">
           ⏱️ Duración total:&nbsp;
