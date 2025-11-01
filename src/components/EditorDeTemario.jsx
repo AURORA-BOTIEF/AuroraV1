@@ -655,7 +655,7 @@ return (
             <div className="modal-footer">
               <button
                 onClick={() => {
-                  exportTipo === "pdf" ? exportarPDF() : exportarExcel();
+                  exportTipo === "pdf" ? exportarPDF(temario) : exportarExcel();
                   setModalExportar(false);
                 }}
                 className="btn-guardar"
