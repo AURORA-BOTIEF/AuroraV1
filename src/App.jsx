@@ -32,6 +32,8 @@ import GeneradorTemarios_Seminarios from './components/GeneradorTemarios_Seminar
 import GeneradorCursos from './components/GeneradorCursos.jsx';
 import BookBuilderPage from './components/BookBuilderPage.jsx';
 import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
+import FAQ from "./components/FAQ.jsx";
+
 
 // === Página de edición de seminario ===
 function EditorSeminarioPage() {
@@ -228,6 +230,7 @@ function App() {
                   <Route path="book-builder" element={<BookBuilderPage />} />
                   <Route path="generador-contenido" element={<GeneradorContenido />} />
                   <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
+                  <Route path="/faq" element={<FAQ />} />
                 </Route>
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
