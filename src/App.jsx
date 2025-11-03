@@ -5,6 +5,7 @@ import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth'
 import { Hub } from 'aws-amplify/utils';
 import './App.css'; // si tienes estilos globales
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
+import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
 
 // Imagenes
 import logoImg from './assets/Netec.png';
@@ -233,6 +234,7 @@ function App() {
                   <Route path="faq" element={<FAQ />} />
                 </Route>
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
+                <Route path="/editor-temario/:versionId" element={<EditorTemarioPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
