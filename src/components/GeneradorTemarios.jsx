@@ -610,27 +610,9 @@ const handleExportarPDF = async (version) => {
                         <td className="acciones-cell">
                           <button
                             className="menu-btn"
-                            onClick={() =>
-                              setMenuActivo(menuActivo === i ? null : i)
-                            }
-                          >
-                            ⋮
+                            onClick={() => handleCargarVersion(v)}>
+                              ✏️ Editar
                           </button>
-                          {menuActivo === i && (
-                            <div className="menu-opciones">
-                              <button onClick={() => handleCargarVersion(v)}>
-                                ✏️ Editar
-                              </button>
-                              <button
-                                onClick={() => handleExportarPDF(v.contenido)}
-                              >
-                                📄 Exportar PDF
-                              </button>
-                              <button onClick={() => handleVerVersion(v)}>
-                                👁️ Ver
-                              </button>
-                            </div>
-                          )}
                         </td>
                       </tr>
                     ))}
@@ -646,7 +628,7 @@ const handleExportarPDF = async (version) => {
       {mostrandoModalThor && (
         <div className="modal-overlay-thor">
           <div className="modal-thor">
-            <h2>⚙️ THOR está generando tu temario...</h2>
+            <h2>THOR está generando tu temario...</h2>
             <p>
               Mientras se crea el contenido, recuerda que está siendo generado
               con inteligencia artificial y está pensado como una propuesta base
