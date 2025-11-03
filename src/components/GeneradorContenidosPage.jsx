@@ -85,7 +85,7 @@ function GeneradorContenidosPage() {
             </div>
           </div>
 
-          <Link to="/faq" className="opcion-menu">
+          <Link to="faq" className="opcion-menu">
             <div className="icono">❓</div>
             <div className="texto">
               <h3>Centro de FAQs</h3>
