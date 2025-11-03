@@ -3,7 +3,7 @@ import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generador 'Practicos'
 import { exportarPDF } from "./EditorDeTemario";
-
+import { useNavigate } from "react-router-dom";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -29,6 +29,7 @@ function GeneradorTemarios() {
     syllabus_text: "", // Inicializa el campo syllabus_text
   });
 
+  const navigate = useNavigate();
   const [userEmail, setUserEmail] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -169,7 +170,7 @@ function GeneradorTemarios() {
     }
   };
 
-  const handleGuardarVersion = async (temarioParaGuardar, nota) => { // Se añade 'nota'
+  const handleGuardarVersion = async (temarioParaGuardar, nota) => { // Se añade 'nota' 
     try {
       const token = localStorage.getItem("id_token");
       const bodyData = {
@@ -253,6 +254,12 @@ function GeneradorTemarios() {
         // (Ajustar si faltan más campos)
     }));
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
+  };
+
+  // === EDITAR VERSIÓN EXISTENTE ===
+  const handleEditarVersion = (v) => {
+    console.log("📝 Editando versión", v.versionId);
+    navigate(`/editor-temario/${v.versionId}`);
   };
 
 // === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
@@ -609,9 +616,9 @@ const handleExportarPDF = async (version) => {
                         <td>{v.autor}</td>
                         <td className="acciones-cell">
                           <button
-                            className="menu-btn"
+                            className="Editar versión"
                             onClick={() => handleCargarVersion(v)}>
-                              ✏️ Editar
+                              ✏️
                           </button>
                         </td>
                       </tr>
