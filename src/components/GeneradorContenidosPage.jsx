@@ -85,6 +85,14 @@ function GeneradorContenidosPage() {
             </div>
           </div>
 
+          <div className="opcion-menu disabled">
+            <div className="icono">❓</div>
+            <div className="texto">
+              <h3>Centro de FAQs (Próximamente)</h3>
+              <p>Encuentra respuestas rápidas a las preguntas más comunes sobre la plataforma.</p>
+            </div>
+          </div>
+
         </div>
       ) : (
         // Si no se muestra el menú, mostramos el botón de regresar
