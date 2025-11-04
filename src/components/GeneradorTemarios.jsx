@@ -258,8 +258,10 @@ function GeneradorTemarios() {
 
   // === EDITAR VERSIÓN EXISTENTE ===
   const handleEditarVersion = (v) => {
-    console.log("📝 Editando versión", v.versionId);
-    navigate(`/editor-temario/${v.versionId}`);
+    const id = v.versionId || v.version_id || v.id;
+    if (!id) return console.error("⚠️ No se encontró versionId en:", v);
+    console.log("📝 Editando versión estándar", id);
+    window.open(`/editor-temario/${id}`, "_self"); // ✅ igual que el seminario
   };
 
 // === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
@@ -616,8 +618,9 @@ const handleExportarPDF = async (version) => {
                         <td>{v.autor}</td>
                         <td className="acciones-cell">
                           <button
-                            className="Editar versión"
-                            onClick={() => handleCargarVersion(v)}>
+                            className="menu-btn"
+                            title = "Editar versión"
+                            onClick={() => handleEditarVersion(v)}>
                               ✏️
                           </button>
                         </td>
