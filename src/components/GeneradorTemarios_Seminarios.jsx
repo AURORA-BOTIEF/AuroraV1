@@ -44,6 +44,7 @@ export default function GeneradorTemarios_Seminarios() {
   const [error, setError] = useState("");
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
   const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
   const navigate = useNavigate();
 
@@ -90,6 +91,8 @@ export default function GeneradorTemarios_Seminarios() {
 
     setIsLoading(true);
     setError("");
+    setMostrandoModalThor(true);
+
 
     try {
       const payload = {
@@ -140,6 +143,7 @@ export default function GeneradorTemarios_Seminarios() {
       setError(err.message || "No se pudo generar el temario.");
     } finally {
       setIsLoading(false);
+      setMostrandoModalThor(false);
     }
   };
 
@@ -206,7 +210,7 @@ export default function GeneradorTemarios_Seminarios() {
 
   // === Editar versión ===
   const handleEditarVersion = (v) => {
-    console.log("📝 Editando versión", v.cursoId, v.versionId);
+    console.log("✏️ Editando versión", v.cursoId, v.versionId);
     navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
   
@@ -242,7 +246,7 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Asesor(a) (Opcional)</label>
+            <label>Asesor(a) Comercial (Opcional)</label>
             <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleChange} disabled={isLoading}>
               <option value="">Selecciona un asesor(a)</option>
               {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
@@ -351,12 +355,12 @@ export default function GeneradorTemarios_Seminarios() {
             </div>
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input type="text" placeholder="Curso" name="curso" value={filtros.curso} onChange={handleFiltroChange} />
+                <input type="text" placeholder="Filtrar por curso" name="curso" value={filtros.curso} onChange={handleFiltroChange} />
                 <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
                   <option value="">Todos los asesores</option>
                   {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
                 </select>
-                <input type="text" placeholder="Tecnología" name="tecnologia" value={filtros.tecnologia} onChange={handleFiltroChange} />
+                <input type="text" placeholder="Filtrar por tecnología" name="tecnologia" value={filtros.tecnologia} onChange={handleFiltroChange} />
                 <button className="btn-secundario" onClick={limpiarFiltros}>Limpiar</button>
               </div>
 
@@ -383,7 +387,7 @@ export default function GeneradorTemarios_Seminarios() {
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
                         <td style={{ textAlign: "center" }}>
-                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>📝</button>                          
+                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>✏️</button>                          
                         </td>
                       </tr>
                     ))}
@@ -391,6 +395,31 @@ export default function GeneradorTemarios_Seminarios() {
                 </table>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* === MODAL DE CARGA THOR === */}
+      {mostrandoModalThor && (
+        <div className="modal-overlay-thor">
+          <div className="modal-thor">
+            <h2>THOR está generando tu temario...</h2>
+            <p>
+              Mientras se crea el contenido, recuerda que está siendo generado
+              con inteligencia artificial y está pensado como una propuesta base
+              para ayudarte a estructurar tus ideas.
+            </p>
+            <ul>
+              <li>✅ Verifica la información antes de compartirla con el equipo de Preventa.</li>
+              <li>✏️ Edita y adapta los temas según tus objetivos, el nivel del grupo y el contexto específico.</li>
+              <li>🌍 Revisa y asegúrate de que el contenido sea inclusivo y respetuoso.</li>
+              <li>🔐 Evita ingresar datos personales o sensibles en la plataforma.</li>
+              <li>🧠 Utiliza el contenido como apoyo, no como sustituto de tu criterio pedagógico.</li>
+            </ul>
+            <p className="nota-thor">
+              La IA es una herramienta poderosa, pero requiere tu supervisión
+              como Instructor experto para garantizar calidad, precisión y
+              relevancia educativa.
+            </p>
           </div>
         </div>
       )}

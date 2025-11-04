@@ -151,24 +151,45 @@ export default function EditorDeTemario_seminario({
     const nuevo = JSON.parse(JSON.stringify(temario));
     if (!nuevo.temario[capIndex]) return;
 
-    if (subIndex === null) {
-      nuevo.temario[capIndex][field] = value;
-    } else {
-      if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
-        nuevo.temario[capIndex].subcapitulos = [];
+    if (subIndex !== null) {
+      // === Subcapítulo ===
       nuevo.temario[capIndex].subcapitulos[subIndex][field] =
         field.includes("tiempo") ? parseFloat(value) || 0 : value;
+    } else {
+      // === Capítulo ===
+      nuevo.temario[capIndex][field] = value;
     }
 
-    nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[
-      capIndex
-    ].subcapitulos.reduce(
+    // Recalcular capítulo
+    nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[capIndex].subcapitulos.reduce(
       (sum, s) => sum + (parseFloat(s.tiempo_subcapitulo_min) || 0),
       0
     );
 
+    // Recalcular total seminario
+    let totalMin = nuevo.temario.reduce(
+      (acc, cap) => acc + (parseFloat(cap.tiempo_capitulo_min) || 0),
+      0
+    );
+
+    // Límite máximo
+    const horasMax = parseFloat(nuevo.horas_totales) || parseFloat(nuevo.horas_por_sesion) || 2;
+    const minutosMax = horasMax * 60;
+    if (totalMin > minutosMax) {
+      const factor = minutosMax / totalMin;
+      nuevo.temario.forEach((cap) => {
+        cap.tiempo_capitulo_min = Math.floor(cap.tiempo_capitulo_min * factor);
+        cap.subcapitulos.forEach((sub) => {
+          sub.tiempo_subcapitulo_min = Math.floor(sub.tiempo_subcapitulo_min * factor);
+        });
+      });
+      totalMin = minutosMax;
+    }
+
+    nuevo.horas_totales = parseFloat((totalMin / 60).toFixed(1));
     setTemario(nuevo);
   };
+
 
   // === Agregar capítulo ===
   const agregarCapitulo = () => {
@@ -199,37 +220,104 @@ export default function EditorDeTemario_seminario({
     setTemario(nuevo);
   };
 
+  // === Eliminar subtema ===
+  const eliminarTema = (capIndex, subIndex) => {
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    if (!nuevo.temario[capIndex]) return;
+
+    nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
+
+    // Recalcular tiempo total del capítulo
+    nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[capIndex].subcapitulos.reduce(
+      (sum, s) => sum + (parseFloat(s.tiempo_subcapitulo_min) || 0),
+      0
+    );
+
+    // Recalcular total general
+    const totalMin = nuevo.temario.reduce(
+      (acc, cap) => acc + (parseFloat(cap.tiempo_capitulo_min) || 0),
+      0
+    );
+    nuevo.horas_totales = parseFloat((totalMin / 60).toFixed(1));
+
+    setTemario(nuevo);
+  };
+
+  // === Eliminar capítulo ===
+  const eliminarCapitulo = (capIndex) => {
+    if (!window.confirm("¿Seguro que deseas eliminar este capítulo?")) return;
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario.splice(capIndex, 1);
+
+    // Recalcular total general
+    const totalMin = nuevo.temario.reduce(
+      (acc, cap) => acc + (parseFloat(cap.tiempo_capitulo_min) || 0),
+      0
+    );
+    nuevo.horas_totales = parseFloat((totalMin / 60).toFixed(1));
+
+    setTemario(nuevo);
+  };
+
+
   // === Ajustar tiempos ===
   const ajustarTiempos = () => {
-    if (!Array.isArray(temario.temario) || temario.temario.length === 0)
-      return;
-    const horas = temario.horas_totales || temario.horas_por_sesion || 2;
-    const minutosTotales = horas * 60;
-    const totalTemas = temario.temario.reduce(
+    if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
+
+    // 🔹 1. Duración total declarada por el usuario
+    const horasObjetivo = parseFloat(temario.horas_totales) || parseFloat(temario.horas_por_sesion) || 2;
+    const minutosObjetivo = horasObjetivo * 60;
+
+    // 🔹 2. Contar total de subtemas
+    const totalSubtemas = temario.temario.reduce(
       (acc, cap) => acc + (cap.subcapitulos?.length || 0),
       0
     );
-    if (totalTemas === 0) return;
+    if (totalSubtemas === 0) return;
 
-    const minutosPorTema = Math.floor(minutosTotales / totalTemas);
+    // 🔹 3. Calcular tiempo por tema base
+    const minutosPorTema = Math.floor(minutosObjetivo / totalSubtemas);
     const nuevo = JSON.parse(JSON.stringify(temario));
 
+    // 🔹 4. Ajustar tiempos de subtemas y capítulos
     nuevo.temario.forEach((cap) => {
       cap.subcapitulos.forEach((sub) => {
         sub.tiempo_subcapitulo_min = minutosPorTema;
       });
       cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
-        (a, s) => a + (s.tiempo_subcapitulo_min || 0),
+        (sum, s) => sum + (s.tiempo_subcapitulo_min || 0),
         0
       );
     });
 
+    // 🔹 5. Recalcular total real y limitarlo si supera el objetivo
+    let totalMin = nuevo.temario.reduce(
+      (acc, cap) => acc + (parseFloat(cap.tiempo_capitulo_min) || 0),
+      0
+    );
+
+    // Si excede el objetivo, escalar proporcionalmente
+    if (totalMin > minutosObjetivo) {
+      const factor = minutosObjetivo / totalMin;
+      nuevo.temario.forEach((cap) => {
+        cap.tiempo_capitulo_min = Math.floor(cap.tiempo_capitulo_min * factor);
+        cap.subcapitulos.forEach((sub) => {
+          sub.tiempo_subcapitulo_min = Math.floor(sub.tiempo_subcapitulo_min * factor);
+        });
+      });
+      totalMin = minutosObjetivo; // aseguramos límite
+    }
+
+    // 🔹 6. Actualizar horas totales finales
+    nuevo.horas_totales = parseFloat((totalMin / 60).toFixed(1));
+
     setTemario(nuevo);
     setMensaje({
       tipo: "ok",
-      texto: `⏱️ Tiempos ajustados a ${horas}h totales.`,
+      texto: `⏱️ Tiempos ajustados: total ${nuevo.horas_totales}h (máx. ${horasObjetivo}h permitidas).`,
     });
   };
+
 
   // === Guardar versión ===
   const handleSaveClick = async () => {
@@ -335,7 +423,20 @@ export default function EditorDeTemario_seminario({
         y += 24;
       });
       y += 14;
-
+      
+      // === Duración total del seminario ===
+      if (temarioLimpio?.horas_totales) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(11);
+        doc.setTextColor("#333");
+        doc.text(
+          `Duración total del seminario: ${temarioLimpio.horas_totales} hora(s)`,
+          margin.left,
+          y
+        );
+        y += 16;
+      }
+ 
       if (temarioLimpio?.descripcion_general) {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
@@ -351,6 +452,39 @@ export default function EditorDeTemario_seminario({
         });
         y += 14;
       }
+      
+      // === Nueva sección: Información general ===
+      const infoSections = [
+        { title: "Audiencia", content: temarioLimpio.audiencia },
+        { title: "Prerrequisitos", content: temarioLimpio.prerrequisitos },
+        {
+          title: "Objetivos del seminario",
+          content: Array.isArray(temarioLimpio.objetivos_generales)
+            ? temarioLimpio.objetivos_generales.join(" ")
+            : temarioLimpio.objetivos_generales,
+        },
+      ];
+
+      infoSections.forEach(({ title, content }) => {
+        if (!content) return;
+        addPageIfNeeded(50);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azul);
+        doc.text(title, margin.left, y);
+        y += 16;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(negro);
+        const lines = doc.splitTextToSize(content, contentWidth);
+        lines.forEach((linea) => {
+          addPageIfNeeded(14);
+          doc.text(linea, margin.left + 10, y);
+          y += 14;
+        });
+        y += 12;
+      });
 
       addPageIfNeeded(50);
       doc.setFont("helvetica", "bold");
@@ -452,6 +586,55 @@ export default function EditorDeTemario_seminario({
         ← Volver al menú de contenidos
       </button>
 
+      {/* === INFORMACIÓN GENERAL DEL SEMINARIO === */}
+      <h3>Información general del seminario</h3>
+
+      <div className="info-general">
+        <label>Duración total del seminario (horas)</label>
+        <input
+          type="number"
+          min ="0.5"
+          step="0.5"
+          value={temario.horas_totales || ""}
+          onChange={(e) => setTemario({ ...temario, horas_totales: parseFloat(e.target.value) || 0, })}
+        />
+
+        <label>Descripción general</label>
+        <textarea
+          value={temario.descripcion_general || ""}
+          onChange={(e) => setTemario({ ...temario, descripcion_general: e.target.value })}
+          rows="3"
+        />
+
+        <label>Audiencia</label>
+        <textarea
+          value={temario.audiencia || ""}
+          onChange={(e) => setTemario({ ...temario, audiencia: e.target.value })}
+          rows="3"
+        />
+
+        <label>Prerrequisitos</label>
+        <textarea
+          value={temario.prerrequisitos || ""}
+          onChange={(e) => setTemario({ ...temario, prerrequisitos: e.target.value })}
+          rows="3"
+        />
+
+        <label>Objetivos</label>
+        <textarea
+          value={temario.objetivos_generales?.join("\n") || ""}
+          onChange={(e) =>
+            setTemario({
+              ...temario,
+              objetivos_generales: e.target.value.split("\n"),
+            })
+          }
+          rows="3"
+        />
+      </div>
+
+      <hr />
+
       <h3>Temario Detallado</h3>
 
       {(temario.temario || []).map((cap, i) => (
@@ -499,11 +682,24 @@ export default function EditorDeTemario_seminario({
                   }
                   placeholder="min"
                 />
+                <button
+                  className="btn-eliminar-tema"
+                  onClick={() => eliminarTema(i,j)}
+                  title="Eliminar subtema"
+                >
+                  🗑️
+                </button>
               </li>
             ))}
           </ul>
           <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
             ➕ Agregar tema
+          </button>
+          <button
+            className="btn-eliminar-capitulo"
+            onClick={() => eliminarCapitulo(i)}
+          >
+            🗑️ Eliminar Capítulo
           </button>
         </div>
       ))}

@@ -263,3 +263,27 @@ textarea {
 .btn-volver:active {
   background-color: #d6e7f7;
 }
+
+.info-general {
+  background: #f9f9f9;
+  border: 1px solid #ddd;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.info-general label {
+  display: block;
+  font-weight: 600;
+  margin-top: 0.8rem;
+}
+
+.info-general input,
+.info-general textarea {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
