@@ -261,7 +261,7 @@ function GeneradorTemarios() {
     const id = v.versionId || v.version_id || v.id;
     if (!id) return console.error("⚠️ No se encontró versionId en:", v);
     console.log("📝 Editando versión estándar", id);
-    navigate(`/editor-temario/${id}`); // ✅ SPA navigation (no recarga)
+    navigate(`/editor-temario/${curso}/${id}`); // ✅ SPA navigation (no recarga)
   };
 
 // === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
