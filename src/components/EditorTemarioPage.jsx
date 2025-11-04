@@ -1,54 +1,13 @@
+// src/components/EditorTemarioPage.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import EditorDeTemario from "./EditorDeTemario.jsx";
 
 function EditorTemarioPage() {
   const { versionId } = useParams();
-  const [temario, setTemario] = useState(null);
+  const [temarioData, setTemarioData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // ✅ Cargar versión desde la API
-  useEffect(() => {
-    const fetchVersion = async () => {
-      try {
-        const token = localStorage.getItem("id_token");
-        const res = await fetch(
-          `https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones?id=${versionId}`,
-          {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!res.ok) throw new Error("Error al cargar la versión");
-
-        const data = await res.json();
-        console.log("✅ Versión cargada:", data);
-
-        // 🟢 Ajuste clave: combinamos metadatos y contenido
-        setTemario({
-          ...data.contenido,
-          nombre_curso: data.nombre_curso,
-          tecnologia: data.tecnologia,
-          asesor_comercial: data.asesor_comercial,
-          nombre_preventa: data.nombre_preventa,
-          enfoque: data.enfoque,
-          fecha_creacion: data.fecha_creacion,
-        });
-      } catch (error) {
-        console.error("❌ Error cargando versión:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchVersion();
-  }, [versionId]);
-
-  // ✅ Guardar versión editada
   const onSave = async (contenido, nota) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -58,7 +17,7 @@ function EditorTemarioPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
             versionId,
@@ -74,30 +33,55 @@ function EditorTemarioPage() {
         }
       );
 
-      if (!res.ok) throw new Error((await res.json()).error || "Error al guardar versión");
-
+      if (!res.ok) {
+        throw new Error((await res.json()).error || "Error al guardar versión");
+      }
       console.log("✅ Versión guardada correctamente");
     } catch (err) {
       console.error("❌ Error al guardar versión:", err);
     }
   };
 
-  if (isLoading) {
-    return <div style={{ padding: "2rem" }}>Cargando versión...</div>;
-  }
+  // 🔹 Nuevo: cargar versión desde Dynamo
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = localStorage.getItem("id_token");
+        const res = await fetch(
+          `https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones?versionId=${versionId}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
-  if (!temario) {
-    return <div style={{ padding: "2rem" }}>❌ No se encontró la versión solicitada.</div>;
-  }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Error al obtener versión");
+
+        console.log("📦 Versión cargada:", data);
+        setTemarioData(data.contenido || data);
+      } catch (err) {
+        console.error("❌ Error al cargar versión:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVersion();
+  }, [versionId]);
+
+  if (isLoading) return <p>Cargando versión...</p>;
 
   return (
     <EditorDeTemario
-      temarioInicial={temario}
+      temarioInicial={temarioData}
       onSave={onSave}
-      isLoading={false}
+      isLoading={isLoading}
     />
   );
 }
 
 export default EditorTemarioPage;
-
