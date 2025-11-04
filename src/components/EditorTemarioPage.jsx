@@ -1,14 +1,13 @@
-// src/components/EditorTemarioPage.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import EditorDeTemario from "./EditorDeTemario.jsx";
 
 function EditorTemarioPage() {
-  const { versionId } = useParams(); // viene desde navigate(`/editor-temario/${v.versionId}`);
+  const { versionId } = useParams();
   const [temario, setTemario] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // ✅ Cargar versión desde la API al entrar
+  // ✅ Cargar versión desde la API
   useEffect(() => {
     const fetchVersion = async () => {
       try {
@@ -24,13 +23,21 @@ function EditorTemarioPage() {
           }
         );
 
-        if (!res.ok) {
-          throw new Error("Error al cargar la versión");
-        }
+        if (!res.ok) throw new Error("Error al cargar la versión");
 
         const data = await res.json();
         console.log("✅ Versión cargada:", data);
-        setTemario(data.contenido); // Usa el campo 'contenido' que viene de DynamoDB
+
+        // 🟢 Ajuste clave: combinamos metadatos y contenido
+        setTemario({
+          ...data.contenido,
+          nombre_curso: data.nombre_curso,
+          tecnologia: data.tecnologia,
+          asesor_comercial: data.asesor_comercial,
+          nombre_preventa: data.nombre_preventa,
+          enfoque: data.enfoque,
+          fecha_creacion: data.fecha_creacion,
+        });
       } catch (error) {
         console.error("❌ Error cargando versión:", error);
       } finally {
@@ -51,7 +58,7 @@ function EditorTemarioPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             versionId,
@@ -67,9 +74,7 @@ function EditorTemarioPage() {
         }
       );
 
-      if (!res.ok) {
-        throw new Error((await res.json()).error || "Error al guardar versión");
-      }
+      if (!res.ok) throw new Error((await res.json()).error || "Error al guardar versión");
 
       console.log("✅ Versión guardada correctamente");
     } catch (err) {
@@ -77,18 +82,22 @@ function EditorTemarioPage() {
     }
   };
 
-  // 🧭 Mostrar carga o editor
   if (isLoading) {
     return <div style={{ padding: "2rem" }}>Cargando versión...</div>;
+  }
+
+  if (!temario) {
+    return <div style={{ padding: "2rem" }}>❌ No se encontró la versión solicitada.</div>;
   }
 
   return (
     <EditorDeTemario
       temarioInicial={temario}
       onSave={onSave}
-      isLoading={isLoading}
+      isLoading={false}
     />
   );
 }
 
 export default EditorTemarioPage;
+
