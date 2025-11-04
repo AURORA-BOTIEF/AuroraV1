@@ -258,11 +258,22 @@ function GeneradorTemarios() {
 
   // === EDITAR VERSIÓN EXISTENTE ===
   const handleEditarVersion = (v) => {
+    console.log("🧭 handleEditarVersion ejecutado con:", v);
+
     const id = v.versionId || v.version_id || v.id;
-    if (!id) return console.error("⚠️ No se encontró versionId en:", v);
-    console.log("📝 Editando versión estándar", id);
-    navigate(`/editor-temario/${curso}/${id}`); // ✅ SPA navigation (no recarga)
+    const curso = v.cursoId || "sin-id"; // ✅ usa cursoId que sí existe en Dynamo
+
+    if (!id) {
+      console.error("⚠️ No se encontró versionId en:", v);
+      return;
+    }
+
+    console.log(`📝 Editando versión estándar ${curso}/${id}`);
+    setMostrarModal(false); // cierra modal antes de navegar
+    navigate(`/editor-temario/${curso}/${id}`);
   };
+
+
 
 // === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
 const handleExportarPDF = async (version) => {
