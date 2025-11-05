@@ -615,7 +615,8 @@ const formatearDuracion = (minutos) => {
   return `${mins} min`;
 };
 
-// 🔹 Ajusta los tiempos de los subtemas proporcionalmente al cambiar la duración total del capítulo
+
+// 🔹 Ajusta los tiempos de los subtemas distribuyendo de forma homogénea minuto a minuto
 const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
   const valor = parseInt(nuevaDuracion, 10) || 0;
 
@@ -626,45 +627,20 @@ const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
     if (!capitulo || !Array.isArray(capitulo.subcapitulos)) return prev;
 
     const subtemas = capitulo.subcapitulos;
-    const duracionActual = subtemas.reduce(
-      (sum, sub) => sum + (parseInt(sub.tiempo_subcapitulo_min) || 0),
-      0
-    );
+    const cantidad = subtemas.length;
+    if (cantidad === 0) return prev;
 
-    // Si no hay duración previa, reparte uniformemente
-    if (duracionActual === 0) {
-      const minutosPorSub = Math.floor(valor / subtemas.length);
-      let residuo = valor % subtemas.length;
+    // 🔹 Cálculo base uniforme
+    const minutosBase = Math.floor(valor / cantidad);
+    let residuo = valor % cantidad;
 
-      subtemas.forEach((sub) => {
-        sub.tiempo_subcapitulo_min = minutosPorSub + (residuo > 0 ? 1 : 0);
-        if (residuo > 0) residuo--;
-      });
-    } else {
-      // Ajuste proporcional con reparto de residuo exacto
-      const factor = valor / duracionActual;
-      let totalAsignado = 0;
+    // 🔹 Reparto del residuo uno a uno hasta balancear
+    subtemas.forEach((sub, i) => {
+      sub.tiempo_subcapitulo_min = minutosBase + (residuo > 0 ? 1 : 0);
+      if (residuo > 0) residuo--;
+    });
 
-      subtemas.forEach((sub) => {
-        const nuevoValor = Math.floor(
-          (parseInt(sub.tiempo_subcapitulo_min) || 0) * factor
-        );
-        sub.tiempo_subcapitulo_min = Math.max(1, nuevoValor);
-        totalAsignado += sub.tiempo_subcapitulo_min;
-      });
-
-      // Repartir residuo para coincidir exactamente con el total deseado
-      let diferencia = valor - totalAsignado;
-      let i = 0;
-      while (diferencia !== 0) {
-        subtemas[i % subtemas.length].tiempo_subcapitulo_min +=
-          diferencia > 0 ? 1 : -1;
-        diferencia += diferencia > 0 ? -1 : 1;
-        i++;
-      }
-    }
-
-    // Actualiza el total del capítulo
+    // 🔹 Actualizar el total del capítulo
     capitulo.tiempo_capitulo_min = valor;
     capitulos[indexCap] = capitulo;
     nuevoTemario.temario = capitulos;
