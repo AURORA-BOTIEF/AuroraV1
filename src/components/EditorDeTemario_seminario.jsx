@@ -260,52 +260,46 @@ export default function EditorDeTemario_seminario({
   };
 
 
-  // ===== AJUSTAR TIEMPOS  =====
+  // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
 
-    // Duración total en horas (con límites)
-    let horas = parseFloat(temario.horas_totales) || 2;
+    // Duración total con límites de 0.5h a 4h
+    let horas = parseFloat(temario.horas_totales) || parseFloat(temario.horas_por_sesion) || 2;
     if (horas < 0.5) horas = 0.5;
     if (horas > 4) horas = 4;
 
     const minutosTotales = horas * 60;
 
-    // Calcular total de subtemas
-    const totalSubtemas = temario.temario.reduce(
+    // Contar total de subtemas
+    const totalTemas = temario.temario.reduce(
       (acc, cap) => acc + (cap.subcapitulos?.length || 0),
       0
     );
-    if (totalSubtemas === 0) return;
+    if (totalTemas === 0) return;
 
-    // Asignar tiempos uniformes
-    const minutosPorSubtema = Math.floor(minutosTotales / totalSubtemas);
+    // Calcular tiempo por subtema
+    const minutosPorTema = Math.floor(minutosTotales / totalTemas);
+
+    // Ajustar tiempos de cada capítulo y subtema
     const nuevo = JSON.parse(JSON.stringify(temario));
-
-
     nuevo.temario.forEach((cap) => {
-      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
-
+      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];    
       cap.subcapitulos.forEach((sub) => {
-        sub.tiempo_subcapitulo_min = minutosPorSubtema;
+        sub.tiempo_subcapitulo_min = minutosPorTema;
       });
 
       cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
-        (suma, sub) => suma + (sub.tiempo_subcapitulo_min || 0),
+        (a, s) => a + (s.tiempo_subcapitulo_min || 0),
         0
       );
     });
 
-    // Actualizar duración total en horas
-    nuevo.horas_totales = horas;
-
-    // Aplicar cambios
+    // Aplicar cambios (sin actualizar horas_totales)
     setTemario(nuevo);
-    setMensaje({
-      tipo: "ok",
-      texto: `⏱️ Tiempos ajustados a ${horas}h (mín. 0.5h / máx. 4h)`,
-    });
+    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h (mín. 0.5h / máx. 4h)` });
   };
+
 
 
   // === Guardar versión ===
