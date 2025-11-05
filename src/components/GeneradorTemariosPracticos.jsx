@@ -204,29 +204,42 @@ function GeneradorTemariosPracticos() {
 
   const handleListarVersiones = async () => {
     try {
+      setIsLoading(true);
       const token = localStorage.getItem("id_token");
 
-
       const res = await fetch(
-        guardarApiUrl, 
+        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
         {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
+      if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
 
       const data = await res.json();
-      const sortedData = data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
+      console.log("📦 Datos crudos recibidos desde Lambda:", data);
+      
+    // 🔹 Mostrar todos los temarios (sin filtrar)
+      const practicos = data || [];
+      // 🔹 Ordena por fecha de creación descendente
+      const sortedData = practicos.sort(
+        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+      );
+
+      console.log(`✅ Temarios prácticos encontrados: ${sortedData.length}`);
       setVersiones(sortedData);
       setMostrarModal(true);
     } catch (error) {
-      console.error("Error al obtener versiones:", error);
+      console.error("❌ Error al obtener versiones:", error);
+      setError("No se pudieron cargar los temarios guardados.");
+    } finally {
+      setIsLoading(false);
     }
   };
-
 
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
@@ -243,46 +256,22 @@ function GeneradorTemariosPracticos() {
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
-  // Exportar PDF (Lambda Temario_PDF)
-  const handleExportarPDF = async (version) => {
-    try {
-      setIsLoading(true);
-      setError("");
-      
+  // === EDITAR VERSIÓN EXISTENTE ===
+  const handleEditarVersion = (v) => {
+    console.log("🧭 handleEditarVersion ejecutado con:", v);
 
-      const token = localStorage.getItem("id_token");
+    const id = v.versionId || v.version_id || v.id;
+    const curso = v.cursoId || "sin-id"; // ✅ usa cursoId que sí existe en Dynamo
 
-      const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
-        version.nombre_curso
-      )}&version=${encodeURIComponent(version.versionId)}`;
-
-      console.log("📡 Solicitando datos a:", apiUrl);
-
-      const response = await fetch(apiUrl, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error al obtener datos del temario: ${response.status}`);
-      }
-  
-      const data = await response.json();
-      console.log("✅ Datos recibidos desde Lambda:", data);
-
-    // 🔹 Llama a tu función existente que genera el PDF
-      exportarPDF(data);
-
-    } catch (err) {
-      console.error("❌ Error exportando PDF:", err);
-      setError("No se pudo generar el PDF. Intenta nuevamente.");
-    } finally {
-      setIsLoading(false);
+    if (!id) {
+      console.error("⚠️ No se encontró versionId en:", v);
+      return;
     }
-};
+
+    console.log(`📝 Editando versión estándar ${curso}/${id}`);
+    setMostrarModal(false); // cierra modal antes de navegar
+    navigate(`/editor-temario/${curso}/${id}`);
+  };
 
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
@@ -575,27 +564,10 @@ function GeneradorTemariosPracticos() {
                         <td className="acciones-cell">
                           <button
                             className="menu-btn"
-                            onClick={() =>
-                              setMenuActivo(menuActivo === i ? null : i)
-                            }
-                          >
-                            ⋮
+                            title = "Editar versión"
+                            onClick={() => handleCargarVersion(v)}>
+                            ✏️
                           </button>
-                          {menuActivo === i && (
-                            <div className="menu-opciones">
-                              <button onClick={() => handleCargarVersion(v)}>
-                                ✏️ Editar
-                              </button>
-                              <button
-                                onClick={() => handleExportarPDF(v.contenido)}
-                              >
-                                📄 Exportar PDF
-                              </button>
-                              <button onClick={() => handleVerVersion(v)}>
-                                👁️ Ver
-                              </button>
-                            </div>
-                          )}
                         </td>
                       </tr>
                     ))}
@@ -611,7 +583,7 @@ function GeneradorTemariosPracticos() {
       {mostrandoModalThor && (
         <div className="modal-overlay-thor">
           <div className="modal-thor">
-            <h2>⚙️ THOR está generando tu temario...</h2>
+            <h2>THOR está generando tu temario...</h2>
             <p>
               Mientras se crea el contenido, recuerda que está siendo generado
               con inteligencia artificial y está pensado como una propuesta base
