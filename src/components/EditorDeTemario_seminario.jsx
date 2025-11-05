@@ -381,26 +381,12 @@ export default function EditorDeTemario_seminario({
       const contentWidth = pageWidth - margin.left - margin.right;
       let y = margin.top;
 
+      // === Dibuja solo encabezado y pie gráfico (sin texto) ===
       const drawHeaderFooter = () => {
         doc.addImage(encabezado, "PNG", 0, 0, pageWidth, encAlto);
         doc.addImage(pie, "PNG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(9);
-        doc.setTextColor("#444");
-        doc.text(
-          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
-          margin.left,
-          pageHeight - 18
-        );
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(gris);
-        doc.text(
-          `Página ${doc.internal.getCurrentPageInfo().pageNumber}`,
-          pageWidth - margin.right,
-          pageHeight - 18,
-          { align: "right" }
-        );
       };
+
 
       const addPageIfNeeded = (extra = 40) => {
         if (y + extra > pageHeight - margin.bottom) {
@@ -531,14 +517,7 @@ export default function EditorDeTemario_seminario({
       doc.setFontSize(16);
       doc.setTextColor(azul);
       doc.text("Temario", margin.left, y);
-      y += 22;
-
-      addPageIfNeeded(50);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(azul);
-      doc.text("Temario Detallado", margin.left, y);
-      y += 22;
+      y += 22;      
 
       temarioLimpio.temario.forEach((cap, i) => {
         addPageIfNeeded(70);
@@ -606,6 +585,31 @@ export default function EditorDeTemario_seminario({
         doc.line(margin.left, y, pageWidth - margin.right, y);
         y += 16;
       });
+
+      // === Pie de página centrado con numeración total ===
+      const totalPages = doc.internal.getNumberOfPages();
+
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+
+        // Redibujar encabezado y pie gráfico
+        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, encAlto);
+        doc.addImage(pie, "PNG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
+
+        // Texto centrado
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(9);
+        doc.setTextColor("#444");
+
+        const footerText =
+          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.";
+        const pageNum = `Página ${i} de ${totalPages}`;
+
+        const footerX = pageWidth / 2;
+        doc.text(footerText, footerX, pageHeight - 70, { align: "center" });
+        doc.text(pageNum, footerX, pageHeight - 55, { align: "center" });
+      }
+
 
       doc.save(`Seminario_${slugify(temarioLimpio?.nombre_curso)}.pdf`);
       setMensaje({ tipo: "ok", texto: "✅ PDF exportado correctamente" });
