@@ -287,3 +287,40 @@ textarea {
   border: 1px solid #ccc;
   font-size: 14px;
 }
+
+/* === DURACIÓN DE CAPÍTULO (editable y con horas/minutos) === */
+.duracion-capitulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.duracion-capitulo label {
+  color: #035b6e;
+  font-weight: 600;
+}
+
+.duracion-capitulo input {
+  width: 70px;
+  text-align: center;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.duracion-capitulo input:focus {
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
+  outline: none;
+}
+
+.duracion-horas {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #035b6e;
+}

@@ -598,7 +598,7 @@ export default function EditorDeTemario_seminario({
 
         // Texto centrado
         doc.setFont("helvetica", "italic");
-        doc.setFontSize(9);
+        doc.setFontSize(8);
         doc.setTextColor("#444");
 
         const footerText =
@@ -606,7 +606,7 @@ export default function EditorDeTemario_seminario({
         const pageNum = `Página ${i} de ${totalPages}`;
 
         const footerX = pageWidth / 2;
-        doc.text(footerText, footerX, pageHeight - 70, { align: "center" });
+        doc.text(footerText, footerX, pageHeight - 70, { align: "left" });
         doc.text(pageNum, footerX, pageHeight - 55, { align: "center" });
       }
 
@@ -624,6 +624,51 @@ export default function EditorDeTemario_seminario({
     downloadExcelTemario(temarioLimpio);
     setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
+
+  // 🔹 Formatea minutos → "1 hr 8 min"
+const formatearDuracion = (minutos) => {
+  const horas = Math.floor(minutos / 60);
+  const mins = minutos % 60;
+  if (horas > 0) {
+    return `${horas} hr${horas > 1 ? "s" : ""}${mins > 0 ? ` ${mins} min` : ""}`;
+  }
+  return `${mins} min`;
+};
+
+// 🔹 Ajusta los tiempos de los subtemas proporcionalmente
+const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
+  const valor = parseInt(nuevaDuracion, 10) || 0;
+
+  setTemario((prev) => {
+    const nuevoTemario = { ...prev };
+    const capitulos = [...nuevoTemario.temario];
+    const capitulo = { ...capitulos[indexCap] };
+    const subtemas = capitulo.subcapitulos || [];
+
+    const duracionActual = subtemas.reduce(
+      (sum, sub) => sum + (parseInt(sub.tiempo_subcapitulo_min) || 0),
+      0
+    );
+
+    if (duracionActual === 0) {
+      capitulo.tiempo_capitulo_min = valor;
+    } else {
+      const factor = valor / duracionActual;
+      capitulo.subcapitulos = subtemas.map((sub) => ({
+        ...sub,
+        tiempo_subcapitulo_min: Math.max(
+          1,
+          Math.round((sub.tiempo_subcapitulo_min || 0) * factor)
+        ),
+      }));
+      capitulo.tiempo_capitulo_min = valor;
+    }
+
+    capitulos[indexCap] = capitulo;
+    nuevoTemario.temario = capitulos;
+    return nuevoTemario;
+  });
+};
 
   return (
     <div className="editor-container">
@@ -698,9 +743,19 @@ export default function EditorDeTemario_seminario({
             }
             className="input-capitulo"
           />
-          <div className="duracion-total">
-            ⏱️ <strong>Duración total: {cap.tiempo_capitulo_min || 0} min</strong>
+          <div className="duracion-capitulo">
+            <label>🕒 Duración total:</label>
+            <input
+              type="number"
+              min="1"
+              value={cap.tiempo_capitulo_min || 0}
+              onChange={(e) => handleDuracionCapituloChange(i, e.target.value)}
+            />
+            <span className="duracion-horas">
+              {formatearDuracion(cap.tiempo_capitulo_min || 0)}
+            </span>
           </div>
+
           <label>Objetivos del capítulo</label>
           <textarea
             value={cap.objetivos_capitulo || ""}
