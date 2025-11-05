@@ -260,15 +260,14 @@ export default function EditorDeTemario_seminario({
   };
 
 
-  // ===== AJUSTAR TIEMPOS =====
+  // ===== AJUSTAR TIEMPOS (idéntico al de cursos, con límites 0.5–4h) =====
   const ajustarTiempos = () => {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
 
-    // Duración total con límites de 0.5h a 4h
-    let horas = parseFloat(temario.horas_totales) || parseFloat(temario.horas_por_sesion) || 2;
+    // Duración total declarada (con límites)
+    let horas = temario?.horas_por_sesion || 2;
     if (horas < 0.5) horas = 0.5;
     if (horas > 4) horas = 4;
-
     const minutosTotales = horas * 60;
 
     // Contar total de subtemas
@@ -281,27 +280,25 @@ export default function EditorDeTemario_seminario({
     // Calcular tiempo por subtema
     const minutosPorTema = Math.floor(minutosTotales / totalTemas);
 
-    // Ajustar tiempos de cada capítulo y subtema
+    // Crear copia y ajustar tiempos
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario.forEach((cap) => {
-      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];    
+      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
       cap.subcapitulos.forEach((sub) => {
         sub.tiempo_subcapitulo_min = minutosPorTema;
       });
-
       cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
         (a, s) => a + (s.tiempo_subcapitulo_min || 0),
         0
       );
     });
 
-    // Aplicar cambios (sin actualizar horas_totales)
+    // Aplicar cambios
     setTemario(nuevo);
-    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h (mín. 0.5h / máx. 4h)` });
+    setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
 
-
-
+  
   // === Guardar versión ===
   const handleSaveClick = async () => {
     setGuardando(true);
@@ -618,35 +615,57 @@ const formatearDuracion = (minutos) => {
   return `${mins} min`;
 };
 
-// 🔹 Ajusta los tiempos de los subtemas proporcionalmente
+// 🔹 Ajusta los tiempos de los subtemas proporcionalmente al cambiar la duración total del capítulo
 const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
   const valor = parseInt(nuevaDuracion, 10) || 0;
 
   setTemario((prev) => {
-    const nuevoTemario = { ...prev };
-    const capitulos = [...nuevoTemario.temario];
-    const capitulo = { ...capitulos[indexCap] };
-    const subtemas = capitulo.subcapitulos || [];
+    const nuevoTemario = JSON.parse(JSON.stringify(prev));
+    const capitulos = nuevoTemario.temario || [];
+    const capitulo = capitulos[indexCap];
+    if (!capitulo || !Array.isArray(capitulo.subcapitulos)) return prev;
 
+    const subtemas = capitulo.subcapitulos;
     const duracionActual = subtemas.reduce(
       (sum, sub) => sum + (parseInt(sub.tiempo_subcapitulo_min) || 0),
       0
     );
 
+    // Si no hay duración previa, reparte uniformemente
     if (duracionActual === 0) {
-      capitulo.tiempo_capitulo_min = valor;
+      const minutosPorSub = Math.floor(valor / subtemas.length);
+      let residuo = valor % subtemas.length;
+
+      subtemas.forEach((sub) => {
+        sub.tiempo_subcapitulo_min = minutosPorSub + (residuo > 0 ? 1 : 0);
+        if (residuo > 0) residuo--;
+      });
     } else {
+      // Ajuste proporcional con reparto de residuo exacto
       const factor = valor / duracionActual;
-      capitulo.subcapitulos = subtemas.map((sub) => ({
-        ...sub,
-        tiempo_subcapitulo_min: Math.max(
-          1,
-          Math.round((sub.tiempo_subcapitulo_min || 0) * factor)
-        ),
-      }));
-      capitulo.tiempo_capitulo_min = valor;
+      let totalAsignado = 0;
+
+      subtemas.forEach((sub) => {
+        const nuevoValor = Math.floor(
+          (parseInt(sub.tiempo_subcapitulo_min) || 0) * factor
+        );
+        sub.tiempo_subcapitulo_min = Math.max(1, nuevoValor);
+        totalAsignado += sub.tiempo_subcapitulo_min;
+      });
+
+      // Repartir residuo para coincidir exactamente con el total deseado
+      let diferencia = valor - totalAsignado;
+      let i = 0;
+      while (diferencia !== 0) {
+        subtemas[i % subtemas.length].tiempo_subcapitulo_min +=
+          diferencia > 0 ? 1 : -1;
+        diferencia += diferencia > 0 ? -1 : 1;
+        i++;
+      }
     }
 
+    // Actualiza el total del capítulo
+    capitulo.tiempo_capitulo_min = valor;
     capitulos[indexCap] = capitulo;
     nuevoTemario.temario = capitulos;
     return nuevoTemario;
