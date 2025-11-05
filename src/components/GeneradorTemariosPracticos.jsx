@@ -575,27 +575,10 @@ function GeneradorTemariosPracticos() {
                         <td className="acciones-cell">
                           <button
                             className="menu-btn"
-                            onClick={() =>
-                              setMenuActivo(menuActivo === i ? null : i)
-                            }
-                          >
-                            ⋮
+                            title = "Editar versión"
+                            onClick={() => handleCargarVersion(v)}>
+                            ✏️
                           </button>
-                          {menuActivo === i && (
-                            <div className="menu-opciones">
-                              <button onClick={() => handleCargarVersion(v)}>
-                                ✏️ Editar
-                              </button>
-                              <button
-                                onClick={() => handleExportarPDF(v.contenido)}
-                              >
-                                📄 Exportar PDF
-                              </button>
-                              <button onClick={() => handleVerVersion(v)}>
-                                👁️ Ver
-                              </button>
-                            </div>
-                          )}
                         </td>
                       </tr>
                     ))}
