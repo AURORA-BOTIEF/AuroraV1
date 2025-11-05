@@ -424,67 +424,114 @@ export default function EditorDeTemario_seminario({
       });
       y += 14;
       
-      // === Duración total del seminario ===
+      // === Subtítulo con duración (alineado a la derecha) ===
       if (temarioLimpio?.horas_totales) {
         doc.setFont("helvetica", "italic");
-        doc.setFontSize(11);
-        doc.setTextColor("#333");
+        doc.setFontSize(12);
+        doc.setTextColor(azul);
         doc.text(
-          `Duración total del seminario: ${temarioLimpio.horas_totales} hora(s)`,
-          margin.left,
-          y
+          `Duración total del curso: ${temarioLimpio.horas_totales} horas`,
+          pageWidth - margin.right,
+          y - 10,
+          { align: "right" }
         );
         y += 16;
       }
-    
+
+      // === DESCRIPCIÓN GENERAL ===
       if (temarioLimpio?.descripcion_general) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azul);
+        doc.text("Descripción General", margin.left, y);
+        y += 16;
+
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
         doc.setTextColor(negro);
-        const descLineas = doc.splitTextToSize(
-          normalizeObjetivos(temarioLimpio.descripcion_general),
-          contentWidth
-        );
-        descLineas.forEach((linea) => {
+        const desc = doc.splitTextToSize(temarioLimpio.descripcion_general, contentWidth);
+        desc.forEach((linea) => {
           addPageIfNeeded(16);
           doc.text(linea, margin.left, y);
           y += 16;
         });
-        y += 14;
+        y += 10;
       }
-      
-      // === Nueva sección: Información general ===
-      const infoSections = [
-        { title: "Audiencia", content: temarioLimpio.audiencia },
-        { title: "Prerrequisitos", content: temarioLimpio.prerrequisitos },
-        {
-          title: "Objetivos del seminario",
-          content: Array.isArray(temarioLimpio.objetivos_generales)
-            ? temarioLimpio.objetivos_generales.join(" ")
-            : temarioLimpio.objetivos_generales,
-        },
-      ];
 
-      infoSections.forEach(({ title, content }) => {
-        if (!content) return;
-        addPageIfNeeded(50);
+      // === AUDIENCIA ===
+      if (temarioLimpio?.audiencia) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(13);
         doc.setTextColor(azul);
-        doc.text(title, margin.left, y);
+        doc.text("Audiencia", margin.left, y);
         y += 16;
 
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
         doc.setTextColor(negro);
-        const lines = doc.splitTextToSize(content, contentWidth);
-        lines.forEach((linea) => {
-          addPageIfNeeded(14);
-          doc.text(linea, margin.left + 10, y);
-          y += 14;
+        const aud = doc.splitTextToSize(temarioLimpio.audiencia, contentWidth);
+        aud.forEach((linea) => {
+          addPageIfNeeded(16);
+          doc.text(linea, margin.left, y);
+          y += 16;
         });
-        y += 12;
-      });
+        y += 10;
+      }
+
+      // === PRERREQUISITOS ===
+      if (temarioLimpio?.prerrequisitos) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azul);
+        doc.text("Prerrequisitos", margin.left, y);
+        y += 16;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(negro);
+        const pre = doc.splitTextToSize(temarioLimpio.prerrequisitos, contentWidth);
+        pre.forEach((linea) => {
+          addPageIfNeeded(16);
+          doc.text(linea, margin.left, y);
+          y += 16;
+        });
+        y += 10;
+      }
+
+      // === OBJETIVOS ===
+      if (Array.isArray(temarioLimpio.objetivos_generales)) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azul);
+        doc.text("Objetivos", margin.left, y);
+        y += 16;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(negro);
+        temarioLimpio.objetivos_generales.forEach((obj) => {
+          addPageIfNeeded(16);
+          const textoObj = doc.splitTextToSize(obj, contentWidth);
+          textoObj.forEach((linea) => {
+            doc.text(linea, margin.left, y);
+            y += 16;
+          });
+        });
+        y += 14;
+      }
+
+      // === Separador antes del temario ===
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.5);
+      doc.line(margin.left, y, pageWidth - margin.right, y);
+      y += 22;
+
+      // === TÍTULO DE TEMARIO ===
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(azul);
+      doc.text("Temario", margin.left, y);
+      y += 22;
 
       addPageIfNeeded(50);
       doc.setFont("helvetica", "bold");
