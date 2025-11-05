@@ -436,6 +436,72 @@ export default function EditorDeTemario_seminario({
         );
         y += 16;
       }
+
+      // === INFORMACIÓN GENERAL DEL SEMINARIO ===
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(azul);
+      doc.text("Información general del seminario", margin.left, y);
+      y += 18;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(negro);
+
+      // --- Descripción general ---
+      if (temarioLimpio?.descripcion_general) {
+        doc.text("Descripción general:", margin.left, y);
+        y += 14;
+        const desc = doc.splitTextToSize(temarioLimpio.descripcion_general, contentWidth);
+        desc.forEach((linea) => {
+          addPageIfNeeded(16);
+          doc.text(linea, margin.left + 10, y);
+          y += 16;
+        });
+        y += 6;
+      }
+
+      // --- Audiencia ---
+      if (temarioLimpio?.audiencia) {
+        doc.text("Audiencia:", margin.left, y);
+        y += 14;
+        const aud = doc.splitTextToSize(temarioLimpio.audiencia, contentWidth);
+        aud.forEach((linea) => {
+          addPageIfNeeded(16);
+          doc.text(linea, margin.left + 10, y);
+          y += 16;
+        });
+        y += 6;
+      }
+
+      // --- Prerrequisitos ---
+      if (temarioLimpio?.prerrequisitos) {
+        doc.text("Prerrequisitos:", margin.left, y);
+        y += 14;
+        const pre = doc.splitTextToSize(temarioLimpio.prerrequisitos, contentWidth);
+        pre.forEach((linea) => {
+          addPageIfNeeded(16);
+          doc.text(linea, margin.left + 10, y);
+          y += 16;
+        });
+        y += 6;
+      }
+
+      // --- Objetivos generales ---
+      if (Array.isArray(temarioLimpio.objetivos_generales)) {
+        doc.text("Objetivos generales:", margin.left, y);
+        y += 14;
+        temarioLimpio.objetivos_generales.forEach((obj) => {
+          addPageIfNeeded(16);
+          const textoObj = doc.splitTextToSize(`• ${obj}`, contentWidth);
+          textoObj.forEach((linea) => {
+            doc.text(linea, margin.left + 10, y);
+            y += 16;
+          });
+        });
+        y += 10;
+      }
+
  
       if (temarioLimpio?.descripcion_general) {
         doc.setFont("helvetica", "normal");
