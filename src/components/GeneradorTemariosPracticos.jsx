@@ -204,29 +204,46 @@ function GeneradorTemariosPracticos() {
 
   const handleListarVersiones = async () => {
     try {
+      setIsLoading(true);
       const token = localStorage.getItem("id_token");
 
-
       const res = await fetch(
-        guardarApiUrl, 
+        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
         {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
+      if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
 
       const data = await res.json();
-      const sortedData = data.sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
+      console.log("📦 Datos crudos recibidos desde Lambda:", data);
+    
+      // 🔹 Filtra por temarios prácticos (más flexible)
+      const practicos = data.filter(
+        (v) =>
+          (v.enfoque || "").toLowerCase().includes("practico") ||
+          (v.nombre_curso || "").toLowerCase().includes("practico")
+      );
+      // 🔹 Ordena por fecha de creación descendente
+      const sortedData = practicos.sort(
+        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+      );
+
+      console.log(`✅ Temarios prácticos encontrados: ${sortedData.length}`);
       setVersiones(sortedData);
       setMostrarModal(true);
     } catch (error) {
-      console.error("Error al obtener versiones:", error);
+      console.error("❌ Error al obtener versiones:", error);
+      setError("No se pudieron cargar los temarios guardados.");
+    } finally {
+      setIsLoading(false);
     }
   };
-
 
   const handleCargarVersion = (version) => {
     setMostrarModal(false);
