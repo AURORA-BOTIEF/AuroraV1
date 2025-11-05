@@ -260,61 +260,50 @@ export default function EditorDeTemario_seminario({
   };
 
 
-  // === Ajustar tiempos ===
+  // ===== AJUSTAR TIEMPOS  =====
   const ajustarTiempos = () => {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
 
-    // 🔹 1. Duración total declarada por el usuario
-    const horasObjetivo = parseFloat(temario.horas_totales) || parseFloat(temario.horas_por_sesion) || 2;
-    const minutosObjetivo = horasObjetivo * 60;
+    // Duración total en horas (con límites)
+    let horas = parseFloat(temario.horas_totales) || 2;
+    if (horas < 0.5) horas = 0.5;
+    if (horas > 4) horas = 4;
 
-    // 🔹 2. Contar total de subtemas
+    const minutosTotales = horas * 60;
+
+    // Calcular total de subtemas
     const totalSubtemas = temario.temario.reduce(
       (acc, cap) => acc + (cap.subcapitulos?.length || 0),
       0
     );
     if (totalSubtemas === 0) return;
 
-    // 🔹 3. Calcular tiempo por tema base
-    const minutosPorTema = Math.floor(minutosObjetivo / totalSubtemas);
+    // Asignar tiempos uniformes
+    const minutosPorSubtema = Math.floor(minutosTotales / totalSubtemas);
     const nuevo = JSON.parse(JSON.stringify(temario));
 
-    // 🔹 4. Ajustar tiempos de subtemas y capítulos
+
     nuevo.temario.forEach((cap) => {
+      if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
+
       cap.subcapitulos.forEach((sub) => {
-        sub.tiempo_subcapitulo_min = minutosPorTema;
+        sub.tiempo_subcapitulo_min = minutosPorSubtema;
       });
+
       cap.tiempo_capitulo_min = cap.subcapitulos.reduce(
-        (sum, s) => sum + (s.tiempo_subcapitulo_min || 0),
+        (suma, sub) => suma + (sub.tiempo_subcapitulo_min || 0),
         0
       );
     });
 
-    // 🔹 5. Recalcular total real y limitarlo si supera el objetivo
-    let totalMin = nuevo.temario.reduce(
-      (acc, cap) => acc + (parseFloat(cap.tiempo_capitulo_min) || 0),
-      0
-    );
+    // Actualizar duración total en horas
+    nuevo.horas_totales = horas;
 
-    // Si excede el objetivo, escalar proporcionalmente
-    if (totalMin > minutosObjetivo) {
-      const factor = minutosObjetivo / totalMin;
-      nuevo.temario.forEach((cap) => {
-        cap.tiempo_capitulo_min = Math.floor(cap.tiempo_capitulo_min * factor);
-        cap.subcapitulos.forEach((sub) => {
-          sub.tiempo_subcapitulo_min = Math.floor(sub.tiempo_subcapitulo_min * factor);
-        });
-      });
-      totalMin = minutosObjetivo; // aseguramos límite
-    }
-
-    // 🔹 6. Actualizar horas totales finales
-    nuevo.horas_totales = parseFloat((totalMin / 60).toFixed(1));
-
+    // Aplicar cambios
     setTemario(nuevo);
     setMensaje({
       tipo: "ok",
-      texto: `⏱️ Tiempos ajustados: total ${nuevo.horas_totales}h (máx. ${horasObjetivo}h permitidas).`,
+      texto: `⏱️ Tiempos ajustados a ${horas}h (mín. 0.5h / máx. 4h)`,
     });
   };
 
