@@ -222,13 +222,9 @@ function GeneradorTemariosPracticos() {
 
       const data = await res.json();
       console.log("📦 Datos crudos recibidos desde Lambda:", data);
-    
-      // 🔹 Filtra por temarios prácticos (más flexible)
-      const practicos = data.filter(
-        (v) =>
-          (v.enfoque || "").toLowerCase().includes("practico") ||
-          (v.nombre_curso || "").toLowerCase().includes("practico")
-      );
+      
+    // 🔹 Mostrar todos los temarios (sin filtrar)
+      const practicos = data || [];
       // 🔹 Ordena por fecha de creación descendente
       const sortedData = practicos.sort(
         (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
