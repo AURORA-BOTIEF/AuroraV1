@@ -118,12 +118,18 @@ export default function GeneradorTemarios_Seminarios() {
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al generar el seminario.");
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Error al generar el seminario.");
+
+      // Parsear body si viene como string desde la lambda
+      const data =
+        typeof resData.body === "string" ? JSON.parse(resData.body) : resData;
 
       const temarioCompleto = {
         nombre_curso: data.nombre_curso || "Seminario sin título",
         descripcion_general: data.descripcion_general || "Sin descripción generada",
+        audiencia: data.audiencia || "",
+        prerrequisitos: data.prerrequisitos || "",
         objetivos_generales: Array.isArray(data.objetivos_generales)
           ? data.objetivos_generales
           : [],
