@@ -21,10 +21,8 @@ function GeneradorTemariosPracticos() {
     nivel_dificultad: "basico",
     numero_sesiones_por_semana: 1,
     horas_por_sesion: 7,
-    objetivo_tipo: "saber_hacer",
     sector: "",
     enfoque: "", // se forzará a "practico" en el payload si viene vacío
-    codigo_certificacion: "",
     syllabus_text: "",
   });
 
@@ -59,19 +57,6 @@ function GeneradorTemariosPracticos() {
   const handleParamChange = (e) => {
     const { name, value } = e.target;
 
-    if (name === "objetivo_tipo") {
-      let codigoCert = params.codigo_certificacion;
-      if (value === "saber_hacer") {
-        codigoCert = "";
-      }
-      setParams((prev) => ({
-        ...prev,
-        [name]: value,
-        codigo_certificacion: codigoCert,
-      }));
-      return;
-    }
-
     if (name === "horas_por_sesion" || name === "numero_sesiones_por_semana") {
       setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
       return;
@@ -93,13 +78,7 @@ function GeneradorTemariosPracticos() {
     if (!params.tecnologia || !params.tema_curso || !params.sector) {
       setError("Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
-    }
-
-    if (params.objetivo_tipo === "certificacion" && !params.codigo_certificacion) {
-      setError("Para certificación, debes especificar el código de certificación.");
-      return;
-    }
-    
+    }    
     const horasTotales = params.horas_por_sesion * params.numero_sesiones_por_semana;
 
     setIsLoading(true);
@@ -119,9 +98,7 @@ function GeneradorTemariosPracticos() {
         enfoque: params.enfoque?.trim() || "practico",
       };
 
-      if (payload.objetivo_tipo !== "certificacion") {
-        delete payload.codigo_certificacion;
-      }
+
 
       console.log("Enviando payload:", payload);
       const token = localStorage.getItem("id_token");
@@ -389,47 +366,6 @@ function GeneradorTemariosPracticos() {
             <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones_por_semana} horas</div>
           </div>
         </div>
-
-        <div className="form-group-radio">
-          <label>Tipo de Objetivo</label>
-          <div className="radio-group">
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="saber_hacer"
-                checked={params.objetivo_tipo === "saber_hacer"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />
-              <span>Saber Hacer (Enfocado en habilidades)</span>
-            </label>
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="certificacion"
-                checked={params.objetivo_tipo === "certificacion"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />
-              <span>Certificación (Enfocado en examen)</span>
-            </label>
-          </div>
-        </div>
-
-        {params.objetivo_tipo === "certificacion" && (
-          <div className="form-group certificacion-field">
-            <label>Código de Certificación *</label>
-            <input
-              name="codigo_certificacion"
-              value={params.codigo_certificacion}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: AWS CLF-C02, AZ-900"
-            />
-          </div>
-        )}
 
         <div className="form-group">
           <label>Sector / Audiencia *</label>
