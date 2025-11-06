@@ -153,11 +153,14 @@ export default function EditorDeTemario_seminario({
 
     if (subIndex !== null) {
       // === Subcapítulo ===
-      nuevo.temario[capIndex].subcapitulos[subIndex][field] =
-        field.includes("tiempo") ? parseFloat(value) || 0 : value;
+      let val = field.includes("tiempo") ? parseFloat(value) || 0 : value;
+      if (field.includes("tiempo") && val < 1) val = 1; // ✅ mínimo 1 minuto
+      nuevo.temario[capIndex].subcapitulos[subIndex][field] = val;
     } else {
       // === Capítulo ===
-      nuevo.temario[capIndex][field] = value;
+      let val = field.includes("tiempo") ? parseFloat(value) || 0 : value;
+      if (field.includes("tiempo") && val < 1) val = 1; // ✅ mínimo 1 minuto
+      nuevo.temario[capIndex][field] = val;
     }
 
     // Recalcular capítulo
@@ -618,7 +621,8 @@ const formatearDuracion = (minutos) => {
 
 // 🔹 Ajusta los tiempos de los subtemas distribuyendo de forma homogénea minuto a minuto
 const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
-  const valor = parseInt(nuevaDuracion, 10) || 0;
+  let valor = parseInt(nuevaDuracion, 10) || 0;
+  if (valor <1) valor =1; //mínimo 1 minuto
 
   setTemario((prev) => {
     const nuevoTemario = JSON.parse(JSON.stringify(prev));
@@ -667,11 +671,15 @@ const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
         <label>Duración total del seminario (horas)</label>
         <input
           type="number"
-          min ="0.5"
+          min="0.5"
           step="0.5"
           value={temario.horas_totales || ""}
-          onChange={(e) => setTemario({ ...temario, horas_totales: parseFloat(e.target.value) || 0, })}
+          onChange={(e) => {
+            const val = Math.max(parseFloat(e.target.value) || 0, 0.5); // ✅ mínimo 0.5h
+            setTemario({ ...temario, horas_totales: val });
+          }}  
         />
+
 
         <label>Descripción general</label>
         <textarea
