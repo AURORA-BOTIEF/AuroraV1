@@ -283,7 +283,7 @@ export default function GeneradorTemarios_Seminarios() {
         </div>
 
         <div className="form-group">
-          <label>Sector / Audiencia *</label>
+          <label>Sector* / Audiencia*</label>
           <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
         </div>
 
