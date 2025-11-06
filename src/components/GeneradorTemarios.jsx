@@ -273,8 +273,6 @@ function GeneradorTemarios() {
     navigate(`/editor-temario/${curso}/${id}`);
   };
 
-
-
 // === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
 const handleExportarPDF = async (version) => {
   try {
@@ -497,14 +495,14 @@ const handleExportarPDF = async (version) => {
         )}
 
         <div className="form-group">
-          <label>Sector / Audiencia *</label>
+          <label>Sector* / Audiencia*</label>
           <textarea 
             name="sector" 
             value={params.sector} 
             onChange={handleParamChange} 
             disabled={isLoading}
             rows="3"
-            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
+            placeholder="Ej: Sector financiero / Desarrolladores con 1 año de experiencia..."
           />
         </div>
 
