@@ -352,14 +352,14 @@ function GeneradorTemarios_KNTR() {
         </div>
 
         <div className="form-group">
-          <label> Sector<span style={{ color: "red" }}>*</span> / Audiencia<span style={{ color: "red" }}>*</span></label>
+          <label>Sector* / Audiencia*</label>
           <textarea
             name="sector"
             value={params.sector}
             onChange={handleParamChange}
             disabled={isLoading}
             rows="3"
-            placeholder="Ej: Sector financiero, equipos de gestión, instructores internos..."
+            placeholder="Ej: Sector financiero / equipos de gestión, instructores internos..."
           />
         </div>
 
