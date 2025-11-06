@@ -352,7 +352,7 @@ function GeneradorTemarios_KNTR() {
         </div>
 
         <div className="form-group">
-          <label>Sector / Audiencia *</label>
+          <label> Sector<span style={{ color: "red" }}>*</span> / Audiencia<span style={{ color: "red" }}>*</span></label>
           <textarea
             name="sector"
             value={params.sector}
