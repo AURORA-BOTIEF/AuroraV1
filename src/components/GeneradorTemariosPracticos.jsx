@@ -368,7 +368,7 @@ function GeneradorTemariosPracticos() {
         </div>
 
         <div className="form-group">
-          <label>Sector / Audiencia *</label>
+          <label>Sector */ Audiencia *</label>
           <textarea
             name="sector"
             value={params.sector}
