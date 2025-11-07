@@ -409,7 +409,7 @@ const listarApiUrl =
       </div> 
 
       {temarioGenerado && (
-        <EditorDeTemario 
+        <EditorDeTemario_Practico
           temarioInicial={temarioGenerado} 
           onSave={handleGuardarVersion} 
           onRegenerate={handleGenerar} // Se añade onRegenerate
