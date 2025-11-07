@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
-import EditorDeTemario from "./EditorDeTemario";
+import EditorDeTemario_Practico from "./EditorDeTemario_Practico";
 import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generador 'Practicos'
-import { exportarPDF } from "./EditorDeTemario";
+import { exportarPDF } from "./EditorDeTemario_Practico";
 
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
@@ -38,8 +38,16 @@ function GeneradorTemariosPracticos() {
   const [menuActivo, setMenuActivo] = useState(null);
 
  // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
-  const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
-  const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
+const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
+
+const guardarApiUrl =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
+const obtenerVersionApi =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
+const listarApiUrl =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
+
+
 
   useEffect(() => {
     const getUser = async () => {
@@ -141,18 +149,20 @@ function GeneradorTemariosPracticos() {
     }
   };
 
+    // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = localStorage.getItem("id_token");
-      const bodyData = {
+      const body = {
+        cursoId: params.tema_curso.trim().toLowerCase().replace(/\s+/g, "_"),
         contenido: temarioParaGuardar,
-        nota: nota || `Guardado el ${new Date().toLocaleString()}`,
-        autor: userEmail,
-        asesor_comercial: params.asesor_comercial,
-        nombre_preventa: params.nombre_preventa,
-        nombre_curso: params.tema_curso,
-        tecnologia: params.tecnologia,
-        enfoque: params.enfoque?.trim() || "practico",
+        nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
+        autor: userEmail || "Desconocido",
+        asesor_comercial: params.asesor_comercial || "No asignado",
+        nombre_preventa: params.nombre_preventa || "No especificado",
+        nombre_curso: params.tema_curso || "Sin título",
+        tecnologia: params.tecnologia || "No especificada",
+        enfoque: params.enfoque || "General",
         fecha_creacion: new Date().toISOString(),
       };
 
@@ -162,76 +172,44 @@ function GeneradorTemariosPracticos() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(bodyData),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Error al guardar versión");
-      }
+      if (!res.ok) throw new Error(data.error || "Error al guardar versión");
 
-
-      return { success: true, message: `Versión guardada ✔ (versionId: ${data.versionId})` };
-    } catch (error) {
-      console.error(error);
-      return { success: false, message: error.message };
+      alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
+    } catch (err) {
+      console.error(err);
+      alert("❌ Error al guardar versión: " + err.message);
     }
   };
 
-
+  // === Listar versiones ===
   const handleListarVersiones = async () => {
     try {
-      setIsLoading(true);
       const token = localStorage.getItem("id_token");
-
-      const res = await fetch(
-        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
+      const res = await fetch(listarApiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? {Authorization:`Bearer ${token}`}:{}),          
+        },
+      });
 
       const data = await res.json();
-      console.log("📦 Datos crudos recibidos desde Lambda:", data);
-      
-    // 🔹 Mostrar todos los temarios (sin filtrar)
-      const practicos = data || [];
-      // 🔹 Ordena por fecha de creación descendente
-      const sortedData = practicos.sort(
+      if (!res.ok) throw new Error(data.error || "Error al listar versiones.");
+
+      const sorted = data.sort(
         (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
       );
-
-      console.log(`✅ Temarios prácticos encontrados: ${sortedData.length}`);
-      setVersiones(sortedData);
+      setVersiones(sorted);
       setMostrarModal(true);
-    } catch (error) {
-      console.error("❌ Error al obtener versiones:", error);
-      setError("No se pudieron cargar los temarios guardados.");
-    } finally {
-      setIsLoading(false);
+    } catch (err) {
+      console.error("Error al listar versiones:", err);
     }
   };
 
-  const handleCargarVersion = (version) => {
-    setMostrarModal(false);
-    setParams((prev) => ({
-      ...prev,
-      nombre_preventa: version.nombre_preventa || "",
-      asesor_comercial: version.asesor_comercial || "",
-      tecnologia: version.tecnologia || "",
-      tema_curso: version.nombre_curso || "",
-      enfoque: version.enfoque || "",
-      nivel_dificultad: version.contenido?.nivel_dificultad || "basico",
-      sector: version.contenido?.sector || "",
-    }));
-    setTimeout(() => setTemarioGenerado(version.contenido), 300);
-  };
 
   // === EDITAR VERSIÓN EXISTENTE ===
   const handleEditarVersion = (v) => {
@@ -501,8 +479,8 @@ function GeneradorTemariosPracticos() {
                           <button
                             className="menu-btn"
                             title = "Editar versión"
-                            onClick={() => handleCargarVersion(v)}>
-                            ✏️
+                            onClick={() => handleEditarVersion(v)}>
+                              ✏️
                           </button>
                         </td>
                       </tr>
