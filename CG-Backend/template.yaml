@@ -232,14 +232,14 @@ Resources:
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
-  StrandsPPTGenerator:
+  StrandsInfographicGenerator:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: StrandsPPTGenerator
-      Description: Generate PowerPoint presentations from theory book content using Strands Agents
+      FunctionName: StrandsInfographicGenerator
+      Description: Generate HTML infographics and export to editable PowerPoint presentations using Strands Agents
       Runtime: python3.12
-      Handler: strands_ppt_generator.lambda_handler
-      CodeUri: ./lambda/strands_ppt_generator/
+      Handler: infographic_generator.lambda_handler
+      CodeUri: ./lambda/strands_infographic_generator/
       Layers:
         - !Ref StrandsAgentsLayer
         - !Ref PPTLayer
@@ -276,10 +276,10 @@ Resources:
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
       Events:
-        GeneratePPTApi:
+        GenerateInfographicApi:
           Type: Api
           Properties:
-            Path: /generate-ppt
+            Path: /generate-infographic
             Method: post
             Auth:
               Authorizer: NONE
@@ -288,7 +288,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ImagesGen
-      Description: Generate images from prompts using Google Gemini API (NO DOCKER!)
+      Description: Generate images from prompts using Google Gemini API or Imagen 4.0
       Runtime: python3.12
       Handler: images_gen.lambda_handler
       CodeUri: ./lambda/images_gen/
@@ -645,10 +645,10 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
-        GeneratePPTOptions:
+        GenerateInfographicOptions:
           Type: Api
           Properties:
-            Path: /generate-ppt
+            Path: /generate-infographic
             Method: options
             Auth:
               Authorizer: NONE
@@ -834,7 +834,20 @@ Resources:
                       ResultPath: $.error
                       Next: BatchFailState
                   ResultPath: $.batch_result
-                  Next: InvokeVisualPlannerForBatch
+                  Next: CheckBatchContentSuccess
+                CheckBatchContentSuccess:
+                  Type: Choice
+                  Comment: "Check if batch content generation succeeded"
+                  Choices:
+                    - And:
+                        - Variable: $.batch_result.Payload.statusCode
+                          IsPresent: true
+                        - Variable: $.batch_result.Payload.statusCode
+                          NumericEquals: 200
+                        - Variable: $.batch_result.Payload.lesson_keys
+                          IsPresent: true
+                      Next: InvokeVisualPlannerForBatch
+                  Default: BatchFailState
                 InvokeVisualPlannerForBatch:
                   Type: Task
                   Comment: "OPTIMIZED: Process ALL lessons in batch with single API call (85% cost reduction)"
@@ -865,8 +878,20 @@ Resources:
                           IsPresent: true
                         - Variable: $.visual_result.Payload.prompts_s3_prefix
                           IsPresent: true
-                      Next: GenerateBatchImages
+                      Next: InitializeImageGeneration
                   Default: SkipImageGeneration
+                
+                InitializeImageGeneration:
+                  Type: Pass
+                  Comment: "Initialize for image processing with prompts from visual planner"
+                  Parameters:
+                    batch_task.$: $.batch_task
+                    visual_result.$: $.visual_result
+                    batch_result.$: $.batch_result
+                    remaining_prompts.$: $.visual_result.Payload.prompts
+                  ResultPath: $
+                  Next: GenerateBatchImages
+                
                 SkipImageGeneration:
                   Type: Pass
                   Comment: "No visual tags found, skip image generation"
@@ -880,13 +905,15 @@ Resources:
                 GenerateBatchImages:
                   Type: Task
                   Resource: arn:aws:states:::lambda:invoke
-                  Comment: "Generate images for this batch's lessons"
+                  Comment: "Generate images for this batch's lessons (with auto-resume capability)"
+                  TimeoutSeconds: 960
                   Parameters:
                     FunctionName: !GetAtt ImagesGen.Arn
                     Payload:
                       course_bucket.$: $.batch_task.course_bucket
                       project_folder.$: $.batch_task.project_folder
                       prompts_prefix.$: $.visual_result.Payload.prompts_s3_prefix
+                      prompts.$: "$.remaining_prompts"
                   Retry:
                     - ErrorEquals:
                         - Lambda.ServiceException
@@ -896,10 +923,34 @@ Resources:
                       MaxAttempts: 2
                       BackoffRate: 2.0
                   ResultPath: $.images_result
-                  Next: BatchComplete
+                  Next: CheckRemainingImages
+                
+                CheckRemainingImages:
+                  Type: Choice
+                  Comment: "Check if there are remaining images to process (timeout resume)"
+                  Choices:
+                    - And:
+                        - Variable: $.images_result.Payload.remaining_prompts
+                          IsPresent: true
+                        - Variable: $.images_result.Payload.statistics.remaining
+                          NumericGreaterThan: 0
+                      Next: PrepareNextImageBatch
+                  Default: BatchComplete
+                
+                PrepareNextImageBatch:
+                  Type: Pass
+                  Comment: "Prepare next batch of remaining images (auto-resume)"
+                  Parameters:
+                    batch_task.$: $.batch_task
+                    visual_result.$: $.visual_result
+                    batch_result.$: $.batch_result
+                    remaining_prompts.$: $.images_result.Payload.remaining_prompts
+                  ResultPath: $
+                  Next: GenerateBatchImages
+                
                 BatchComplete:
                   Type: Pass
-                  Comment: "Batch processing complete"
+                  Comment: "Batch processing complete (all images generated)"
                   Parameters:
                     module_number.$: $.batch_task.module_number
                     batch_index.$: $.batch_task.batch_index
@@ -1275,10 +1326,10 @@ Outputs:
     Description: Strands Lab Writer Lambda ARN
     Value: !GetAtt StrandsLabWriter.Arn
   
-  # Strands Agents Lambdas - PowerPoint Generation
-  StrandsPPTGeneratorArn:
-    Description: Strands PPT Generator Lambda ARN
-    Value: !GetAtt StrandsPPTGenerator.Arn
+  # Strands Agents Lambdas - Infographic Generation
+  StrandsInfographicGeneratorArn:
+    Description: Strands Infographic Generator Lambda ARN
+    Value: !GetAtt StrandsInfographicGenerator.Arn
 
   # Supporting Lambdas
   BookBuilderFunction:
