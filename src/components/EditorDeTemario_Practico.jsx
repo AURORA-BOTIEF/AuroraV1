@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
 import { downloadExcelTemario } from "../utils/downloadExcel";
-import { useParams } from "react-router-dom";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_Practico.css";
@@ -38,69 +37,39 @@ const slugify = (str = "") =>
     .replace(/^-+|-+$/g, "") || "curso";
 
 function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
-  const { cursoId, versionId } = useParams();
-  const [temario, setTemario] = useState(null);
+  const [temario, setTemario] = useState(() => ({
+    ...temarioInicial,
+    temario: Array.isArray(temarioInicial?.temario)
+      ? temarioInicial.temario
+      : [],
+  }));
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
-  const obtenerVersionApi =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
-
-
-  // ✅ carga el temario si se abrió desde ✏️
   useEffect(() => {
-  const fetchVersion = async () => {
-    if (!cursoId || !versionId) return;
-    try {
-      const token = localStorage.getItem("id_token");
+    const getUser = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session?.tokens?.idToken?.payload?.email;
+        setUserEmail(email || "sin-correo");
+      } catch (err) {
+        console.error("Error obteniendo usuario:", err);
+      }
+    };
+    getUser();
+  }, []);
 
-      // ✅ Construye la URL con query params (GET)
-      const url = `${obtenerVersionApi}?cursoId=${encodeURIComponent(cursoId)}&versionId=${encodeURIComponent(versionId)}`;
-
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al obtener versión");
-
-      console.log("Versión cargada desde Lambda:", data.data);
-
-      const item = data.data || {};
-      const contenido = item.contenido || {};
-
-      setTemario({
-        ...contenido,
-        nombre_curso: item.nombre_curso,
-        tecnologia: item.tecnologia,
-        asesor_comercial: item.asesor_comercial,
-        nombre_preventa: item.nombre_preventa,
-        autor: item.autor,
-        nota_version: item.nota_version,
-        versionId: item.versionId,
-        cursoId: item.cursoId,
-      });
-    } catch (err) {
-      console.error("❌ Error cargando versión:", err);
-      setMensaje({ tipo: "error", texto: "Error al cargar la versión." });
-    }
-  };
-
-  if (!temarioInicial) fetchVersion();
-  else setTemario(temarioInicial);
-}, [cursoId, versionId, temarioInicial]);
-
-  if (!temario) {
-    return <div className="loading">Cargando versión...</div>;
-  }
-
+  useEffect(() => {
+    setTemario({
+      ...temarioInicial,
+      temario: Array.isArray(temarioInicial?.temario)
+        ? temarioInicial.temario
+        : [],
+    });
+  }, [temarioInicial]);
 
 // ===== CAMBIO DE CAMPOS =====
 const handleFieldChange = (capIndex, subIndex, field, value) => {
@@ -255,71 +224,59 @@ const eliminarTema = (capIndex, subIndex) => {
 
   // ===== GUARDAR ===== (corregido para evitar 400)
   const handleSaveClick = async () => {
-  setGuardando(true);
-  setMensaje({ tipo: "", texto: "" });
+    setGuardando(true);
+    setMensaje({ tipo: "", texto: "" });
 
-  const nota =
-    window.prompt("Escribe una nota para esta versión (opcional):") || "";
+    const nota =
+      window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
-  try {
-    const token = localStorage.getItem("id_token");
-
-    // ✅ Asegura que el email real del usuario se cargue antes de guardar
-    let email = "sin-correo";
     try {
-      const session = await fetchAuthSession();
-      email = session?.tokens?.idToken?.payload?.email || "sin-correo";
-    } catch (e) {
-      console.warn("No se pudo obtener el correo del usuario:", e);
+      const token = localStorage.getItem("id_token");
+
+      const bodyData = {
+        cursoId:
+          temario?.nombre_curso?.trim() ||
+          temario?.tema_curso?.trim() ||
+          `curso_${Date.now()}`,
+        contenido: temario,
+        autor: userEmail || "sin-correo",
+        nombre_curso: temario?.nombre_curso || "",
+        tecnologia: temario?.tecnologia || "",
+        asesor_comercial: temario?.asesor_comercial || "",
+        nombre_preventa: temario?.nombre_preventa || "",
+        nota_version: nota,
+        fecha_creacion: new Date().toISOString(),
+      };
+
+      const response = await fetch(
+        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(bodyData),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success)
+        throw new Error(data.error || "Error al guardar versión");
+
+      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
+    } catch (err) {
+      console.error("Error al guardar versión:", err);
+      setMensaje({
+        tipo: "error",
+        texto: "❌ Error al guardar versión (ver consola)",
+      });
+    } finally {
+      setGuardando(false);
+      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
     }
-
-    // ✅ Mantiene un cursoId estable y consistente
-    const cursoId =
-      temario?.cursoId ||
-      slugify(temario?.nombre_curso) ||
-      `curso_${Date.now()}`;
-
-    const bodyData = {
-      cursoId,
-      contenido: temario,
-      autor: email, // ✅ ahora se guarda correctamente el correo real
-      nombre_curso: temario?.nombre_curso || "",
-      tecnologia: temario?.tecnologia || "",
-      asesor_comercial: temario?.asesor_comercial || "",
-      nombre_preventa: temario?.nombre_preventa || "",
-      nota_version: nota,
-      fecha_creacion: new Date().toISOString(),
-    };
-
-    const response = await fetch(
-      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(bodyData),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success)
-      throw new Error(data.error || "Error al guardar versión");
-
-    setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
-  } catch (err) {
-    console.error("Error al guardar versión:", err);
-    setMensaje({
-      tipo: "error",
-      texto: "❌ Error al guardar versión (ver consola)",
-    });
-  } finally {
-    setGuardando(false);
-    setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
-  }
-};
+  };
 
   // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {

@@ -16,7 +16,7 @@ const listarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
 
 
-// === Asesores Comerciales ===
+
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
   "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
