@@ -1220,28 +1220,46 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     };
 
     const generateMarkdownFromBook = (book) => {
-        let markdown = `# ${book.metadata.title}\n\n`;
-        markdown += `**Author:** ${book.metadata.author}\n`;
-        markdown += `**Generated:** ${new Date(book.metadata.generated_at).toLocaleDateString()}\n\n`;
-        markdown += `---\n\n`;
-        markdown += `# Table of Contents\n\n`;
-        book.table_of_contents.forEach(item => {
-            markdown += `${item}\n`;
-        });
-        markdown += `\n---\n\n`;
+        try {
+            let markdown = `# ${book.metadata?.title || 'Course Book'}\n\n`;
 
-        book.lessons.forEach((lesson, index) => {
-            markdown += `# Lesson ${index + 1}: ${lesson.title}\n\n`;
-            markdown += lesson.content;
+            if (book.metadata?.author) {
+                markdown += `**Author:** ${book.metadata.author}\n`;
+            }
+            if (book.metadata?.generated_at) {
+                markdown += `**Generated:** ${new Date(book.metadata.generated_at).toLocaleDateString()}\n`;
+            }
             markdown += `\n---\n\n`;
-        });
 
-        markdown += `## Book Statistics\n\n`;
-        markdown += `- **Total Lessons**: ${book.metadata.total_lessons}\n`;
-        markdown += `- **Total Words**: ${book.metadata.total_words}\n`;
-        markdown += `- **Last Updated**: ${new Date().toLocaleString()}\n`;
+            // Table of contents (optional)
+            if (book.table_of_contents && Array.isArray(book.table_of_contents)) {
+                markdown += `# Table of Contents\n\n`;
+                book.table_of_contents.forEach(item => {
+                    markdown += `${item}\n`;
+                });
+                markdown += `\n---\n\n`;
+            }
 
-        return markdown;
+            // Lessons content
+            const lessons = book.lessons || [];
+            lessons.forEach((lesson, index) => {
+                markdown += `# Lesson ${index + 1}: ${lesson.title || 'Untitled'}\n\n`;
+                markdown += (lesson.content || '') + '\n\n';
+                markdown += `---\n\n`;
+            });
+
+            // Statistics
+            markdown += `## Book Statistics\n\n`;
+            markdown += `- **Total Lessons**: ${book.metadata?.total_lessons || lessons.length}\n`;
+            markdown += `- **Total Words**: ${book.metadata?.total_words || 0}\n`;
+            markdown += `- **Last Updated**: ${new Date().toLocaleString()}\n`;
+
+            return markdown;
+        } catch (error) {
+            console.error('Error generating markdown:', error);
+            // Return minimal markdown on error
+            return `# Course Book\n\nError generating full markdown: ${error.message}\n`;
+        }
     };
 
     const saveVersion = async () => {
@@ -1277,7 +1295,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     const { replaceDataUrlsWithS3Urls } = await import('../utils/s3ImageLoader');
                     html = await replaceDataUrlsWithS3Urls(html, projectFolder);
                 } catch (e) {
-                    console.warn('Failed to upload inline images before version save:', e);
+                    console.error('❌ Failed to upload inline images before version save:', e);
+                    alert('Error: No se pudieron subir algunas imágenes a S3. Por favor, intenta de nuevo.');
+                    return; // Don't save version with embedded images
                 }
 
                 const markdown = convertHtmlToMarkdown(html);
@@ -1294,6 +1314,58 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         total_words: updatedLessons.reduce((sum, lesson) => sum + (lesson.content || '').split(/\s+/).length, 0)
                     }
                 };
+            }
+
+            // CRITICAL: Replace ALL embedded images in ALL lessons with S3 URLs
+            console.log('🔍 Scanning all lessons for embedded images...');
+            try {
+                const { replaceDataUrlsWithS3Urls } = await import('../utils/s3ImageLoader');
+                const cleanedLessons = [];
+                let totalImagesFound = 0;
+                let totalImagesUploaded = 0;
+
+                for (const lesson of bookToVersion.lessons || []) {
+                    if (!lesson.content) {
+                        cleanedLessons.push(lesson);
+                        continue;
+                    }
+
+                    const beforeSize = lesson.content.length;
+                    const imageCount = (lesson.content.match(/data:image/g) || []).length;
+                    totalImagesFound += imageCount;
+
+                    if (imageCount > 0) {
+                        console.log(`📸 Found ${imageCount} embedded image(s) in lesson "${lesson.title}"`);
+                        const cleanedContent = await replaceDataUrlsWithS3Urls(lesson.content, projectFolder);
+                        const afterSize = cleanedContent.length;
+
+                        if (afterSize < beforeSize) {
+                            totalImagesUploaded += imageCount;
+                            console.log(`✅ Uploaded ${imageCount} image(s) - size reduced from ${(beforeSize / 1024).toFixed(1)}KB to ${(afterSize / 1024).toFixed(1)}KB`);
+                        }
+
+                        cleanedLessons.push({
+                            ...lesson,
+                            content: cleanedContent
+                        });
+                    } else {
+                        cleanedLessons.push(lesson);
+                    }
+                }
+
+                if (totalImagesFound > 0) {
+                    console.log(`✅ Processed ${totalImagesUploaded}/${totalImagesFound} embedded images`);
+                    bookToVersion = {
+                        ...bookToVersion,
+                        lessons: cleanedLessons
+                    };
+                } else {
+                    console.log('✅ No embedded images found - all images already on S3');
+                }
+            } catch (e) {
+                console.error('❌ Failed to clean embedded images from lessons:', e);
+                alert('Error: No se pudieron procesar las imágenes incrustadas. La versión puede ser muy grande.');
+                // Continue anyway - user chose to proceed
             }
 
             const versionData = {
@@ -1325,17 +1397,22 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             // Also save a markdown snapshot for easier previewing
             try {
+                console.log('📝 Generating markdown snapshot...');
                 const markdown = generateMarkdownFromBook(versionData);
                 const mdName = `${baseName}_${safeVersionName}.md`;
                 const mdKey = `${projectFolder}/versions/${mdName}`;
+
+                console.log(`📤 Uploading markdown to: ${mdKey}`);
                 await s3.send(new PutObjectCommand({
                     Bucket: bucketName,
                     Key: mdKey,
                     Body: markdown,
                     ContentType: 'text/markdown'
                 }));
+                console.log('✅ Markdown snapshot saved successfully');
             } catch (e) {
-                console.warn('Failed to save markdown snapshot for version:', e);
+                console.error('❌ Failed to save markdown snapshot for version:', e);
+                alert('Advertencia: No se pudo guardar el archivo .md (solo se guardó el JSON)');
             }
 
             // Update or add version to list
@@ -1882,16 +1959,23 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             // Determine which book version to use
             let bookVersionKey = null; // Let Lambda auto-discover the book file
 
-            if (selectedPPTVersion !== 'current' && selectedPPTVersion !== 'original') {
+            if (selectedPPTVersion === 'original') {
+                // User wants original book - construct the original book path
+                // Original books are typically at: project_folder/theory-book/Generated_Course_Book_data.json
+                // or project_folder/book/Generated_Course_Book_data.json
+                bookVersionKey = `${projectFolder}/${bookType}-book/Generated_Course_Book_data.json`;
+                console.log('🎯 Using original book path:', bookVersionKey);
+            } else if (selectedPPTVersion !== 'current') {
                 // User selected a specific version from the versions list
                 const version = versions.find(v => v.key === selectedPPTVersion);
                 if (version) {
                     bookVersionKey = version.key;
+                    console.log('🎯 Using selected version:', bookVersionKey);
                 } else {
                     throw new Error('Versión seleccionada no encontrada');
                 }
             }
-            // For 'current' or 'original', we leave bookVersionKey as null
+            // For 'current', we leave bookVersionKey as null
             // and let the Lambda discover the latest _data.json file
 
             console.log('🎯 Generating PPT from version:', bookVersionKey || 'auto-discover latest');
@@ -1902,7 +1986,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 book_version_key: bookVersionKey, // null means auto-discover
                 book_type: bookType, // 'theory' or 'lab' - tells Lambda which book to use
                 model_provider: pptModelProvider,
-                slides_per_lesson: slidesPerLesson,
+                slides_per_lesson: 999, // High number to ensure all content is included
+                use_all_content: true, // Flag to generate slides for ALL content
                 presentation_style: pptStyle
             };
 
@@ -1924,7 +2009,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 'La presentación se guardará automáticamente en S3.');
 
             // Make async request without blocking the UI
-            fetch(`${API_BASE}/generate-ppt`, {
+            fetch(`${API_BASE}/generate-infographic`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1949,24 +2034,37 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     throw new Error(`Backend error: ${data.error}`);
                 }
 
-                console.log('✅ PPT generated:', data);
+                console.log('✅ Infographic generated:', data);
 
-                // Enhanced success notification
-                const successMessage = `✅ ¡Presentación Generada Exitosamente!\n\n` +
+                // Enhanced success notification for HTML infographic
+                const successMessage = `✅ ¡Infografía Interactiva Generada!\n\n` +
                     `📊 ${data.total_slides} diapositivas creadas\n` +
-                    `📁 Ubicación: S3/${data.pptx_s3_key || data.structure_s3_key}\n` +
-                    `⏱️ Generado: ${new Date(data.generated_at).toLocaleString()}\n` +
+                    `✏️ Contenido 100% editable en navegador\n` +
+                    `📄 Exportable a PDF (Ctrl+P)\n` +
                     `🎨 Estilo: ${pptStyle}\n` +
                     `📝 Diapositivas por lección: ${slidesPerLesson}`;
 
-                // Create download link for the PPTX file
-                if (data.pptx_s3_key) {
-                    const downloadUrl = `https://crewai-course-artifacts.s3.amazonaws.com/${data.pptx_s3_key}`;
-                    const fullMessage = successMessage + `\n\n🔗 URL: ${downloadUrl}\n\n¿Deseas descargar el archivo ahora?`;
+                // Create download link for the HTML file (editable)
+                if (data.html_s3_key) {
+                    const htmlUrl = `https://crewai-course-artifacts.s3.amazonaws.com/${data.html_s3_key}`;
+                    const pptxUrl = data.pptx_s3_key ?
+                        `https://crewai-course-artifacts.s3.amazonaws.com/${data.pptx_s3_key}` : null;
+
+                    let fullMessage = successMessage +
+                        `\n\n� HTML Editable: ${htmlUrl}\n` +
+                        `\n💡 Haz clic en cualquier texto para editar\n` +
+                        `💾 Botón "Save Changes" para descargar versión editada\n` +
+                        `📄 Botón "Download PDF" para exportar a PDF`;
+
+                    if (pptxUrl) {
+                        fullMessage += `\n\n📊 PowerPoint: ${pptxUrl}`;
+                    }
+
+                    fullMessage += `\n\n¿Deseas abrir la infografía editable ahora?`;
 
                     // Show notification with download option
                     if (confirm(fullMessage)) {
-                        window.open(downloadUrl, '_blank');
+                        window.open(htmlUrl, '_blank');
                     }
                 } else {
                     alert(successMessage);
@@ -2373,19 +2471,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                 </div>
 
                                 <div className="ppt-form-group">
-                                    <label>Diapositivas por Lección:</label>
-                                    <input
-                                        type="number"
-                                        min="3"
-                                        max="10"
-                                        value={slidesPerLesson}
-                                        onChange={(e) => setSlidesPerLesson(parseInt(e.target.value))}
-                                        disabled={pptGenerating}
-                                    />
-                                    <small>Número aproximado de diapositivas por cada lección (3-10)</small>
-                                </div>
-
-                                <div className="ppt-form-group">
                                     <label>Modelo de IA:</label>
                                     <select
                                         value={pptModelProvider}
@@ -2400,9 +2485,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                 <div className="ppt-info-box">
                                     <strong>ℹ️ Información:</strong>
                                     <ul>
-                                        <li>Se generarán aproximadamente {slidesPerLesson * (bookData?.lessons?.length || 0)} diapositivas</li>
-                                        <li>Las imágenes del libro se reutilizarán automáticamente</li>
-                                        <li>El proceso puede tardar 5-10 minutos</li>
+                                        <li>Se generará una presentación con TODO el contenido del libro</li>
+                                        <li>El número de diapositivas se ajustará automáticamente según el contenido</li>
+                                        <li>Las imágenes del libro se incluirán automáticamente</li>
+                                        <li>El proceso puede tardar 5-15 minutos dependiendo del tamaño</li>
                                         <li>La presentación se guardará en S3 para descargar</li>
                                     </ul>
                                 </div>
