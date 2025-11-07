@@ -299,23 +299,32 @@ def generate_lab_master_plan(
     labs: List[Dict[str, Any]],
     course_info: dict,
     additional_requirements: Optional[str],
-    model_provider: str = "bedrock"
+    model_provider: str = "bedrock",
+    batch_size: int = 10
 ) -> dict:
     """
-    Generate comprehensive master plan for all labs using AI.
+    Generate comprehensive master plan for all labs using AI with batching for large courses.
     
-    The AI will analyze all labs and create:
+    The AI will analyze labs in batches and create:
     - Overall objectives for the lab guide
     - Hardware requirements (aggregated)
     - Software requirements (aggregated)
     - Detailed plan for each lab with objectives and scope
+    
+    Args:
+        labs: List of lab dictionaries
+        course_info: Course metadata
+        additional_requirements: User-specified requirements
+        model_provider: "bedrock" or "openai"
+        batch_size: Number of labs to process per AI call (default 10)
     """
     
     print(f"\n{'='*70}")
-    print(f"🤖 GENERATING MASTER LAB PLAN")
+    print(f"🤖 GENERATING MASTER LAB PLAN (OPTIMIZED FOR LARGE COURSES)")
     print(f"{'='*70}")
     print(f"Model Provider: {model_provider}")
     print(f"Total Labs: {len(labs)}")
+    print(f"Batch Size: {batch_size} labs per AI call")
     
     # Build course context
     course_title = course_info.get('title', 'Course')
@@ -323,148 +332,145 @@ def generate_lab_master_plan(
     course_level = course_info.get('level', 'intermediate')
     prerequisites = course_info.get('prerequisites', [])
     
-    # Build labs summary
-    labs_summary = []
-    for lab in labs:
-        labs_summary.append(
-            f"[{lab['lab_id']}] Module {lab['module_number']}.{lab['lesson_number']} - "
-            f"{lab['lab_title']} ({lab['duration_minutes']} min, {lab['bloom_level']})\n"
-            f"  Context Topics: {', '.join(lab['context_topics']) if lab['context_topics'] else 'N/A'}"
-        )
+    # For large courses, process labs in batches to avoid token limits and timeouts
+    num_batches = (len(labs) + batch_size - 1) // batch_size
+    print(f"📦 Processing {len(labs)} labs in {num_batches} batch(es)")
     
-    # Build prompt for AI
-    prompt = f"""
-You are an expert technical instructor designing a comprehensive laboratory guide.
+    all_lab_plans = []
+    all_hardware_reqs = set()
+    all_software_reqs = []
+    all_overall_objectives = set()
+    all_special_considerations = []
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min((batch_idx + 1) * batch_size, len(labs))
+        batch_labs = labs[start_idx:end_idx]
+        
+        print(f"\n🔄 Processing batch {batch_idx + 1}/{num_batches} ({len(batch_labs)} labs)...")
+        
+        # Build labs summary for this batch
+        labs_summary = []
+        for lab in batch_labs:
+            labs_summary.append(
+                f"[{lab['lab_id']}] Module {lab['module_number']}.{lab['lesson_number']} - "
+                f"{lab['lab_title']} ({lab['duration_minutes']} min, {lab['bloom_level']})\n"
+                f"  Context Topics: {', '.join(lab['context_topics']) if lab['context_topics'] else 'N/A'}"
+            )
+        
+        # Build prompt for AI - OPTIMIZED with shorter instructions for batches
+        if num_batches == 1:
+            # Single batch - full prompt
+            prompt_prefix = "Create a comprehensive master plan for the entire laboratory guide."
+        else:
+            # Multiple batches - streamlined prompt
+            prompt_prefix = f"Create a detailed plan for this batch of labs (batch {batch_idx + 1} of {num_batches})."
+        
+        # Build prompt for AI - OPTIMIZED with shorter instructions for batches
+        if num_batches == 1:
+            # Single batch - full prompt
+            prompt_prefix = "Create a comprehensive master plan for the entire laboratory guide."
+        else:
+            # Multiple batches - streamlined prompt
+            prompt_prefix = f"Create a detailed plan for this batch of labs (batch {batch_idx + 1} of {num_batches})."
+        
+        prompt = f"""
+You are an expert technical instructor designing laboratory guides.
 
-COURSE INFORMATION:
-Title: {course_title}
-Description: {course_description}
+COURSE: {course_title}
 Level: {course_level}
-Prerequisites: {', '.join(prerequisites) if prerequisites else 'None specified'}
+{'Prerequisites: ' + ', '.join(prerequisites) if prerequisites else ''}
 
-LABS TO PLAN ({len(labs)} total):
+LABS IN THIS BATCH ({len(batch_labs)} labs):
 {chr(10).join(labs_summary)}
 
-ADDITIONAL REQUIREMENTS:
-{additional_requirements if additional_requirements else 'None specified - use your best judgment'}
+REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
 
-YOUR TASK:
-Create a comprehensive master plan for the entire laboratory guide. This plan will be used by another AI agent to write detailed step-by-step instructions.
+{prompt_prefix}
 
-OUTPUT REQUIRED (JSON format):
-
+Return JSON with:
 {{
-  "overall_objectives": [
-    "Primary objective of the lab guide",
-    "Secondary objective",
-    ...
-  ],
-  "hardware_requirements": [
-    "Specific hardware requirement 1",
-    "Specific hardware requirement 2",
-    ...
-  ],
-  "software_requirements": [
-    {{
-      "name": "Software name",
-      "version": "Version or 'latest'",
-      "purpose": "Why this software is needed",
-      "installation_notes": "Brief installation guidance"
-    }},
-    ...
-  ],
+  "overall_objectives": ["objective 1", "objective 2"],
+  "hardware_requirements": ["requirement 1", "requirement 2"],
+  "software_requirements": [{{"name": "Software", "version": "1.0", "purpose": "Why needed", "installation_notes": "Brief notes"}}],
   "lab_plans": [
     {{
       "lab_id": "01-01-01",
-      "lab_title": "Lab title from outline",
-      "objectives": [
-        "Specific learning objective 1",
-        "Specific learning objective 2",
-        ...
-      ],
-      "scope": "Detailed description of what this lab covers and what students will accomplish",
+      "lab_title": "Title",
+      "objectives": ["objective 1", "objective 2"],
+      "scope": "Detailed description",
       "estimated_duration": 30,
       "bloom_level": "Apply",
-      "prerequisites": [
-        "Prerequisite 1",
-        "Prerequisite 2"
-      ],
-      "key_technologies": [
-        "Technology 1",
-        "Technology 2"
-      ],
-      "expected_outcomes": [
-        "Outcome 1",
-        "Outcome 2"
-      ],
+      "prerequisites": ["prereq 1"],
+      "key_technologies": ["tech 1"],
+      "expected_outcomes": ["outcome 1"],
       "complexity": "easy|medium|hard"
-    }},
-    ...
+    }}
   ],
-  "special_considerations": [
-    "Important consideration 1",
-    "Important consideration 2",
-    ...
-  ]
+  "special_considerations": ["consideration 1"]
 }}
 
-IMPORTANT GUIDELINES:
-1. Be SPECIFIC - avoid vague statements like "various tools"
-2. Consider the Bloom level (Remember < Understand < Apply < Analyze < Evaluate < Create)
-3. Ensure prerequisites build logically (later labs can depend on earlier ones)
-4. Include troubleshooting considerations in special_considerations
-5. Hardware requirements should be realistic and specific (RAM, CPU, disk space)
-6. Software versions matter - specify if a specific version is required
-7. Integrate the additional requirements throughout the plan
-8. Duration estimates should account for setup, execution, and verification
-9. Each lab should have 2-4 clear, measurable objectives
-10. Scope should be detailed enough for another AI to write step-by-step instructions
-
-Return ONLY the JSON object, no additional text.
+BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
 """
+        
+        try:
+            if model_provider == "openai":
+                secret_data = get_secret("aurora/openai-api-key")
+                api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
+                if not api_key:
+                    print("⚠️  OpenAI API key not found, falling back to Bedrock")
+                    model_provider = "bedrock"
+                else:
+                    response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+            
+            if model_provider == "bedrock":
+                response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+            
+            # Parse JSON from response
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0]
+            
+            batch_plan = json.loads(response_text.strip())
+            
+            # Aggregate results from this batch
+            all_lab_plans.extend(batch_plan.get('lab_plans', []))
+            all_hardware_reqs.update(batch_plan.get('hardware_requirements', []))
+            
+            # Merge software requirements (avoid duplicates by name)
+            for sw in batch_plan.get('software_requirements', []):
+                if not any(s['name'] == sw['name'] for s in all_software_reqs):
+                    all_software_reqs.append(sw)
+            
+            all_overall_objectives.update(batch_plan.get('overall_objectives', []))
+            all_special_considerations.extend(batch_plan.get('special_considerations', []))
+            
+            print(f"✅ Batch {batch_idx + 1} completed: {len(batch_plan.get('lab_plans', []))} lab plans generated")
+        
+        except Exception as e:
+            print(f"❌ Error processing batch {batch_idx + 1}: {e}")
+            # Continue with next batch instead of failing completely
+            print(f"⚠️  Continuing with remaining batches...")
+            continue
     
-    print("🚀 Calling AI model to generate master plan...")
+    # Compile final master plan
+    master_plan = {
+        'overall_objectives': list(all_overall_objectives),
+        'hardware_requirements': list(all_hardware_reqs),
+        'software_requirements': all_software_reqs,
+        'lab_plans': all_lab_plans,
+        'special_considerations': all_special_considerations
+    }
     
-    try:
-        if model_provider == "openai":
-            # Get OpenAI API key
-            secret_data = get_secret("aurora/openai-api-key")
-            api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
-            if not api_key:
-                print("⚠️  OpenAI API key not found, falling back to Bedrock")
-                model_provider = "bedrock"
-            else:
-                response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
-        
-        if model_provider == "bedrock":
-            response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
-        
-        print("✅ AI response received, parsing JSON...")
-        
-        # Parse JSON from response
-        # Handle potential markdown code blocks
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
-        
-        master_plan = json.loads(response_text.strip())
-        
-        print(f"✅ Master plan generated successfully")
-        print(f"   - Overall objectives: {len(master_plan.get('overall_objectives', []))}")
-        print(f"   - Hardware requirements: {len(master_plan.get('hardware_requirements', []))}")
-        print(f"   - Software requirements: {len(master_plan.get('software_requirements', []))}")
-        print(f"   - Lab plans: {len(master_plan.get('lab_plans', []))}")
-        
-        return master_plan
+    print(f"\n✅ Master plan generation complete")
+    print(f"   - Overall objectives: {len(master_plan['overall_objectives'])}")
+    print(f"   - Hardware requirements: {len(master_plan['hardware_requirements'])}")
+    print(f"   - Software requirements: {len(master_plan['software_requirements'])}")
+    print(f"   - Lab plans: {len(master_plan['lab_plans'])}")
+    print(f"   - Special considerations: {len(master_plan['special_considerations'])}")
     
-    except json.JSONDecodeError as e:
-        print(f"❌ Failed to parse AI response as JSON: {e}")
-        print(f"Response text: {response_text[:500]}...")
-        raise
-    except Exception as e:
-        print(f"❌ Error generating master plan: {e}")
-        raise
+    return master_plan
 
 
 def save_master_plan_to_s3(

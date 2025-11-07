@@ -449,15 +449,50 @@ def extract_module_title(lesson_content, module_num):
     return f"Module {module_num}"
 
 def replace_visual_tags(content, mappings, bucket):
-    """Replace [VISUAL: description] tags with actual image references."""
+    """
+    Replace [VISUAL: description] tags with actual image references.
+    Supports both old format (visual_tag -> s3_key) and new format (id -> {s3_key, description}).
+    """
     processed_content = content
-
-    for visual_tag, image_key in mappings.items():
-        if visual_tag in processed_content:
-            # Create markdown image reference
-            image_url = f"https://{bucket}.s3.amazonaws.com/{image_key}"
-            image_markdown = f"\n\n![{visual_tag}]({image_url})\n\n"
-            processed_content = processed_content.replace(visual_tag, image_markdown)
+    
+    # Detect format: if any value is a dict with 's3_key', it's the new format
+    is_new_format = False
+    if mappings:
+        first_value = next(iter(mappings.values()))
+        if isinstance(first_value, dict) and 's3_key' in first_value:
+            is_new_format = True
+    
+    if is_new_format:
+        # NEW FORMAT: { "image_id": { "s3_key": "path", "description": "text" } }
+        for img_id, img_data in mappings.items():
+            s3_key = img_data.get('s3_key', '')
+            description = img_data.get('description', '')
+            
+            if not s3_key:
+                continue
+            
+            # Build potential visual tags to search for
+            # Format 1: [VISUAL: id - description]
+            # Format 2: [VISUAL: id]
+            visual_tags_to_try = []
+            if description:
+                visual_tags_to_try.append(f"[VISUAL: {img_id} - {description}]")
+            visual_tags_to_try.append(f"[VISUAL: {img_id}]")
+            
+            # Try to replace any matching visual tag
+            for visual_tag in visual_tags_to_try:
+                if visual_tag in processed_content:
+                    image_url = f"https://{bucket}.s3.amazonaws.com/{s3_key}"
+                    image_markdown = f"\n\n![{img_id}]({image_url})\n\n"
+                    processed_content = processed_content.replace(visual_tag, image_markdown)
+    else:
+        # OLD FORMAT: { "visual_tag": "s3_key" }
+        for visual_tag, image_key in mappings.items():
+            if visual_tag in processed_content:
+                # Create markdown image reference
+                image_url = f"https://{bucket}.s3.amazonaws.com/{image_key}"
+                image_markdown = f"\n\n![{visual_tag}]({image_url})\n\n"
+                processed_content = processed_content.replace(visual_tag, image_markdown)
 
     return processed_content
 

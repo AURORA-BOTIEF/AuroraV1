@@ -83,19 +83,25 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
 
     // 🔹 Si el usuario edita la duración total manualmente
     if (field === "tiempo_capitulo_min") {
-      const nuevoTotal = parseInt(value, 10) || 0;
+      const nuevoTotal = Math.max(0, parseInt(value, 10) || 0);
       nuevo.temario[capIndex].tiempo_capitulo_min = nuevoTotal;
 
       // 🟢 Repartir equitativamente entre subcapítulos existentes
       const subcaps = nuevo.temario[capIndex].subcapitulos || [];
       if (subcaps.length > 0) {
-        const minutosPorSub = Math.floor(nuevoTotal / subcaps.length);
-        const residuo = nuevoTotal % subcaps.length;
+        // ✅ Si el total es 0, reiniciamos todos a 0
+        if (nuevoTotal === 0) {
+          subcaps.forEach((sub) => (sub.tiempo_subcapitulo_min = 0));
+        } else {
+          // 🟢 Distribuimos solo si el total es positivo
+          const minutosPorSub = Math.floor(nuevoTotal / subcaps.length);
+          const residuo = nuevoTotal % subcaps.length;
 
-        subcaps.forEach((sub, idx) => {
-          sub.tiempo_subcapitulo_min =
-            minutosPorSub + (idx === 0 ? residuo : 0); // reparte residuo al primero
-        });
+          subcaps.forEach((sub, idx) => {
+            sub.tiempo_subcapitulo_min =
+              Math.max(0, minutosPorSub + (idx === 0 ? residuo : 0));
+          });
+        }
       }
     } else {
       // 🔹 Si el usuario edita otro campo (nombre, objetivos, etc.)
@@ -118,10 +124,12 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
       };
     }
 
-    nuevo.temario[capIndex].subcapitulos[subIndex][field] =
-      field.includes("tiempo") || field === "sesion"
-        ? parseInt(value, 10) || 0
-        : value;
+    if (field.includes("tiempo") || field === "sesion") {
+      const parsed = parseInt(value, 10) || 0;
+      nuevo.temario[capIndex].subcapitulos[subIndex][field] = Math.max(0, parsed);
+    } else {
+      nuevo.temario[capIndex].subcapitulos[subIndex][field] = value;
+    }
 
     // 🔹 Al cambiar un subcapítulo, recalculamos la duración total automáticamente
     nuevo.temario[capIndex].tiempo_capitulo_min = (
@@ -539,9 +547,10 @@ return (
             type="number"
             min="0"
             value={cap.tiempo_capitulo_min || 0}
-            onChange={(e) =>
+            onChange={(e) =>{
+              const val = Math.max(0, parseInt(e.target.value) || 0);
               handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)
-            }
+            }}
             className="input-duracion"
             style={{ width: "80px", textAlign: "center" }}
           />
@@ -580,9 +589,10 @@ return (
               <input
                 type="number"
                 value={sub.tiempo_subcapitulo_min || 0}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const val = Math.max(0, parseInt(e.target.value) || 0);
                   handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
-                }
+                }}
                 placeholder="min"
               />
               <input

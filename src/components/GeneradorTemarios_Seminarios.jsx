@@ -31,8 +31,6 @@ export default function GeneradorTemarios_Seminarios() {
     tecnologia: "",
     tema_curso: "",
     nivel_dificultad: "basico",
-    objetivo_tipo: "saber_hacer",
-    codigo_certificacion: "",
     sector: "",
     enfoque: "",
     horas_por_sesion: 2,
@@ -76,8 +74,6 @@ export default function GeneradorTemarios_Seminarios() {
     const required = ["tecnologia", "tema_curso", "sector"];
     const missing = required.filter((f) => !params[f]?.trim());
     if (missing.length) return `Completa: ${missing.join(", ")}.`;
-    if (params.objetivo_tipo === "certificacion" && !params.codigo_certificacion.trim())
-      return "Debes indicar el código de certificación.";
     return "";
   };
 
@@ -99,7 +95,6 @@ export default function GeneradorTemarios_Seminarios() {
         tecnologia: params.tecnologia.trim(),
         tema_curso: params.tema_curso.trim(),
         nivel_dificultad: params.nivel_dificultad,
-        objetivo_tipo: params.objetivo_tipo,
         sector: params.sector.trim(),
         enfoque: params.enfoque.trim(),
         duracion_total_horas: params.horas_por_sesion,
@@ -279,37 +274,16 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Duración total (1–4h)</label>
+            <label>Duración total (1–3h)</label>
             <div className="slider-container">
-              <input type="range" min="1" max="4" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} />
+              <input type="range" min="1" max="3" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} />
               <span className="slider-value">{params.horas_por_sesion} h</span>
             </div>
           </div>
         </div>
 
-        <div className="form-group-radio">
-          <label>Tipo de Objetivo</label>
-          <div className="radio-group">
-            <label className="radio-label">
-              <input type="radio" name="objetivo_tipo" value="saber_hacer" checked={params.objetivo_tipo === "saber_hacer"} onChange={handleChange} disabled={isLoading} />
-              <span>Saber Hacer (Habilidades)</span>
-            </label>
-            <label className="radio-label">
-              <input type="radio" name="objetivo_tipo" value="certificacion" checked={params.objetivo_tipo === "certificacion"} onChange={handleChange} disabled={isLoading} />
-              <span>Certificación (Examen)</span>
-            </label>
-          </div>
-        </div>
-
-        {params.objetivo_tipo === "certificacion" && (
-          <div className="form-group certificacion-field">
-            <label>Código de Certificación *</label>
-            <input name="codigo_certificacion" value={params.codigo_certificacion} onChange={handleChange} disabled={isLoading} placeholder="Ej: PL-300, AZ-900..." />
-          </div>
-        )}
-
         <div className="form-group">
-          <label>Sector / Audiencia *</label>
+          <label>Sector* / Audiencia*</label>
           <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
         </div>
 

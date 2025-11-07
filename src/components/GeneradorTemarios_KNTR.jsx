@@ -20,7 +20,6 @@ function GeneradorTemarios_KNTR() {
     nivel_dificultad: "basico",
     numero_sesiones_por_semana: 1,
     horas_por_sesion: 4,
-    objetivo_tipo: "saber",
     sector: "",
     enfoque: "teorico",
     codigo_certificacion: "",
@@ -57,19 +56,6 @@ function GeneradorTemarios_KNTR() {
   const handleParamChange = (e) => {
     const { name, value } = e.target;
 
-    if (name === "objetivo_tipo") {
-      let codigoCert = params.codigo_certificacion;
-      if (value === "saber") {
-        codigoCert = "";
-      }
-      setParams((prev) => ({
-        ...prev,
-        [name]: value,
-        codigo_certificacion: codigoCert,
-      }));
-      return;
-    }
-
     if (name === "horas_por_sesion" || name === "numero_sesiones_por_semana") {
       setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
       return;
@@ -89,11 +75,6 @@ function GeneradorTemarios_KNTR() {
       return;
     }
 
-    if (params.objetivo_tipo === "certificacion_teorica" && !params.codigo_certificacion) {
-      setError("Para certificación teórica, debes especificar el código de certificación.");
-      return;
-    }
-
     const horasTotales = params.horas_por_sesion * params.numero_sesiones_por_semana;
 
     setIsLoading(true);
@@ -103,7 +84,6 @@ function GeneradorTemarios_KNTR() {
 
     try {
       const payload = { ...params, horas_totales: horasTotales };
-      if (payload.objetivo_tipo !== "certificacion_teorica") delete payload.codigo_certificacion;
 
       const token = localStorage.getItem("id_token");
       const response = await fetch(generarApiUrl, {
@@ -263,7 +243,7 @@ function GeneradorTemarios_KNTR() {
           <h2>Generador de Temarios Teóricos (Knowledge Transfer)</h2>
         </div>
         <p className="descripcion-practico" style={{ marginTop: "0px" }}>
-          Genera un temario 100% teórico orientado a transferencia de conocimiento.
+          Genera un temario teórico orientado a transferencia de conocimiento.
         </p>
 
         <div className="form-grid">
@@ -371,56 +351,15 @@ function GeneradorTemarios_KNTR() {
           </div>
         </div>
 
-        <div className="form-group-radio">
-          <label>Tipo de Objetivo</label>
-          <div className="radio-group">
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="saber"
-                checked={params.objetivo_tipo === "saber"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />
-              <span>Conocimiento (Transferencia Teórica)</span>
-            </label>
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="certificacion_teorica"
-                checked={params.objetivo_tipo === "certificacion_teorica"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />
-              <span>Certificación Teórica</span>
-            </label>
-          </div>
-        </div>
-
-        {params.objetivo_tipo === "certificacion_teorica" && (
-          <div className="form-group certificacion-field">
-            <label>Código de Certificación *</label>
-            <input
-              name="codigo_certificacion"
-              value={params.codigo_certificacion}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: ITIL4-DITS, ISO27001-FUND"
-            />
-          </div>
-        )}
-
         <div className="form-group">
-          <label>Sector / Audiencia *</label>
+          <label>Sector* / Audiencia*</label>
           <textarea
             name="sector"
             value={params.sector}
             onChange={handleParamChange}
             disabled={isLoading}
             rows="3"
-            placeholder="Ej: Sector financiero, equipos de gestión, instructores internos..."
+            placeholder="Ej: Sector financiero / equipos de gestión, instructores internos..."
           />
         </div>
 
@@ -537,16 +476,10 @@ function GeneradorTemarios_KNTR() {
                         <td className="acciones-cell">
                           <button
                             className="menu-btn"
-                            onClick={() => setMenuActivo(menuActivo === i ? null : i)}
-                          >
-                            ⋮
+                            title = "Editar versión"
+                            onClick={() => handleCargarVersion(v)}>
+                            ✏️
                           </button>
-                          {menuActivo === i && (
-                            <div className="menu-opciones">
-                              <button onClick={() => handleCargarVersion(v)}>✏️ Editar</button>
-                              <button onClick={() => handleExportarPDF(v.contenido)}>📄 Exportar PDF</button>
-                            </div>
-                          )}
                         </td>
                       </tr>
                     ))}
@@ -561,7 +494,7 @@ function GeneradorTemarios_KNTR() {
       {mostrandoModalThor && (
         <div className="modal-overlay-thor">
           <div className="modal-thor">
-            <h2>⚙️ THOR está generando tu temario teórico...</h2>
+            <h2>THOR está generando tu temario teórico...</h2>
             <p>
               Mientras se crea el contenido, recuerda que está siendo generado con inteligencia artificial y
               está pensado como una propuesta base.
@@ -574,7 +507,9 @@ function GeneradorTemarios_KNTR() {
               <li>🧠 Usa la IA como apoyo, no como sustituto del criterio pedagógico.</li>
             </ul>
             <p className="nota-thor">
-              Este generador crea cursos teóricos (Knowledge Transfer), enfocados en comprensión y análisis conceptual.
+              La IA es una herramienta poderosa, pero requiere tu supervisión
+              como Instructor experto para garantizar calidad, precisión y
+              relevancia educativa.
             </p>
           </div>
         </div>
