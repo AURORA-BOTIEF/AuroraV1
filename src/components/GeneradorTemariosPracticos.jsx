@@ -3,6 +3,7 @@ import { fetchAuthSession } from "aws-amplify/auth";
 import EditorDeTemario_Practico from "./EditorDeTemario_Practico";
 import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generador 'Practicos'
 import { exportarPDF } from "./EditorDeTemario_Practico";
+import { useNavigate } from "react-router-dom";
 
  // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
 const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
