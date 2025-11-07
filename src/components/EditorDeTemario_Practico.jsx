@@ -252,59 +252,71 @@ const eliminarTema = (capIndex, subIndex) => {
 
   // ===== GUARDAR ===== (corregido para evitar 400)
   const handleSaveClick = async () => {
-    setGuardando(true);
-    setMensaje({ tipo: "", texto: "" });
+  setGuardando(true);
+  setMensaje({ tipo: "", texto: "" });
 
-    const nota =
-      window.prompt("Escribe una nota para esta versión (opcional):") || "";
+  const nota =
+    window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
+  try {
+    const token = localStorage.getItem("id_token");
+
+    // ✅ Asegura que el email real del usuario se cargue antes de guardar
+    let email = "sin-correo";
     try {
-      const token = localStorage.getItem("id_token");
-
-      const bodyData = {
-        cursoId:
-          temario?.nombre_curso?.trim() ||
-          temario?.tema_curso?.trim() ||
-          `curso_${Date.now()}`,
-        contenido: temario,
-        autor: userEmail || "sin-correo",
-        nombre_curso: temario?.nombre_curso || "",
-        tecnologia: temario?.tecnologia || "",
-        asesor_comercial: temario?.asesor_comercial || "",
-        nombre_preventa: temario?.nombre_preventa || "",
-        nota_version: nota,
-        fecha_creacion: new Date().toISOString(),
-      };
-
-      const response = await fetch(
-        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(bodyData),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success)
-        throw new Error(data.error || "Error al guardar versión");
-
-      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
-    } catch (err) {
-      console.error("Error al guardar versión:", err);
-      setMensaje({
-        tipo: "error",
-        texto: "❌ Error al guardar versión (ver consola)",
-      });
-    } finally {
-      setGuardando(false);
-      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
+      const session = await fetchAuthSession();
+      email = session?.tokens?.idToken?.payload?.email || "sin-correo";
+    } catch (e) {
+      console.warn("No se pudo obtener el correo del usuario:", e);
     }
-  };
+
+    // ✅ Mantiene un cursoId estable y consistente
+    const cursoId =
+      temario?.cursoId ||
+      slugify(temario?.nombre_curso) ||
+      `curso_${Date.now()}`;
+
+    const bodyData = {
+      cursoId,
+      contenido: temario,
+      autor: email, // ✅ ahora se guarda correctamente el correo real
+      nombre_curso: temario?.nombre_curso || "",
+      tecnologia: temario?.tecnologia || "",
+      asesor_comercial: temario?.asesor_comercial || "",
+      nombre_preventa: temario?.nombre_preventa || "",
+      nota_version: nota,
+      fecha_creacion: new Date().toISOString(),
+    };
+
+    const response = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(bodyData),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success)
+      throw new Error(data.error || "Error al guardar versión");
+
+    setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
+  } catch (err) {
+    console.error("Error al guardar versión:", err);
+    setMensaje({
+      tipo: "error",
+      texto: "❌ Error al guardar versión (ver consola)",
+    });
+  } finally {
+    setGuardando(false);
+    setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
+  }
+};
 
   // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {
