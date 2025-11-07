@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
 import { downloadExcelTemario } from "../utils/downloadExcel";
+import { useParams } from "react-router-dom";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_Practico.css";
@@ -37,39 +38,66 @@ const slugify = (str = "") =>
     .replace(/^-+|-+$/g, "") || "curso";
 
 function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
-  const [temario, setTemario] = useState(() => ({
-    ...temarioInicial,
-    temario: Array.isArray(temarioInicial?.temario)
-      ? temarioInicial.temario
-      : [],
-  }));
+  const { cursoId, versionId } = useParams();
+  const [temario, setTemario] = useState(null);
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
+  const obtenerVersionApi =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
+
+
+  // ✅ carga el temario si se abrió desde ✏️
   useEffect(() => {
-    const getUser = async () => {
+    const fetchVersion = async () => {
+      if (!cursoId || !versionId) return;
       try {
-        const session = await fetchAuthSession();
-        const email = session?.tokens?.idToken?.payload?.email;
-        setUserEmail(email || "sin-correo");
+        const token = localStorage.getItem("id_token");
+        const res = await fetch(obtenerVersionApi, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ cursoId, versionId }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Error al obtener versión");
+
+        console.log("Versión cargada desde Lambda:", data.data);
+
+        const item = data.data || {};
+        const contenido = item.contenido || {};
+
+        setTemario({
+          ...contenido,
+          nombre_curso: item.nombre_curso,
+          tecnologia: item.tecnologia,
+          asesor_comercial: item.asesor_comercial,
+          nombre_preventa: item.nombre_preventa,
+          autor: item.autor,
+          nota_version: item.nota_version,
+          versionId: item.versionId,
+          cursoId: item.cursoId,
+        });
       } catch (err) {
-        console.error("Error obteniendo usuario:", err);
+        console.error("❌ Error cargando versión:", err);
+        setMensaje({ tipo: "error", texto: "Error al cargar la versión." });
       }
     };
-    getUser();
-  }, []);
 
-  useEffect(() => {
-    setTemario({
-      ...temarioInicial,
-      temario: Array.isArray(temarioInicial?.temario)
-        ? temarioInicial.temario
-        : [],
-    });
-  }, [temarioInicial]);
+    if (!temarioInicial) fetchVersion();
+    else setTemario(temarioInicial);
+  }, [cursoId, versionId, temarioInicial]);
+
+  if (!temario) {
+    return <div className="loading">Cargando versión...</div>;
+  }
+
 
 // ===== CAMBIO DE CAMPOS =====
 const handleFieldChange = (capIndex, subIndex, field, value) => {
