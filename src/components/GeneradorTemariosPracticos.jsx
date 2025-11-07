@@ -4,6 +4,17 @@ import EditorDeTemario_Practico from "./EditorDeTemario_Practico";
 import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generador 'Practicos'
 import { exportarPDF } from "./EditorDeTemario_Practico";
 
+ // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
+const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
+
+const guardarApiUrl =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
+const obtenerVersionApi =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico?id={cursoId}&version={versionId}";
+const listarApiUrl =
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
+
+
 const asesoresComerciales = [
   "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
   "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
@@ -30,24 +41,12 @@ function GeneradorTemariosPracticos() {
   const [userEmail, setUserEmail] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
   const [error, setError] = useState("");
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
   const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
-  const [menuActivo, setMenuActivo] = useState(null);
-
- // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
-const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
-
-const guardarApiUrl =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
-const obtenerVersionApi =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico?id={cursoId}&version={versionId}";
-const listarApiUrl =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
-
-
+  const navigate = useNavigate();
 
   useEffect(() => {
     const getUser = async () => {
@@ -319,7 +318,7 @@ const listarApiUrl =
             ← Volver al generador de temario
           </button>
 
-          <EditorDeTemario_seminario
+          <EditorDeTemario_Practico
             temarioInicial={temarioGenerado}
             onSave={handleGuardarVersion}
             isLoading={isLoading}
