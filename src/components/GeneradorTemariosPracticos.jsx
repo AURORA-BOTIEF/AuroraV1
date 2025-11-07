@@ -11,7 +11,7 @@ const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/de
 const guardarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
 const obtenerVersionApi =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico?id={cursoId}&version={versionId}";
 const listarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
 
@@ -154,177 +154,98 @@ function GeneradorTemariosPracticos() {
     }
   };
 
-  const handleGuardarVersion = async (temarioParaGuardar, nota) => { // Se añade 'nota' 
+  // === Guardar versión ===
+  const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = localStorage.getItem("id_token");
-      const bodyData = {
-        // Body adaptado a la API de 'Practicos' (para el modal)
+      const body = {
+        cursoId: params.tema_curso.trim().toLowerCase().replace(/\s+/g, "_"),
         contenido: temarioParaGuardar,
-        nota: nota || `Guardado el ${new Date().toLocaleString()}`, // Se usa la nota del editor
-        autor: userEmail,
-        asesor_comercial: params.asesor_comercial,
-        nombre_preventa: params.nombre_preventa,
-        nombre_curso: params.tema_curso,
-        tecnologia: params.tecnologia,
-        enfoque: params.enfoque,
+        nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
+        autor: userEmail || "Desconocido",
+        asesor_comercial: params.asesor_comercial || "No asignado",
+        nombre_preventa: params.nombre_preventa || "No especificado",
+        nombre_curso: params.tema_curso || "Sin título",
+        tecnologia: params.tecnologia || "No especificada",
+        enfoque: params.enfoque || "General",
         fecha_creacion: new Date().toISOString(),
       };
 
-      // --- AJUSTE API: Se usa tu 'guardarApiUrl' ---
-      const res = await fetch(
-        guardarApiUrl,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(bodyData),
-        }
-      );
+      const res = await fetch(guardarApiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
 
       const data = await res.json();
-      if (!res.ok) { // Se ajusta la validación de respuesta
-        throw new Error(data.error || "Error al guardar versión");
-      }
-      
-      // Se retorna el formato que espera el EditorDeTemario
-      return { success: true, message: `Versión guardada ✔ (versionId: ${data.versionId})` };
+      if (!res.ok) throw new Error(data.error || "Error al guardar versión");
 
-    } catch (error) {
-      console.error(error);
-      return { success: false, message: error.message }; // Se retorna el error
+      alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
+    } catch (err) {
+      console.error(err);
+      alert("❌ Error al guardar versión: " + err.message);
     }
   };
 
+  // === Listar versiones ===
   const handleListarVersiones = async () => {
     try {
       const token = localStorage.getItem("id_token");
-      
-      // --- AJUSTE API: Se usa tu 'guardarApiUrl' con método GET ---
-      const res = await fetch(
-        guardarApiUrl,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const res = await fetch(listarApiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? {Authorization:`Bearer ${token}`}:{}),          
+        },
+      });
 
       const data = await res.json();
-      const sortedData = data.sort(
+      if (!res.ok) throw new Error(data.error || "Error al listar versiones.");
+
+      const sorted = data.sort(
         (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
       );
-      setVersiones(sortedData);
+      setVersiones(sorted);
       setMostrarModal(true);
-    } catch (error) {
-      console.error("Error al obtener versiones:", error);
+    } catch (err) {
+      console.error("Error al listar versiones:", err);
     }
   };
 
-  const handleCargarVersion = (version) => {
-    setMostrarModal(false);
-    setParams(prev => ({
-        ...prev,
-        nombre_preventa: version.nombre_preventa || "",
-        asesor_comercial: version.asesor_comercial || "",
-        tecnologia: version.tecnologia || "",
-        tema_curso: version.nombre_curso || "",
-        enfoque: version.enfoque || "",
-        nivel_dificultad: version.contenido?.nivel_dificultad || 'basico',
-        sector: version.contenido?.sector || '',
-        // (Ajustar si faltan más campos)
-    }));
-    setTimeout(() => setTemarioGenerado(version.contenido), 300);
-  };
-
-  // === EDITAR VERSIÓN EXISTENTE ===
+  // === Editar versión ===
   const handleEditarVersion = (v) => {
-    console.log("🧭 handleEditarVersion ejecutado con:", v);
-
-    const id = v.versionId || v.version_id || v.id;
-    const curso = v.cursoId || "sin-id"; // ✅ usa cursoId que sí existe en Dynamo
-
-    if (!id) {
-      console.error("⚠️ No se encontró versionId en:", v);
-      return;
-    }
-
-    console.log(`📝 Editando versión estándar ${curso}/${id}`);
-    setMostrarModal(false); // cierra modal antes de navegar
-    navigate(`/editor-temario/${curso}/${id}`);
+    console.log("✏️ Editando versión", v.cursoId, v.versionId);
+    navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
-
-// === EXPORTAR PDF (llamando a Lambda Temario_PDF) ===
-const handleExportarPDF = async (version) => {
-  try {
-    setIsLoading(true);
-    setError("");
-
-    const token = localStorage.getItem("id_token");
-
-    // 🔹 Construye la URL con los parámetros esperados por tu Lambda
-    const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
-      version.nombre_curso
-    )}&version=${encodeURIComponent(version.versionId)}`;
-
-    console.log("📡 Solicitando datos a:", apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: "GET", // ✅ GET porque la Lambda usa queryStringParameters
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error al obtener datos del temario: ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log("✅ Datos recibidos desde Lambda:", data);
-
-    // 🔹 Llama a tu función existente que genera el PDF
-    exportarPDF(data);
-
-  } catch (err) {
-    console.error("❌ Error exportando PDF:", err);
-    setError("No se pudo generar el PDF. Intenta nuevamente.");
-  } finally {
-    setIsLoading(false);
-  }
-};
-
+  
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => {
-    setFiltros({ curso: "", asesor: "", tecnologia: "" });
-  };
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
-    const nombreCurso = v.nombre_curso || '';
-    const tecnologia = v.tecnologia || '';
-    const asesor = v.asesor_comercial || '';
-
+    const curso = v.nombre_curso?.toLowerCase() || "";
+    const asesor = v.asesor_comercial?.toLowerCase() || "";
+    const tecnologia = v.tecnologia?.toLowerCase() || "";
     return (
-      nombreCurso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
-      (filtros.asesor ? asesor === filtros.asesor : true) &&
-      tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
+      curso.includes(filtros.curso.toLowerCase()) &&
+      (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
+      tecnologia.includes(filtros.tecnologia.toLowerCase())
     );
   });
+
 
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
         
         <div className="header-practico" style={{ marginBottom: '15px' }}>
-          <h2>Generador de Temarios a la Medida</h2>
+          <h2>Generador de Temarios Practicos</h2>
         </div>
         <p className="descripcion-practico" style={{ marginTop: '0px' }}>
           Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
