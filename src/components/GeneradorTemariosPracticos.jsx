@@ -156,39 +156,65 @@ function GeneradorTemariosPracticos() {
 
   // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
-    try {
-      const token = localStorage.getItem("id_token");
-      const body = {
-        cursoId: params.tema_curso.trim().toLowerCase().replace(/\s+/g, "_"),
-        contenido: temarioParaGuardar,
-        nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
-        autor: userEmail || "Desconocido",
-        asesor_comercial: params.asesor_comercial || "No asignado",
-        nombre_preventa: params.nombre_preventa || "No especificado",
-        nombre_curso: params.tema_curso || "Sin título",
-        tecnologia: params.tecnologia || "No especificada",
-        enfoque: params.enfoque || "General",
-        fecha_creacion: new Date().toISOString(),
-      };
+  try {
+    // 1) Token real de Amplify (si usas authorizer en API Gateway)
+    const session = await fetchAuthSession();
+    const token = session?.tokens?.idToken?.toString();
 
-      const res = await fetch(guardarApiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al guardar versión");
-
-      alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
-    } catch (err) {
-      console.error(err);
-      alert("❌ Error al guardar versión: " + err.message);
+    // 2) Validaciones mínimas
+    if (!temarioParaGuardar) {
+      throw new Error("No hay contenido del temario para guardar.");
     }
-  };
+    if (!params.tema_curso) {
+      throw new Error("Falta el nombre del curso (tema_curso).");
+    }
+
+    // 3) cursoId tipo slug
+    const cursoId = params.tema_curso
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w]+/g, "_"); // solo letras/números/guión_bajo
+
+    // 4) Body EXACTO como lo espera tu Lambda
+    const body = {
+      cursoId,
+      contenido: temarioParaGuardar,                // objeto
+      nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
+      autor: userEmail || "Desconocido",
+      asesor_comercial: params.asesor_comercial || "No asignado",
+      nombre_preventa: params.nombre_preventa || "",
+      nombre_curso: params.tema_curso || "Sin título",
+      tecnologia: params.tecnologia || "No especificada",
+      fecha_creacion: new Date().toISOString(),
+      // s3_path: "sin_ruta" // opcional
+    };
+
+    // 5) POST
+    const res = await fetch(guardarApiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+    // 6) Diagnóstico útil
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!res.ok) {
+      console.error("Guardar versión -> status:", res.status, "body:", data);
+      throw new Error(data?.error || `Error HTTP ${res.status}`);
+    }
+
+    alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
+  } catch (err) {
+    console.error(err);
+    alert("❌ Error al guardar versión: " + err.message);
+  }
+};
 
   // === Listar versiones ===
   const handleListarVersiones = async () => {
