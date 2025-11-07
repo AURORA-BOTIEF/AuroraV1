@@ -43,7 +43,7 @@ const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/de
 const guardarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
 const obtenerVersionApi =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
+  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico?id={cursoId}&version={versionId}";
 const listarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
 
@@ -149,7 +149,7 @@ const listarApiUrl =
     }
   };
 
-    // === Guardar versión ===
+  // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -210,24 +210,12 @@ const listarApiUrl =
     }
   };
 
-
-  // === EDITAR VERSIÓN EXISTENTE ===
+  // === Editar versión ===
   const handleEditarVersion = (v) => {
-    console.log("🧭 handleEditarVersion ejecutado con:", v);
-
-    const id = v.versionId || v.version_id || v.id;
-    const curso = v.cursoId || "sin-id"; // ✅ usa cursoId que sí existe en Dynamo
-
-    if (!id) {
-      console.error("⚠️ No se encontró versionId en:", v);
-      return;
-    }
-
-    console.log(`📝 Editando versión estándar ${curso}/${id}`);
-    setMostrarModal(false); // cierra modal antes de navegar
-    navigate(`/editor-temario/${curso}/${id}`);
+    console.log("✏️ Editando versión", v.cursoId, v.versionId);
+    navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
-
+  
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
@@ -236,69 +224,50 @@ const listarApiUrl =
   const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
-    const nombreCurso = v.nombre_curso || "";
-    const tecnologia = v.tecnologia || "";
-    const asesor = v.asesor_comercial || "";
-
+    const curso = v.nombre_curso?.toLowerCase() || "";
+    const asesor = v.asesor_comercial?.toLowerCase() || "";
+    const tecnologia = v.tecnologia?.toLowerCase() || "";
     return (
-      nombreCurso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
-      (filtros.asesor ? asesor === filtros.asesor : true) &&
-      tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
+      curso.includes(filtros.curso.toLowerCase()) &&
+      (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
+      tecnologia.includes(filtros.tecnologia.toLowerCase())
     );
   });
 
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
+        <h2>Generador de Temarios - Seminarios</h2>
+        <p>Introduce los detalles para generar una propuesta de temario con IA.</p>
 
-        <div className="header-practico" style={{ marginBottom: "15px" }}>
-          <h2>Generador de Temarios Prácticos</h2>
-        </div>
-        <p className="descripcion-practico" style={{ marginTop: "0px" }}>
-          Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
-        </p>
-
+        {/* === FORMULARIO COMPLETO === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado (Opcional)</label>
-            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleChange} disabled={isLoading} />
           </div>
 
           <div className="form-group">
             <label>Asesor(a) Comercial (Opcional)</label>
-            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange} disabled={isLoading}>
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleChange} disabled={isLoading}>
               <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map((a) => (
-                <option key={a}>{a}</option>
-              ))}
+              {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
             </select>
           </div>
 
           <div className="form-group">
             <label>Tecnología *</label>
-            <input
-              name="tecnologia"
-              value={params.tecnologia}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: AWS, React, Python"
-            />
+            <input name="tecnologia" value={params.tecnologia} onChange={handleChange} disabled={isLoading} placeholder="Ej: AWS, React, Python" />
           </div>
 
           <div className="form-group">
-            <label>Tema Principal del Curso *</label>
-            <input
-              name="tema_curso"
-              value={params.tema_curso}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: Arquitecturas Serverless"
-            />
+            <label>Tema Principal del Seminario *</label>
+            <input name="tema_curso" value={params.tema_curso} onChange={handleChange} disabled={isLoading} placeholder="Ej: Análisis ejecutivo de datos" />
           </div>
 
           <div className="form-group">
             <label>Nivel de Dificultad</label>
-            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange} disabled={isLoading}>
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleChange} disabled={isLoading}>
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option>
@@ -306,98 +275,30 @@ const listarApiUrl =
           </div>
 
           <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
+            <label>Duración total (1–3h)</label>
             <div className="slider-container">
-              <input
-                type="range"
-                min="1"
-                max="7"
-                name="numero_sesiones_por_semana"
-                value={params.numero_sesiones_por_semana}
-                onChange={handleSliderChange}
-                disabled={isLoading}
-              />
-              <span className="slider-value">
-                {params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? "sesiones" : "sesión"}
-              </span>
+              <input type="range" min="1" max="3" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} />
+              <span className="slider-value">{params.horas_por_sesion} h</span>
             </div>
           </div>
-
-          <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
-            <div className="slider-container">
-              <input
-                type="range"
-                min="4"
-                max="12"
-                name="horas_por_sesion"
-                value={params.horas_por_sesion}
-                onChange={handleSliderChange}
-                disabled={isLoading}
-              />
-              <span className="slider-value">{params.horas_por_sesion} horas</span>
-            </div>
-          </div>
-
-          <div className="form-group total-horas">
-            <label>Total del Curso</label>
-            <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones_por_semana} horas</div>
-          </div>
         </div>
 
         <div className="form-group">
-          <label>Sector */ Audiencia *</label>
-          <textarea
-            name="sector"
-            value={params.sector}
-            onChange={handleParamChange}
-            disabled={isLoading}
-            rows="3"
-            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
-          />
+          <label>Sector* / Audiencia*</label>
+          <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
         </div>
 
         <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea
-            name="enfoque"
-            value={params.enfoque}
-            onChange={handleParamChange}
-            disabled={isLoading}
-            rows="3"
-            placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
-          />          
-        </div>
-
-        <div className="form-group">
-          <label>Syllabus Base (Opcional)</label>
-          <textarea
-            name="syllabus_text"
-            value={params.syllabus_text || ""}
-            onChange={handleParamChange}
-            disabled={isLoading}
-            rows="6"
-            placeholder="Copia y pega aquí el contenido del syllabus o temario base (texto plano, sin formato)..."
-          />
-          <small className="hint">
-            💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al contenido original.            
-          </small>
+          <label>Enfoque Adicional (opcional)</label>
+          <textarea name="enfoque" value={params.enfoque} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
         </div>
 
         <div className="botones">
-          <button 
-            className="btn-generar" 
-            onClick={handleGenerar} 
-            disabled={isLoading}
-          >
+          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-          <button 
-            className="btn-versiones" 
-            onClick={handleListarVersiones} 
-            disabled={isLoading}
-          >
-          Ver Versiones Guardadas
+          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
+            Ver Versiones Guardadas
           </button>
         </div>
 
@@ -406,15 +307,24 @@ const listarApiUrl =
             <span>⚠️</span> {error}
           </div>
         )}
-      </div> 
+      </div>
 
       {temarioGenerado && (
-        <EditorDeTemario_Practico
-          temarioInicial={temarioGenerado} 
-          onSave={handleGuardarVersion} 
-          onRegenerate={handleGenerar} // Se añade onRegenerate
-          isLoading={isLoading}
-        />
+        <div style={{ marginTop: "2rem" }}>
+          <button
+            className="btn-secundario"
+            style={{ marginBottom: "1rem" }}
+            onClick={() => setTemarioGenerado(null)}
+          >
+            ← Volver al generador de temario
+          </button>
+
+          <EditorDeTemario_seminario
+            temarioInicial={temarioGenerado}
+            onSave={handleGuardarVersion}
+            isLoading={isLoading}
+          />
+        </div>
       )}
 
       {mostrarModal && (
@@ -426,35 +336,17 @@ const listarApiUrl =
             </div>
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input 
-                  type="text" 
-                  placeholder="Filtrar por curso" 
-                  name="curso" 
-                  value={filtros.curso} 
-                  onChange={handleFiltroChange}
-                />
-                <select 
-                  name="asesor" 
-                  value={filtros.asesor} 
-                  onChange={handleFiltroChange}
-                >
+                <input type="text" placeholder="Filtrar por curso" name="curso" value={filtros.curso} onChange={handleFiltroChange} />
+                <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
                   <option value="">Todos los asesores</option>
-                  {asesoresComerciales.map((a) => <option key={a}>{a}</option>)}
+                  {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
                 </select>
-                <input 
-                  type="text" 
-                  placeholder="Filtrar por tecnología" 
-                  name="tecnologia" 
-                  value={filtros.tecnologia} 
-                  onChange={handleFiltroChange}
-                />
-                <button className="btn-secundario" onClick={limpiarFiltros}>
-                  Limpiar
-                </button>
+                <input type="text" placeholder="Filtrar por tecnología" name="tecnologia" value={filtros.tecnologia} onChange={handleFiltroChange} />
+                <button className="btn-secundario" onClick={limpiarFiltros}>Limpiar</button>
               </div>
 
               {versionesFiltradas.length === 0 ? (
-                <p className="no-versiones">No hay versiones guardadas.</p>
+                <p>No hay versiones guardadas.</p>
               ) : (
                 <table className="tabla-versiones">
                   <thead>
@@ -469,30 +361,24 @@ const listarApiUrl =
                   </thead>
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
-                      <tr key={v.versionId || i}>
+                      <tr key={i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
-                        <td className="acciones-cell">
-                          <button
-                            className="menu-btn"
-                            title = "Editar versión"
-                            onClick={() => handleEditarVersion(v)}>
-                              ✏️
-                          </button>
+                        <td style={{ textAlign: "center" }}>
+                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>✏️</button>                          
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-              </div>
             </div>
           </div>
-        )}
-
+        </div>
+      )}
       {/* === MODAL DE CARGA THOR === */}
       {mostrandoModalThor && (
         <div className="modal-overlay-thor">
@@ -504,25 +390,11 @@ const listarApiUrl =
               para ayudarte a estructurar tus ideas.
             </p>
             <ul>
-              <li>
-                ✅ Verifica la información antes de compartirla con el equipo de
-                Preventa.
-              </li>
-              <li>
-                ✏️ Edita y adapta los temas según tus objetivos, el nivel del
-                grupo y el contexto específico.
-              </li>
-              <li>
-                🌍 Revisa y asegúrate de que el contenido sea inclusivo y
-                respetuoso.
-              </li>
-              <li>
-                🔐 Evita ingresar datos personales o sensibles en la plataforma.
-              </li>
-              <li>
-                🧠 Utiliza el contenido como apoyo, no como sustituto de tu
-                criterio pedagógico.
-              </li>
+              <li>✅ Verifica la información antes de compartirla con el equipo de Preventa.</li>
+              <li>✏️ Edita y adapta los temas según tus objetivos, el nivel del grupo y el contexto específico.</li>
+              <li>🌍 Revisa y asegúrate de que el contenido sea inclusivo y respetuoso.</li>
+              <li>🔐 Evita ingresar datos personales o sensibles en la plataforma.</li>
+              <li>🧠 Utiliza el contenido como apoyo, no como sustituto de tu criterio pedagógico.</li>
             </ul>
             <p className="nota-thor">
               La IA es una herramienta poderosa, pero requiere tu supervisión
