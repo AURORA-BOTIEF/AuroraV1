@@ -217,34 +217,57 @@ function GeneradorTemariosPracticos() {
 };
 
   // === Listar versiones ===
-  const handleListarVersiones = async () => {
-    try {
-      const token = localStorage.getItem("id_token");
-      const res = await fetch(listarApiUrl, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? {Authorization:`Bearer ${token}`}:{}),          
-        },
-      });
+const handleListarVersiones = async () => {
+  try {
+    setIsLoading(true);
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al listar versiones.");
+    // Debe ser EXACTAMENTE el mismo algoritmo que usas al guardar
+    const cursoId = (params.tema_curso || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
 
-      const sorted = data.sort(
-        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
-      );
-      setVersiones(sorted);
-      setMostrarModal(true);
-    } catch (err) {
-      console.error("Error al listar versiones:", err);
-    }
-  };
+    // Si quieres listar solo del curso actual, usa ?id=cursoId
+    // Si quieres traer todas, usa listarApiUrl sin query string
+    const url = cursoId
+      ? `${listarApiUrl}?id=${encodeURIComponent(cursoId)}`
+      : listarApiUrl;
+
+    const token = localStorage.getItem("id_token");
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+    // data debería ser un array; si no, protégete
+    const items = Array.isArray(data) ? data : [];
+
+    // Ordena (más recientes primero). Usa fecha_guardado y de respaldo fecha_creacion
+    const sorted = items.sort((a, b) =>
+      new Date(b.fecha_guardado || b.fecha_creacion || 0) -
+      new Date(a.fecha_guardado || a.fecha_creacion || 0)
+    );
+
+    setVersiones(sorted);
+    setMostrarModal(true);
+  } catch (err) {
+    console.error("Error al listar versiones:", err);
+    setError(err.message || "Error al listar versiones.");
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // === Editar versión ===
   const handleEditarVersion = (v) => {
     console.log("✏️ Editando versión", v.cursoId, v.versionId);
-    navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
+    navigate(`/editor-temario/${v.cursoId}/${v.versionId}`);
   };
   
   const handleFiltroChange = (e) => {
