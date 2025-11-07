@@ -52,47 +52,50 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
 
   // ✅ carga el temario si se abrió desde ✏️
   useEffect(() => {
-    const fetchVersion = async () => {
-      if (!cursoId || !versionId) return;
-      try {
-        const token = localStorage.getItem("id_token");
-        const res = await fetch(obtenerVersionApi, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ cursoId, versionId }),
-        });
+  const fetchVersion = async () => {
+    if (!cursoId || !versionId) return;
+    try {
+      const token = localStorage.getItem("id_token");
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || "Error al obtener versión");
+      // ✅ Construye la URL con query params (GET)
+      const url = `${obtenerVersionApi}?cursoId=${encodeURIComponent(cursoId)}&versionId=${encodeURIComponent(versionId)}`;
 
-        console.log("Versión cargada desde Lambda:", data.data);
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
 
-        const item = data.data || {};
-        const contenido = item.contenido || {};
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Error al obtener versión");
 
-        setTemario({
-          ...contenido,
-          nombre_curso: item.nombre_curso,
-          tecnologia: item.tecnologia,
-          asesor_comercial: item.asesor_comercial,
-          nombre_preventa: item.nombre_preventa,
-          autor: item.autor,
-          nota_version: item.nota_version,
-          versionId: item.versionId,
-          cursoId: item.cursoId,
-        });
-      } catch (err) {
-        console.error("❌ Error cargando versión:", err);
-        setMensaje({ tipo: "error", texto: "Error al cargar la versión." });
-      }
-    };
+      console.log("Versión cargada desde Lambda:", data.data);
 
-    if (!temarioInicial) fetchVersion();
-    else setTemario(temarioInicial);
-  }, [cursoId, versionId, temarioInicial]);
+      const item = data.data || {};
+      const contenido = item.contenido || {};
+
+      setTemario({
+        ...contenido,
+        nombre_curso: item.nombre_curso,
+        tecnologia: item.tecnologia,
+        asesor_comercial: item.asesor_comercial,
+        nombre_preventa: item.nombre_preventa,
+        autor: item.autor,
+        nota_version: item.nota_version,
+        versionId: item.versionId,
+        cursoId: item.cursoId,
+      });
+    } catch (err) {
+      console.error("❌ Error cargando versión:", err);
+      setMensaje({ tipo: "error", texto: "Error al cargar la versión." });
+    }
+  };
+
+  if (!temarioInicial) fetchVersion();
+  else setTemario(temarioInicial);
+}, [cursoId, versionId, temarioInicial]);
 
   if (!temario) {
     return <div className="loading">Cargando versión...</div>;
