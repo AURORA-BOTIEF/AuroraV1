@@ -20,6 +20,7 @@ import GeneradorTemarios_KNTR from "./components/GeneradorTemarios_KNTR";
 import GeneradorTemarios_Seminarios from "./components/GeneradorTemarios_Seminarios"; // ✅ NUEVO
 import EditorDeTemario_seminario from "./components/EditorDeTemario_seminario";
 import EditorDeTemario_Practico from "./components/EditorDeTemario_Practico";
+import EditorDeTemario_KNTR from "../src/components/EditorDeTemario_KNTR";
  // ✅ YA EXISTENTE
 
 // Estilos y Assets
@@ -200,6 +201,10 @@ function App() {
                 <Route
                   path="/editor-temario/:cursoId/:versionId"
                   element={<EditorDeTemario_Practico />}
+                />
+                <Route
+                  path="/editor-KNTR/:cursoId/:versionId"
+                  element={<EditorDeTemario_KNTR />}
                 />
 
                 <Route path="*" element={<Navigate to="/" replace />} />
