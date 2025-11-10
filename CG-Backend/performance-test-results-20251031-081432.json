@@ -1,0 +1,95 @@
+{
+  "test_date": "2025-10-31T08:14:32.610180",
+  "results": [
+    {
+      "test_name": "Rate-Limit-0s-Batch-15",
+      "status": "ERROR",
+      "error": "Read timeout on endpoint URL: \"https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/ImagesGen/invocations\"",
+      "duration_seconds": 317.73
+    },
+    {
+      "test_name": "Rate-Limit-1s-Batch-15",
+      "status": "ERROR",
+      "error": "Read timeout on endpoint URL: \"https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/ImagesGen/invocations\"",
+      "duration_seconds": 319.75
+    },
+    {
+      "test_name": "Rate-Limit-3s-Batch-15",
+      "status": "SUCCESS",
+      "prompts_count": 15,
+      "rate_limit": 3,
+      "duration_seconds": 16015.56,
+      "images_generated": 15,
+      "images_failed": 0,
+      "success_rate": "100.0%",
+      "avg_time_per_image": 1067.7,
+      "within_timeout": false,
+      "timeout_margin": -15115.56
+    },
+    {
+      "test_name": "Rate-Limit-5s-Batch-15",
+      "status": "ERROR",
+      "error": "Read timeout on endpoint URL: \"https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/ImagesGen/invocations\"",
+      "duration_seconds": 323.35
+    },
+    {
+      "test_name": "Batch-10-Rate-3s",
+      "status": "SUCCESS",
+      "prompts_count": 10,
+      "rate_limit": 3,
+      "duration_seconds": 21.43,
+      "images_generated": 10,
+      "images_failed": 0,
+      "success_rate": "100.0%",
+      "avg_time_per_image": 2.14,
+      "within_timeout": true,
+      "timeout_margin": 878.57
+    },
+    {
+      "test_name": "Batch-20-Rate-3s",
+      "status": "ERROR",
+      "error": "Read timeout on endpoint URL: \"https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/ImagesGen/invocations\"",
+      "duration_seconds": 322.36
+    },
+    {
+      "test_name": "Batch-30-Rate-3s",
+      "status": "ERROR",
+      "error": "Read timeout on endpoint URL: \"https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/ImagesGen/invocations\"",
+      "duration_seconds": 322.54
+    },
+    {
+      "test_name": "Batch-40-Rate-3s",
+      "status": "ERROR",
+      "error": "Read timeout on endpoint URL: \"https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/ImagesGen/invocations\"",
+      "duration_seconds": 320.13
+    }
+  ],
+  "summary": {
+    "best_by_speed": {
+      "test_name": "Batch-10-Rate-3s",
+      "status": "SUCCESS",
+      "prompts_count": 10,
+      "rate_limit": 3,
+      "duration_seconds": 21.43,
+      "images_generated": 10,
+      "images_failed": 0,
+      "success_rate": "100.0%",
+      "avg_time_per_image": 2.14,
+      "within_timeout": true,
+      "timeout_margin": 878.57
+    },
+    "best_by_capacity": {
+      "test_name": "Rate-Limit-3s-Batch-15",
+      "status": "SUCCESS",
+      "prompts_count": 15,
+      "rate_limit": 3,
+      "duration_seconds": 16015.56,
+      "images_generated": 15,
+      "images_failed": 0,
+      "success_rate": "100.0%",
+      "avg_time_per_image": 1067.7,
+      "within_timeout": false,
+      "timeout_margin": -15115.56
+    }
+  }
+}

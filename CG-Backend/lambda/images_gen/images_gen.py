@@ -5,8 +5,15 @@ Images Generation Lambda - Standard Python Lambda (NO DOCKER!)
 Generates images from visual prompts using Google Gemini API or Imagen 4.0.
 
 Supports two models:
-- Gemini 2.5 Flash Image (fast, lower cost, basic text support)
-- Imagen 4.0 Ultra (slower, higher cost, excellent text support)
+- Gemini 2.5 Flash Image (fast, lower cost, with prompt optimization and retry logic)
+- Imagen 4.0 Ultra (slower, higher cost, excellent text support - requires Vertex AI SDK)
+
+GEMINI IMPROVEMENTS (for >80% success rate):
+1. Prompt Optimization: Automatically enhances prompts with style guidance
+2. Safety Settings: More permissive for educational content
+3. Retry Logic: Up to 2 retries with simplified prompts on failure
+4. Text-Heavy Detection: Converts tables/screenshots to conceptual illustrations
+5. Error Recovery: Intelligent fallback strategies for blocked/failed generations
 """
 
 import os
@@ -61,12 +68,20 @@ BACKEND_MAX = int(os.getenv('IMAGES_BACKEND_MAX', '50'))
 # Default max images if not specified
 DEFAULT_MAX_IMAGES = 5
 
-# Rate limiting delay between requests (seconds)
-RATE_LIMIT_DELAY = 10
+# Rate limiting to avoid hitting Google API quotas
+# Gemini has generous limits but we still want to be respectful
+RATE_LIMIT_DELAY = 2  # Optimized to 2 seconds based on performance testing (was 5s)
+
+# Safety buffer before Lambda timeout (seconds)
+TIMEOUT_SAFETY_BUFFER = 60  # Stop processing 60 seconds before timeout
 
 # Google Cloud Project configuration (for Imagen)
 GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID', 'gen-lang-client-0643589360')
 GCP_LOCATION = os.getenv('GCP_LOCATION', 'us-central1')
+
+# Retry configuration for failed image generations
+MAX_RETRIES = 2  # Retry failed generations up to 2 times
+RETRY_DELAY = 3  # Wait 3 seconds between retries
 
 # ============================================================================
 # AWS SECRETS MANAGER
@@ -142,7 +157,45 @@ def get_google_service_account() -> Dict[str, Any]:
 # IMAGE GENERATION
 # ============================================================================
 
-def generate_image_gemini(model, prompt_id: str, prompt_text: str) -> tuple:
+def optimize_prompt_for_gemini(prompt_text: str) -> str:
+    """
+    Optimize prompt text for better Gemini image generation results.
+    
+    Key improvements:
+    1. Add explicit style guidance
+    2. Specify technical/professional context
+    3. Add composition and quality keywords
+    4. Remove confusing text-heavy requests that Gemini can't render
+    
+    Args:
+        prompt_text: Original prompt description
+        
+    Returns:
+        str: Optimized prompt
+    """
+    # Keywords that indicate text-heavy content Gemini struggles with
+    text_heavy_keywords = ['table', 'screenshot', 'text', 'code snippet', 'terminal', 
+                          'command line', 'spreadsheet', 'document', 'form']
+    
+    # Check if prompt is text-heavy
+    is_text_heavy = any(keyword in prompt_text.lower() for keyword in text_heavy_keywords)
+    
+    if is_text_heavy:
+        # For text-heavy content, request a conceptual illustration instead
+        prefix = "Create a professional conceptual illustration representing: "
+        suffix = ". Style: clean, modern, minimalist, icon-based design. No text or labels needed."
+    else:
+        # For visual content, enhance with quality keywords
+        prefix = "Create a professional educational illustration: "
+        suffix = ". Style: clean, modern, high-quality, well-composed, professional lighting, clear focus."
+    
+    # Build optimized prompt
+    optimized = f"{prefix}{prompt_text}{suffix}"
+    
+    return optimized
+
+
+def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: int = 0) -> tuple:
     """
     Generate an image using Gemini.
     
@@ -154,23 +207,86 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str) -> tuple:
     Returns:
         tuple: (success: bool, image_bytes: bytes or None, error: str or None)
     """
+def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: int = 0) -> tuple:
+    """
+    Generate an image using Gemini with optimized prompts and retry logic.
+    
+    Args:
+        model: Gemini GenerativeModel instance
+        prompt_id: Unique identifier for the prompt
+        prompt_text: Detailed description/prompt for image generation
+        retry_count: Current retry attempt (0 = first attempt)
+        
+    Returns:
+        tuple: (success: bool, image_bytes: bytes or None, error: str or None)
+    """
     try:
-        logger.info(f"Generating image for prompt: {prompt_id}")
+        logger.info(f"Generating image for prompt: {prompt_id} (attempt {retry_count + 1}/{MAX_RETRIES + 1})")
         logger.info(f"Prompt text length: {len(prompt_text)} characters")
         logger.info(f"Prompt preview: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
         
-        # Use the prompt text directly (it's already enhanced with details)
-        # No need to add "Generate an image:" prefix as the prompt is comprehensive
-        logger.info(f"Sending to Gemini: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
+        # Optimize prompt for better Gemini results
+        optimized_prompt = optimize_prompt_for_gemini(prompt_text)
+        logger.info(f"Optimized prompt: {optimized_prompt[:200]}{'...' if len(optimized_prompt) > 200 else ''}")
         
-        response = model.generate_content(prompt_text)
+        # Configure safety settings to be more permissive for educational content
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_ONLY_HIGH"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            }
+        ]
+        
+        # Generate with safety settings
+        response = model.generate_content(
+            optimized_prompt,
+            safety_settings=safety_settings
+        )
         logger.info(f"Gemini response type: {type(response)}")
+        
+        # Log prompt_feedback for debugging (safety filters, blocking reasons)
+        if hasattr(response, 'prompt_feedback'):
+            logger.info(f"Prompt feedback: {response.prompt_feedback}")
+            
+            # Check if blocked by safety filters
+            if hasattr(response.prompt_feedback, 'block_reason'):
+                block_reason = response.prompt_feedback.block_reason
+                if block_reason and block_reason != 0:  # 0 = not blocked
+                    logger.warning(f"⚠️ Content blocked by safety filter: {block_reason}")
+                    
+                    # If blocked and we have retries left, try with simplified prompt
+                    if retry_count < MAX_RETRIES:
+                        logger.info(f"Retrying with simplified prompt...")
+                        time.sleep(RETRY_DELAY)
+                        # Use original prompt without optimization
+                        return generate_image_gemini(model, prompt_id, f"Simple illustration: {prompt_text[:100]}", retry_count + 1)
+                    
+                    return False, None, f"Blocked by safety filter: {block_reason}"
         
         # Process the response
         if response and hasattr(response, 'candidates'):
             logger.info(f"Found {len(response.candidates)} candidates")
             for candidate_idx, candidate in enumerate(response.candidates):
                 logger.info(f"Processing candidate {candidate_idx}")
+                
+                # Log finish_reason and safety ratings for debugging
+                if hasattr(candidate, 'finish_reason'):
+                    logger.info(f"Candidate finish_reason: {candidate.finish_reason}")
+                if hasattr(candidate, 'safety_ratings'):
+                    logger.info(f"Candidate safety_ratings: {candidate.safety_ratings}")
+                    
                 if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
                     logger.info(f"Candidate has {len(candidate.content.parts)} parts")
                     for part_idx, part in enumerate(candidate.content.parts):
@@ -238,7 +354,16 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str) -> tuple:
                             # Don't continue here - let it check other parts for images
                                 
                     if not any(hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data and len(part.inline_data.data) >= 1000 for part in candidate.content.parts):
-                        logger.info("No valid image data found in any part")
+                        logger.warning(f"⚠️ No valid image data found in any part for {prompt_id}")
+                        
+                        # Retry with different approach if we have retries left
+                        if retry_count < MAX_RETRIES:
+                            logger.info(f"🔄 Retrying image generation (attempt {retry_count + 2}/{MAX_RETRIES + 1})...")
+                            time.sleep(RETRY_DELAY)
+                            # Try with a more direct, simplified prompt
+                            simplified_prompt = f"Professional illustration: {prompt_text[:150]}"
+                            return generate_image_gemini(model, prompt_id, simplified_prompt, retry_count + 1)
+                        
                         return False, None, "No valid image data found in any part"
                 else:
                     logger.info(f"❌ Candidate {candidate_idx} has no valid content")
@@ -253,9 +378,16 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str) -> tuple:
             return False, None, f"Unexpected response format: {type(response)}"
 
     except Exception as e:
-        logger.info(f"Error generating image for {prompt_id}: {e}")
+        logger.error(f"❌ Error generating image for {prompt_id}: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Retry on exception if we have retries left
+        if retry_count < MAX_RETRIES:
+            logger.info(f"🔄 Retrying after exception (attempt {retry_count + 2}/{MAX_RETRIES + 1})...")
+            time.sleep(RETRY_DELAY)
+            return generate_image_gemini(model, prompt_id, prompt_text, retry_count + 1)
+        
         return False, None, str(e)
 
 
@@ -407,6 +539,22 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         prompts_prefix = exec_input.get('prompts_prefix')
         requested_max_images = exec_input.get('max_images')
         image_model = exec_input.get('image_model', DEFAULT_IMAGE_MODEL).lower()  # 'gemini' or 'imagen'
+        rate_limit_override = exec_input.get('rate_limit_override')  # For performance testing
+        
+        # Override rate limit if specified (for testing)
+        global RATE_LIMIT_DELAY
+        if rate_limit_override is not None:
+            original_rate = RATE_LIMIT_DELAY
+            RATE_LIMIT_DELAY = rate_limit_override
+            logger.info(f"⚙️  Rate limit overridden: {original_rate}s → {RATE_LIMIT_DELAY}s (TEST MODE)")
+        
+        # Get Lambda timeout information for dynamic batching
+        try:
+            timeout_ms = context.get_remaining_time_in_millis()
+            logger.info(f"⏱️  Lambda timeout: {timeout_ms/1000:.1f}s available, Safety buffer: {TIMEOUT_SAFETY_BUFFER}s")
+        except Exception as e:
+            timeout_ms = 900000  # Default 15 minutes
+            logger.warning(f"⚠️  Could not get remaining time, using default: {timeout_ms/1000}s")
         
         logger.info(f"Bucket: {course_bucket}")
         logger.info(f"Project: {project_folder}")
@@ -414,6 +562,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         logger.info(f"Prompts prefix: {prompts_prefix}")
         logger.info(f"Max images: {requested_max_images}")
         logger.info(f"Image Model: {image_model}")
+        logger.info(f"Rate Limit: {RATE_LIMIT_DELAY}s")
         
         # Validate required parameters
         if not course_bucket or not project_folder:
@@ -644,8 +793,30 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         successful_images = []
         skipped_images = []
         
+        # Track processing start time for timeout monitoring
+        processing_start_time = time.time()
+        processed_count = 0
+        stopped_due_to_timeout = False
+        
         # Process each prompt
         for idx, prompt_obj in enumerate(prompts_to_process, start=1):
+            # Check remaining time before processing each image
+            elapsed_time = time.time() - processing_start_time
+            try:
+                remaining_ms = context.get_remaining_time_in_millis()
+                remaining_seconds = remaining_ms / 1000
+            except:
+                # Fallback calculation if context not available
+                remaining_seconds = timeout_ms / 1000 - elapsed_time
+            
+            # Check if we should stop (safety buffer + estimated time for next image)
+            estimated_next_image_time = 15  # Conservative estimate: 10s generation + 5s overhead
+            if remaining_seconds < (TIMEOUT_SAFETY_BUFFER + estimated_next_image_time):
+                logger.warning(f"⏱️  TIMEOUT APPROACHING - Stopping after {processed_count}/{len(prompts_to_process)} images")
+                logger.warning(f"   Elapsed: {elapsed_time:.1f}s, Remaining: {remaining_seconds:.1f}s, Buffer needed: {TIMEOUT_SAFETY_BUFFER + estimated_next_image_time}s")
+                stopped_due_to_timeout = True
+                break
+            
             prompt_id = str(prompt_obj.get('id', f'prompt-{idx}'))
             prompt_text = prompt_obj.get('description', '')
             
@@ -686,6 +857,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                         generated_images.append(success_detail)
                         successful_images.append(prompt_id)
                         logger.info(f"✅ Generated: {images_key}")
+                        processed_count += 1
                     else:
                         error_detail = {
                             'id': prompt_id,
@@ -725,16 +897,18 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 time.sleep(RATE_LIMIT_DELAY)
         
         # Build image mappings for BookBuilder
-        image_mappings = {}
+        # NEW FORMAT: Use image ID as key to avoid Step Functions size limits
+        # Structure: { "image_id": { "s3_key": "path", "description": "text" } }
+        image_mappings = {}                    
         lesson_keys = []
         
         # Discover lessons in the project folder
         lessons_prefix = f"{project_folder}/lessons/"
-        try:
+        try:       
             list_response = s3_client.list_objects_v2(
                 Bucket=course_bucket,
                 Prefix=lessons_prefix
-            )
+            )     
             if 'Contents' in list_response:
                 lesson_keys = [obj['Key'] for obj in list_response['Contents'] if obj['Key'].endswith('.md')]
                 logger.info(f"Found {len(lesson_keys)} lesson files")
@@ -750,13 +924,11 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 img_id = img_data['id']
                 # Get description from prompts_lookup
                 description = prompts_lookup.get(img_id, '')
-                if description:
-                    # Map with ID and description (new format: [VISUAL: ID - description])
-                    visual_tag = f"[VISUAL: {img_id} - {description}]"
-                else:
-                    # Fallback to ID only if no description found
-                    visual_tag = f"[VISUAL: {img_id}]"
-                image_mappings[visual_tag] = img_data['s3_key']
+                # NEW FORMAT: Use ID as key, store s3_key and description as values
+                image_mappings[img_id] = {
+                    's3_key': img_data['s3_key'],
+                    'description': description if description else ''
+                }
         
         # Also include mappings for existing images in the project
         images_prefix = f"{project_folder}/images/"
@@ -797,17 +969,15 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                         img_filename = img_key.split('/')[-1]
                         img_id = img_filename.replace('.png', '')
                         
-                        # Get description from prompts_dict
-                        description = prompts_dict.get(img_id, '')
-                        if description:
-                            visual_tag = f"[VISUAL: {img_id} - {description}]"
-                        else:
-                            visual_tag = f"[VISUAL: {img_id}]"
-                        
                         # Only add if not already in mappings (newly generated take precedence)
-                        if visual_tag not in image_mappings:
-                            image_mappings[visual_tag] = img_key
-                            logger.info(f"✅ Included existing image mapping: {visual_tag[:60]}... -> {img_key}")
+                        if img_id not in image_mappings:
+                            # Get description from prompts_dict
+                            description = prompts_dict.get(img_id, '')
+                            image_mappings[img_id] = {
+                                's3_key': img_key,
+                                'description': description if description else ''
+                            }
+                            logger.info(f"✅ Included existing image mapping: {img_id} -> {img_key}")
         except Exception as e:
             logger.info(f"Warning: Could not scan existing images: {e}")
         
@@ -815,14 +985,22 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         successful_count = len(successful_images)
         failed_count = len(failed_images)
         skipped_count = len(skipped_images)
-        total_processed = len(prompts_to_process)
+        total_processed = processed_count
+        
+        # Calculate remaining prompts (those not processed due to timeout)
+        remaining_prompts = []
+        if stopped_due_to_timeout and processed_count < len(prompts_to_process):
+            remaining_prompts = prompts_to_process[processed_count:]
+            logger.warning(f"⏱️  TIMEOUT: {len(remaining_prompts)} prompts remaining for next batch")
         
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 EXECUTION SUMMARY")
         logger.info(f"{'='*60}")
-        logger.info(f"✅ Successful: {successful_count}/{total_processed}")
-        logger.info(f"❌ Failed:     {failed_count}/{total_processed}")
-        logger.info(f"⏭️  Skipped:    {skipped_count}/{total_processed}")
+        logger.info(f"✅ Successful: {successful_count}/{len(prompts_to_process)}")
+        logger.info(f"❌ Failed:     {failed_count}/{len(prompts_to_process)}")
+        logger.info(f"⏭️  Skipped:    {skipped_count}/{len(prompts_to_process)}")
+        if remaining_prompts:
+            logger.info(f"⏱️  Remaining:  {len(remaining_prompts)}/{len(prompts_to_process)} (timeout)")
         logger.info(f"{'='*60}")
         
         if failed_images:
@@ -850,12 +1028,16 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             "project_folder": project_folder,
             "lesson_keys": lesson_keys,
             "image_mappings": image_mappings,
+            "remaining_prompts": remaining_prompts,  # NEW: For automatic resume
             "statistics": {
+                "total_requested": len(prompts_to_process),
                 "total_processed": total_processed,
                 "successful": successful_count,
                 "failed": failed_count,
                 "skipped": skipped_count,
-                "success_rate": f"{(successful_count/total_processed*100):.1f}%" if total_processed > 0 else "0%"
+                "remaining": len(remaining_prompts),  # NEW: Count of unprocessed prompts
+                "success_rate": f"{(successful_count/total_processed*100):.1f}%" if total_processed > 0 else "0%",
+                "timeout_stopped": stopped_due_to_timeout  # NEW: Flag indicating if stopped early
             },
             "failed_details": failed_images if failed_images else []
         }

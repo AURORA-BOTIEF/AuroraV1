@@ -24,7 +24,7 @@ function GeneradorContenidosPage() {
           <Link to="curso-estandar" className="opcion-menu">
             <div className="icono">📚</div>
             <div className="texto">
-              <h3>Generador Temario Estándar o Aumentado </h3>
+              <h3>Generador Temario Estándar</h3>
               <p>Genera aquí tu propuesta de temario</p>
             </div>
           </Link> {/* <-- CORRECCIÓN: La etiqueta <Link> ahora se cierra aquí --> */}
@@ -64,7 +64,7 @@ function GeneradorContenidosPage() {
           <Link to="Temario-seminarios" className="opcion-menu">
             <div className="icono">👥</div>
             <div className="texto">
-              <h3>Generador de Temario Sem</h3>
+              <h3>Generador de Temario Seminarios</h3>
               <p>Diseña un temario para sesiones cortas, charlas,conferencias, divulgación.</p>
             </div>
           </Link>
@@ -84,6 +84,14 @@ function GeneradorContenidosPage() {
               <p>Especificaciones de hardware y software necesarias para el ambiente de los participantes.</p>
             </div>
           </div>
+
+          <Link to="faq" className="opcion-menu">
+            <div className="icono">❓</div>
+            <div className="texto">
+              <h3>Centro de FAQs</h3>
+              <p>Encuentra respuestas rápidas a las preguntas más comunes sobre la plataforma.</p>
+            </div>
+          </Link>
 
         </div>
       ) : (

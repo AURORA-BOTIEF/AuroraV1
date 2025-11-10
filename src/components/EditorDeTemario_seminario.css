@@ -242,3 +242,85 @@ textarea {
   .modal { width: min(95vw, 540px); }
   .modal.modal-xl { width: min(95vw, 900px); }
 }
+
+.btn-volver {
+  background-color: #f1f7fc;
+  color: #1a1a1a;
+  border: 1px solid #d0e2f0;
+  border-radius: 24px;
+  padding: 10px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-volver:hover {
+  background-color: #e5f0fa;
+  border-color: #a5c7e7;
+}
+
+.btn-volver:active {
+  background-color: #d6e7f7;
+}
+
+.info-general {
+  background: #f9f9f9;
+  border: 1px solid #ddd;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.info-general label {
+  display: block;
+  font-weight: 600;
+  margin-top: 0.8rem;
+}
+
+.info-general input,
+.info-general textarea {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
+
+/* === DURACIÓN DE CAPÍTULO (editable y con horas/minutos) === */
+.duracion-capitulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.duracion-capitulo label {
+  color: #035b6e;
+  font-weight: 600;
+}
+
+.duracion-capitulo input {
+  width: 70px;
+  text-align: center;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.duracion-capitulo input:focus {
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
+  outline: none;
+}
+
+.duracion-horas {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #035b6e;
+}
