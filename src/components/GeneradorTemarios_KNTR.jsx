@@ -1,4 +1,5 @@
 // src/components/GeneradorTemarios_KNTR.jsx
+// Nueva version
 import React, { useState } from "react";
 import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
