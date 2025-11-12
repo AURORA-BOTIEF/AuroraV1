@@ -529,19 +529,14 @@ const handleListarVersiones = async () => {
                   </thead>
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
-                      <tr key={v.versionId || i}>
+                      <tr key={i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
-                        <td className="acciones-cell">
-                          <button
-                            className="menu-btn"
-                            title = "Editar versión"
-                            onClick={() => handleEditarVersion(v)}>
-                              ✏️
-                          </button>
+                        <td style={{ textAlign: "center" }}>
+                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>✏️</button>  
                         </td>
                       </tr>
                     ))}
