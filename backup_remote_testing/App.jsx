@@ -199,7 +199,7 @@ function App() {
                   element={<EditorDeTemario_seminario />}
                 />
                 <Route
-                  path="/editor-temario/:cursoId/:versionId"
+                  path="/editor-practico/:cursoId/:versionId"
                   element={<EditorDeTemario_Practico />}
                 />
                 <Route

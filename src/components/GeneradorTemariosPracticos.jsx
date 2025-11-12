@@ -267,7 +267,7 @@ const handleListarVersiones = async () => {
   // === Editar versión ===
   const handleEditarVersion = (v) => {
     console.log("✏️ Editando versión", v.cursoId, v.versionId);
-    navigate(`/editor-temario/${v.cursoId}/${v.versionId}`);
+    navigate(`/editor-practico/${v.cursoId}/${v.versionId}`);
   };
   
   const handleFiltroChange = (e) => {

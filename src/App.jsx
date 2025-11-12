@@ -6,6 +6,7 @@ import { Hub } from 'aws-amplify/utils';
 import './App.css'; // si tienes estilos globales
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
 import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
+import EditorTemarioPracticoPage from './components/EditorTemarioPracticoPage.jsx';
 
 // Imagenes
 import logoImg from './assets/Netec.png';
@@ -235,6 +236,7 @@ function App() {
                 </Route>
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
                 <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
+                <Route path="/editor-practico/:cursoId/:versionId" element={<EditorTemarioPracticoPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
