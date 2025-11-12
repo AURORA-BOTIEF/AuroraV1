@@ -6,6 +6,8 @@ import { Hub } from 'aws-amplify/utils';
 import './App.css'; // si tienes estilos globales
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
 import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
+import EditorDeTemario_Practico from './components/EditorDeTemario_Practico.jsx';
+
 
 // Imagenes
 import logoImg from './assets/Netec.png';
@@ -34,6 +36,7 @@ import GeneradorCursos from './components/GeneradorCursos.jsx';
 import BookBuilderPage from './components/BookBuilderPage.jsx';
 import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
 import FAQ from "./components/FAQ.jsx";
+
 
 
 // === Página de edición de seminario ===
@@ -67,6 +70,39 @@ function EditorSeminarioPage() {
   };
 
   return <EditorDeTemario_seminario temarioInicial={null} onSave={onSave} isLoading={false} />;
+}
+
+// === Página de edición de temario practico ===
+function EditorPracticoPage() {
+  const { cursoId, versionId } = useParams();
+
+  const onSave = async (contenido, nota) => {
+    const token = localStorage.getItem("id_token");
+    const res = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota || `Guardado el ${new Date().toISOString()}`,
+          nombre_curso: contenido?.nombre_curso || "Sin título",
+          tecnologia: contenido?.tecnologia || "",
+          asesor_comercial: contenido?.asesor_comercial || "",
+          nombre_preventa: contenido?.nombre_preventa || "",
+          enfoque: contenido?.enfoque || "General",
+          fecha_creacion: new Date().toISOString(),
+        }),
+      }
+    );
+    if (!res.ok) throw new Error((await res.json()).error || "Error al guardar versión");
+  };
+
+  return <EditorDeTemario_Practico temarioInicial={null} onSave={onSave} isLoading={false} />;
 }
 
 
@@ -235,6 +271,7 @@ function App() {
                 </Route>
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
                 <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
+                <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>

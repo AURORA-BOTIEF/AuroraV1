@@ -170,10 +170,8 @@ function GeneradorTemariosPracticos() {
     }
 
     // 3) cursoId tipo slug
-    const cursoId = params.tema_curso
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w]+/g, "_"); // solo letras/números/guión_bajo
+    const toSlug = (s="") => s.trim().toLowerCase().replace(/[^\w]+/g, "_");
+    const cursoId = toSlug(params.tema_curso || "");o
 
     // 4) Body EXACTO como lo espera tu Lambda
     const body = {
@@ -267,7 +265,7 @@ const handleListarVersiones = async () => {
   // === Editar versión ===
   const handleEditarVersion = (v) => {
     console.log("✏️ Editando versión", v.cursoId, v.versionId);
-    navigate(`/editor-temario/${v.cursoId}/${v.versionId}`);
+    navigate(`/editor-practico/${v.cursoId}/${v.versionId}`);
   };
   
   const handleFiltroChange = (e) => {
@@ -531,19 +529,14 @@ const handleListarVersiones = async () => {
                   </thead>
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
-                      <tr key={v.versionId || i}>
+                      <tr key={i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
-                        <td className="acciones-cell">
-                          <button
-                            className="menu-btn"
-                            title = "Editar versión"
-                            onClick={() => handleEditarVersion(v)}>
-                              ✏️
-                          </button>
+                        <td style={{ textAlign: "center" }}>
+                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>✏️</button>  
                         </td>
                       </tr>
                     ))}

@@ -7,6 +7,31 @@ import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_Practico.css";
 import { Plus, Trash2 } from "lucide-react";
 
+// --- Normalización por si 'contenido' llega como string o con alias ---
+const safeParse = (v) => {
+  if (typeof v !== "string") return v;
+  try { return JSON.parse(v); } catch { return null; }
+};
+
+const normalizeTemario = (raw) => {
+  const c = typeof raw === "string" ? safeParse(raw) : (raw || {});
+  return {
+    nombre_curso: c?.nombre_curso ?? c?.tema_curso ?? "",
+    tecnologia: c?.tecnologia ?? "",
+    asesor_comercial: c?.asesor_comercial ?? "",
+    nombre_preventa: c?.nombre_preventa ?? "",
+    enfoque: c?.enfoque ?? "General",
+    horas_total_curso: c?.horas_total_curso ?? c?.horas_totales ?? 0,
+    descripcion_general: c?.descripcion_general ?? c?.descripcion ?? "",
+    audiencia: c?.audiencia ?? c?.dirigido_a ?? "",
+    prerrequisitos: c?.prerrequisitos ?? c?.requisitos ?? "",
+    objetivos: c?.objetivos ?? "",
+    temario: Array.isArray(c?.temario)
+      ? c.temario
+      : (Array.isArray(c?.capitulos) ? c.capitulos : []),
+  };
+};
+
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
   if (!minutos || minutos < 0) return "0 min";
@@ -37,12 +62,8 @@ const slugify = (str = "") =>
     .replace(/^-+|-+$/g, "") || "curso";
 
 function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
-  const [temario, setTemario] = useState(() => ({
-    ...temarioInicial,
-    temario: Array.isArray(temarioInicial?.temario)
-      ? temarioInicial.temario
-      : [],
-  }));
+  const [temario, setTemario] = useState(() => normalizeTemario(temarioInicial));
+
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
@@ -63,13 +84,9 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
   }, []);
 
   useEffect(() => {
-    setTemario({
-      ...temarioInicial,
-      temario: Array.isArray(temarioInicial?.temario)
-        ? temarioInicial.temario
-        : [],
-    });
+    setTemario(normalizeTemario(temarioInicial));
   }, [temarioInicial]);
+
 
 // ===== CAMBIO DE CAMPOS =====
 const handleFieldChange = (capIndex, subIndex, field, value) => {
@@ -235,8 +252,7 @@ const eliminarTema = (capIndex, subIndex) => {
 
       const bodyData = {
         cursoId:
-          temario?.nombre_curso?.trim() ||
-          temario?.tema_curso?.trim() ||
+          (typeof slugify === "function" && (slugify(temario?.nombre_curso || temario?.tema_curso))) ||
           `curso_${Date.now()}`,
         contenido: temario,
         autor: userEmail || "sin-correo",
