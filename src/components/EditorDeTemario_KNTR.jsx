@@ -249,7 +249,7 @@ const eliminarTema = (capIndex, subIndex) => {
       };
 
       const response = await fetch(
-        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR",
         {
           method: "POST",
           headers: {
