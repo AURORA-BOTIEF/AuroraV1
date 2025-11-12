@@ -3,15 +3,43 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import EditorDeTemario_Practico from "./EditorDeTemario_Practico.jsx";
 
-// Endpoints
 const LIST_URL = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
+
+// 🔸 helper seguro
+const safeParse = (v) => {
+  if (typeof v !== "string") return v;
+  try { return JSON.parse(v); } catch { return null; }
+};
+
+// 🔸 normalizador MUY ligero para cubrir alias de campos
+const normalizeContenido = (raw) => {
+  const c = typeof raw === "string" ? safeParse(raw) : (raw || {});
+  if (!c || typeof c !== "object") return {};
+
+  return {
+    // alias frecuentes
+    nombre_curso: c.nombre_curso ?? c.tema_curso ?? "",
+    tecnologia: c.tecnologia ?? "",
+    asesor_comercial: c.asesor_comercial ?? "",
+    nombre_preventa: c.nombre_preventa ?? "",
+    enfoque: c.enfoque ?? "General",
+    horas_total_curso: c.horas_total_curso ?? c.horas_totales ?? 0,
+    descripcion_general: c.descripcion_general ?? c.descripcion ?? "",
+    audiencia: c.audiencia ?? c.dirigido_a ?? "",
+    prerrequisitos: c.prerrequisitos ?? c.requisitos ?? "",
+    objetivos: c.objetivos ?? "",
+    // temario/capitulos
+    temario: Array.isArray(c.temario)
+      ? c.temario
+      : (Array.isArray(c.capitulos) ? c.capitulos : []),
+  };
+};
 
 function EditorTemarioPracticoPage() {
   const { cursoId, versionId } = useParams();
   const [temarioData, setTemarioData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Guardar versión desde el editor
   const onSave = async (contenido, nota) => {
     try {
       const token = localStorage.getItem("id_token");
@@ -24,8 +52,7 @@ function EditorTemarioPracticoPage() {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
-            // ✅ IMPORTANTE: manda cursoId, el backend genera versionId
-            cursoId,
+            cursoId, // ✅ el backend genera versionId
             contenido,
             nota_version: nota || `Guardado el ${new Date().toISOString()}`,
             nombre_curso: contenido?.nombre_curso || contenido?.tema_curso || "Sin título",
@@ -37,7 +64,6 @@ function EditorTemarioPracticoPage() {
           }),
         }
       );
-
       if (!res.ok) throw new Error((await res.json()).error || "Error al guardar versión");
       console.log("✅ Versión guardada correctamente");
     } catch (err) {
@@ -45,15 +71,16 @@ function EditorTemarioPracticoPage() {
     }
   };
 
-  // Cargar versión desde DynamoDB
   useEffect(() => {
     const fetchVersion = async () => {
       try {
         setIsLoading(true);
         const token = localStorage.getItem("id_token");
 
-        // ✅ Estrategia robusta: usa el endpoint /list y filtra por versionId
-        const res = await fetch(`${LIST_URL}?id=${encodeURIComponent(cursoId)}`, {
+        // ⚠️ El filtro por id puede ser sensible a may/minus.
+        // Si no devuelve nada, quita el query y filtra por versionId en cliente.
+        const url = `${LIST_URL}?id=${encodeURIComponent(cursoId)}`;
+        const res = await fetch(url, {
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -64,11 +91,16 @@ function EditorTemarioPracticoPage() {
         if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
         const items = Array.isArray(data) ? data : [];
-        const version = items.find(v => v.versionId === versionId);
+        const match = items.find(v => String(v.versionId) === String(versionId));
 
-        if (!version) throw new Error("Versión no encontrada para este curso.");
-        setTemarioData(version.contenido || version);
-        console.log("📦 Versión cargada:", version);
+        if (!match) throw new Error("Versión no encontrada para este curso.");
+
+        // 🔸 AQUI está el fix: parsea si viene string y normaliza alias
+        const contenido =
+          normalizeContenido(match.contenido ?? match);
+
+        console.log("📦 Versión cargada (normalizada):", contenido);
+        setTemarioData(contenido);
       } catch (err) {
         console.error("❌ Error al cargar versión:", err);
       } finally {
