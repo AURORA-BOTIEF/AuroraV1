@@ -235,8 +235,7 @@ const eliminarTema = (capIndex, subIndex) => {
 
       const bodyData = {
         cursoId:
-          temario?.nombre_curso?.trim() ||
-          temario?.tema_curso?.trim() ||
+          (typeof slugify === "function" && (slugify(temario?.nombre_curso || temario?.tema_curso))) ||
           `curso_${Date.now()}`,
         contenido: temario,
         autor: userEmail || "sin-correo",

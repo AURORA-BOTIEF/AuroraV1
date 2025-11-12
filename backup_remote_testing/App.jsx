@@ -19,7 +19,7 @@ import GeneradorTemarios from "./components/GeneradorTemarios";
 import GeneradorTemarios_KNTR from "./components/GeneradorTemarios_KNTR";
 import GeneradorTemarios_Seminarios from "./components/GeneradorTemarios_Seminarios"; // ✅ NUEVO
 import EditorDeTemario_seminario from "./components/EditorDeTemario_seminario";
-import EditorDeTemario_Practico from "./components/EditorDeTemario_Practico";
+import EditorTemarioPracticoPage from "./components/EditorTemarioPracticoPage";
 import EditorDeTemario_KNTR from "../src/components/EditorDeTemario_KNTR";
  // ✅ YA EXISTENTE
 
@@ -200,7 +200,7 @@ function App() {
                 />
                 <Route
                   path="/editor-practico/:cursoId/:versionId"
-                  element={<EditorDeTemario_Practico />}
+                  element={<EditorTemarioPracticoPage />}
                 />
                 <Route
                   path="/editor-KNTR/:cursoId/:versionId"

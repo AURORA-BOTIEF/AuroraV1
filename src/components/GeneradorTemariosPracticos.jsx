@@ -170,10 +170,8 @@ function GeneradorTemariosPracticos() {
     }
 
     // 3) cursoId tipo slug
-    const cursoId = params.tema_curso
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w]+/g, "_"); // solo letras/números/guión_bajo
+    const toSlug = (s="") => s.trim().toLowerCase().replace(/[^\w]+/g, "_");
+    const cursoId = toSlug(params.tema_curso || "");o
 
     // 4) Body EXACTO como lo espera tu Lambda
     const body = {
