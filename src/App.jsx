@@ -272,7 +272,7 @@ function App() {
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
                 <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
                 <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
-                <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorDeTemario_KNTR temarioInicial={null} onSave={() => {}} isLoading={false}/>}/>
+                <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorDeTemario_KNTR />}/>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
