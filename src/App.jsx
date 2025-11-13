@@ -7,6 +7,7 @@ import './App.css'; // si tienes estilos globales
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
 import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
 import EditorDeTemario_Practico from './components/EditorDeTemario_Practico.jsx';
+import EditorDeTemario_KNTR from "./components/EditorDeTemario_KNTR.jsx";
 
 
 // Imagenes
