@@ -199,3 +199,62 @@
   padding: 12px 14px;
   border-radius: 10px;
 }
+
+/* ================================================================= */
+/* ⭐ NUEVO: SWITCH ON/OFF para habilitar botón a externos           */
+/* ================================================================= */
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .3s;
+  border-radius: 34px;
+  border: 1px solid #b5b5b5;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+/* Checked */
+.switch input:checked + .slider {
+  background-color: #035b6e; /* tu color primario */
+  border-color: #035b6e;
+}
+.switch input:checked + .slider:before {
+  transform: translateX(22px);
+}
+
+/* Round variant */
+.slider.round {
+  border-radius: 34px;
+}
+.slider.round:before {
+  border-radius: 50%;
+}
