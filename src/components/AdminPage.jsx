@@ -24,7 +24,7 @@ function AdminPage() {
 
   const token = localStorage.getItem('id_token');
 
-  // ✅ auth header con Bearer
+  // Header Auth
   const authHeader = useMemo(() => {
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
@@ -34,7 +34,9 @@ function AdminPage() {
   useEffect(() => {
     if (!token) return;
     try {
-      const payload = JSON.parse(atob((token.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/')));
+      const payload = JSON.parse(
+        atob((token.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/'))
+      );
       setEmail(payload?.email || '');
     } catch (e) {
       console.error('Error al decodificar token', e);
@@ -62,7 +64,6 @@ function AdminPage() {
 
   useEffect(() => {
     if (token) cargarSolicitudes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const puedeGestionar = email.toLowerCase() === ADMIN_EMAIL;
@@ -92,7 +93,9 @@ function AdminPage() {
 
       setSolicitudes((prev) =>
         prev.map((s) =>
-          s.correo === correo ? { ...s, estado: accion === 'aprobar' ? 'aprobado' : 'rechazado' } : s
+          s.correo === correo
+            ? { ...s, estado: accion === 'aprobar' ? 'aprobado' : 'rechazado' }
+            : s
         )
       );
       alert(`✅ Acción ${accion} aplicada para ${correo}.`);
@@ -131,6 +134,7 @@ function AdminPage() {
     }
   };
 
+  // Filtros
   const solicitudesFiltradas = useMemo(() => {
     const txt = filtroTexto.trim().toLowerCase();
     return solicitudes.filter((s) => {
@@ -149,7 +153,7 @@ function AdminPage() {
   return (
     <div className="pagina-admin">
       <h1>Panel de Administración</h1>
-      <p>Desde aquí puedes revisar solicitudes para otorgar el rol "creador".</p>
+      <p>Desde aquí puedes revisar solicitudes para otorgar el rol "creador" y habilitar el botón para usuarios externos.</p>
 
       {!puedeGestionar && (
         <p className="solo-autorizado">
@@ -209,6 +213,7 @@ function AdminPage() {
               <tr>
                 <th>Correo</th>
                 <th>Estado</th>
+                <th>Botón Visible</th> {/* ⭐ NUEVO */}
                 {puedeGestionar && <th>Acciones</th>}
               </tr>
             </thead>
@@ -221,11 +226,53 @@ function AdminPage() {
                 return (
                   <tr key={correo}>
                     <td>{correo}</td>
+
                     <td>
                       <span className={`badge-estado ${estado}`}>
                         {estado.replace(/^./, (c) => c.toUpperCase())}
                       </span>
                     </td>
+
+                    {/* ⭐ NUEVO SWITCH */}
+                    <td>
+                      {protegido ? (
+                        <span>🔒</span>
+                      ) : (
+                        <label className="switch">
+                          <input
+                            type="checkbox"
+                            checked={s.boton_habilitado === true}
+                            onChange={async () => {
+                              try {
+                                await fetch(`${API_BASE}/boton`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    ...authHeader,
+                                  },
+                                  body: JSON.stringify({
+                                    correo,
+                                    boton_habilitado: !(s.boton_habilitado === true)
+                                  }),
+                                });
+
+                                setSolicitudes(prev =>
+                                  prev.map(x =>
+                                    x.correo === correo
+                                      ? { ...x, boton_habilitado: !(s.boton_habilitado === true) }
+                                      : x
+                                  )
+                                );
+                              } catch (e) {
+                                alert("No se pudo actualizar la visibilidad del botón.");
+                              }
+                            }}
+                          />
+                          <span className="slider round"></span>
+                        </label>
+                      )}
+                    </td>
+
                     {puedeGestionar && (
                       <td className="col-acciones">
                         {protegido ? (
@@ -278,4 +325,5 @@ function AdminPage() {
 }
 
 export default AdminPage;
+
 
