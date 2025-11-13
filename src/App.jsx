@@ -72,9 +72,7 @@ function EditorSeminarioPage() {
   return <EditorDeTemario_seminario temarioInicial={null} onSave={onSave} isLoading={false} />;
 }
 
-
-
-// === Página de edición de temario practico ===
+// === Página de edición de temario práctico ===
 function EditorPracticoPage() {
   const { cursoId, versionId } = useParams();
 
@@ -82,23 +80,26 @@ function EditorPracticoPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 🔹 Cargar versión exacta desde Lambda (GET id + version)
+  // 🔹 Cargar versión desde Lambda (POST cursoId + versionId)
   useEffect(() => {
     const fetchVersion = async () => {
       try {
         const token = localStorage.getItem("id_token");
 
-        const url = `https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico?id=${encodeURIComponent(
-          cursoId
-        )}&version=${encodeURIComponent(versionId)}`;
-
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        });
+        const res = await fetch(
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              cursoId,
+              versionId
+            })
+          }
+        );
 
         if (!res.ok) {
           const errJson = await res.json().catch(() => ({}));
@@ -106,10 +107,11 @@ function EditorPracticoPage() {
         }
 
         const json = await res.json();
+
         // La Lambda devuelve { success: true, data: item }
         const item = json.data || json;
 
-        // Normalmente el temario está en item.contenido; si no, usamos el item tal cual
+        // Contenido puede venir como string o como objeto
         const contenido = item.contenido ?? item;
 
         console.log("Versión práctica cargada desde Lambda:", item);
@@ -127,9 +129,10 @@ function EditorPracticoPage() {
     fetchVersion();
   }, [cursoId, versionId]);
 
-  // 🔹 Guardado de versión (POST) – lo dejamos como ya lo tenías
+  // 🔹 Guardado de versión
   const onSave = async (contenido, nota) => {
     const token = localStorage.getItem("id_token");
+
     const res = await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
       {
@@ -151,6 +154,7 @@ function EditorPracticoPage() {
         }),
       }
     );
+
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
       throw new Error(errJson.error || "Error al guardar versión");
