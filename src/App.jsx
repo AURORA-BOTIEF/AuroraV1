@@ -74,6 +74,7 @@ function EditorSeminarioPage() {
 }
 
 // === Página de edición de temario práctico ===
+// === Página de edición de temario práctico ===
 function EditorPracticoPage() {
   const { cursoId, versionId } = useParams();
 
@@ -81,14 +82,14 @@ function EditorPracticoPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 🔹 Cargar versión desde Lambda (POST cursoId + versionId)
+  // 🔹 Cargar versión exacta desde Lambda (POST cursoId + versionId)
   useEffect(() => {
     const fetchVersion = async () => {
       try {
         const token = localStorage.getItem("id_token");
 
         const res = await fetch(
-          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/get",
           {
             method: "POST",
             headers: {
@@ -98,7 +99,7 @@ function EditorPracticoPage() {
             body: JSON.stringify({
               cursoId,
               versionId
-            })
+            }),
           }
         );
 
@@ -108,11 +109,9 @@ function EditorPracticoPage() {
         }
 
         const json = await res.json();
-
-        // La Lambda devuelve { success: true, data: item }
         const item = json.data || json;
 
-        // Contenido puede venir como string o como objeto
+        // Normalmente el temario está en item.contenido; si no, usamos item tal cual
         const contenido = item.contenido ?? item;
 
         console.log("Versión práctica cargada desde Lambda:", item);
@@ -130,10 +129,9 @@ function EditorPracticoPage() {
     fetchVersion();
   }, [cursoId, versionId]);
 
-  // 🔹 Guardado de versión
+  // 🔹 Guardado de versión (se queda igual)
   const onSave = async (contenido, nota) => {
     const token = localStorage.getItem("id_token");
-
     const res = await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
       {
@@ -155,7 +153,6 @@ function EditorPracticoPage() {
         }),
       }
     );
-
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
       throw new Error(errJson.error || "Error al guardar versión");
