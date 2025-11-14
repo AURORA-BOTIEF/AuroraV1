@@ -43,7 +43,7 @@ const asesoresComerciales = [
 "Nicolle Chaucanez",
 "Santiago Cueva",
 "Valeria Velásquez",
-"Vianey Miranda",
+"Vianey Miranda"
 ].sort();
 
 // --- AJUSTE 1: Se renombra el componente ---
