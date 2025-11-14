@@ -172,6 +172,105 @@ function EditorPracticoPage() {
 }
 
 
+
+
+// === Página de edición de temarios KNTR ===
+function EditorKNTRPage() {
+  const { cursoId, versionId } = useParams();
+
+  const [temarioInicial, setTemarioInicial] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // 🔹 Cargar versión exacta desde Lambda (GET id + version)
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = localStorage.getItem("id_token");
+
+        const url = `https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR?id=${encodeURIComponent(
+          cursoId
+        )}&version=${encodeURIComponent(versionId)}`;
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || `Error ${res.status} al obtener la versión`);
+        }
+
+        const json = await res.json();
+        // La Lambda devuelve { success: true, data: item }
+        const item = json.data || json;
+
+        // Normalmente el temario está en item.contenido; si no, usamos el item tal cual
+        const contenido = item.contenido ?? item;
+
+        console.log("Versión KNTR cargada desde Lambda:", item);
+        console.log("Contenido enviado al editor:", contenido);
+
+        setTemarioInicial(contenido);
+      } catch (e) {
+        console.error("Error cargando versión KNTR:", e);
+        setError(e.message || "Error al cargar la versión");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVersion();
+  }, [cursoId, versionId]);
+
+  // 🔹 Guardado de versión (POST) – lo dejamos como ya lo tenías
+  const onSave = async (contenido, nota) => {
+    const token = localStorage.getItem("id_token");
+    const res = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota || `Guardado el ${new Date().toISOString()}`,
+          nombre_curso: contenido?.nombre_curso || "Sin título",
+          tecnologia: contenido?.tecnologia || "",
+          asesor_comercial: contenido?.asesor_comercial || "",
+          nombre_preventa: contenido?.nombre_preventa || "",
+          enfoque: contenido?.enfoque || "General",
+          fecha_creacion: new Date().toISOString(),
+        }),
+      }
+    );
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || "Error al guardar versión");
+    }
+  };
+
+  if (error) {
+    return <div style={{ padding: "1rem", color: "red" }}>Error cargando versión: {error}</div>;
+  }
+
+  return (
+    <EditorDeTemario_KNTR
+      temarioInicial={temarioInicial}
+      onSave={onSave}
+      isLoading={isLoading}
+    />
+  );
+}
+
+
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -338,7 +437,7 @@ function App() {
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
                 <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
                 <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
-                <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorDeTemario_KNTR />}/>
+                <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorKNTRPage />}/>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
