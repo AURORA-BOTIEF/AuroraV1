@@ -74,7 +74,6 @@ function EditorSeminarioPage() {
 }
 
 // === Página de edición de temario práctico ===
-// === Página de edición de temario práctico ===
 function EditorPracticoPage() {
   const { cursoId, versionId } = useParams();
 
@@ -183,23 +182,26 @@ function EditorKNTRPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 🔹 Cargar versión exacta desde Lambda (GET id + version)
+  // 🔹 Cargar versión exacta desde Lambda (POST cursoId + versionId)
   useEffect(() => {
     const fetchVersion = async () => {
       try {
         const token = localStorage.getItem("id_token");
 
-        const url = `https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR?id=${encodeURIComponent(
-          cursoId
-        )}&version=${encodeURIComponent(versionId)}`;
-
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        });
+        const res = await fetch(
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR/get",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              cursoId,
+              versionId
+            }),
+          }
+        );
 
         if (!res.ok) {
           const errJson = await res.json().catch(() => ({}));
@@ -207,10 +209,9 @@ function EditorKNTRPage() {
         }
 
         const json = await res.json();
-        // La Lambda devuelve { success: true, data: item }
         const item = json.data || json;
 
-        // Normalmente el temario está en item.contenido; si no, usamos el item tal cual
+        // Normalmente el temario está en item.contenido; si no, usamos item tal cual
         const contenido = item.contenido ?? item;
 
         console.log("Versión KNTR cargada desde Lambda:", item);
@@ -228,7 +229,7 @@ function EditorKNTRPage() {
     fetchVersion();
   }, [cursoId, versionId]);
 
-  // 🔹 Guardado de versión (POST) – lo dejamos como ya lo tenías
+  // 🔹 Guardado de versión (se queda igual)
   const onSave = async (contenido, nota) => {
     const token = localStorage.getItem("id_token");
     const res = await fetch(
