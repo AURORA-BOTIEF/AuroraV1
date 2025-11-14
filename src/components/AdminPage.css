@@ -332,3 +332,56 @@ input:checked + .slider:before {
 .slider.round {
   border-radius: 34px;
 }
+/* ====== Tabs de administración ====== */
+.tabs-admin {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.tabs-admin button {
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #e5eef6;
+  color: #0f2e4a;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabs-admin button.active {
+  background: #0d667e;
+  color: #fff;
+}
+
+/* Vista usuarios externos */
+.vista-externos {
+  margin-top: 4px;
+}
+
+/* Tabla externos reutiliza estilos de tabla-solicitudes */
+.tabla-externos table {
+  width: 100%;
+}
+
+/* Badge habilitado/deshabilitado */
+.badge-habilitado {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.badge-habilitado.on {
+  background: #e9f7ef;
+  color: #2e7d32;
+  border-color: #b6e1c3;
+}
+
+.badge-habilitado.off {
+  background: #eef2f7;
+  color: #6b7280;
+  border-color: #cbd5e1;
+}
