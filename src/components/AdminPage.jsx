@@ -14,9 +14,11 @@ function AdminPage() {
   const [email, setEmail] = useState('');
   const token = localStorage.getItem('id_token');
 
+  // ====== FIX IMPORTANTE ======
+  // API Gateway con Cognito Authorizer NO ACEPTA "Bearer "
   const authHeader = useMemo(() => {
     if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
+    return { Authorization: token }; // <<< CORREGIDO: sin "Bearer "
   }, [token]);
 
   // Extraer email del token
@@ -70,7 +72,6 @@ function AdminPage() {
 
   useEffect(() => {
     if (token) cargarSolicitudes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const pokeClientsToRefresh = () => {
@@ -468,6 +469,7 @@ function AdminPage() {
 }
 
 export default AdminPage;
+
 
 
 
