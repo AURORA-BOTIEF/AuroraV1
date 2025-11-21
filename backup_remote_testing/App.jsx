@@ -18,7 +18,11 @@ import GeneradorContenidosPage from "./components/GeneradorContenidosPage";
 import GeneradorTemarios from "./components/GeneradorTemarios";
 import GeneradorTemarios_KNTR from "./components/GeneradorTemarios_KNTR";
 import GeneradorTemarios_Seminarios from "./components/GeneradorTemarios_Seminarios"; // ✅ NUEVO
-import EditorDeTemario_seminario from "./components/EditorDeTemario_seminario"; // ✅ YA EXISTENTE
+import EditorDeTemario_seminario from "./components/EditorDeTemario_seminario";
+import GeneradorTemariosPracticos from "../src/components/GeneradorTemariosPracticos";
+import EditorDeTemario_Practico from "../src/components/EditorDeTemario_Practico";
+import EditorDeTemario_KNTR from "../src/components/EditorDeTemario_KNTR";
+ // ✅ YA EXISTENTE
 
 // Estilos y Assets
 import "./index.css";
@@ -187,12 +191,21 @@ function App() {
                   <Route path="curso-estandar" element={<GeneradorTemarios />} />
                   <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
                   <Route path="seminario" element={<GeneradorTemarios_Seminarios />} /> {/* ✅ NUEVA */}
+                  <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
                 </Route>
 
                 {/* --- Editor desde DynamoDB --- */}
                 <Route
                   path="/editor-seminario/:cursoId/:versionId"
                   element={<EditorDeTemario_seminario />}
+                />
+                <Route
+                  path="/editor-practico/:cursoId/:versionId"
+                  element={<EditorDeTemario_Practico />}
+                />
+                <Route
+                  path="/editor-KNTR/:cursoId/:versionId"
+                  element={<EditorDeTemario_KNTR />}
                 />
 
                 <Route path="*" element={<Navigate to="/" replace />} />

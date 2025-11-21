@@ -24,7 +24,7 @@ function GeneradorContenidosPage() {
           <Link to="curso-estandar" className="opcion-menu">
             <div className="icono">📚</div>
             <div className="texto">
-              <h3>Generador Temario Estándar o Aumentado </h3>
+              <h3>Generador Temario Estándar</h3>
               <p>Genera aquí tu propuesta de temario</p>
             </div>
           </Link> {/* <-- CORRECCIÓN: La etiqueta <Link> ahora se cierra aquí --> */}

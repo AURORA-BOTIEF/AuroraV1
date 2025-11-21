@@ -23,6 +23,9 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   const [authHeader, setAuthHeader] = useState({});
   const [tokenLoaded, setTokenLoaded] = useState(false);
 
+  // ⭐ NUEVO: estado del botón para externos
+  const [botonHabilitado, setBotonHabilitado] = useState(false);
+
   // Pinta inmediatamente desde localStorage
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +88,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
       });
   }, []);
 
+  // Estado de solicitud Netec (tu lógica actual, NO se toca)
   useEffect(() => {
     if (!API_BASE || !email || !esNetec || !tokenLoaded) return;
     const fetchEstado = async () => {
@@ -103,6 +107,25 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
       }
     };
     fetchEstado();
+  }, [email, esNetec, authHeader]);
+
+  // ⭐ NUEVO: obtener boton_habilitado para usuarios externos
+  useEffect(() => {
+    if (!email || esNetec === true) return; // Netec siempre ve el botón, no consulta
+
+    const cargarEstado = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/boton?correo=${email}`, {
+          headers: authHeader
+        });
+        const j = await r.json();
+        setBotonHabilitado(j.boton_habilitado === true);
+      } catch {
+        setBotonHabilitado(false);
+      }
+    };
+
+    cargarEstado();
   }, [email, esNetec, authHeader]);
 
   const toggle = () => setColapsado(v => !v);
@@ -133,8 +156,12 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   const esCreador = (grupo === 'creador');
   const esAdminPrincipal = email.toLowerCase() === 'anette.flores@netec.com.mx';
 
-  // Solo muestran botón de solicitud los que no sean creadores ni Anette
-  const mostrarBoton = esNetec && !(esCreador || esAdminPrincipal);
+  // ⭐ NUEVO: botón visible si:
+  // - es Netec (siempre)
+  // - o es externo PERO admin lo habilitó
+  const mostrarBoton =
+    (esNetec || botonHabilitado) &&
+    !(esCreador || esAdminPrincipal);
 
   // Handlers del AvatarPicker
   const abrirPicker = () => setPickerAbierto(true);
@@ -211,16 +238,18 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
 
       <div id="caminito" className="caminito">
         <Link to="/resumenes" className="nav-link">
-          <div className="step"><div className="circle">🧠</div>{!colapsado && <span>Resúmenes</span>}</div>
+          <div className="step"><div className="circle">🧠</div>{!
+colapsado && <span>Resúmenes</span>}</div>
         </Link>
         <Link to="/actividades" className="nav-link">
-          <div className="step"><div className="circle">📘</div>{!colapsado && <span>Actividades</span>}</div>
+          <div className="step"><div className="circle">📘</div>{!
+colapsado && <span>Actividades</span>}</div>
         </Link>
         <Link to="/examenes" className="nav-link">
-          <div className="step"><div className="circle">🔬</div>{!colapsado && <span>Examen</span>}</div>
+          <div className="step"><div className="circle">🔬</div>{!
+colapsado && <span>Examen</span>}</div>
         </Link>
 
-        {/* ✅ Corregido: ahora Anette también ve el ícono de configuración */}
         {(esAdmin || esAdminPrincipal) && (
           <Link to="/admin" className="nav-link" title="Panel de administración">
             <div className="step">
@@ -247,7 +276,6 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         )}
       </div>
 
-      {/* Modal: AvatarPicker */}
       <AvatarPicker
         isOpen={pickerAbierto}
         onClose={cerrarPicker}
