@@ -105,9 +105,11 @@ function GeneradorContenidosPage() {
         <Outlet />
       </div>
 
-      <BotonVersionesTemario
-        apiBase="https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2"
-      />
+      {location.pathname.includes('/curso-estandar') && (
+        <BotonVersionesTemario
+          apiBase="https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2"
+        />
+      )}
     </div>
   );
 }

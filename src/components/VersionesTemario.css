@@ -6,7 +6,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000; /* por encima del sidebar y demás */
+  z-index: 1000;
+  /* por encima del sidebar y demás */
 }
 
 /* === CARD DEL MODAL === */
@@ -24,8 +25,15 @@
 }
 
 @keyframes aparecer {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .versiones-card h3 {
@@ -48,7 +56,8 @@
 /* === NUEVO: ESTILOS PARA EL BUSCADOR === */
 /* ======================================== */
 .search-container {
-  margin-bottom: 1rem; /* Espacio entre el buscador y la lista */
+  margin-bottom: 1rem;
+  /* Espacio entre el buscador y la lista */
   width: 100%;
 }
 
@@ -58,7 +67,8 @@
   border: 1px solid #ccc;
   border-radius: 6px;
   font-size: 1em;
-  box-sizing: border-box; /* Previene que el padding afecte el ancho */
+  box-sizing: border-box;
+  /* Previene que el padding afecte el ancho */
 }
 
 /* === LISTA DE VERSIONES === */
@@ -81,9 +91,11 @@
   flex-direction: column;
   gap: 4px;
 }
+
 .col-info .nota {
   color: #333;
 }
+
 .col-info .mini {
   color: #777;
   font-size: 12px;
@@ -95,7 +107,8 @@
 
 /* Se ajusta para ser el contenedor del nuevo menú */
 .col-actions {
-  position: relative; /* Clave para posicionar el menú desplegable */
+  position: relative;
+  /* Clave para posicionar el menú desplegable */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -120,13 +133,15 @@
 /* Estilos para el menú desplegable */
 .action-menu {
   position: absolute;
-  top: 35px; /* Distancia desde el botón de 3 puntos */
+  top: 35px;
+  /* Distancia desde el botón de 3 puntos */
   right: 0;
   background-color: white;
   border: 1px solid #ddd;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 100; /* Se asegura que esté por encima de otros elementos de la lista */
+  z-index: 100;
+  /* Se asegura que esté por encima de otros elementos de la lista */
   width: 200px;
   display: flex;
   flex-direction: column;
@@ -175,7 +190,7 @@
 .btn-flotante-versiones {
   position: fixed;
   bottom: 20px;
-  right: 20px;
+  right: 140px;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -183,7 +198,7 @@
   background: #1b5784;
   color: white;
   font-size: 24px;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   transition: background-color 0.2s, transform 0.2s;
   z-index: 1001;
@@ -200,13 +215,16 @@
     width: 95vw;
     padding: 1rem;
   }
+
   .item-version {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
+
   .col-actions {
     width: 100%;
-    justify-content: flex-end; /* Alinea el botón de 3 puntos a la derecha en móvil */
+    justify-content: flex-end;
+    /* Alinea el botón de 3 puntos a la derecha en móvil */
   }
 }
