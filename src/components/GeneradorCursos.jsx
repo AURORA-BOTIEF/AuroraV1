@@ -15,7 +15,7 @@ function GeneradorCursos() {
     const [moduleInput, setModuleInput] = useState('1');
     const [generateFullCourse, setGenerateFullCourse] = useState(false);
     const [modelProvider, setModelProvider] = useState('bedrock');
-    const [imageModel, setImageModel] = useState('gemini'); // 'gemini' or 'imagen'
+    const [imageModel, setImageModel] = useState('models/gemini-3-pro-image-preview'); // 'gemini' or 'imagen'
     const [contentType, setContentType] = useState('theory'); // 'theory', 'labs', 'both'
     const [labRequirements, setLabRequirements] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
@@ -369,7 +369,7 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="gemini">Gemini 2.5 Flash Image (Rápido, menor costo)</option>
+                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Rápido, menor costo)</option>
                                     <option value="imagen">Imagen 4.0 Ultra (Mejor calidad de texto, mayor costo)</option>
                                 </select>
                                 <small className="form-hint">
