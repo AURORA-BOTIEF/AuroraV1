@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import './InfographicViewer.css';
 
-const API_BASE = 'https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2';
+const API_BASE = 'https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod';
 
 function InfographicViewer() {
     const { folder } = useParams();
