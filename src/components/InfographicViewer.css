@@ -22,7 +22,9 @@
 }
 
 .btn-back,
-.btn-edit {
+.btn-edit,
+.btn-fullscreen,
+.btn-download {
     padding: 0.6rem 1.2rem;
     background-color: #4682B4;
     color: white;
@@ -32,10 +34,15 @@
     cursor: pointer;
     transition: background-color 0.3s;
     font-weight: 500;
+    white-space: nowrap;
+    z-index: 10;
+    position: relative;
 }
 
 .btn-back:hover,
-.btn-edit:hover {
+.btn-edit:hover,
+.btn-fullscreen:hover,
+.btn-download:hover {
     background-color: #3a6d99;
 }
 
@@ -284,6 +291,7 @@
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 1.5rem;
     align-content: start;
+    background: #1a1a1a;
 }
 
 .grid-slide-card {
@@ -297,6 +305,15 @@
 .grid-slide-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 8px 24px rgba(70, 130, 180, 0.3);
+}
+
+.grid-slide-card.hidden-slide-card {
+    opacity: 0.4;
+}
+
+.grid-slide-card.hidden-slide-card:hover {
+    transform: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .grid-slide-preview {
@@ -337,6 +354,15 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.hidden-indicator {
+    background: #ff6b6b;
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
 }
 
 /* Loading & Error States */
@@ -393,6 +419,48 @@
 
 .error-message button:hover {
     background-color: #3a6d99;
+}
+
+/* Print styles for PDF export */
+@media print {
+
+    .viewer-controls,
+    .slide-navigation,
+    .keyboard-hint {
+        display: none !important;
+    }
+
+    .viewer-container {
+        background: white;
+        position: static;
+    }
+
+    .presentation-view {
+        padding: 0;
+    }
+
+    .slide-viewport {
+        box-shadow: none;
+        border-radius: 0;
+        page-break-after: always;
+        max-width: 100%;
+        aspect-ratio: auto;
+    }
+
+    .slide {
+        page-break-after: always;
+        break-after: page;
+    }
+
+    /* Render all slides for printing */
+    .grid-view {
+        display: block !important;
+    }
+
+    .grid-slide-card {
+        page-break-after: always;
+        break-after: page;
+    }
 }
 
 @media (max-width: 768px) {

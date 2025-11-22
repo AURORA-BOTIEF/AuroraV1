@@ -13,6 +13,7 @@ function InfographicViewer() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [viewMode, setViewMode] = useState('presentation'); // 'presentation' or 'grid'
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     useEffect(() => {
         loadInfographic();
@@ -47,7 +48,13 @@ function InfographicViewer() {
             }
 
             const data = await response.json();
-            setInfographic(data);
+            // Filter out hidden slides for presentation view
+            const visibleSlides = data.slides.filter(slide => !slide.hidden);
+            setInfographic({
+                ...data,
+                allSlides: data.slides, // Keep all slides for grid view
+                slides: visibleSlides  // Only visible slides for presentation
+            });
         } catch (err) {
             console.error('Error loading infographic:', err);
             setError('Error al cargar la presentación. Por favor, intenta de nuevo.');
@@ -71,6 +78,23 @@ function InfographicViewer() {
     const goToSlide = (index) => {
         setCurrentSlideIndex(index);
         setViewMode('presentation');
+    };
+
+    const toggleFullscreen = () => {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+            setIsFullscreen(true);
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+                setIsFullscreen(false);
+            }
+        }
+    };
+
+    const downloadAsPDF = () => {
+        // Open print dialog which allows saving as PDF
+        window.print();
     };
 
     const renderSlide = (slide, index) => {
@@ -217,6 +241,22 @@ function InfographicViewer() {
                 </div>
 
                 <button
+                    onClick={downloadAsPDF}
+                    className="btn-download"
+                    title="Descargar como PDF"
+                >
+                    📄 PDF
+                </button>
+
+                <button
+                    onClick={toggleFullscreen}
+                    className="btn-fullscreen"
+                    title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                >
+                    {isFullscreen ? '⊗' : '⛶'} {isFullscreen ? 'Salir' : 'Pantalla completa'}
+                </button>
+
+                <button
                     onClick={() => navigate(`/presentaciones/editor/${folder}`)}
                     className="btn-edit"
                 >
@@ -265,11 +305,12 @@ function InfographicViewer() {
                 </div>
             ) : (
                 <div className="grid-view">
-                    {infographic.slides.map((slide, index) => (
+                    {(infographic.allSlides || infographic.slides).map((slide, index) => (
                         <div
                             key={index}
-                            className="grid-slide-card"
-                            onClick={() => goToSlide(index)}
+                            className={`grid-slide-card ${slide.hidden ? 'hidden-slide-card' : ''}`}
+                            onClick={() => !slide.hidden && goToSlide(index)}
+                            style={{ cursor: slide.hidden ? 'not-allowed' : 'pointer' }}
                         >
                             <div className="grid-slide-preview">
                                 {renderSlide(slide, index)}
@@ -277,6 +318,7 @@ function InfographicViewer() {
                             <div className="grid-slide-info">
                                 <span className="grid-slide-number">{index + 1}</span>
                                 <span className="grid-slide-title">{slide.title}</span>
+                                {slide.hidden && <span className="hidden-indicator">🚫 Oculta</span>}
                             </div>
                         </div>
                     ))}

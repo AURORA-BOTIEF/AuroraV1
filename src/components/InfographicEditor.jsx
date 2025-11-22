@@ -120,6 +120,13 @@ function InfographicEditor() {
         }
     };
 
+    const toggleSlideVisibility = (index) => {
+        const updated = { ...infographic };
+        updated.slides[index].hidden = !updated.slides[index].hidden;
+        setInfographic(updated);
+        setHasChanges(true);
+    };
+
     if (loading) {
         return (
             <div className="editor-container">
@@ -200,11 +207,25 @@ function InfographicEditor() {
                         {infographic.slides.map((slide, index) => (
                             <div
                                 key={index}
-                                className={`slide-item ${index === selectedSlideIndex ? 'active' : ''}`}
-                                onClick={() => setSelectedSlideIndex(index)}
+                                className={`slide-item ${index === selectedSlideIndex ? 'active' : ''} ${slide.hidden ? 'hidden-slide' : ''}`}
                             >
-                                <span className="slide-item-number">{index + 1}</span>
-                                <span className="slide-item-title">{slide.title}</span>
+                                <div
+                                    className="slide-item-content"
+                                    onClick={() => setSelectedSlideIndex(index)}
+                                >
+                                    <span className="slide-item-number">{index + 1}</span>
+                                    <span className="slide-item-title">{slide.title}</span>
+                                </div>
+                                <button
+                                    className="btn-toggle-visibility"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleSlideVisibility(index);
+                                    }}
+                                    title={slide.hidden ? 'Mostrar en presentación' : 'Ocultar en presentación'}
+                                >
+                                    {slide.hidden ? '👁️‍🗨️' : '👁️'}
+                                </button>
                             </div>
                         ))}
                     </div>
@@ -214,6 +235,9 @@ function InfographicEditor() {
                 <div className="edit-panel">
                     <div className="slide-edit-header">
                         <h3>Diapositiva {selectedSlideIndex + 1}</h3>
+                        {selectedSlide.hidden && (
+                            <span className="hidden-badge">🚫 Oculta en presentación</span>
+                        )}
                     </div>
 
                     <div className="edit-form">

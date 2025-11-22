@@ -138,7 +138,16 @@
     transition: all 0.3s;
     display: flex;
     align-items: center;
+    gap: 0.5rem;
+    justify-content: space-between;
+}
+
+.slide-item-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
     gap: 0.75rem;
+    cursor: pointer;
 }
 
 .slide-item:hover {
@@ -148,6 +157,36 @@
 .slide-item.active {
     background: #4682B4;
     color: white;
+}
+
+.slide-item.hidden-slide {
+    opacity: 0.5;
+    background: #f0f0f0;
+}
+
+.slide-item.hidden-slide .slide-item-title {
+    text-decoration: line-through;
+}
+
+.btn-toggle-visibility {
+    padding: 0.35rem 0.5rem;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.slide-item.active .btn-toggle-visibility {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-toggle-visibility:hover {
+    background: rgba(0, 0, 0, 0.1);
+    border-color: rgba(0, 0, 0, 0.2);
 }
 
 .slide-item-number {
@@ -183,12 +222,25 @@
     margin-bottom: 2rem;
     padding-bottom: 1rem;
     border-bottom: 2px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
 }
 
 .slide-edit-header h3 {
     margin: 0;
     font-size: 1.5rem;
     color: #333;
+}
+
+.hidden-badge {
+    background: #ff6b6b;
+    color: white;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
 }
 
 .edit-form {
