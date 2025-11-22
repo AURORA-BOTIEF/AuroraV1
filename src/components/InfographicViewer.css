@@ -21,38 +21,46 @@
 }
 
 .viewer-container.fullscreen-mode .presentation-view {
-    padding: 0;
+    padding: 0 !important;
+    margin: 0 !important;
     justify-content: center;
     align-items: center;
     background: #000;
 }
 
 .viewer-container.fullscreen-mode .slide-viewport {
-    max-width: 95vw;
-    max-height: 95vh;
-    width: 95vw;
-    height: auto;
-    box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1);
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Calculate proper 16:9 sizing for fullscreen - viewport fills screen maintaining aspect ratio */
+@media (min-aspect-ratio: 16/9) {
+    .viewer-container.fullscreen-mode .slide-viewport {
+        width: calc(100vh * 16 / 9);
+        height: 100vh;
+    }
+}
+
+@media (max-aspect-ratio: 16/9) {
+    .viewer-container.fullscreen-mode .slide-viewport {
+        width: 100vw;
+        height: calc(100vw * 9 / 16);
+    }
+}
+
+.viewer-container.fullscreen-mode .slide {
+    width: 100%;
+    height: 100%;
 }
 
 .viewer-container.fullscreen-mode .slide-navigation {
-    position: fixed;
-    bottom: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.7);
-    padding: 1rem 2rem;
-    border-radius: 50px;
+    display: none !important;
 }
 
 .viewer-container.fullscreen-mode .keyboard-hint {
-    position: fixed;
-    bottom: 0.5rem;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.5);
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
+    display: none !important;
 }
 
 .viewer-controls {

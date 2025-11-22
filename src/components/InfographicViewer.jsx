@@ -20,6 +20,22 @@ function InfographicViewer() {
     }, [folder]);
 
     useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+        };
+    }, []);
+
+    useEffect(() => {
         const handleKeyPress = (e) => {
             if (e.key === 'Escape') {
                 if (isFullscreen) {
@@ -91,7 +107,28 @@ function InfographicViewer() {
     };
 
     const toggleFullscreen = () => {
-        setIsFullscreen(!isFullscreen);
+        if (!document.fullscreenElement) {
+            // Request fullscreen on the viewer container
+            const container = document.querySelector('.viewer-container');
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            } else if (container.msRequestFullscreen) {
+                container.msRequestFullscreen();
+            }
+            setIsFullscreen(true);
+        } else {
+            // Exit fullscreen
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            setIsFullscreen(false);
+        }
     };
 
     const downloadAsPDF = () => {
