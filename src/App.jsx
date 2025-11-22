@@ -38,6 +38,9 @@ import BookBuilderPage from './components/BookBuilderPage.jsx';
 import BookEditorPage from './components/BookEditorPage.jsx';
 import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
 import FAQ from "./components/FAQ.jsx";
+import PresentacionesPage from './components/PresentacionesPage.jsx';
+import InfographicViewer from './components/InfographicViewer.jsx';
+import InfographicEditor from './components/InfographicEditor.jsx';
 
 
 
@@ -454,6 +457,10 @@ function App() {
                 <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
                 <Route path="faq" element={<FAQ />} />
               </Route>
+
+              <Route path="/presentaciones" element={<PresentacionesPage />} />
+              <Route path="/presentaciones/viewer/:folder" element={<InfographicViewer />} />
+              <Route path="/presentaciones/editor/:folder" element={<InfographicEditor />} />
 
               <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
               <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />

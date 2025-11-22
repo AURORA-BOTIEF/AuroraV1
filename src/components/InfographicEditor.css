@@ -1,0 +1,483 @@
+/* src/components/InfographicEditor.css */
+.editor-container {
+    width: 100vw;
+    height: 100vh;
+    background: #f5f5f5;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+}
+
+.editor-header {
+    background: white;
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    border-bottom: 2px solid #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.btn-back {
+    padding: 0.6rem 1.2rem;
+    background-color: #666;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    font-weight: 500;
+}
+
+.btn-back:hover {
+    background-color: #444;
+}
+
+.editor-title {
+    flex: 1;
+}
+
+.editor-title h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    color: #333;
+}
+
+.course-title {
+    display: block;
+    font-size: 0.85rem;
+    color: #888;
+    margin-top: 0.25rem;
+}
+
+.editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.unsaved-indicator {
+    color: #ff6b6b;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.btn-save,
+.btn-preview {
+    padding: 0.6rem 1.2rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-weight: 500;
+}
+
+.btn-save {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.btn-save:hover:not(:disabled) {
+    background-color: #45a049;
+}
+
+.btn-save:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.btn-preview {
+    background-color: #4682B4;
+    color: white;
+}
+
+.btn-preview:hover {
+    background-color: #3a6d99;
+}
+
+.editor-main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 250px 1fr 400px;
+    gap: 0;
+    overflow: hidden;
+}
+
+/* Slides Sidebar */
+.slides-sidebar {
+    background: white;
+    border-right: 2px solid #e0e0e0;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+.slides-sidebar h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+    color: #333;
+}
+
+.slides-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.slide-item {
+    padding: 0.75rem;
+    background: #f8f8f8;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.slide-item:hover {
+    background: #e8f4f8;
+}
+
+.slide-item.active {
+    background: #4682B4;
+    color: white;
+}
+
+.slide-item-number {
+    background: rgba(0, 0, 0, 0.1);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    min-width: 30px;
+    text-align: center;
+}
+
+.slide-item.active .slide-item-number {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.slide-item-title {
+    flex: 1;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Edit Panel */
+.edit-panel {
+    background: white;
+    overflow-y: auto;
+    padding: 2rem;
+}
+
+.slide-edit-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.slide-edit-header h3 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #333;
+}
+
+.edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-weight: 600;
+    color: #555;
+    font-size: 0.95rem;
+}
+
+.input-title,
+.input-subtitle {
+    padding: 0.75rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+.input-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.input-title:focus,
+.input-subtitle:focus {
+    outline: none;
+    border-color: #4682B4;
+}
+
+.content-block {
+    background: #f8f8f8;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 0.5rem;
+}
+
+.bullets-block {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.block-heading {
+    font-size: 0.9rem;
+    color: #666;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.bullets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.bullet-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.bullet-number {
+    background: #4682B4;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    min-width: 30px;
+    text-align: center;
+}
+
+.input-bullet {
+    flex: 1;
+    padding: 0.6rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    transition: border-color 0.3s;
+}
+
+.input-bullet:focus {
+    outline: none;
+    border-color: #4682B4;
+}
+
+.btn-remove-bullet {
+    padding: 0.4rem 0.7rem;
+    background-color: #ff6b6b;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    font-size: 1rem;
+}
+
+.btn-remove-bullet:hover:not(:disabled) {
+    background-color: #ff5252;
+}
+
+.btn-remove-bullet:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.btn-add-bullet {
+    padding: 0.6rem 1rem;
+    background-color: #4682B4;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    font-size: 0.9rem;
+    align-self: flex-start;
+}
+
+.btn-add-bullet:hover {
+    background-color: #3a6d99;
+}
+
+.image-block,
+.callout-block {
+    padding: 1rem;
+    background: #fff;
+    border-left: 4px solid #4682B4;
+    border-radius: 4px;
+}
+
+/* Preview Panel */
+.preview-panel {
+    background: #2a2a2a;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.preview-panel h3 {
+    color: white;
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+}
+
+.slide-preview {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.slide-preview .slide {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    font-size: 0.5rem;
+}
+
+.slide-preview .slide-header {
+    padding: 15px 25px;
+    background: linear-gradient(135deg, #003366, #4682B4);
+    color: white;
+    min-height: 60px;
+}
+
+.slide-preview .slide-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 5px;
+    line-height: 1.2;
+}
+
+.slide-preview .slide-subtitle {
+    font-size: 0.75rem;
+    opacity: 0.9;
+}
+
+.slide-preview .slide-content {
+    padding: 15px 25px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.slide-preview .bullets {
+    list-style: none;
+    margin: 10px 0;
+    padding: 0;
+}
+
+.slide-preview .bullets li {
+    font-size: 0.625rem;
+    line-height: 1.4;
+    padding: 2px 0 2px 17px;
+    margin-bottom: 2px;
+    position: relative;
+}
+
+.slide-preview .bullets li:before {
+    content: '▶';
+    position: absolute;
+    left: 0;
+    color: #FFC000;
+    font-size: 0.5rem;
+}
+
+.slide-preview .content-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #003366;
+    margin: 10px 0 5px 0;
+}
+
+.slide-preview .callout {
+    background: #FFC000;
+    padding: 10px;
+    border-radius: 4px;
+    margin: 10px 0;
+    font-size: 0.625rem;
+}
+
+/* Loading & Error */
+.loading-spinner,
+.error-message {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    text-align: center;
+}
+
+.spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #4682B4;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 1rem;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.error-message button {
+    margin-top: 1rem;
+    padding: 0.75rem 1.5rem;
+    background-color: #4682B4;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+@media (max-width: 1200px) {
+    .editor-main {
+        grid-template-columns: 200px 1fr;
+    }
+
+    .preview-panel {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .editor-main {
+        grid-template-columns: 1fr;
+    }
+
+    .slides-sidebar {
+        display: none;
+    }
+}

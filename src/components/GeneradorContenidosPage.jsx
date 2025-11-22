@@ -69,13 +69,13 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
-          <div className="opcion-menu disabled">
+          <Link to="/presentaciones" className="opcion-menu">
             <div className="icono">📊</div>
             <div className="texto">
               <h3>Presentaciones</h3>
               <p>Visualiza y edita tus presentaciones</p>
             </div>
-          </div>
+          </Link>
 
           <div className="opcion-menu disabled">
             <div className="icono">💻</div>
