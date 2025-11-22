@@ -84,7 +84,7 @@ function GeneradorCursos() {
         return true;
     };
 
-    const uploadToS3 = async (file) => {
+    const uploadToS3 = async (file, currentProjectFolder) => {
         try {
             const session = await fetchAuthSession();
             const s3Client = new S3Client({
@@ -92,7 +92,10 @@ function GeneradorCursos() {
                 credentials: session.credentials,
             });
 
-            const key = `uploads/${Date.now()}-${file.name}`;
+            // Change: Use project folder structure instead of generic uploads
+            // Old: const key = `uploads/${Date.now()}-${file.name}`;
+            const key = `${currentProjectFolder}/outline/${file.name}`;
+
             const fileSize = file.size || 0;
             const MAX_SINGLE_PUT = 64 * 1024 * 1024;
 
@@ -212,7 +215,8 @@ function GeneradorCursos() {
         try {
             // Step 1: Upload file to S3
             setStatusMessage('📤 Subiendo archivo de outline...');
-            const uploadedKey = await uploadToS3(outlineFile);
+            // Change: Pass projectFolder to upload function
+            const uploadedKey = await uploadToS3(outlineFile, projectFolder);
             console.log('Archivo subido:', uploadedKey);
 
             // Step 2: Start generation(s)
