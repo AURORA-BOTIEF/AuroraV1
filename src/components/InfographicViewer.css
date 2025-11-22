@@ -12,13 +12,60 @@
     z-index: 9999;
 }
 
+.viewer-container.fullscreen-mode {
+    background: #000;
+}
+
+.viewer-container.fullscreen-mode .viewer-controls {
+    display: none;
+}
+
+.viewer-container.fullscreen-mode .presentation-view {
+    padding: 0;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+}
+
+.viewer-container.fullscreen-mode .slide-viewport {
+    max-width: 95vw;
+    max-height: 95vh;
+    width: 95vw;
+    height: auto;
+    box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1);
+}
+
+.viewer-container.fullscreen-mode .slide-navigation {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7);
+    padding: 1rem 2rem;
+    border-radius: 50px;
+}
+
+.viewer-container.fullscreen-mode .keyboard-hint {
+    position: fixed;
+    bottom: 0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+}
+
 .viewer-controls {
     background: #2a2a2a;
     padding: 1rem 2rem;
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    gap: 1rem;
     border-bottom: 1px solid #444;
+    z-index: 10001;
+    position: relative;
+    flex-wrap: nowrap;
+    justify-content: space-between;
 }
 
 .btn-back,
@@ -35,8 +82,10 @@
     transition: background-color 0.3s;
     font-weight: 500;
     white-space: nowrap;
-    z-index: 10;
+    z-index: 10002;
     position: relative;
+    min-width: fit-content;
+    flex-shrink: 0;
 }
 
 .btn-back:hover,
@@ -78,6 +127,9 @@
     flex: 1;
     text-align: center;
     color: white;
+    min-width: 200px;
+    max-width: 40%;
+    overflow: hidden;
 }
 
 .viewer-title h2 {
@@ -91,6 +143,13 @@
     font-size: 0.85rem;
     color: #aaa;
     margin-top: 0.25rem;
+}
+
+.viewer-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-shrink: 0;
 }
 
 /* Presentation View */
@@ -291,7 +350,7 @@
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 1.5rem;
     align-content: start;
-    background: #1a1a1a;
+    background: #1a1a1a !important;
 }
 
 .grid-slide-card {

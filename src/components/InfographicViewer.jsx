@@ -21,20 +21,30 @@ function InfographicViewer() {
 
     useEffect(() => {
         const handleKeyPress = (e) => {
-            if (viewMode === 'presentation') {
+            if (e.key === 'Escape') {
+                if (isFullscreen) {
+                    setIsFullscreen(false);
+                } else if (viewMode === 'presentation') {
+                    navigate('/presentaciones');
+                }
+            } else if (viewMode === 'presentation' && !isFullscreen) {
                 if (e.key === 'ArrowRight' || e.key === ' ') {
                     nextSlide();
                 } else if (e.key === 'ArrowLeft') {
                     previousSlide();
-                } else if (e.key === 'Escape') {
-                    navigate('/presentaciones');
+                }
+            } else if (viewMode === 'presentation' && isFullscreen) {
+                if (e.key === 'ArrowRight' || e.key === ' ') {
+                    nextSlide();
+                } else if (e.key === 'ArrowLeft') {
+                    previousSlide();
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyPress);
         return () => window.removeEventListener('keydown', handleKeyPress);
-    }, [currentSlideIndex, viewMode, infographic]);
+    }, [currentSlideIndex, viewMode, infographic, isFullscreen]);
 
     const loadInfographic = async () => {
         setLoading(true);
@@ -81,15 +91,7 @@ function InfographicViewer() {
     };
 
     const toggleFullscreen = () => {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen();
-            setIsFullscreen(true);
-        } else {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-                setIsFullscreen(false);
-            }
-        }
+        setIsFullscreen(!isFullscreen);
     };
 
     const downloadAsPDF = () => {
@@ -211,7 +213,7 @@ function InfographicViewer() {
     const currentSlide = infographic.slides[currentSlideIndex];
 
     return (
-        <div className="viewer-container">
+        <div className={`viewer-container ${isFullscreen ? 'fullscreen-mode' : ''}`}>
             {/* Top Controls */}
             <div className="viewer-controls">
                 <button onClick={() => navigate('/presentaciones')} className="btn-back">
@@ -240,28 +242,30 @@ function InfographicViewer() {
                     </span>
                 </div>
 
-                <button
-                    onClick={downloadAsPDF}
-                    className="btn-download"
-                    title="Descargar como PDF"
-                >
-                    📄 PDF
-                </button>
+                <div className="viewer-actions">
+                    <button
+                        onClick={downloadAsPDF}
+                        className="btn-download"
+                        title="Descargar como PDF"
+                    >
+                        📄 PDF
+                    </button>
 
-                <button
-                    onClick={toggleFullscreen}
-                    className="btn-fullscreen"
-                    title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-                >
-                    {isFullscreen ? '⊗' : '⛶'} {isFullscreen ? 'Salir' : 'Pantalla completa'}
-                </button>
+                    <button
+                        onClick={toggleFullscreen}
+                        className="btn-fullscreen"
+                        title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                    >
+                        {isFullscreen ? '⊗' : '⛶'} {isFullscreen ? 'Salir' : 'Pantalla completa'}
+                    </button>
 
-                <button
-                    onClick={() => navigate(`/presentaciones/editor/${folder}`)}
-                    className="btn-edit"
-                >
-                    ✏️ Editar
-                </button>
+                    <button
+                        onClick={() => navigate(`/presentaciones/editor/${folder}`)}
+                        className="btn-edit"
+                    >
+                        ✏️ Editar
+                    </button>
+                </div>
             </div>
 
             {/* Main Content */}
