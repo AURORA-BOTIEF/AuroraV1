@@ -1,0 +1,118 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                 PPT GENERATION SYSTEM - QUICK REFERENCE                    ║
+║                      DEPLOYMENT COMPLETE ✅                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 QUICK START - TEST FULL WORKFLOW:
+
+1. Trigger execution:
+   aws stepfunctions start-execution \
+     --state-machine-arn arn:aws:states:us-east-1:746434296869:stateMachine:PptBatchOrchestrator \
+     --input '{"course_name":"251031-databricks-ciencia-datos","lessons":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],"bucket":"crewai-course-artifacts","project_folder":"251031-databricks-ciencia-datos"}' \
+     --region us-east-1
+
+2. Monitor logs:
+   aws logs tail /aws/lambda/StrandsPptMerger --follow --region us-east-1
+
+3. Check output:
+   aws s3 ls s3://crewai-course-artifacts/251031-databricks-ciencia-datos/infographics/ --region us-east-1
+
+4. Download PPT:
+   aws s3 cp s3://crewai-course-artifacts/251031-databricks-ciencia-datos/infographics/251031-databricks-ciencia-datos_test.pptx . --region us-east-1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 SYSTEM COMPONENTS:
+
+✅ StrandsInfographicGenerator (ARM64)
+   Updated: 2025-11-14T23:28:17Z | Memory: 1024MB | Timeout: 900s
+   Role: bedrock:Converse ✅
+
+✅ PptBatchOrchestrator (x86_64)
+   Updated: 2025-11-14T22:13:14Z | Memory: 512MB | Timeout: 60s
+
+✅ StrandsPptMerger (ARM64) ⭐ LATEST
+   Updated: 2025-11-17T01:51:59Z | Memory: 1024MB | Timeout: 600s
+   Features: ✅ Dynamic subtitles | ✅ Callout centering | ✅ Logo control
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 EXPECTED TIMING (16-lesson course):
+
+Batch 1 (Lessons 1-4):    ~14 min
+Batch 2 (Lessons 5-8):    ~14 min
+Batch 3 (Lessons 9-12):   ~14 min
+Batch 4 (Lessons 13-16):  ~14 min
+                          ─────────
+TOTAL:                    ~56 min ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ NEW FEATURES DEPLOYED:
+
+1. Dynamic Subtitle Sizing
+   • Calculates height based on text length
+   • Range: 0.5" (short) to 1.4" (long)
+   • Efficient space usage
+
+2. Vertical Callout Centering
+   • Detects slides with callouts but no bullets
+   • Centers callouts vertically
+   • Professional appearance
+
+3. Conditional Logo Removal
+   • Removes logos only on callout slides
+   • Prevents overlap
+   • Maintains corner branding
+
+4. Auto-fit Text Boxes
+   • Text wraps naturally to box width
+   • Prevents content overlap
+   • 0.1" gap between blocks
+
+5. Fixed S3 Client Passing
+   • Images now load correctly
+   • All 281 slides display content
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 EXPECTED RESULTS:
+
+✅ 281 slides total
+✅ All images loaded
+✅ Callouts properly positioned
+✅ Logos on non-callout slides only
+✅ Subtitles appropriately sized
+✅ No content overlap
+✅ Clean spacing throughout
+⚠️  4 slides with content overflow (known issue - to be fixed next)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 TROUBLESHOOTING:
+
+Check CloudWatch:
+  aws logs tail /aws/lambda/StrandsInfographicGenerator --follow
+
+Check S3:
+  aws s3 ls s3://crewai-course-artifacts/251031-databricks-ciencia-datos/infographics/
+
+Check State Machine:
+  aws stepfunctions describe-execution --execution-arn [arn] --region us-east-1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 FILES GENERATED:
+
+• infographic_final.html      (Complete merged HTML)
+• infographic_structure.json   (Complete merged structure)
+• 251031-databricks-ciencia-datos_test.pptx  (Final PPT - 32-40 MB)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STATUS: ✅ READY FOR PRODUCTION TESTING
+
+Next Phase: Add logs for content overflow investigation & implement splitting
+
