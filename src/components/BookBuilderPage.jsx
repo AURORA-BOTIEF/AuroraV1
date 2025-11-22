@@ -1,15 +1,14 @@
 // src/components/BookBuilderPage.jsx
 import React, { useState, useEffect } from 'react';
-import BookEditor from './BookEditor';
+import { useNavigate } from 'react-router-dom';
 import './BookBuilderPage.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 
 function BookBuilderPage() {
+    const navigate = useNavigate();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedProject, setSelectedProject] = useState(null);
-    const [showEditor, setShowEditor] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
     // Pagination state
@@ -84,15 +83,10 @@ function BookBuilderPage() {
     };
 
     const openBookEditor = (project, bookType = 'theory') => {
-        setSelectedProject({ ...project, bookType });
-        setShowEditor(true);
+        navigate(`/book-editor/${project.folder}?bookType=${bookType}`);
     };
 
-    const closeBookEditor = () => {
-        setShowEditor(false);
-        setSelectedProject(null);
-        loadProjects(currentPage); // Refresh in case book was modified
-    };
+
 
     // Filter locally for search within the current page
     // Note: For full dataset search, backend would need search support
@@ -107,15 +101,7 @@ function BookBuilderPage() {
         }
     };
 
-    if (showEditor && selectedProject) {
-        return (
-            <BookEditor
-                projectFolder={selectedProject.folder}
-                bookType={selectedProject.bookType || 'theory'}
-                onClose={closeBookEditor}
-            />
-        );
-    }
+    // Removed: if (showEditor && selectedProject) { ... } block
 
     return (
         <div className="book-builder-page">
@@ -166,7 +152,7 @@ function BookBuilderPage() {
                                                 className="btn-primary"
                                                 onClick={() => openBookEditor(project, 'theory')}
                                             >
-                                                📚 Libro Teoría
+                                                📚 Ver/Editar Libro
                                             </button>
                                             {project.hasLabGuide && (
                                                 <button

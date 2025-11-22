@@ -1,8 +1,10 @@
 // src/components/BookEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoader';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { load as loadYaml } from 'js-yaml';
 import './BookEditor.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
@@ -10,12 +12,14 @@ const IDENTITY_POOL_ID = import.meta.env.VITE_IDENTITY_POOL_ID || import.meta.en
 const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
 function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
+    const navigate = useNavigate();
     const [bookData, setBookData] = useState(null);
     const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
     const [loading, setLoading] = useState(true);
     const [loadingImages, setLoadingImages] = useState(false);
     const [saving, setSaving] = useState(false);
     const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
+    const [currentLabLessonIndex, setCurrentLabLessonIndex] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
     const [versions, setVersions] = useState([]);
     const [labGuideVersions, setLabGuideVersions] = useState([]);
@@ -68,7 +72,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
         // PRIORITY 3: Try to extract from title (e.g., "Module 1: Lesson 2 - Title")
         if (lesson.title) {
-            const match = lesson.title.match(/Module\s*(\d+)/i);
+            const match = lesson.title.match(/(?:Module|Módulo)\s*(\d+)/i);
             if (match) {
                 return {
                     moduleNumber: parseInt(match[1]),
@@ -87,10 +91,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
     // Group lessons by module
     const groupLessonsByModule = () => {
-        if (!bookData || !bookData.lessons || !Array.isArray(bookData.lessons)) return {};
+        const data = viewMode === 'book' ? bookData : labGuideData;
+        if (!data || !data.lessons || !Array.isArray(data.lessons)) return {};
 
         const modules = {};
-        bookData.lessons.forEach((lesson, index) => {
+        data.lessons.forEach((lesson, index) => {
             const { moduleNumber } = extractModuleInfo(lesson, index);
             if (!modules[moduleNumber]) {
                 modules[moduleNumber] = {
@@ -130,6 +135,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const renderLessonsByModule = () => {
         const modules = groupLessonsByModule();
         const moduleNumbers = Object.keys(modules).sort((a, b) => parseInt(a) - parseInt(b));
+        const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+        const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
 
         return moduleNumbers.map(moduleNum => {
             const module = modules[moduleNum];
@@ -137,7 +144,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             // Get module title from first lesson's moduleTitle property, or use default
             const firstLesson = module.lessons[0];
-            const moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum}`;
+            let moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum}`;
+
+            // Ensure localization
+            if (moduleTitle && typeof moduleTitle === 'string') {
+                moduleTitle = moduleTitle.replace(/\bModule\b/g, 'Módulo');
+            }
 
             return (
                 <div key={moduleNum} className="module-section">
@@ -154,8 +166,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                             {module.lessons.map((lesson) => (
                                 <div
                                     key={lesson.originalIndex}
-                                    className={`lesson-item ${lesson.originalIndex === currentLessonIndex ? 'active' : ''}`}
-                                    onClick={() => setCurrentLessonIndex(lesson.originalIndex)}
+                                    className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
+                                    onClick={() => setActiveIndex(lesson.originalIndex)}
                                 >
                                     <span className="lesson-number">L{lesson.lessonNumberInModule || extractModuleInfo(lesson, lesson.originalIndex).lessonNumber}</span>
                                     <span className="lesson-title-text">{lesson.title || `Lección ${lesson.originalIndex + 1}`}</span>
@@ -251,7 +263,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                     ...item,
                                     moduleNumber: moduleIdx + 1,
                                     lessonNumberInModule: itemIdx + 1,
-                                    moduleTitle: module.module_title || module.title || `Module ${moduleIdx + 1}`,
+                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
                                     // Ensure filename follows the pattern for module grouping
                                     filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });
@@ -323,11 +335,27 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     throw new Error('El formato del libro no es válido: lessons no es un array');
                 }
             } else if (data.bookContent) {
-                // Replace S3 URLs with data URLs before parsing
-                console.log('Loading images from S3 (inlined bookContent)...');
-                const contentWithImages = await replaceS3UrlsWithDataUrls(data.bookContent);
-                const parsedBook = parseMarkdownToBook(contentWithImages);
-                bookToSet = parsedBook;
+                // Parse book content immediately without waiting for images
+                console.log('Parsing book content (images will load in background)...');
+                const parsedBook = parseMarkdownToBook(data.bookContent);
+
+                // Set book data immediately for fast UI display
+                setBookData(parsedBook);
+                setOriginalBookData(JSON.parse(JSON.stringify(parsedBook)));
+                setLoadingImages(false);
+
+                // Load images in the background
+                console.log('Loading images from S3 in background...');
+                replaceS3UrlsWithDataUrls(data.bookContent).then(contentWithImages => {
+                    const parsedBookWithImages = parseMarkdownToBook(contentWithImages);
+                    setBookData(parsedBookWithImages);
+                    setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
+                    console.log('Images loaded successfully');
+                }).catch(err => {
+                    console.error('Error loading images:', err);
+                });
+
+                return; // Exit early since we've set the state
             } else if (data.bookJsonUrl) {
                 // Fetch JSON via presigned URL
                 console.log('Fetching book JSON from presigned URL...');
@@ -356,9 +384,25 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 const mdResp = await fetch(data.bookMdUrl);
                 if (!mdResp.ok) throw new Error('Failed to fetch book markdown from S3');
                 const markdown = await mdResp.text();
-                const contentWithImages = await replaceS3UrlsWithDataUrls(markdown);
-                const parsedBook = parseMarkdownToBook(contentWithImages);
-                bookToSet = parsedBook;
+
+                // Parse immediately without waiting for images
+                const parsedBook = parseMarkdownToBook(markdown);
+                setBookData(parsedBook);
+                setOriginalBookData(JSON.parse(JSON.stringify(parsedBook)));
+                setLoadingImages(false);
+
+                // Load images in background
+                console.log('Loading images from S3 in background...');
+                replaceS3UrlsWithDataUrls(markdown).then(contentWithImages => {
+                    const parsedBookWithImages = parseMarkdownToBook(contentWithImages);
+                    setBookData(parsedBookWithImages);
+                    setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
+                    console.log('Images loaded successfully');
+                }).catch(err => {
+                    console.error('Error loading images:', err);
+                });
+
+                return; // Exit early since we've set the state
             } else {
                 throw new Error('No hay datos del libro disponibles');
             }
@@ -393,8 +437,47 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const labGuidePrefix = `${projectFolder}/book/`;
+            const outlinePrefix = `${projectFolder}/outline/`;
 
-            // List files in the book folder to find lab guide
+            // 1. Fetch Outline
+            const outlineResponse = await s3.send(new ListObjectsV2Command({
+                Bucket: bucketName,
+                Prefix: outlinePrefix,
+                MaxKeys: 10
+            }));
+
+            let outlineData = null;
+            let outlineFilename = 'none';
+
+            if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                // Prioritize YAML over JSON
+                let outlineFile = outlineResponse.Contents.find(obj =>
+                    obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                );
+
+                if (!outlineFile) {
+                    outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                }
+
+                if (outlineFile) {
+                    outlineFilename = outlineFile.Key;
+                    console.log('Loading outline from:', outlineFilename);
+
+                    const outlineObj = await s3.send(new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: outlineFile.Key
+                    }));
+                    const outlineContent = await outlineObj.Body.transformToString();
+
+                    if (outlineFile.Key.endsWith('.json')) {
+                        outlineData = JSON.parse(outlineContent);
+                    } else {
+                        outlineData = loadYaml(outlineContent);
+                    }
+                }
+            }
+
+            // 2. Fetch Lab Guide Markdown
             const response = await s3.send(new ListObjectsV2Command({
                 Bucket: bucketName,
                 Prefix: labGuidePrefix,
@@ -406,25 +489,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 return;
             }
 
-            console.log('Files in book folder:');
-            response.Contents.forEach(obj => {
-                console.log('  -', obj.Key);
-            });
-
             // Look for lab guide file (_LabGuide_complete)
             const labGuideFile = response.Contents.find(obj =>
                 obj.Key && obj.Key.includes('_LabGuide_complete')
             );
 
             if (!labGuideFile) {
-                console.log('No lab guide file found. Searched for files containing "_LabGuide_complete"');
-                console.log('Available files:', response.Contents.map(obj => obj.Key).join(', '));
+                console.log('No lab guide file found.');
                 return;
             }
 
             console.log('Found lab guide:', labGuideFile.Key);
 
-            // Download the lab guide content
             const labGuideResponse = await s3.send(new GetObjectCommand({
                 Bucket: bucketName,
                 Key: labGuideFile.Key
@@ -432,20 +508,47 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             const labGuideContent = await labGuideResponse.Body.transformToString();
 
-            // Process images in lab guide content
-            console.log('Processing images in lab guide...');
-            const contentWithImages = await replaceS3UrlsWithDataUrls(labGuideContent);
+            // 3. Parse using Outline immediately without waiting for images
+            let parsedBook;
+            if (outlineData) {
+                console.log('Parsing Lab Guide using Outline (images will load in background)...');
+                parsedBook = parseMarkdownWithOutline(labGuideContent, outlineData, { onlyLabs: true, filename: outlineFilename });
+                console.log(`Parsed ${parsedBook.lessons.length} lessons using outline.`);
+            } else {
+                console.log('Parsing Lab Guide using simple headers (fallback)...');
+                parsedBook = parseMarkdownToBook(labGuideContent);
+            }
 
+            // Set Lab Guide data immediately for fast UI display
             setLabGuideData({
-                content: contentWithImages,
+                ...parsedBook,
                 filename: labGuideFile.Key.split('/').pop(),
                 lastModified: labGuideFile.LastModified
+            });
+
+            // Load images in the background
+            console.log('Loading Lab Guide images from S3 in background...');
+            replaceS3UrlsWithDataUrls(labGuideContent).then(contentWithImages => {
+                let parsedBookWithImages;
+                if (outlineData) {
+                    parsedBookWithImages = parseMarkdownWithOutline(contentWithImages, outlineData, { onlyLabs: true, filename: outlineFilename });
+                } else {
+                    parsedBookWithImages = parseMarkdownToBook(contentWithImages);
+                }
+
+                setLabGuideData({
+                    ...parsedBookWithImages,
+                    filename: labGuideFile.Key.split('/').pop(),
+                    lastModified: labGuideFile.LastModified
+                });
+                console.log('Lab Guide images loaded successfully');
+            }).catch(err => {
+                console.error('Error loading Lab Guide images:', err);
             });
 
             console.log('Lab guide loaded successfully');
         } catch (error) {
             console.error('Error loading lab guide:', error);
-            // Don't show alert - lab guide is optional
         }
     };
 
@@ -481,10 +584,32 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
 
             // Get the current content - use editing HTML if available
-            const currentContent = labGuideEditingHtml || labGuideData.content;
+            // If editing, we need to update the current lesson's content in the local copy first
+            let contentToSave = labGuideData;
 
-            // Convert HTML back to markdown for storage
-            const markdown = convertHtmlToMarkdown(currentContent);
+            if (isEditing) {
+                const currentHtml = labGuideEditingHtml || editorRef.current?.innerHTML || '';
+                // We need to convert this HTML to markdown and update the specific lesson
+                // But wait, labGuideEditingHtml is just for the current lesson.
+                // We need to update the specific lesson in the labGuideData structure.
+
+                const markdown = convertHtmlToMarkdown(currentHtml);
+                const updatedLessons = [...(labGuideData.lessons || [])];
+                if (updatedLessons[currentLabLessonIndex]) {
+                    updatedLessons[currentLabLessonIndex] = {
+                        ...updatedLessons[currentLabLessonIndex],
+                        content: markdown
+                    };
+                }
+
+                contentToSave = {
+                    ...labGuideData,
+                    lessons: updatedLessons
+                };
+            }
+
+            // Convert the entire book structure back to markdown
+            const markdown = generateMarkdownFromBook(contentToSave);
 
             // Save as a version in lab-versions folder
             const versionKey = `${projectFolder}/lab-versions/${versionFilename}`;
@@ -533,10 +658,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             }
 
             // Update lab guide data with the current content
-            setLabGuideData({
-                ...labGuideData,
-                content: currentContent
-            });
+            setLabGuideData(contentToSave);
 
             setNewLabGuideVersionName('');
             alert('¡Versión de Lab Guide guardada exitosamente!');
@@ -575,16 +697,216 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             lessons.push(currentLesson);
         }
 
+        return { lessons };
+
+
+    };
+
+    const parseMarkdownWithOutline = (markdown, outline, options = {}) => {
+        const { onlyLabs = false, filename = 'unknown' } = options;
+        const normalizedMd = markdown.replace(/\r\n/g, '\n');
+        const lines = normalizedMd.split('\n');
+
+        // 1. Extract all headers with their line numbers
+        const headers = [];
+        // Allow optional space after #
+        const headerRegex = /^(#{1,6})\s*(.+)$/;
+
+        lines.forEach((line, index) => {
+            const match = line.match(headerRegex);
+            if (match) {
+                headers.push({
+                    level: match[1].length,
+                    title: match[2].trim(),
+                    lineIndex: index,
+                    raw: line
+                });
+            }
+        });
+
+        // Debug info collector
+        const debugLog = [];
+        debugLog.push(`Outline File: ${filename}`);
+        debugLog.push(`Found ${headers.length} headers in markdown.`);
+        if (headers.length > 0) {
+            debugLog.push(`First 5 headers: ${headers.slice(0, 5).map(h => h.title).join(', ')}`);
+        }
+
+        // 2. Map outline items to headers
+        const modules = [];
+        const flatLessons = [];
+
+        // Helper to normalize strings for comparison
+        const normalize = (str) => str.toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+            .replace(/[^\w\s]/g, '') // Remove non-word chars
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // Helper to find best matching header
+        const findHeader = (title, startLine = 0) => {
+            if (!title) return null;
+            const normTitle = normalize(title);
+
+            // 1. Exact match (case insensitive, normalized)
+            let match = headers.find(h => h.lineIndex >= startLine && normalize(h.title) === normTitle);
+            if (match) return match;
+
+            // 2. Try "Module X" / "Módulo X" match for modules
+            // Matches "Module 1", "Módulo 1", "Module 01", etc.
+            const modMatch = title.match(/(?:Module|Módulo)\s+(\d+)/i);
+            if (modMatch) {
+                const modNumber = modMatch[1];
+                // Look for header containing "Module <num>" or "Modulo <num>"
+                // We use word boundaries or just simple inclusion?
+                // "module 1" should match "module 1" or "module 01"
+                // Let's try simple inclusion of the number
+                match = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+                    // Check for "module <num>" or "modulo <num>"
+                    if (normH.includes(`module ${modNumber}`) || normH.includes(`modulo ${modNumber}`)) return true;
+                    if (normH.includes(`module 0${modNumber}`) || normH.includes(`modulo 0${modNumber}`)) return true;
+                    return false;
+                });
+                if (match) return match;
+            }
+
+            // 3. Strong fuzzy match (contains) - Header contains Outline Title
+            match = headers.find(h => h.lineIndex >= startLine && normalize(h.title).includes(normTitle));
+            if (match) return match;
+
+            // 4. Reverse contains (Outline Title contains Header)
+            match = headers.find(h => normTitle.includes(normalize(h.title)));
+
+            return match;
+        };
+
+        let lastLineIndex = 0; // This variable will become obsolete but is kept for now to minimize diff
+
+        // Track which headers have already been matched to avoid duplicates
+        const usedHeaders = new Set();
+
+        // Access modules from outline.course.modules (YAML structure) or outline.modules (flat structure)
+        const modulesList = (outline.course && outline.course.modules) || outline.modules || [];
+
+        if (modulesList.length === 0) {
+            debugLog.push("CRITICAL: No modules found in outline object. Checked outline.course.modules and outline.modules.");
+            debugLog.push(`Outline keys: ${Object.keys(outline).join(', ')} `);
+            if (outline.course) debugLog.push(`Outline.course keys: ${Object.keys(outline.course).join(', ')} `);
+        }
+
+        // Iterate through outline modules
+        modulesList.forEach((outModule, modIdx) => {
+            const moduleObj = {
+                title: outModule.title,
+                lessons: []
+            };
+
+            debugLog.push(`Processing Module: "${outModule.title}"`);
+            debugLog.push(`  Module has ${outModule.lessons ? outModule.lessons.length : 0} lessons in outline`);
+
+            // Collect all potential lesson items (Lessons + Lab Activities)
+            const moduleItems = [];
+
+            if (outModule.lessons) {
+                outModule.lessons.forEach((outLesson) => {
+                    // Add the Lesson itself (ONLY if not in onlyLabs mode)
+                    if (!onlyLabs) {
+                        moduleItems.push({
+                            title: outLesson.title,
+                            type: 'lesson',
+                            original: outLesson
+                        });
+                    }
+
+                    // Add Lab Activities nested in the lesson
+                    if (outLesson.lab_activities) {
+                        outLesson.lab_activities.forEach(lab => {
+                            moduleItems.push({
+                                title: lab.title,
+                                type: 'lab',
+                                original: lab
+                            });
+                        });
+                    }
+                });
+            }
+
+            // Now try to find headers for these items
+            // The module assignment comes from the outline, not from markdown headers
+            moduleItems.forEach((item, idx) => {
+                // Search the entire document for this lab activity
+                const header = findHeader(item.title, 0);
+
+                if (header && !usedHeaders.has(header.lineIndex)) {
+                    usedHeaders.add(header.lineIndex);
+
+                    const lessonObj = {
+                        title: item.title,
+                        content: '',
+                        module_title: outModule.title,  // Module comes from outline structure
+                        moduleNumber: modIdx + 1,  // Set moduleNumber to prevent fallback logic
+                        lesson_number: flatLessons.length + 1,
+                        filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
+                        startLine: header.lineIndex,
+                        type: item.type
+                    };
+
+                    moduleObj.lessons.push(lessonObj);
+                    flatLessons.push(lessonObj);
+
+                    debugLog.push(`  ✓ Matched "${item.title}" -> "${header.title}" (Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`);
+                } else if (header && usedHeaders.has(header.lineIndex)) {
+                    debugLog.push(`  ⚠ Header for "${item.title}" already used`);
+                } else {
+                    debugLog.push(`  ✗ FAILED to match "${item.title}"`);
+                }
+            });
+
+            // If no items found for this module, but we have a module header,
+            // maybe we should add a placeholder or the whole module content?
+            // But for Lab Guide, usually there are items.
+
+            modules.push(moduleObj);
+        });
+
+        // 3. Extract content for each lesson
+        // Sort by line number to ensure correct order and content capture
+        const sortedLessons = flatLessons.sort((a, b) => a.startLine - b.startLine);
+
+        sortedLessons.forEach((lesson, idx) => {
+            const nextLesson = sortedLessons[idx + 1];
+
+            // The end line is the start of the next lesson, OR the start of the next Module (if we tracked that)
+            // But simpler: just go until the next *found* lesson.
+            // This effectively merges "fragments" (unmatched headers) into the current lesson.
+            const endLine = nextLesson ? nextLesson.startLine : lines.length;
+
+            // Extract lines
+            // We start from startLine + 1 to skip the header itself (optional, but usually cleaner)
+            // Or keep the header? The BookEditor usually expects content *without* the main title if it renders it separately.
+            // But here, let's keep the header if it's part of the flow, or remove it if it duplicates the sidebar title.
+            // Let's include the header line for context, or maybe startLine + 1.
+            // Standard `parseMarkdownToBook` excludes the header (line.substring(2)).
+            // Let's exclude the header line.
+            const contentLines = lines.slice(lesson.startLine + 1, endLine);
+            lesson.content = contentLines.join('\n').trim();
+
+            delete lesson.startLine;
+        });
+
         return {
             metadata: {
                 title: '📚 Libro del Curso',
                 author: 'Aurora AI',
                 generated_at: new Date().toISOString(),
-                total_lessons: lessons.length,
-                total_words: lessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0)
+                total_lessons: flatLessons.length,
+                total_words: flatLessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0),
+                debug_log: debugLog // Return log
             },
-            lessons: lessons,
-            table_of_contents: lessons.map(lesson => `- ${lesson.title}`)
+            lessons: flatLessons,
+            table_of_contents: flatLessons.map(lesson => `- ${lesson.title} `)
         };
     };
 
@@ -1306,6 +1628,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     ...(updatedLessons[currentLessonIndex] || {}),
                     content: markdown
                 };
+
                 bookToVersion = {
                     ...bookData,
                     lessons: updatedLessons,
@@ -1314,6 +1637,23 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         total_words: updatedLessons.reduce((sum, lesson) => sum + (lesson.content || '').split(/\s+/).length, 0)
                     }
                 };
+
+                // CRITICAL: Also update modules structure if it exists
+                if (bookData.modules && Array.isArray(bookData.modules)) {
+                    const updatedModules = bookData.modules.map(module => {
+                        return {
+                            ...module,
+                            lessons: (module.lessons || []).map((moduleLesson, idx) => {
+                                const matchingLesson = updatedLessons.find(l =>
+                                    l.title === moduleLesson.title ||
+                                    l.lesson_number === moduleLesson.lesson_number
+                                );
+                                return matchingLesson || moduleLesson;
+                            })
+                        };
+                    });
+                    bookToVersion.modules = updatedModules;
+                }
             }
 
             // CRITICAL: Replace ALL embedded images in ALL lessons with S3 URLs
@@ -1355,10 +1695,32 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
                 if (totalImagesFound > 0) {
                     console.log(`✅ Processed ${totalImagesUploaded}/${totalImagesFound} embedded images`);
+
+                    // CRITICAL: Update BOTH lessons and modules structures
                     bookToVersion = {
                         ...bookToVersion,
                         lessons: cleanedLessons
                     };
+
+                    // If modules structure exists, update it too
+                    if (bookToVersion.modules && Array.isArray(bookToVersion.modules)) {
+                        console.log('🔄 Updating modules structure to match lessons...');
+                        const updatedModules = bookToVersion.modules.map(module => {
+                            return {
+                                ...module,
+                                lessons: (module.lessons || []).map((moduleLesson, idx) => {
+                                    // Find corresponding lesson in cleanedLessons by index or title
+                                    const matchingLesson = cleanedLessons.find(l =>
+                                        l.title === moduleLesson.title ||
+                                        l.lesson_number === moduleLesson.lesson_number
+                                    );
+                                    return matchingLesson || moduleLesson;
+                                })
+                            };
+                        });
+                        bookToVersion.modules = updatedModules;
+                        console.log('✅ Modules structure updated');
+                    }
                 } else {
                     console.log('✅ No embedded images found - all images already on S3');
                 }
@@ -1457,7 +1819,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const handleContentChange = (e) => {
         if (isEditing) {
             const htmlContent = e.target.innerHTML;
-            setEditingHtml(htmlContent);
+            if (viewMode === 'book') {
+                setEditingHtml(htmlContent);
+            } else {
+                setLabGuideEditingHtml(htmlContent);
+            }
         }
     };
 
@@ -1509,7 +1875,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                 // revoke local object URL
                                 try { URL.revokeObjectURL(localUrl); } catch (e) { }
                                 // sync editingHtml
-                                setEditingHtml(editorRef.current?.innerHTML ?? '');
+                                if (viewMode === 'book') {
+                                    setEditingHtml(editorRef.current?.innerHTML ?? '');
+                                } else {
+                                    setLabGuideEditingHtml(editorRef.current?.innerHTML ?? '');
+                                }
                             } catch (err) {
                                 console.error('Failed to upload pasted file image:', err);
                             }
@@ -1519,7 +1889,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     }
                 }
                 // update editingHtml after inserts
-                setEditingHtml(editorRef.current?.innerHTML ?? '');
+                if (viewMode === 'book') {
+                    setEditingHtml(editorRef.current?.innerHTML ?? '');
+                } else {
+                    setLabGuideEditingHtml(editorRef.current?.innerHTML ?? '');
+                }
                 return;
             }
 
@@ -1800,52 +2174,75 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
     // Save editingHtml back into bookData (convert to markdown) when finalizing edit
     const finalizeEditing = async () => {
-        // Don't process book data if we're in lab guide mode
-        if (viewMode === 'lab') {
-            setIsEditing(false);
-            return;
-        }
-
-        if (!bookData) return;
-
         console.log('=== Finalizing Edit START ===');
         const startTime = performance.now();
 
-        const html = editingHtml ?? editorRef.current?.innerHTML ?? '';
+        const html = (viewMode === 'book' ? editingHtml : labGuideEditingHtml) ?? editorRef.current?.innerHTML ?? '';
         console.log('HTML to convert length:', html.length);
 
         const markdown = convertHtmlToMarkdown(html);
         console.log('Markdown result length:', markdown.length);
 
-        // Update the lesson content
-        const updatedLessons = [...bookData.lessons];
-        updatedLessons[currentLessonIndex] = {
-            ...updatedLessons[currentLessonIndex],
-            content: markdown
-        };
+        if (viewMode === 'book') {
+            if (!bookData) return;
+            // Update the lesson content
+            const updatedLessons = [...bookData.lessons];
+            updatedLessons[currentLessonIndex] = {
+                ...updatedLessons[currentLessonIndex],
+                content: markdown
+            };
 
-        const updatedBookData = {
-            ...bookData,
-            lessons: updatedLessons,
-            metadata: {
-                ...bookData.metadata,
-                total_words: updatedLessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0)
+            const updatedBookData = {
+                ...bookData,
+                lessons: updatedLessons,
+                metadata: {
+                    ...bookData.metadata,
+                    total_words: updatedLessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0)
+                }
+            };
+
+            setBookData(updatedBookData);
+
+            // Process images in the updated markdown for display
+            const contentWithImages = await replaceS3UrlsWithDataUrls(markdown);
+            updatedLessons[currentLessonIndex].content = contentWithImages;
+            setBookData({
+                ...updatedBookData,
+                lessons: updatedLessons
+            });
+
+            setEditingHtml(null);
+        } else {
+            if (!labGuideData) return;
+            // Update the specific lesson in labGuideData
+            const updatedLessons = [...(labGuideData.lessons || [])];
+            if (updatedLessons[currentLabLessonIndex]) {
+                updatedLessons[currentLabLessonIndex] = {
+                    ...updatedLessons[currentLabLessonIndex],
+                    content: markdown
+                };
             }
-        };
 
-        setBookData(updatedBookData);
+            const updatedLabData = {
+                ...labGuideData,
+                lessons: updatedLessons
+            };
 
-        // Process images in the updated markdown for display
-        const contentWithImages = await replaceS3UrlsWithDataUrls(markdown);
-        updatedLessons[currentLessonIndex].content = contentWithImages;
-        setBookData({
-            ...updatedBookData,
-            lessons: updatedLessons
-        });
+            setLabGuideData(updatedLabData);
+
+            // Process images
+            const contentWithImages = await replaceS3UrlsWithDataUrls(markdown);
+            updatedLessons[currentLabLessonIndex].content = contentWithImages;
+            setLabGuideData({
+                ...updatedLabData,
+                lessons: updatedLessons
+            });
+
+            setLabGuideEditingHtml(null);
+        }
 
         // Exit edit mode - the useEffect will handle re-rendering the formatted HTML
         setIsEditing(false);
-        setEditingHtml(null);
 
         const endTime = performance.now();
         console.log(`=== Finalizing Edit END (took ${(endTime - startTime).toFixed(2)}ms) ===`);
@@ -1872,8 +2269,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             document.execCommand(command, false, value);
             // Update editingHtml after command
+            // Update editingHtml after command
             const editor = editorRef.current;
-            if (editor) setEditingHtml(editor.innerHTML);
+            if (editor) {
+                if (viewMode === 'book') {
+                    setEditingHtml(editor.innerHTML);
+                } else {
+                    setLabGuideEditingHtml(editor.innerHTML);
+                }
+            }
         } catch (e) {
             console.error('execCommand failed:', e);
         }
@@ -1939,7 +2343,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         span.appendChild(range.extractContents());
         range.insertNode(span);
         const editor = editorRef.current;
-        if (editor) setEditingHtml(editor.innerHTML);
+        if (editor) {
+            if (viewMode === 'book') {
+                setEditingHtml(editor.innerHTML);
+            } else {
+                setLabGuideEditingHtml(editor.innerHTML);
+            }
+        }
 
         // Visual feedback
         alert('✅ Formato aplicado');
@@ -2121,7 +2531,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         return <div className="book-editor-error">Este libro no contiene lecciones.</div>;
     }
 
-    const currentLesson = bookData.lessons?.[currentLessonIndex] || { title: '', content: '' };
+    const activeBookData = viewMode === 'book' ? bookData : labGuideData;
+    const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+    const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+    const currentLesson = activeBookData?.lessons?.[activeIndex] || { title: '', content: '' };
 
     return (
         <div className="book-editor">
@@ -2139,7 +2552,24 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 </div>
             )}
             <div className="book-editor-header">
-                <h2>📚</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '15px' }}>
+                    <button
+                        onClick={() => navigate('/generador-contenidos/book-builder')}
+                        className="nav-icon-btn"
+                        title="Volver a la lista"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem' }}
+                    >
+                        ⬅️
+                    </button>
+                    <button
+                        onClick={() => navigate('/')}
+                        className="nav-icon-btn"
+                        title="Ir al inicio"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem' }}
+                    >
+                        🏠
+                    </button>
+                </div>
                 <div className="editor-toolbar-compact">
                     <button onClick={() => execCommand('bold')} title="Negrita"><strong>B</strong></button>
                     <button onClick={() => execCommand('italic')} title="Cursiva"><em>I</em></button>
@@ -2292,236 +2722,169 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 </div>
             )}
             <div className="book-editor-content">
-                {viewMode === 'book' ? (
-                    <>
-                        <div className="lesson-navigator">
-                            <h3>Contenido del Libro</h3>
-                            <div className="navigator-stats">
-                                {Object.keys(groupLessonsByModule()).length} módulos · {bookData.lessons.length} lecciones
-                            </div>
-                            <div className="navigator-actions">
-                                <button
-                                    className="btn-toggle-all"
-                                    onClick={toggleAllModules}
-                                    title={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
-                                >
-                                    {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "📂 Expandir Todo" : "📁 Colapsar Todo"}
-                                </button>
-                            </div>
-                            <div className="lesson-list">
-                                {renderLessonsByModule()}
-                            </div>
+                <div className="lesson-navigator" data-view-mode={viewMode}>
+                    <h3>{viewMode === 'book' ? 'Contenido del Libro' : 'Contenido del Lab Guide'}</h3>
+                    <div className="navigator-stats">
+                        {Object.keys(groupLessonsByModule()).length} módulos · {activeBookData?.lessons?.length || 0} lecciones
+                    </div>
+                    <div className="navigator-actions">
+                        <button
+                            className="btn-toggle-all"
+                            onClick={toggleAllModules}
+                            title={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
+                        >
+                            {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "📂 Expandir Todo" : "📁 Colapsar Todo"}
+                        </button>
+                    </div>
+                    <div className="lesson-list">
+                        {renderLessonsByModule()}
+                    </div>
+                </div>
+                <div className="lesson-editor">
+                    {isEditing && (
+                        <div className="save-version-inline">
+                            <input
+                                value={viewMode === 'book' ? newVersionName : newLabGuideVersionName}
+                                onChange={e => viewMode === 'book' ? setNewVersionName(e.target.value) : setNewLabGuideVersionName(e.target.value)}
+                                placeholder={viewMode === 'book' ? "Nombre de la versión" : "Nombre de la versión del Lab Guide"}
+                                className="version-name-input"
+                            />
+                            <button
+                                onClick={viewMode === 'book' ? saveVersion : saveLabGuide}
+                                disabled={viewMode === 'book' ? !newVersionName.trim() : !newLabGuideVersionName.trim()}
+                                className="btn-save-version"
+                                title={viewMode === 'book' ? "Guardar una nueva versión de este libro" : "Guardar una nueva versión del Lab Guide"}
+                            >
+                                {viewMode === 'book' ? "💾 Guardar Versión" : "💾 Guardar Versión Lab Guide"}
+                            </button>
                         </div>
-                        <div className="lesson-editor">
-                            {isEditing && (
-                                <div className="save-version-inline">
-                                    <input
-                                        value={newVersionName}
-                                        onChange={e => setNewVersionName(e.target.value)}
-                                        placeholder="Nombre de la versión"
-                                        className="version-name-input"
-                                    />
-                                    <button
-                                        onClick={saveVersion}
-                                        disabled={!newVersionName.trim()}
-                                        className="btn-save-version"
-                                        title="Guardar una nueva versión de este libro"
-                                    >
-                                        💾 Guardar Versión
-                                    </button>
-                                </div>
-                            )}
-                            <div className="lesson-header">
-                                <h3>{currentLesson.title}</h3>
-                                <div className="lesson-stats">Palabras: {currentLesson.content.split(/\s+/).filter(Boolean).length}</div>
-                            </div>
-                            <div className="editor-container">
-                                {isEditing ? (
-                                    <div
-                                        ref={editorRef}
-                                        className="content-editor"
-                                        contentEditable={true}
-                                        suppressContentEditableWarning={true}
-                                        onInput={handleContentChange}
-                                        onPaste={handlePaste}
-                                        tabIndex={0}
-                                    />
-                                ) : (
-                                    <div
-                                        ref={editorRef}
-                                        className="content-editor"
-                                        contentEditable={false}
-                                        dangerouslySetInnerHTML={{ __html: formatContentForEditing(currentLesson.content) }}
-                                    />
-                                )}
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <div className="lab-guide-viewer">
-                        <div className="lab-guide-header">
-                            <div>
-                                <h2>🧪 Guía de Laboratorios</h2>
-                                <div className="lab-guide-info">
-                                    <span>📄 {labGuideData?.filename}</span>
-                                    {labGuideData?.lastModified && (
-                                        <span>📅 {new Date(labGuideData.lastModified).toLocaleDateString('es-ES')}</span>
-                                    )}
-                                </div>
-                            </div>
-                            {isEditing && (
-                                <div className="editor-toolbar">
-                                    <button onClick={() => applyHeading(1)} title="Título 1">H1</button>
-                                    <button onClick={() => applyHeading(2)} title="Título 2">H2</button>
-                                    <button onClick={() => applyHeading(3)} title="Título 3">H3</button>
-                                    <button onClick={() => document.execCommand('bold', false, null)} title="Negrita">B</button>
-                                    <button onClick={() => document.execCommand('italic', false, null)} title="Cursiva">I</button>
-                                    <button onClick={() => document.execCommand('insertUnorderedList', false, null)} title="Lista">•</button>
-                                    <button onClick={() => handleImageUpload()} title="Agregar Imagen">🖼️</button>
-                                    <button onClick={() => handleCopyFormat()} title="Copiar Formato">📋</button>
-                                    <button onClick={() => handleApplyFormat()} title="Aplicar Formato">🖌️</button>
-                                </div>
-                            )}
-                        </div>
-                        {isEditing && (
-                            <div className="save-version-inline">
-                                <input
-                                    value={newLabGuideVersionName}
-                                    onChange={e => setNewLabGuideVersionName(e.target.value)}
-                                    placeholder="Nombre de la versión del Lab Guide"
-                                    className="version-name-input"
-                                />
-                                <button
-                                    onClick={saveLabGuide}
-                                    disabled={!newLabGuideVersionName.trim()}
-                                    className="btn-save-version"
-                                    title="Guardar una nueva versión del Lab Guide"
-                                >
-                                    💾 Guardar Versión Lab Guide
-                                </button>
-                            </div>
+                    )}
+                    <div className="lesson-header">
+                        <h3>{currentLesson.title}</h3>
+                        <div className="lesson-stats">Palabras: {currentLesson.content ? currentLesson.content.split(/\s+/).filter(Boolean).length : 0}</div>
+                    </div>
+                    <div className="editor-container">
+                        {isEditing ? (
+                            <div
+                                ref={editorRef}
+                                className="content-editor"
+                                contentEditable={true}
+                                suppressContentEditableWarning={true}
+                                onInput={handleContentChange}
+                                onPaste={handlePaste}
+                                tabIndex={0}
+                            />
+                        ) : (
+                            <div
+                                ref={editorRef}
+                                className="content-editor"
+                                contentEditable={false}
+                                dangerouslySetInnerHTML={{ __html: formatContentForEditing(currentLesson.content) }}
+                            />
                         )}
-                        <div className="lab-guide-content">
-                            {isEditing ? (
-                                <div
-                                    ref={editorRef}
-                                    className="content-editor"
-                                    contentEditable={true}
-                                    suppressContentEditableWarning={true}
-                                    onInput={(e) => {
-                                        // Just track the HTML - don't update labGuideData to avoid re-render
-                                        setLabGuideEditingHtml(e.currentTarget.innerHTML);
-                                    }}
-                                />
-                            ) : (
-                                <div
-                                    className="content-viewer"
-                                    dangerouslySetInnerHTML={{ __html: formatContentForEditing(labGuideData?.content || '') }}
-                                />
-                            )}
-                        </div>
                     </div>
-                )}
-
-                {/* PowerPoint Generation Modal */}
-                {showPPTModal && (
-                    <div className="ppt-modal-overlay" onClick={() => !pptGenerating && setShowPPTModal(false)}>
-                        <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
-                            <div className="ppt-modal-header">
-                                <h2>📊 Generar Presentación PowerPoint</h2>
-                                <button
-                                    className="ppt-modal-close"
-                                    onClick={() => setShowPPTModal(false)}
-                                    disabled={pptGenerating}
-                                >
-                                    ✕
-                                </button>
-                            </div>
-
-                            <div className="ppt-modal-body">
-                                <div className="ppt-form-group">
-                                    <label>Versión del Libro:</label>
-                                    <select
-                                        value={selectedPPTVersion}
-                                        onChange={(e) => setSelectedPPTVersion(e.target.value)}
-                                        disabled={pptGenerating}
-                                    >
-                                        <option value="current">📄 Versión Actual</option>
-                                        <option value="original">📄 Versión Original</option>
-                                        {versions.map((v, idx) => (
-                                            <option key={idx} value={v.key}>
-                                                📋 {v.name} ({new Date(v.timestamp).toLocaleDateString()})
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <small>Selecciona qué versión del libro usar para generar las diapositivas</small>
-                                </div>
-
-                                <div className="ppt-form-group">
-                                    <label>Estilo de Presentación:</label>
-                                    <select
-                                        value={pptStyle}
-                                        onChange={(e) => setPptStyle(e.target.value)}
-                                        disabled={pptGenerating}
-                                    >
-                                        <option value="professional">💼 Profesional - Diseño corporativo limpio</option>
-                                        <option value="educational">📚 Educativo - Amigable para estudiantes</option>
-                                        <option value="modern">✨ Moderno - Minimalista y dinámico</option>
-                                    </select>
-                                </div>
-
-                                <div className="ppt-form-group">
-                                    <label>Modelo de IA:</label>
-                                    <select
-                                        value={pptModelProvider}
-                                        onChange={(e) => setPptModelProvider(e.target.value)}
-                                        disabled={pptGenerating}
-                                    >
-                                        <option value="bedrock">AWS Bedrock (Claude 4.5 Sonnet)</option>
-                                        <option value="openai">OpenAI (GPT-5)</option>
-                                    </select>
-                                </div>
-
-                                <div className="ppt-info-box">
-                                    <strong>ℹ️ Información:</strong>
-                                    <ul>
-                                        <li>Se generará una presentación con TODO el contenido del libro</li>
-                                        <li>El número de diapositivas se ajustará automáticamente según el contenido</li>
-                                        <li>Las imágenes del libro se incluirán automáticamente</li>
-                                        <li>El proceso puede tardar 5-15 minutos dependiendo del tamaño</li>
-                                        <li>La presentación se guardará en S3 para descargar</li>
-                                    </ul>
-                                </div>
-                            </div>
-
-                            <div className="ppt-modal-footer">
-                                <button
-                                    className="btn-cancel"
-                                    onClick={() => setShowPPTModal(false)}
-                                    disabled={pptGenerating}
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    className="btn-generate-ppt-submit"
-                                    onClick={generatePowerPoint}
-                                    disabled={pptGenerating}
-                                >
-                                    {pptGenerating ? (
-                                        <>
-                                            <span className="spinner-small"></span>
-                                            Generando...
-                                        </>
-                                    ) : (
-                                        '📊 Generar Presentación'
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                </div>
             </div>
+
+            {/* PowerPoint Generation Modal */}
+            {showPPTModal && (
+                <div className="ppt-modal-overlay" onClick={() => !pptGenerating && setShowPPTModal(false)}>
+                    <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="ppt-modal-header">
+                            <h2>📊 Generar Presentación PowerPoint</h2>
+                            <button
+                                className="ppt-modal-close"
+                                onClick={() => setShowPPTModal(false)}
+                                disabled={pptGenerating}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="ppt-modal-body">
+                            <div className="ppt-form-group">
+                                <label>Versión del Libro:</label>
+                                <select
+                                    value={selectedPPTVersion}
+                                    onChange={(e) => setSelectedPPTVersion(e.target.value)}
+                                    disabled={pptGenerating}
+                                >
+                                    <option value="current">📄 Versión Actual</option>
+                                    <option value="original">📄 Versión Original</option>
+                                    {versions.map((v, idx) => (
+                                        <option key={idx} value={v.key}>
+                                            📋 {v.name} ({new Date(v.timestamp).toLocaleDateString()})
+                                        </option>
+                                    ))}
+                                </select>
+                                <small>Selecciona qué versión del libro usar para generar las diapositivas</small>
+                            </div>
+
+                            <div className="ppt-form-group">
+                                <label>Estilo de Presentación:</label>
+                                <select
+                                    value={pptStyle}
+                                    onChange={(e) => setPptStyle(e.target.value)}
+                                    disabled={pptGenerating}
+                                >
+                                    <option value="professional">💼 Profesional - Diseño corporativo limpio</option>
+                                    <option value="educational">📚 Educativo - Amigable para estudiantes</option>
+                                    <option value="modern">✨ Moderno - Minimalista y dinámico</option>
+                                </select>
+                            </div>
+
+                            <div className="ppt-form-group">
+                                <label>Modelo de IA:</label>
+                                <select
+                                    value={pptModelProvider}
+                                    onChange={(e) => setPptModelProvider(e.target.value)}
+                                    disabled={pptGenerating}
+                                >
+                                    <option value="bedrock">AWS Bedrock (Claude 4.5 Sonnet)</option>
+                                    <option value="openai">OpenAI (GPT-5)</option>
+                                </select>
+                            </div>
+
+                            <div className="ppt-info-box">
+                                <strong>ℹ️ Información:</strong>
+                                <ul>
+                                    <li>Se generará una presentación con TODO el contenido del libro</li>
+                                    <li>El número de diapositivas se ajustará automáticamente según el contenido</li>
+                                    <li>Las imágenes del libro se incluirán automáticamente</li>
+                                    <li>El proceso puede tardar 5-15 minutos dependiendo del tamaño</li>
+                                    <li>La presentación se guardará en S3 para descargar</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="ppt-modal-footer">
+                            <button
+                                className="btn-cancel"
+                                onClick={() => setShowPPTModal(false)}
+                                disabled={pptGenerating}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className="btn-generate-ppt-submit"
+                                onClick={generatePowerPoint}
+                                disabled={pptGenerating}
+                            >
+                                {pptGenerating ? (
+                                    <>
+                                        <span className="spinner-small"></span>
+                                        Generando...
+                                    </>
+                                ) : (
+                                    '📊 Generar Presentación'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
+
     );
 }
 

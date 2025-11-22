@@ -562,149 +562,359 @@ OPENAI_API_KEY=(from Secrets Manager)
 
 #### 5. StrandsInfographicGenerator (PowerPoint Presentation Generator)
 
-**Purpose:** Generate branded, editable PowerPoint presentations from course content with embedded images
+**Purpose:** Generate professional, branded PowerPoint presentations from course content using HTML as the intermediate format
 
 **Configuration:**
 - Runtime: Python 3.12
 - Memory: 1024 MB
 - Timeout: 900 seconds (15 minutes)
 - Architecture: ARM64
-- Layer: PPTLayer (python-pptx + lxml)
+- Layer: PPTLayer (python-pptx + lxml + BeautifulSoup)
+
+**Key Architecture Principle:**
+```
+HTML is the Source of Truth → PowerPoint is Generated from HTML
+
+Course Book JSON → AI Slide Structure → HTML Generation → PPT Conversion
+                                          ↓
+                                   S3 Storage (infographics/)
+                                          ↓
+                                   PPT Reads HTML Classes/Styles
+```
+
+**Why HTML-First Architecture:**
+
+1. **Single Source of Truth**: HTML defines all content structure, styling, and hierarchy
+2. **Visual Consistency**: HTML preview matches final PPT output exactly
+3. **Easy Debugging**: Can inspect HTML directly in browser before PPT generation
+4. **Maintainability**: Changes to bullets, formatting, or layout update both HTML and PPT
+5. **Scalability**: HTML can be extended with new styles without changing PPT code
 
 **Key Features:**
 - ✅ AI-powered slide structure generation
-- ✅ Branded template support (Netec corporate template)
+- ✅ Branded Netec corporate template
+- ✅ HTML-to-PPT conversion with class-based styling
 - ✅ Automatic content fitting with smart text splitting
 - ✅ Embedded S3 images in slides
-- ✅ Multiple slide layouts (title, content, module, lesson, lab, summary)
-- ✅ Hierarchical content organization (intro slides, module slides, lesson slides)
-- ✅ Professional formatting (no bullets on headings, proper spacing, top-aligned text)
+- ✅ Multiple slide types (title, module, lesson, content, labs)
+- ✅ Hierarchical bullet support (2 levels with distinct styling)
+- ✅ Professional callout boxes with yellow background and left border
+- ✅ Black text for bullets (matching HTML design)
 
-**Workflow:**
+**Two-Phase Workflow:**
 
-1. **Load Course Data**
-   - Read book JSON from S3
-   - Load YAML outline for module structure
-   - Extract course metadata (title, description, objectives, prerequisites, audience)
-
-2. **Generate Slide Structure (AI-Powered)**
-   ```python
-   structure = generate_infographic_structure(
-       book_data,      # Course content
-       model,          # AI model (Bedrock/OpenAI)
-       slides_per_lesson=5,
-       style='professional'
-   )
-   ```
-   - AI Agent analyzes course content
-   - Creates slide hierarchy with titles, content blocks, layout hints
-   - Generates HTML intermediate representation
-   - Saves structure JSON and HTML to S3
-
-3. **Convert to PowerPoint**
-   ```python
-   pptx_bytes = convert_html_to_pptx(
-       html_content,
-       structure,
-       course_bucket,
-       project_folder,
-       template_key='PPT_Templates/Esandar_Aumentado_3.pptx'
-   )
-   ```
-
-**Slide Generation Process:**
-
-```
-Course Book JSON → AI Analysis → Slide Structure JSON → HTML → PowerPoint
-                                                                    ↓
-                                              S3 Template + Images ←┘
-```
-
-**Template-Based Generation:**
-
-The function uses a branded PowerPoint template (`Esandar_Aumentado_3.pptx`) with 14 predefined layouts:
-
-| Layout Index | Name | Placeholder Indices | Purpose |
-|--------------|------|---------------------|---------|
-| 0 | Portada del curso | N/A | Course title slide |
-| 1 | Propiedad intelectual | N/A | Copyright/legal info |
-| 2 | Descripción del curso | idx 10 = description | Course description |
-| 3 | Objetivos del curso | idx varies | Learning outcomes |
-| 4 | Prerrequisitos | idx varies | Prerequisites |
-| 5 | Audiencia | idx varies | Target audience |
-| 6 | Temario del curso | idx varies | Course outline/TOC |
-| 7 | Presentación del grupo | N/A | Instructor intro |
-| 8 | Portada del capítulo | idx 0 = module #, idx 10 = module title | Module title slide |
-| 9 | Nombre del tema 2 | idx 0 = module, idx 10 = lesson | Lesson title slide |
-| 10 | Contenido - General | idx 11 = content | Content slide |
-| 11 | Resumen del capítulo | idx varies | Summary slide |
-| 12 | Descripción de la práctica | idx 0 = activity, idx 12 = duration | Lab activity slide |
-| 13 | Final de la presentación | N/A | Closing slide |
-
-**Content Formatting Rules:**
-
-1. **Intro Slides** (Order):
-   - Course title (Layout 0)
-   - Intellectual property (Layout 1)
-   - Course description (Layout 2, placeholder idx 10)
-   - Learning objectives (Layout 3)
-   - Prerequisites (Layout 4)
-   - Target audience (Layout 5)
-   - Course outline/Temario (Layout 6)
-   - Group presentation (Layout 7)
-
-2. **Module Structure**:
-   - Module title slide (Layout 8)
-     - Placeholder idx 0: "Módulo {number}"
-     - Placeholder idx 10: Module title from YAML outline
-   
-3. **Lesson Structure**:
-   - Lesson title slide (Layout 9)
-     - Placeholder idx 0: Module title
-     - Placeholder idx 10: Lesson title
-   - Content slides (Layout 10, max 2 content blocks per slide)
-   - Summary slide (Layout 11) if applicable
-
-4. **Content Slides** (Layout 10):
-   - Placeholder idx 11: Main content area (5.0" height × 11.96" width)
-   - Top-aligned text (`vertical_anchor = MSO_ANCHOR.TOP`)
-   - Smart content splitting: Max 2 content blocks per slide
-   - Auto-creates continuation slides if > 2 blocks
-   
-5. **Text Formatting**:
-   - Headings: 22pt, bold, NO BULLETS (uses XML `<buNone>` element)
-   - Bullet items: 18pt, level 0
-   - Line spacing: 1.0 (single spacing)
-   - Space after headings: 8pt
-   - Space after bullets: 4pt
-   - Space between blocks: 10pt
-
-6. **Lab Activity Slides** (Layout 12):
-   - Placeholder idx 0: Lab activity name
-   - Placeholder idx 12: Duration (e.g., "20 minutos")
-
-**Image Handling:**
-
+**Phase 1: HTML Generation (Source of Truth)**
 ```python
-# Download images from S3
-image_bytes = download_image_from_s3(image_reference)
-
-# Determine layout strategy
-if has_images and has_text:
-    # Side-by-side: Text on left (5.5" wide), Image on right (5.5" wide)
-    img_left = 7.0
-    img_top = 1.5
-    text_width = 5.5
-elif has_images and not has_text:
-    # Centered: Large image (10.0" × 5.5")
-    img_left = centered
-else:
-    # Full-width text (11.5" wide)
-    text_width = 11.5
-
-# Add image to slide
-add_image_to_slide(slide, image_bytes, img_left, img_top, img_width, img_height)
+def generate_html_from_structure(structure: Dict) -> str:
+    """
+    Generates HTML with semantic classes and inline styles.
+    HTML defines visual appearance that PPT will replicate.
+    """
+    
+    # Example: Agenda slide with hierarchical bullets
+    html = '''
+    <div class="slide agenda-slide">
+        <h1 class="slide-title">Agenda</h1>
+        <h2 class="slide-subtitle">Estructura del curso</h2>
+        <ul class="bullets">
+            <li>Fundamentos de Redes y Cisco IOS</li>  <!-- Level 1: Yellow ▸ -->
+            <li class="level-2">Conceptos básicos de redes</li>  <!-- Level 2: Cyan ▪ -->
+            <li class="level-2">Introducción a Cisco IOS</li>
+        </ul>
+    </div>
+    '''
 ```
+
+**CSS Classes Define Styling:**
+```css
+/* HTML Preview Styles (also guide PPT generation) */
+.bullets li {
+    color: #000000;  /* Black text */
+    font-size: 20pt;
+}
+
+.bullets li:before {
+    content: "▸";
+    color: #FFC000;  /* Yellow bullet */
+    font-size: 24pt;
+}
+
+.bullets li.level-2 {
+    color: #000000;  /* Black text */
+    font-size: 18pt;
+    padding-left: 60px;  /* Indentation */
+}
+
+.bullets li.level-2:before {
+    content: "▪";  /* Square bullet */
+    color: #00BCEB;  /* Cyan */
+    font-size: 20pt;
+}
+```
+
+**Phase 2: PPT Generation (Reads HTML)**
+```python
+def convert_html_to_pptx(html_content: str, structure: Dict) -> bytes:
+    """
+    Parses HTML and generates PPT that matches HTML styling exactly.
+    Reads CSS classes and attributes to determine formatting.
+    """
+    
+    # Parse HTML
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Extract bullets with level information
+    ul = slide_html.find('ul', class_='bullets')
+    items = []
+    for li in ul.find_all('li'):
+        item_text = li.get_text(strip=True)
+        # Check if level-2 class exists in HTML
+        if 'level-2' in li.get('class', []):
+            items.append({'text': item_text, 'level': 2})
+        else:
+            items.append({'text': item_text, 'level': 1})
+    
+    # Generate PPT bullets matching HTML styling
+    for item in items:
+        if item['level'] == 2:
+            # Level 2: Cyan ▪ bullet, black text, indented
+            bullet_run.text = "▪ "
+            bullet_run.font.color.rgb = RGBColor(0, 188, 235)  # Cyan
+            text_run.text = item['text']
+            text_run.font.color.rgb = RGBColor(0, 0, 0)  # Black
+            p.level = 1  # PowerPoint indentation level
+        else:
+            # Level 1: Yellow ▸ bullet, black text
+            bullet_run.text = "▸ "
+            bullet_run.font.color.rgb = RGBColor(255, 204, 0)  # Yellow
+            text_run.text = item['text']
+            text_run.font.color.rgb = RGBColor(0, 0, 0)  # Black
+            p.level = 0
+```
+
+**HTML Structure for Callouts:**
+```html
+<!-- HTML defines callout structure -->
+<div class="content-block">
+    <div class="callout" contenteditable="true">
+        💡 Las redes de computadoras son la columna vertebral de la comunicación digital moderna
+    </div>
+</div>
+```
+
+**CSS for Callouts:**
+```css
+.callout {
+    background-color: #FFFAE6;  /* Light yellow */
+    border-left: 5px solid #FFC000;  /* Yellow left border */
+    padding: 15px 20px;
+    font-weight: bold;
+    color: #333333;  /* Dark gray text */
+}
+```
+
+**PPT Callout Generation (Reads HTML):**
+```python
+# PPT creates callout box matching HTML styling
+callout_box = slide.shapes.add_shape(
+    MSO_SHAPE.RECTANGLE,
+    left, top, width, height
+)
+
+# Match HTML background color
+callout_box.fill.solid()
+callout_box.fill.fore_color.rgb = RGBColor(255, 250, 230)  # #FFFAE6
+
+# Add yellow left border (separate shape)
+left_border = slide.shapes.add_shape(
+    MSO_SHAPE.RECTANGLE,
+    left, top, Inches(0.05), height
+)
+left_border.fill.solid()
+left_border.fill.fore_color.rgb = RGBColor(255, 204, 0)  # #FFC000
+
+# Add text with emoji (matches HTML)
+text_frame = callout_box.text_frame
+run = text_frame.paragraphs[0].add_run()
+run.text = f"💡 {callout_text}"
+run.font.size = Pt(18)
+run.font.bold = True
+run.font.color.rgb = RGBColor(51, 51, 51)  # #333333
+```
+
+**Data Flow Diagram:**
+```
+┌──────────────────────┐
+│  Course Book JSON    │
+│  (lessons, images)   │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  AI Slide Structure  │  ← Bedrock Claude / OpenAI GPT-5
+│  (JSON schema)       │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  HTML Generation     │  ← generate_html_from_structure()
+│  (with CSS classes)  │
+│                      │
+│  • .bullets li       │  → Level 1: Yellow ▸, black text
+│  • .bullets li.level-2 → Level 2: Cyan ▪, black text
+│  • .callout          │  → Yellow box with left border
+└──────────┬───────────┘
+           │
+           ├──→ S3: infographics/infographic.html
+           │    (Human-readable preview)
+           │
+           ▼
+┌──────────────────────┐
+│  HTML Parsing        │  ← BeautifulSoup
+│  (extract structure) │
+│                      │
+│  1. Find <ul class="bullets">
+│  2. Check each <li> for "level-2" class
+│  3. Extract text and level
+│  4. Find <div class="callout">
+│  5. Extract callout text
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  PPT Generation      │  ← python-pptx
+│  (match HTML styles) │
+│                      │
+│  • Read bullet level from HTML
+│  • Apply colors/fonts from CSS
+│  • Create callout boxes with borders
+│  • Position elements dynamically
+└──────────┬───────────┘
+           │
+           └──→ S3: infographics/course.pptx
+                (Editable PowerPoint)
+```
+
+**HTML Bullet Detection Logic:**
+```python
+def extract_bullets_from_html(block_div):
+    """
+    Reads HTML to determine bullet hierarchy.
+    Returns list of {'text': str, 'level': int} dicts.
+    """
+    ul = block_div.find('ul', class_='bullets')
+    items = []
+    
+    for li in ul.find_all('li'):
+        item_text = li.get_text(strip=True)
+        
+        # Detect level from HTML class attribute
+        if 'level-2' in li.get('class', []):
+            items.append({'text': item_text, 'level': 2})
+        else:
+            items.append({'text': item_text, 'level': 1})
+    
+    return items
+```
+
+**Agenda Slide HTML Generation:**
+```python
+def create_agenda_slide(modules: List[Dict]) -> Dict:
+    """
+    Creates agenda with hierarchical structure.
+    HTML classes determine PPT rendering.
+    """
+    agenda_items = []
+    
+    for module in modules:
+        # Level 1: Module title (no special marker)
+        agenda_items.append(module['title'])
+        
+        # Level 2: Lesson titles (marked with indentation + ○ symbol)
+        for lesson in module['lessons']:
+            # 6 spaces + ○ triggers level-2 detection in HTML generator
+            agenda_items.append(f"      ○ {lesson['title']}")
+    
+    return {
+        'content_blocks': [{
+            'type': 'bullets',
+            'items': agenda_items  # HTML generator processes these
+        }]
+    }
+```
+
+**HTML Bullet Generation:**
+```python
+def generate_content_block_html(block: Dict) -> str:
+    """
+    Converts agenda_items to HTML with proper classes.
+    Indentation detection adds 'level-2' class.
+    """
+    if block['type'] == 'bullets':
+        html = '<ul class="bullets">\n'
+        
+        for item in block['items']:
+            # Detect second-level by indentation (4+ spaces)
+            leading_spaces = len(item) - len(item.lstrip())
+            is_second_level = leading_spaces >= 4
+            
+            if is_second_level:
+                # Remove spaces and ○ symbol, add level-2 class
+                clean_item = item.strip()
+                for symbol in ['○', '●', '•', '-', '*']:
+                    if clean_item.startswith(symbol):
+                        clean_item = clean_item[1:].strip()
+                        break
+                
+                html += f'  <li class="level-2">{clean_item}</li>\n'
+            else:
+                html += f'  <li>{item}</li>\n'
+        
+        html += '</ul>\n'
+    
+    return html
+```
+
+**Benefits of HTML-First Architecture:**
+
+1. **Visual Consistency**: HTML and PPT look identical because PPT reads HTML classes
+2. **Single Update Point**: Change CSS class styling once, both HTML and PPT update
+3. **Easy Debugging**: Open HTML in browser to see exactly how PPT will look
+4. **Extensibility**: Add new HTML classes/styles without changing PPT code
+5. **Maintainability**: Clear separation between structure (HTML) and rendering (PPT)
+
+**Example: Adding New Bullet Level**
+```python
+# Step 1: Define in HTML generation
+agenda_items.append(f"          - {sub_lesson_title}")  # 10 spaces
+
+# Step 2: Add CSS class
+if leading_spaces >= 10:
+    html += f'  <li class="level-3">{clean_item}</li>\n'
+
+# Step 3: Add CSS styling
+.bullets li.level-3:before {
+    content: "◦";  /* Hollow circle */
+    color: #999999;  /* Gray */
+}
+
+# Step 4: Handle in PPT generator
+if item['level'] == 3:
+    bullet_run.text = "◦ "
+    bullet_run.font.color.rgb = RGBColor(153, 153, 153)
+    p.level = 2
+```
+
+**Netec Branded Design Elements:**
+- Corner blocks (50px × 60px) at top: 48px, filled with #003c78
+- Netec logo (bottom-right corner, 11.1" left, 6.6" top)
+- Background images:
+  - Course title: Netec_Portada_1.png
+  - Module/Lesson titles: Netec_Lateral_1.png
+- Color scheme:
+  - Primary: #003c78 (Dark blue)
+  - Secondary: #00bceb (Cyan)
+  - Accent: #FFC000 (Yellow)
 
 **Input Event:**
 ```json
@@ -732,108 +942,6 @@ add_image_to_slide(slide, image_bytes, img_left, img_top, img_width, img_height)
 }
 ```
 
-**Technical Implementation Details:**
-
-1. **Bullet Removal from Headings** (Professional Appearance):
-   ```python
-   # Access paragraph XML element
-   pPr = paragraph._element.get_or_add_pPr()
-   
-   # Add buNone element to explicitly remove bullet
-   from lxml import etree
-   buNone = etree.Element('{http://schemas.openxmlformats.org/drawingml/2006/main}buNone')
-   pPr.insert(0, buNone)
-   ```
-
-2. **Top Alignment** (Non-Centered Text):
-   ```python
-   from pptx.enum.text import MSO_ANCHOR
-   text_frame.vertical_anchor = MSO_ANCHOR.TOP
-   ```
-
-3. **Content Splitting** (Prevent Overflow):
-   ```python
-   # Max 2 content blocks per slide
-   blocks_per_slide = 2
-   block_groups = [content_blocks[i:i+2] for i in range(0, len(content_blocks), 2)]
-   
-   # Create continuation slides
-   for group_idx, blocks_group in enumerate(block_groups):
-       if group_idx > 0:
-           slide = prs.slides.add_slide(content_layout)
-           # Mark as continuation
-   ```
-
-4. **Template Placeholder Modification**:
-   - Modified content placeholder (idx 11) height: 5.19" → 5.0" (prevents footer overlap)
-   - Removed "Nombre del capítulo" text box from module layout (allows dynamic module title)
-   - Made module title placeholder (idx 10) editable
-
-**Generation Flow:**
-
-```
-┌──────────────────┐
-│  Lambda Invoke   │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Load Book JSON   │ ← S3: book/Generated_Course_Book_data.json
-│ Load YAML Outline│ ← S3: outline/course_outline.yaml
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ AI Agent:        │ ← Bedrock Claude 3.7 / OpenAI GPT-5
-│ Generate Slide   │
-│ Structure        │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Save Structure   │ → S3: infographics/infographic_structure.json
-│ JSON & HTML      │ → S3: infographics/infographic.html
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Load Template    │ ← S3: PPT_Templates/Esandar_Aumentado_3.pptx
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Create Intro     │   7 slides: title, property, description,
-│ Slides           │   objectives, prerequisites, audience, outline
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ For Each Module: │
-│ - Module Slide   │   Layout 8: Module title
-│ - Lesson Slide   │   Layout 9: Lesson title
-│ - Content Slides │   Layout 10: Content (max 2 blocks/slide)
-│ - Lab Slides     │   Layout 12: Lab activities
-│ - Summary Slide  │   Layout 11: Module summary
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Download Images  │ ← S3: images/*.png
-│ Embed in Slides  │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Save PowerPoint  │ → S3: infographics/Generated_Course_Book.pptx
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Return Success   │
-│ Response         │
-└──────────────────┘
-```
-
 **Error Handling:**
 - Auto-retry on S3 access errors
 - Graceful degradation if images fail to download
@@ -843,6 +951,7 @@ add_image_to_slide(slide, image_bytes, img_left, img_top, img_width, img_height)
 **Key Dependencies:**
 - `python-pptx`: PowerPoint file manipulation
 - `lxml`: XML element manipulation for bullet removal
+- `BeautifulSoup`: HTML parsing to extract classes and structure
 - `PIL (Pillow)`: Image processing and dimension calculation
 - `boto3`: S3 file operations
 - `strands-agents`: AI slide structure generation
