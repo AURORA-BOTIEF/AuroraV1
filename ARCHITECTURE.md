@@ -2,8 +2,8 @@
 
 **Project:** Aurora - AI-Powered Course Generation Platform  
 **Organization:** NETEC  
-**Last Updated:** November 4, 2025  
-**Version:** 1.3  
+**Last Updated:** November 26, 2025  
+**Version:** 1.4  
 **Repository:** AuroraV1 (Branch: testing)
 
 ---
@@ -356,6 +356,41 @@ Routes:
    - Role request system
    - Multi-tenant support (domain-based)
 
+### Key Component Architecture
+
+#### 1. Book Editor (`BookEditor.jsx`)
+**Purpose:** Comprehensive WYSIWYG editor for course content.
+
+**Architecture:**
+- **Layout Strategy:**
+  - **Container:** Uses `.book-content-container` (renamed from `.editor-container`) to prevent CSS collisions with other editors.
+  - **Sidebar:** Internal `.lesson-navigator` sidebar with forced visibility (`display: block !important`) to ensure module/lesson navigation is always accessible.
+- **State Management:**
+  - Manages `bookData` (JSON) and `labGuideData` independently.
+  - Handles version control with local history and S3 persistence.
+- **Integration:**
+  - Direct S3 loading/saving via `LoadBookFunction` and `SaveBookFunction`.
+  - PowerPoint generation trigger via `StrandsInfographicGenerator`.
+
+#### 2. Slides Editor & Viewer (`InfographicEditor.jsx` / `InfographicViewer.jsx`)
+**Purpose:** Edit and view HTML-first presentations with pixel-perfect rendering.
+
+**Architecture:**
+- **Iframe Isolation:**
+  - Content rendered inside an `<iframe>` to isolate slide CSS from application styles.
+  - `srcDoc` used for immediate rendering of generated HTML.
+- **Secure Image Loading (The "S3 Loader" Pattern):**
+  - **Problem:** Images are stored in private S3 buckets; standard `<img>` tags cannot load them directly.
+  - **Solution:**
+    1. **Fetch:** Parent component uses `s3ImageLoader.js` to fetch images using Cognito credentials.
+    2. **Blob:** Converts S3 objects to local Blob URLs.
+    3. **Transport:** Sends Blob URLs to iframe via `postMessage`.
+    4. **Injection:** Injects a client-side script into the iframe that listens for `UPDATE_IMAGE_SRC` events.
+    5. **Update:** Script updates both `src` attributes and `background-image` styles dynamically.
+- **Sidebar Logic:**
+  - Main application sidebar is conditionally hidden in `App.jsx` (`Layout` component) for these routes.
+  - Global CSS hiding rules were removed to prevent conflicts with other pages.
+
 ---
 
 ## Backend Architecture
@@ -560,406 +595,423 @@ OPENAI_API_KEY=(from Secrets Manager)
 
 ---
 
-#### 5. StrandsInfographicGenerator (PowerPoint Presentation Generator)
+#### 5. StrandsInfographicGenerator (HTML-First Presentation Generator)
 
-**Purpose:** Generate professional, branded PowerPoint presentations from course content using HTML as the intermediate format
+**Purpose:** Generate professional, branded HTML presentations with optional PowerPoint export
 
 **Configuration:**
 - Runtime: Python 3.12
 - Memory: 1024 MB
 - Timeout: 900 seconds (15 minutes)
 - Architecture: ARM64
-- Layer: PPTLayer (python-pptx + lxml + BeautifulSoup)
+- Layer: None (lightweight HTML generation)
 
-**Key Architecture Principle:**
-```
-HTML is the Source of Truth → PowerPoint is Generated from HTML
+**HTML-First Architecture Philosophy:**
 
-Course Book JSON → AI Slide Structure → HTML Generation → PPT Conversion
-                                          ↓
-                                   S3 Storage (infographics/)
-                                          ↓
-                                   PPT Reads HTML Classes/Styles
-```
+Aurora's presentation generator uses **HTML as the single source of truth** for all slide content and styling. This architectural decision provides several key benefits:
 
-**Why HTML-First Architecture:**
-
-1. **Single Source of Truth**: HTML defines all content structure, styling, and hierarchy
-2. **Visual Consistency**: HTML preview matches final PPT output exactly
-3. **Easy Debugging**: Can inspect HTML directly in browser before PPT generation
-4. **Maintainability**: Changes to bullets, formatting, or layout update both HTML and PPT
-5. **Scalability**: HTML can be extended with new styles without changing PPT code
+1. **Self-Contained Output**: Complete presentation in a single HTML file with embedded CSS
+2. **Universal Compatibility**: Opens in any browser without external dependencies
+3. **Easy Debugging**: Inspect slides directly in browser DevTools
+4. **Future-Proof**: HTML/CSS is platform-independent and version-stable
+5. **Optional PPT Export**: PowerPoint conversion is secondary, not primary
 
 **Key Features:**
-- ✅ AI-powered slide structure generation
-- ✅ Branded Netec corporate template
-- ✅ HTML-to-PPT conversion with class-based styling
-- ✅ Automatic content fitting with smart text splitting
-- ✅ Embedded S3 images in slides
-- ✅ Multiple slide types (title, module, lesson, content, labs)
-- ✅ Hierarchical bullet support (2 levels with distinct styling)
-- ✅ Professional callout boxes with yellow background and left border
-- ✅ Black text for bullets (matching HTML design)
+- ✅ Self-contained HTML with embedded CSS (no external stylesheets)
+- ✅ Professional Netec branding (colors, logo, layouts)
+- ✅ AI-powered slide structure generation (Bedrock/OpenAI)
+- ✅ Multiple slide types (course title, module title, lesson title, content)
+- ✅ Hierarchical bullet lists with nested styling
+- ✅ Embedded S3 images with presigned URLs
+- ✅ Responsive grid layouts for side-by-side images
+- ✅ Print-ready CSS for PDF export
+- ✅ Pixel-perfect slide dimensions (1280x720px)
 
-**Two-Phase Workflow:**
+**Architecture: HTML as Source of Truth**
 
-**Phase 1: HTML Generation (Source of Truth)**
-```python
-def generate_html_from_structure(structure: Dict) -> str:
-    """
-    Generates HTML with semantic classes and inline styles.
-    HTML defines visual appearance that PPT will replicate.
-    """
-    
-    # Example: Agenda slide with hierarchical bullets
-    html = '''
-    <div class="slide agenda-slide">
-        <h1 class="slide-title">Agenda</h1>
-        <h2 class="slide-subtitle">Estructura del curso</h2>
-        <ul class="bullets">
-            <li>Fundamentos de Redes y Cisco IOS</li>  <!-- Level 1: Yellow ▸ -->
-            <li class="level-2">Conceptos básicos de redes</li>  <!-- Level 2: Cyan ▪ -->
-            <li class="level-2">Introducción a Cisco IOS</li>
-        </ul>
-    </div>
-    '''
+```
+Course Book JSON → AI Slide Structure → HTML Generation → Browser Preview
+                                            ↓
+                                     S3: infographics/*.html
+                                            ↓
+                                    (Self-contained, ready to use)
 ```
 
-**CSS Classes Define Styling:**
+**Workflow:**
+
+**Phase 1: AI Slide Structure Generation**
+```python
+def generate_slide_structure(book_data: Dict, slides_per_lesson: int) -> Dict:
+    """
+    Uses AI (Bedrock Claude / OpenAI GPT) to analyze lesson content
+    and create optimal slide structure with proper content distribution.
+    
+    Returns JSON structure with:
+    - slide_type: 'title' | 'content' | 'bullets' | 'image-left' | 'image-right'
+    - title: Slide headline
+    - subtitle: Optional subheading
+    - content_blocks: List of bullets, images, callouts
+    - layout: Visual layout strategy
+    """
+```
+
+**Phase 2: HTML Generation with Embedded CSS**
+```python
+def generate_complete_html(slides: List[Dict], course_title: str) -> str:
+    """
+    Generates self-contained HTML with:
+    - Embedded CSS in <style> tag (no external files)
+    - Semantic HTML structure (<div class="slide">, <ul class="bullets">)
+    - Presigned S3 image URLs (valid for 1 hour)
+    - Netec branding (logo, colors, gradients)
+    
+    Output: Single .html file that works standalone
+    """
+```
+
+**CSS Architecture (Embedded in HTML):**
+
 ```css
-/* HTML Preview Styles (also guide PPT generation) */
+/* Slide container - Fixed presentation dimensions */
+.slide {
+    width: 1280px;
+    height: 720px;
+    background: white;
+    overflow: hidden;  /* Prevent scrolling */
+    page-break-after: always;  /* Print-friendly */
+}
+
+/* Course title slide - Full-screen gradient */
+.course-title-slide {
+    background: linear-gradient(135deg, #003366, #4682B4);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Module title slide - Branded section divider */
+.module-title-slide {
+    background: linear-gradient(to right, #003366, #4682B4);
+    border-left: 8px solid #FFC000;  /* Netec yellow accent */
+}
+
+/* Lesson title slide - Clean white with top accent */
+.lesson-title-slide {
+    background: white;
+    border-top: 10px solid #FFC000;
+    color: #003366;
+}
+
+/* Hierarchical bullets (agenda slides) */
 .bullets li {
-    color: #000000;  /* Black text */
+    color: #000000;  /* Black text for readability */
     font-size: 20pt;
 }
 
 .bullets li:before {
-    content: "▸";
-    color: #FFC000;  /* Yellow bullet */
-    font-size: 24pt;
+    content: '▶';  /* Primary bullet marker */
+    color: #FFC000;  /* Netec yellow */
 }
 
-.bullets li.level-2 {
-    color: #000000;  /* Black text */
+.bullets li ul li {
     font-size: 18pt;
-    padding-left: 60px;  /* Indentation */
+    padding-left: 20px;  /* Indentation for nested items */
 }
 
-.bullets li.level-2:before {
-    content: "▪";  /* Square bullet */
-    color: #00BCEB;  /* Cyan */
-    font-size: 20pt;
+.bullets li ul li:before {
+    content: '○';  /* Secondary bullet marker */
+    color: #003366;  /* Netec blue */
 }
 ```
 
-**Phase 2: PPT Generation (Reads HTML)**
+**Special Slide Layouts:**
+
+1. **Course Title Slide**
+   - Full-screen gradient background
+   - 72pt title
+   - Logo in top-right corner
+   - Used for: Opening slide
+
+2. **Module Title Slide**
+   - Gradient background
+   - 56pt title with left accent border
+   - Logo centered at bottom
+   - Used for: Section dividers
+
+3. **Lesson Title Slide**
+   - White background with top accent bar
+   - 48pt title + module name subtitle
+   - Logo in top-right
+   - Used for: Topic introductions
+
+4. **Content Slides**
+   - Header with title/subtitle
+   - Max content height: 520px (prevents overflow)
+   - Supports: bullets, images, callouts
+   - Logo in bottom-right
+
+**Image Integration:**
+
 ```python
-def convert_html_to_pptx(html_content: str, structure: Dict) -> bytes:
+def generate_presigned_image_urls(image_mapping: Dict) -> Dict:
     """
-    Parses HTML and generates PPT that matches HTML styling exactly.
-    Reads CSS classes and attributes to determine formatting.
+    Converts S3 paths to presigned URLs for HTML embedding.
+    
+    - Expires: 1 hour (sufficient for viewing/editing)
+    - Permissions: Read-only
+    - CORS: Enabled for browser access
+    
+    Note: Images load directly in browser without auth
     """
-    
-    # Parse HTML
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Extract bullets with level information
-    ul = slide_html.find('ul', class_='bullets')
-    items = []
-    for li in ul.find_all('li'):
-        item_text = li.get_text(strip=True)
-        # Check if level-2 class exists in HTML
-        if 'level-2' in li.get('class', []):
-            items.append({'text': item_text, 'level': 2})
-        else:
-            items.append({'text': item_text, 'level': 1})
-    
-    # Generate PPT bullets matching HTML styling
-    for item in items:
-        if item['level'] == 2:
-            # Level 2: Cyan ▪ bullet, black text, indented
-            bullet_run.text = "▪ "
-            bullet_run.font.color.rgb = RGBColor(0, 188, 235)  # Cyan
-            text_run.text = item['text']
-            text_run.font.color.rgb = RGBColor(0, 0, 0)  # Black
-            p.level = 1  # PowerPoint indentation level
-        else:
-            # Level 1: Yellow ▸ bullet, black text
-            bullet_run.text = "▸ "
-            bullet_run.font.color.rgb = RGBColor(255, 204, 0)  # Yellow
-            text_run.text = item['text']
-            text_run.font.color.rgb = RGBColor(0, 0, 0)  # Black
-            p.level = 0
 ```
 
-**HTML Structure for Callouts:**
+**Side-by-Side Image Layout (Fixed Nov 2025):**
+
 ```html
-<!-- HTML defines callout structure -->
-<div class="content-block">
-    <div class="callout" contenteditable="true">
-        💡 Las redes de computadoras son la columna vertebral de la comunicación digital moderna
+<!-- Grid layout for multiple images -->
+<div class="image-grid">
+    <div class="image-wrapper">
+        <img src="presigned-url-1.png" alt="Image 1">
+    </div>
+    <div class="image-wrapper">
+        <img src="presigned-url-2.png" alt="Image 2">
     </div>
 </div>
 ```
 
-**CSS for Callouts:**
 ```css
-.callout {
-    background-color: #FFFAE6;  /* Light yellow */
-    border-left: 5px solid #FFC000;  /* Yellow left border */
-    padding: 15px 20px;
-    font-weight: bold;
-    color: #333333;  /* Dark gray text */
+/* CSS Grid for side-by-side images */
+.image-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;  /* Equal columns */
+    gap: 30px;
+    padding: 20px;
+}
+
+.image-wrapper img {
+    max-width: 100%;
+    max-height: 400px;
+    object-fit: contain;  /* Preserve aspect ratio */
 }
 ```
 
-**PPT Callout Generation (Reads HTML):**
+**Agenda Slide with Nested Bullets (Fixed Nov 2025):**
+
+**Problem:** Double bullets appeared (CSS bullet + text ○ symbol)
+
+**Solution:** Proper HTML nesting with CSS classes
+
 ```python
-# PPT creates callout box matching HTML styling
-callout_box = slide.shapes.add_shape(
-    MSO_SHAPE.RECTANGLE,
-    left, top, width, height
-)
-
-# Match HTML background color
-callout_box.fill.solid()
-callout_box.fill.fore_color.rgb = RGBColor(255, 250, 230)  # #FFFAE6
-
-# Add yellow left border (separate shape)
-left_border = slide.shapes.add_shape(
-    MSO_SHAPE.RECTANGLE,
-    left, top, Inches(0.05), height
-)
-left_border.fill.solid()
-left_border.fill.fore_color.rgb = RGBColor(255, 204, 0)  # #FFC000
-
-# Add text with emoji (matches HTML)
-text_frame = callout_box.text_frame
-run = text_frame.paragraphs[0].add_run()
-run.text = f"💡 {callout_text}"
-run.font.size = Pt(18)
-run.font.bold = True
-run.font.color.rgb = RGBColor(51, 51, 51)  # #333333
-```
-
-**Data Flow Diagram:**
-```
-┌──────────────────────┐
-│  Course Book JSON    │
-│  (lessons, images)   │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  AI Slide Structure  │  ← Bedrock Claude / OpenAI GPT-5
-│  (JSON schema)       │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  HTML Generation     │  ← generate_html_from_structure()
-│  (with CSS classes)  │
-│                      │
-│  • .bullets li       │  → Level 1: Yellow ▸, black text
-│  • .bullets li.level-2 → Level 2: Cyan ▪, black text
-│  • .callout          │  → Yellow box with left border
-└──────────┬───────────┘
-           │
-           ├──→ S3: infographics/infographic.html
-           │    (Human-readable preview)
-           │
-           ▼
-┌──────────────────────┐
-│  HTML Parsing        │  ← BeautifulSoup
-│  (extract structure) │
-│                      │
-│  1. Find <ul class="bullets">
-│  2. Check each <li> for "level-2" class
-│  3. Extract text and level
-│  4. Find <div class="callout">
-│  5. Extract callout text
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  PPT Generation      │  ← python-pptx
-│  (match HTML styles) │
-│                      │
-│  • Read bullet level from HTML
-│  • Apply colors/fonts from CSS
-│  • Create callout boxes with borders
-│  • Position elements dynamically
-└──────────┬───────────┘
-           │
-           └──→ S3: infographics/course.pptx
-                (Editable PowerPoint)
-```
-
-**HTML Bullet Detection Logic:**
-```python
-def extract_bullets_from_html(block_div):
-    """
-    Reads HTML to determine bullet hierarchy.
-    Returns list of {'text': str, 'level': int} dicts.
-    """
-    ul = block_div.find('ul', class_='bullets')
-    items = []
-    
-    for li in ul.find_all('li'):
-        item_text = li.get_text(strip=True)
-        
-        # Detect level from HTML class attribute
-        if 'level-2' in li.get('class', []):
-            items.append({'text': item_text, 'level': 2})
-        else:
-            items.append({'text': item_text, 'level': 1})
-    
-    return items
-```
-
-**Agenda Slide HTML Generation:**
-```python
-def create_agenda_slide(modules: List[Dict]) -> Dict:
-    """
-    Creates agenda with hierarchical structure.
-    HTML classes determine PPT rendering.
-    """
+# Python: Generate structured agenda data
+def create_agenda_slides(modules: List[Dict]) -> List[Dict]:
     agenda_items = []
-    
     for module in modules:
-        # Level 1: Module title (no special marker)
-        agenda_items.append(module['title'])
+        # Level 1: Module (no nested list)
+        agenda_items.append({
+            'text': module['title'],
+            'lessons': []  # Nested lessons
+        })
         
-        # Level 2: Lesson titles (marked with indentation + ○ symbol)
         for lesson in module['lessons']:
-            # 6 spaces + ○ triggers level-2 detection in HTML generator
-            agenda_items.append(f"      ○ {lesson['title']}")
+            # Level 2: Lesson (nested under module)
+            agenda_items[-1]['lessons'].append(lesson['title'])
     
-    return {
+    return [{
+        'slide_type': 'single-column',
         'content_blocks': [{
-            'type': 'bullets',
-            'items': agenda_items  # HTML generator processes these
+            'type': 'nested-bullets',  # Special type for hierarchy
+            'items': agenda_items
         }]
-    }
+    }]
 ```
 
-**HTML Bullet Generation:**
 ```python
-def generate_content_block_html(block: Dict) -> str:
-    """
-    Converts agenda_items to HTML with proper classes.
-    Indentation detection adds 'level-2' class.
-    """
-    if block['type'] == 'bullets':
-        html = '<ul class="bullets">\n'
-        
-        for item in block['items']:
-            # Detect second-level by indentation (4+ spaces)
-            leading_spaces = len(item) - len(item.lstrip())
-            is_second_level = leading_spaces >= 4
-            
-            if is_second_level:
-                # Remove spaces and ○ symbol, add level-2 class
-                clean_item = item.strip()
-                for symbol in ['○', '●', '•', '-', '*']:
-                    if clean_item.startswith(symbol):
-                        clean_item = clean_item[1:].strip()
-                        break
-                
-                html += f'  <li class="level-2">{clean_item}</li>\n'
-            else:
-                html += f'  <li>{item}</li>\n'
-        
-        html += '</ul>\n'
+# HTML Generation: Nested <ul> structure
+html = '<ul class="bullets">'
+for item in agenda_items:
+    html += f'<li>{item["text"]}'  # Module title
     
-    return html
+    if item['lessons']:
+        html += '<ul>'  # Nested list for lessons
+        for lesson in item['lessons']:
+            html += f'<li>{lesson}</li>'
+        html += '</ul>'
+    
+    html += '</li>'
+html += '</ul>'
 ```
 
-**Benefits of HTML-First Architecture:**
+**Result:** Clean hierarchy with proper indentation, no double bullets
 
-1. **Visual Consistency**: HTML and PPT look identical because PPT reads HTML classes
-2. **Single Update Point**: Change CSS class styling once, both HTML and PPT update
-3. **Easy Debugging**: Open HTML in browser to see exactly how PPT will look
-4. **Extensibility**: Add new HTML classes/styles without changing PPT code
-5. **Maintainability**: Clear separation between structure (HTML) and rendering (PPT)
+**Batch Processing Architecture:**
 
-**Example: Adding New Bullet Level**
+Aurora uses a sophisticated batch processing system to handle large courses (16+ lessons) within Lambda timeout limits:
+
+```
+Step Functions Orchestration
+    ↓
+PptBatchOrchestrator (State Machine)
+    ├── Batch 0: Lessons 1-3  → Generate slides → Save to shared JSON
+    ├── Batch 1: Lessons 4-6  → Generate slides → Append to JSON
+    ├── Batch 2: Lessons 7-9  → Generate slides → Append to JSON
+    ...
+    └── Batch N (final): Lessons 13-16
+            ↓
+        Generate slides → Append to JSON
+            ↓
+        completion_status = 'complete'
+            ↓
+        Generate HTML from complete JSON
+            ↓
+        Save final HTML to S3
+```
+
+**Shared State Management:**
+
 ```python
-# Step 1: Define in HTML generation
-agenda_items.append(f"          - {sub_lesson_title}")  # 10 spaces
-
-# Step 2: Add CSS class
-if leading_spaces >= 10:
-    html += f'  <li class="level-3">{clean_item}</li>\n'
-
-# Step 3: Add CSS styling
-.bullets li.level-3:before {
-    content: "◦";  /* Hollow circle */
-    color: #999999;  /* Gray */
+# infographic_structure.json accumulates slides from all batches
+{
+    "course_title": "Course Name",
+    "slides": [
+        # Batch 0 slides (lessons 1-3)
+        {"slide_number": 1, "title": "Agenda", ...},
+        {"slide_number": 2, "title": "Module 1", ...},
+        ...
+        # Batch 1 slides (lessons 4-6) - APPENDED
+        {"slide_number": 15, "title": "Lesson 4", ...},
+        ...
+        # Batch N slides (final lessons) - APPENDED
+        {"slide_number": 45, "title": "Thank You", ...}
+    ],
+    "total_slides": 46,
+    "image_url_mapping": {
+        # Merged from all batches
+        "01-01-0001": "s3://bucket/image1.png",
+        "02-03-0005": "s3://bucket/image2.png"
+    },
+    "completion_status": "complete",  # Only set by final batch
+    "last_batch_index": 5
 }
-
-# Step 4: Handle in PPT generator
-if item['level'] == 3:
-    bullet_run.text = "◦ "
-    bullet_run.font.color.rgb = RGBColor(153, 153, 153)
-    p.level = 2
 ```
 
-**Netec Branded Design Elements:**
-- Corner blocks (50px × 60px) at top: 48px, filled with #003c78
-- Netec logo (bottom-right corner, 11.1" left, 6.6" top)
-- Background images:
-  - Course title: Netec_Portada_1.png
-  - Module/Lesson titles: Netec_Lateral_1.png
-- Color scheme:
-  - Primary: #003c78 (Dark blue)
-  - Secondary: #00bceb (Cyan)
-  - Accent: #FFC000 (Yellow)
+**Batch Completion Detection:**
+
+```python
+def determine_completion_status(
+    lesson_batch_end: int,
+    total_lessons: int
+) -> str:
+    """
+    Critical logic: Only final batch generates HTML
+    
+    - Batches 0-4: completion_status = 'partial' (save JSON only)
+    - Batch 5 (final): completion_status = 'complete' (generate HTML)
+    
+    Bug Fix (Nov 2025):
+    - lesson_batch_end must be absolute lesson number (3, 6, 9, 12, 15, 16)
+    - NOT capped at len(lessons)=3 (caused all batches to be partial)
+    """
+    is_final_batch = (lesson_batch_end >= total_lessons)
+    return 'complete' if is_final_batch else 'partial'
+```
+
+**Benefits of Batch Architecture:**
+
+- ✅ Handles unlimited course size (no Lambda timeout)
+- ✅ Parallel processing (6 batches can run simultaneously)
+- ✅ Better error isolation (one batch fails, others continue)
+- ✅ Memory efficient (processes 3 lessons at a time)
+- ✅ Single final HTML output (no fragmentation)
 
 **Input Event:**
 ```json
 {
   "course_bucket": "crewai-course-artifacts",
   "project_folder": "251104-mini-cisco",
-  "book_version_key": "251104-mini-cisco/book/Generated_Course_Book_data.json",
+  "book_version_key": "project/book/Generated_Course_Book_data.json",
   "book_type": "theory",
+  "lesson_start": 1,
+  "lesson_end": 3,
+  "total_lessons": 16,
+  "batch_index": 0,
   "model_provider": "bedrock",
-  "slides_per_lesson": 5,
   "style": "professional"
 }
 ```
 
-**Output:**
+**Output (Final Batch Only):**
 ```json
 {
-  "message": "Infographic generated successfully",
-  "course_title": "Generated Course Book",
-  "total_slides": 36,
+  "statusCode": 200,
+  "message": "Complete presentation generated successfully",
+  "course_title": "Fundamentos de Redes y Cisco IOS",
+  "total_slides": 46,
   "completion_status": "complete",
   "structure_s3_key": "project/infographics/infographic_structure.json",
   "html_s3_key": "project/infographics/infographic.html",
-  "pptx_s3_key": "project/infographics/Generated_Course_Book.pptx"
+  "pptx_s3_key": null
 }
 ```
 
-**Error Handling:**
-- Auto-retry on S3 access errors
-- Graceful degradation if images fail to download
-- Fallback to text-only slides if template unavailable
-- Continuation slide creation if content overflows
+**Output (Partial Batches):**
+```json
+{
+  "statusCode": 200,
+  "message": "Partial presentation generated (lessons 1-3 of 16)",
+  "batch_slides": 10,
+  "total_slides_so_far": 10,
+  "completion_status": "partial",
+  "structure_s3_key": "project/infographics/infographic_structure.json",
+  "html_s3_key": null,  # Not generated for partial batches
+  "pptx_s3_key": null
+}
+```
 
-**Key Dependencies:**
-- `python-pptx`: PowerPoint file manipulation
-- `lxml`: XML element manipulation for bullet removal
-- `BeautifulSoup`: HTML parsing to extract classes and structure
-- `PIL (Pillow)`: Image processing and dimension calculation
-- `boto3`: S3 file operations
-- `strands-agents`: AI slide structure generation
+**S3 Artifacts:**
+
+```
+project/infographics/
+├── infographic_structure.json    # Shared state (all batches)
+├── infographic.html              # Final HTML (final batch only)
+└── (optional) course.pptx        # PowerPoint export (if enabled)
+```
+
+**HTML File Characteristics:**
+
+- **Size:** ~50-200 KB (depends on slide count)
+- **Dependencies:** None (self-contained)
+- **Images:** Presigned S3 URLs (expire after 1 hour)
+- **Compatibility:** Any modern browser (Chrome, Firefox, Safari, Edge)
+- **Print:** CSS print rules for PDF export
+- **Editing:** Can be edited in browser DevTools or text editor
+
+**Why No PPT Generation?**
+
+HTML-first architecture makes PowerPoint conversion **optional**, not required:
+
+1. **HTML is sufficient**: Instructors can present directly from browser
+2. **Print to PDF**: Browser print → PDF gives presentation file
+3. **Universal access**: No PowerPoint license needed
+4. **Easier editing**: HTML/CSS is text-based, version-controllable
+5. **Future flexibility**: Can convert to any format (PDF, PPTX, Google Slides)
+
+**Error Handling:**
+- AI generation failures → Retry with simplified prompt
+- Image load failures → Display placeholder with description
+- S3 access errors → Retry with exponential backoff
+- Timeout → Save partial progress to shared JSON
 
 **Performance:**
-- Typical execution: 60-90 seconds for 30-slide presentation
-- Memory usage: ~200-300 MB
-- Supports up to 100 slides per presentation
+- Typical execution: 60-120 seconds per batch (3 lessons)
+- Memory usage: ~300-500 MB
+- Supports: Unlimited slides (batched processing)
+
+**Future Enhancements:**
+- Interactive slides (JavaScript animations)
+- Speaker notes export
+- Video embedding
+- Live collaboration mode
 
 ---
 
