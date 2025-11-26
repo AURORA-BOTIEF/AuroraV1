@@ -26,35 +26,26 @@
     justify-content: center;
     align-items: center;
     background: #000;
+    width: 100vw;
+    height: 100vh;
 }
 
 .viewer-container.fullscreen-mode .slide-viewport {
-    max-width: none;
-    width: 1280px;
-    height: 720px;
     border-radius: 0;
     box-shadow: none;
     margin: 0;
     padding: 0;
+    /* Fixed dimensions matching the slide design */
+    width: 1280px;
+    height: 720px;
+    /* Scale will be applied via inline styles */
     transform-origin: center center;
-}
-
-/* Scale the viewport to fill screen while maintaining exact proportions */
-@media (min-aspect-ratio: 16/9) {
-    .viewer-container.fullscreen-mode .slide-viewport {
-        transform: scale(calc(100vh / 720 * 0.98));
-    }
-}
-
-@media (max-aspect-ratio: 16/9) {
-    .viewer-container.fullscreen-mode .slide-viewport {
-        transform: scale(calc(100vw / 1280 * 0.98));
-    }
+    position: relative;
 }
 
 .viewer-container.fullscreen-mode .slide {
-    width: 100%;
-    height: 100%;
+    width: 1280px;
+    height: 720px;
 }
 
 .viewer-container.fullscreen-mode .slide-navigation {
@@ -181,6 +172,14 @@
     max-width: 1280px;
     width: 100%;
     aspect-ratio: 16 / 9;
+    position: relative;
+}
+
+.slide-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
 }
 
 /* Slide Styles (matching HTML output) */
@@ -224,6 +223,89 @@
 
 .slide-content.with-subtitle {
     max-height: calc(100% - 160px);
+}
+
+.slide-content.two-column {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+}
+
+.column {
+    flex: 1;
+    max-width: 50%;
+}
+
+.column .slide-image {
+    margin: 0 auto;
+    max-height: 450px;
+}
+
+/* Title Layout Styles */
+.slide.layout-title {
+    background: linear-gradient(135deg, #003366, #4682B4) !important;
+    color: white;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+/* ... (existing title styles) ... */
+
+/* Footer Styles */
+.slide-footer {
+    position: absolute;
+    bottom: 20px;
+    right: 30px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.netec-logo {
+    height: 30px;
+    object-fit: contain;
+    opacity: 0.8;
+}
+
+.slide-number {
+    position: relative;
+    /* Changed from absolute to flow with footer */
+    bottom: auto;
+    right: auto;
+    font-size: 0.9rem;
+    color: #999;
+}
+
+.slide.layout-title .slide-header {
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: auto;
+    margin-bottom: 2rem;
+    align-items: center;
+    box-shadow: none !important;
+}
+
+.slide.layout-title .slide-title {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.slide.layout-title .slide-subtitle {
+    font-size: 2rem;
+    opacity: 0.9;
+    font-weight: 300;
+}
+
+.slide.layout-title .slide-content {
+    flex: 0;
+    padding: 0;
+    overflow: visible;
+}
+
+.slide.layout-title .slide-number {
+    color: rgba(255, 255, 255, 0.5);
 }
 
 .bullets {
@@ -290,13 +372,7 @@
     font-style: italic;
 }
 
-.slide-number {
-    position: absolute;
-    bottom: 20px;
-    right: 30px;
-    font-size: 0.9rem;
-    color: #999;
-}
+/* Old slide-number definition removed */
 
 /* Navigation Controls */
 .slide-navigation {
@@ -561,4 +637,87 @@
     .grid-view {
         grid-template-columns: 1fr;
     }
+}
+
+/* Image Zoom Overlay */
+.image-zoom-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.95);
+    z-index: 99999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.zoomed-image {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    cursor: default;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+    animation: zoomIn 0.3s ease;
+}
+
+@keyframes zoomIn {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.zoom-hint {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: white;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    pointer-events: none;
+}
+
+.close-zoom-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.3s;
+    z-index: 100000;
+}
+
+.close-zoom-btn:hover {
+    background: rgba(255, 255, 255, 0.4);
 }

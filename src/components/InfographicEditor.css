@@ -1,12 +1,23 @@
 /* src/components/InfographicEditor.css */
 .editor-container {
-    width: 100%;
-    height: 100vh;
-    background: #f5f5f5;
     display: flex;
     flex-direction: column;
+    background-color: #f5f7fa;
+    /* Force full width and hide sidebar if it leaks through */
+    /* Force full width and hide sidebar if it leaks through */
+    position: fixed !important;
+    top: 0 !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 1600px !important;
+    height: 100vh !important;
+    z-index: 99999 !important;
     overflow: hidden;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.1);
 }
+
+
 
 .editor-header {
     background: white;
@@ -101,7 +112,7 @@
 .editor-main {
     flex: 1;
     display: grid;
-    grid-template-columns: 350px 1fr;
+    grid-template-columns: 320px 1fr;
     grid-template-rows: auto 1fr;
     gap: 0;
     overflow: hidden;
@@ -113,9 +124,31 @@
     background: #f8f9fa;
     border-right: 2px solid #e0e0e0;
     overflow-y: auto;
-    padding: 0.75rem;
+    padding: 0.5rem;
     grid-column: 1;
     grid-row: 1 / 3;
+}
+
+.editor-content-scrollable {
+    grid-column: 2;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Preview Panel */
+.preview-panel {
+    background: white;
+    padding: 0;
+    overflow: hidden;
+    border-bottom: 2px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-height: 200px;
+    flex-shrink: 0;
+    /* Prevent shrinking */
 }
 
 .slides-sidebar h3 {
@@ -213,13 +246,12 @@
 }
 
 /* Edit Panel */
+/* Edit Panel */
 .edit-panel {
     background: white;
-    overflow-y: auto;
     padding: 1.5rem 2.5rem 2rem 2.5rem;
-    grid-column: 2;
-    grid-row: 2;
     border-top: 2px solid #e0e0e0;
+    flex: 1;
 }
 
 .slide-edit-header {
@@ -393,7 +425,7 @@
 /* Preview Panel */
 .preview-panel {
     background: white;
-    padding: 0.75rem 1.5rem;
+    padding: 0.5rem 1rem;
     overflow: hidden;
     border-bottom: 2px solid #e0e0e0;
     grid-column: 2;

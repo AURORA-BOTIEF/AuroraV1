@@ -27,7 +27,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Configuration
-MAX_LESSONS_PER_BATCH_LIMIT = int(os.environ.get('MAX_LESSONS_PER_BATCH', '3'))
+MAX_LESSONS_PER_BATCH_LIMIT = int(os.environ.get('MAX_LESSONS_PER_BATCH', '50'))  # Increased for HTML-First architecture
 MAX_CONCURRENT_BATCHES = 2  # Step Functions concurrency
 PPT_ORCHESTRATOR_STATE_MACHINE_ARN = os.environ.get(
     'PPT_ORCHESTRATOR_STATE_MACHINE_ARN',

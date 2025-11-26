@@ -281,11 +281,11 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             if lesson_title:
                 agenda_items.append(f"      ○ {lesson_title}")
     
-    # Max bullets per slide: ~9 bullets (460px / 50px per bullet)
-    MAX_BULLETS_PER_SLIDE = 9
+    # Max modules per slide (each module + lessons counts as ~2-3 bullets worth of space)
+    MAX_MODULES_PER_SLIDE = 3
     
     # If agenda fits in one slide, return single slide
-    if len(agenda_items) <= MAX_BULLETS_PER_SLIDE:
+    if len(agenda_items) <= MAX_MODULES_PER_SLIDE:
         return [{
             "slide_number": slide_counter,
             "title": "Agenda" if is_spanish else "Agenda",
@@ -293,7 +293,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             "layout": "single-column",
             "content_blocks": [
                 {
-                    "type": "bullets",
+                    "type": "nested-bullets",
                     "heading": "",
                     "items": agenda_items
                 }
@@ -309,7 +309,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
     for item in agenda_items:
         current_items.append(item)
         
-        if len(current_items) >= MAX_BULLETS_PER_SLIDE:
+        if len(current_items) >= MAX_MODULES_PER_SLIDE:
             slides.append({
                 "slide_number": slide_counter + len(slides),
                 "title": f"Agenda ({part_num})" if is_spanish else f"Agenda ({part_num})",
@@ -317,7 +317,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
                 "layout": "single-column",
                 "content_blocks": [
                     {
-                        "type": "bullets",
+                        "type": "nested-bullets",
                         "heading": "",
                         "items": current_items[:]
                     }
@@ -336,7 +336,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             "layout": "single-column",
             "content_blocks": [
                 {
-                    "type": "bullets",
+                    "type": "nested-bullets",
                     "heading": "",
                     "items": current_items[:]
                 }
@@ -428,6 +428,75 @@ class HTMLFirstGenerator:
         self.style = style
         self.builder = HTMLSlideBuilder(style)
     
+    def _remove_lab_sections(self, content: str) -> str:
+        """
+        Remove lab/practice sections from lesson content (THEORY ONLY).
+        
+        Filters out markdown sections that start with:
+        - ## Laboratorio: ...
+        - ## Práctica: ...
+        - ## Lab: ...
+        - ## Actividad: ...
+        
+        Returns theory-only content for slide generation.
+        """
+        if not content:
+            return content
+        
+        # Split content into lines
+        lines = content.split('\n')
+        filtered_lines = []
+        skip_section = False
+        section_level = 0
+        
+        for line in lines:
+            # Check if this is a heading line
+            heading_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+            
+            if heading_match:
+                level = len(heading_match.group(1))
+                heading_text = heading_match.group(2).lower().strip()
+                
+                # Check if this is a lab section heading
+                is_lab_section = (
+                    heading_text.startswith('laboratorio:') or
+                    heading_text.startswith('laboratorio ') or
+                    heading_text.startswith('práctica:') or
+                    heading_text.startswith('práctica ') or
+                    heading_text.startswith('lab:') or
+                    heading_text.startswith('lab ') or
+                    heading_text.startswith('actividad:') or
+                    heading_text.startswith('actividad ') or
+                    heading_text.startswith('laboratory:') or
+                    heading_text.startswith('laboratory ') or
+                    'objetivo del laboratorio' in heading_text or
+                    'conclusión del laboratorio' in heading_text
+                )
+                
+                if is_lab_section:
+                    # Start skipping this section
+                    skip_section = True
+                    section_level = level
+                    logger.info(f"🚫 Skipping lab section: {heading_text[:50]}...")
+                    continue
+                elif skip_section and level <= section_level:
+                    # We've reached a new section at the same or higher level - stop skipping
+                    skip_section = False
+                    section_level = 0
+            
+            # Add line if not in skip mode
+            if not skip_section:
+                filtered_lines.append(line)
+        
+        filtered_content = '\n'.join(filtered_lines)
+        
+        # Log if content was filtered
+        if len(filtered_content) < len(content):
+            reduction = len(content) - len(filtered_content)
+            logger.info(f"✂️  Removed {reduction} characters of lab content (theory only)")
+        
+        return filtered_content
+    
     def generate_from_lesson(self, lesson: Dict, lesson_idx: int, images: List[Dict]) -> List[Dict]:
         """
         Generate slides for a lesson with AI-driven overflow prevention.
@@ -443,6 +512,9 @@ class HTMLFirstGenerator:
         lesson_title = lesson.get('title', f'Lesson {lesson_idx}')
         lesson_content = lesson.get('content', '')
         
+        # FILTER OUT LAB SECTIONS (theory content only)
+        lesson_content = self._remove_lab_sections(lesson_content)
+        
         logger.info(f"\n📝 HTML-First generation for: {lesson_title}")
         
         # Create AI Web Designer Agent - KNOWS EXACT HEIGHT CONSTRAINTS
@@ -450,7 +522,7 @@ class HTMLFirstGenerator:
             model=self.model,
             system_prompt=f"""You are a PROFESSIONAL WEB DESIGNER creating educational slides.
 
-🎯 YOUR JOB: Create slide content that FITS within STRICT HEIGHT LIMITS.
+🎯 YOUR JOB: Create slide content that FITS within STRICT HEIGHT LIMITS using DYNAMIC SPACE CALCULATION.
 
 📏 CRITICAL CONSTRAINTS (HTML slides, 1280px × 720px):
 - **MAX CONTENT HEIGHT**: 460px (with subtitle) or 520px (without subtitle)
@@ -460,18 +532,23 @@ class HTMLFirstGenerator:
 - **EACH CALLOUT**: 75px height
 - **SPACING**: 20px between blocks
 
-🧮 MAXIMUM BULLETS PER SLIDE:
-- **With subtitle**: MAX 5-6 bullets (5×50px = 250px, 6×50px = 300px, safe under 460px limit)
-- **Without subtitle**: MAX 6-8 bullets (6×50px = 300px, 8×50px = 400px, safe under 520px limit)
-- **With image**: MAX 4-5 bullets (image 400px + 5×50px = 650px total, fits in slide)
-- **With heading**: Subtract 65px from available space (one less bullet)
+🧮 DYNAMIC SPACE CALCULATION:
+For each slide, calculate available space and fit content accordingly:
+- **Start with**: 460px (with subtitle) or 520px (without subtitle)
+- **Subtract heading**: -65px if heading present
+- **Subtract image**: -400px if image present
+- **Subtract callout**: -75px if callout present
+- **Remaining space ÷ 50px** = Maximum bullets that fit
+- **Example 1**: No subtitle, no extras = 520px ÷ 50px = 10 bullets max
+- **Example 2**: With subtitle + heading = 460px - 65px = 395px ÷ 50px = 7 bullets max
+- **Example 3**: With subtitle + image = 460px - 400px = 60px ÷ 50px = 1 bullet max
 
-⚠️ CRITICAL RULES - OVERFLOW PREVENTION:
-1. **NEVER exceed 6 bullets per slide section** (absolutely maximum!)
-2. **Better 10 slides with 4 bullets each than 5 slides with 8 bullets each**
-3. **Each section = ONE slide** (don't combine multiple sections on one slide)
-4. **Images ALWAYS paired with 4-5 explanatory bullets** (image-left or image-right layout)
-5. **If content doesn't fit**: Create MULTIPLE slides, don't cram it all in one
+⚠️ CRITICAL RULES - SMART SPLITTING:
+1. **CALCULATE available space** for each slide: (460 or 520) - heading - image - callout
+2. **Count your bullets**: If you have 7 key points and max is 10, use ONE slide with 7 bullets
+3. **Only split when necessary**: If you have 12 points and max is 10, create TWO slides (10 + 2)
+4. **Don't over-split**: Having 5 bullets on a slide that fits 10 is PERFECT - don't split unnecessarily
+5. **Quality content**: Better to have meaningful bullets that fit comfortably than splitting prematurely
 
 🖼️ IMAGE REFERENCE RULES (CRITICAL):
 - **Use EXACT image IDs from the AVAILABLE IMAGES list** (e.g., "06-01-0001", "04-01-0003")
@@ -480,11 +557,26 @@ class HTMLFirstGenerator:
 - Example: If available images show "06-01-0001", use exactly "06-01-0001" in image_reference
 - Example: If available images show "pasted-image", use exactly "pasted-image" in image_reference
 
-🎨 LAYOUT STRATEGIES:
-- **single-column**: Text-only slides with 5-6 bullets max
-- **image-left**: Image (400px) on left 50%, bullets (4-5 max) on right 50%
-- **image-right**: Bullets (4-5 max) on left 50%, image (400px) on right 50%
-- **two-column**: Split 8-10 bullets across TWO columns (4-5 per column)
+🎨 LAYOUT STRATEGIES (OPTIMIZED FOR IMAGE ASPECT RATIOS):
+- **single-column**: Text-only slides, bullets calculated from available space (typically 8-10 bullets)
+- **image-left**: Image (4:3 aspect ratio) on left 50%, bullets on right 50%
+  * Use for SQUARE/PORTRAIT images (aspect ratio < 1.6)
+  * CRITICAL: Space limited to ~60-120px = MAXIMUM 1-2 bullets
+  * ALWAYS include 1-2 SHORT explanatory bullets
+- **image-right**: Bullets on left 50%, image (4:3 aspect ratio) on right 50%
+  * Use for SQUARE/PORTRAIT images (aspect ratio < 1.6)
+  * CRITICAL: Space limited to ~60-120px = MAXIMUM 1-2 bullets
+  * ALWAYS include 1-2 SHORT explanatory bullets
+- **image-full**: Full-width image without bullets
+  * Use for WIDE images (16:9 aspect ratio ~1.78 or wider)
+  * NO bullets - image takes full slide space
+  * Image speaks for itself (diagrams, screenshots, charts)
+- **two-column**: Split bullets across TWO columns based on calculated space
+
+⚠️ IMAGE LAYOUT SELECTION:
+- Check image suggested_layout in available images list
+- If suggested_layout='split': use image-left or image-right WITH 1-2 bullets
+- If suggested_layout='full-width': use image-full WITHOUT bullets
 
 📤 OUTPUT FORMAT (JSON):
 {{
@@ -492,8 +584,8 @@ class HTMLFirstGenerator:
         {{
             "title": "Section Title",
             "subtitle": "Optional subtitle",
-            "layout": "single-column" | "image-left" | "image-right" | "two-column",
-            "bullets": ["Bullet 1", "Bullet 2", "Bullet 3", "Bullet 4"],  // MAX 5-6!
+            "layout": "single-column" | "image-left" | "image-right" | "image-full" | "two-column",
+            "bullets": ["Bullet 1", "Bullet 2", ...],  // As many as fit! Empty for image-full
             "image_reference": "06-01-0001",  // EXACT ID from AVAILABLE IMAGES list!
             "callout": "Optional important note"
         }}
@@ -501,18 +593,27 @@ class HTMLFirstGenerator:
 }}
 
 🎯 YOUR MISSION:
-Create MANY small sections with content that FITS.
-Quality over quantity in each slide - comprehensive coverage through MORE slides.
+1. For each topic, CALCULATE max bullets: (460 or 520) - extras ÷ 50
+2. If topic has ≤ max bullets: Create ONE section with all bullets
+3. If topic has > max bullets: Split intelligently (e.g., 15 bullets, max 10 → two slides: 10 + 5)
+4. AVOID premature splitting: 5 bullets fitting in 10-bullet space = ONE slide, not multiple!
 """,
             tools=[]
         )
         
-        # Build image info
-        image_info = "\n".join([f"  - '{img['alt_text']}'" for img in images]) if images else "  (none)"
+        # Build image info with aspect ratios
+        image_info_list = []
+        for img in images:
+            img_alt = img.get('alt_text', '')
+            suggested = img.get('suggested_layout', 'split')
+            aspect = img.get('aspect_ratio', 'unknown')
+            image_info_list.append(f"  - '{img_alt}' (layout: {suggested}, aspect_ratio: {aspect:.2f})" if isinstance(aspect, (int, float)) else f"  - '{img_alt}' (layout: {suggested})")
+        
+        image_info = "\n".join(image_info_list) if image_info_list else "  (none)"
         
         # Ask AI to structure content with HEIGHT AWARENESS
         prompt = f"""
-Create slide sections for this lesson. Remember: MAX 5-6 bullets per section!
+Create slide sections for this lesson using DYNAMIC SPACE CALCULATION.
 
 LESSON: {lesson_title}
 
@@ -528,12 +629,15 @@ AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
 - Copy the ID EXACTLY as shown in the AVAILABLE IMAGES list
 - If you want to use an image, set image_reference to the EXACT ID from above
 
-CRITICAL: Each section must FIT within height limits!
-- Single-column: 5-6 bullets MAX
-- With image: 4-5 bullets MAX (image takes 400px)
-- With heading: Reduce bullets by 1
+CRITICAL SPACE CALCULATION:
+- Available: 460px (with subtitle) or 520px (without)
+- Subtract extras: heading (-65px), image (-400px), callout (-75px)  
+- Formula: remaining_space ÷ 50px = MAX bullets per slide
+- **ONLY split if bullets > MAX**
+- Example: Topic has 6 bullets, MAX is 10 → Use ONE slide with 6 bullets (don't split!)
+- Example: Topic has 15 bullets, MAX is 10 → Use TWO slides (10 + 5 bullets)
 
-Create MANY sections (better to have 15 small sections than 7 large ones).
+Create sections intelligently - combine related points up to the calculated MAX, split only when necessary.
 """
         
         logger.info(f"🤖 AI Web Designer generating content sections...")
@@ -592,60 +696,33 @@ Create MANY sections (better to have 15 small sections than 7 large ones).
             image_ref = section.get('image_reference', '')
             callout = section.get('callout', '')
             
-            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets)")
-            
-            # Validate bullet count (AI sometimes ignores limits)
-            if len(bullets) > 6:
-                logger.warning(f"  ⚠️ AI generated {len(bullets)} bullets - splitting to fit!")
-                # Split into chunks of 5
-                for chunk_idx, i in enumerate(range(0, len(bullets), 5)):
-                    chunk = bullets[i:i+5]
-                    chunk_title = f"{title} ({chunk_idx+1})" if chunk_idx > 0 else title
-                    
-                    self.builder.start_slide(chunk_title, subtitle=subtitle if chunk_idx == 0 else "", layout='single-column')
-                    if self.builder.add_bullets(chunk):
-                        self.builder.finish_slide()
-                        slides_created += 1
-                    else:
-                        logger.error(f"  ❌ Even chunked bullets don't fit! Skipping.")
-                continue
+            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets, layout: {layout})")
             
             # Start slide with AI-specified layout
             self.builder.start_slide(title, subtitle=subtitle, layout=layout)
             
-            # Add image if present (for image-left/image-right layouts)
-            if image_ref and 'image' in layout:
-                if not self.builder.add_image(image_ref):
-                    logger.warning(f"  ⚠️ Image doesn't fit - creating separate slide")
-                    self.builder.finish_slide()
-                    self.builder.start_slide(f"{title} - Visual", layout='single-column')
+            # Add image if present
+            if image_ref:
+                if layout == 'image-full':
+                    # Full-width image without bullets (16:9 aspect ratio)
                     self.builder.add_image(image_ref)
-                    self.builder.finish_slide()
-                    slides_created += 1
-                    
-                    # Continue with text on next slide
-                    self.builder.start_slide(title, subtitle=subtitle, layout='single-column')
+                elif 'image' in layout:
+                    # Split layout image with bullets (4:3 aspect ratio)
+                    self.builder.add_image(image_ref)
             
-            # Add bullets
-            if bullets:
-                if not self.builder.add_bullets(bullets):
-                    logger.warning(f"  ⚠️ Bullets don't fit ({len(bullets)} bullets) - splitting...")
-                    
-                    # Finish current slide if it has content
-                    if self.builder.current_height > 0:
-                        self.builder.finish_slide()
-                        slides_created += 1
-                    
-                    # Split bullets into smaller chunks
-                    chunk_size = 4  # Ultra conservative
-                    for i in range(0, len(bullets), chunk_size):
-                        chunk = bullets[i:i+chunk_size]
-                        chunk_title = f"{title} ({i//chunk_size + 1})" if i > 0 else title
-                        self.builder.start_slide(chunk_title, layout='single-column')
-                        self.builder.add_bullets(chunk)
-                        self.builder.finish_slide()
-                        slides_created += 1
-                    continue
+            # Add bullets - skip for image-full layout
+            if bullets and layout != 'image-full':
+                added = self.builder.add_bullets(bullets)
+                if not added:
+                    # AI made a mistake - force add anyway and log warning
+                    logger.warning(f"  ⚠️ Bullets exceed calculated space ({len(bullets)} bullets) but adding anyway - AI calculation error")
+                    self.builder.current_slide['content_blocks'].append({
+                        'type': 'bullets',
+                        'heading': '',
+                        'items': bullets
+                    })
+                    # Still update height for tracking
+                    self.builder.current_height += len(bullets) * self.builder.BULLET_HEIGHT + self.builder.SPACING
             
             # Add callout if present
             if callout:
@@ -668,6 +745,7 @@ def generate_complete_course(
     is_first_batch: bool = True,
     lesson_batch_start: int = 1,
     lesson_batch_end: int = None,
+    total_lessons: int = None,
     max_processing_time: int = 840
 ) -> Dict:
     """
@@ -682,6 +760,7 @@ def generate_complete_course(
         is_first_batch: True if this is the first batch (adds intro slides)
         lesson_batch_start: Starting lesson number for batch processing
         lesson_batch_end: Ending lesson number (None = process all remaining)
+        total_lessons: Total lessons in full course (for completion detection)
         max_processing_time: Maximum processing time in seconds (default 14 minutes)
     
     Returns:
@@ -744,12 +823,14 @@ def generate_complete_course(
             logger.info(f"✅ Added group presentation slide")
     
     # Determine batch range
-    if lesson_batch_end is None:
-        lesson_batch_end = len(lessons)
-    else:
-        lesson_batch_end = min(lesson_batch_end, len(lessons))
+    # Note: lesson_batch_start and lesson_batch_end are ABSOLUTE lesson numbers (1-based)
+    # The 'lessons' array has already been sliced by the Lambda handler to contain only the batch lessons
+    # So we process ALL lessons in the array (which is the current batch)
+    batch_lessons = lessons  # Process all lessons in the already-sliced array
     
-    batch_lessons = lessons[lesson_batch_start-1:lesson_batch_end]
+    # Keep lesson_batch_end as-is (it's the absolute lesson number, needed for completion detection)
+    if lesson_batch_end is None:
+        lesson_batch_end = lesson_batch_start + len(lessons) - 1
     
     # Track module changes for module title slides
     last_module_number = None
@@ -757,11 +838,19 @@ def generate_complete_course(
     lessons_processed = 0
     
     # Get lab titles to skip them during lesson processing
-    lab_titles = []
-    if 'outline_modules' in book_data:
-        for module in book_data.get('outline_modules', []):
-            for lab in module.get('lab_activities', []):
-                lab_titles.append(lab.get('title', '').lower())
+    lab_titles = set()
+    outline_modules = book_data.get('outline_modules', [])
+    
+    # Build comprehensive list of lab activity titles from outline
+    for module in outline_modules:
+        for lesson in module.get('lessons', []):
+            # Add lab_activities titles to skip list
+            for lab in lesson.get('lab_activities', []):
+                lab_title = lab.get('title', '').lower().strip()
+                if lab_title:
+                    lab_titles.add(lab_title)
+                    
+    logger.info(f"🚫 Found {len(lab_titles)} lab activities to skip from outline")
     
     # Process each lesson with timeout guard
     for lesson_idx, lesson in enumerate(batch_lessons, lesson_batch_start):
@@ -797,15 +886,28 @@ def generate_complete_course(
         lesson_title = lesson.get('title', f'Lesson {lesson_idx}')
         current_module_number = lesson.get('module_number', 1)
         
-        # Skip lab lessons (will be added from outline)
+        # Skip lab lessons - THEORY ONLY (exclude all lab/practice activities)
+        lesson_title_lower = lesson_title.lower().strip()
+        
+        # Check multiple patterns for lab detection
         is_lab_lesson = (
-            'laboratorio' in lesson_title.lower() or
-            'lab' in lesson_title.lower() or
-            lesson_title.lower() in lab_titles
+            lesson_title_lower in lab_titles or  # Exact match from outline
+            lesson_title_lower.startswith('laboratorio') or  # Starts with "Laboratorio"
+            lesson_title_lower.startswith('lab ') or  # Starts with "Lab "
+            lesson_title_lower.startswith('lab-') or
+            lesson_title_lower.startswith('lab:') or
+            lesson_title_lower.startswith('práctica') or  # Starts with "Práctica"
+            lesson_title_lower.startswith('practice') or
+            lesson_title_lower.startswith('actividad') or  # Starts with "Actividad"
+            lesson_title_lower.startswith('activity') or
+            'laboratorio -' in lesson_title_lower or
+            'lab -' in lesson_title_lower or
+            'práctica -' in lesson_title_lower or
+            lesson.get('type', '').lower() in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio']
         )
         
         if is_lab_lesson:
-            logger.info(f"\n⏭️  Skipping Lab Lesson {lesson_idx}: {lesson_title} (will be added from outline)")
+            logger.info(f"\n⏭️  Skipping Lab/Practice Lesson {lesson_idx}: {lesson_title} (theory content only)")
             continue
         
         # Insert module title slide when entering new module
@@ -845,8 +947,46 @@ def generate_complete_course(
         lesson_images = []
         img_pattern = r'!\[([^\]]*)\]\(([^\)]+)\)'
         matches = re.findall(img_pattern, lesson_content)
+        
+        # Get image dimensions from S3 to determine layout
+        s3_client = boto3.client('s3')
         for alt_text, img_url in matches:
-            lesson_images.append({'alt_text': alt_text, 'url': img_url})
+            image_info = {'alt_text': alt_text, 'url': img_url}
+            
+            # Try to get dimensions from S3 metadata
+            try:
+                if 's3.amazonaws.com' in img_url:
+                    # Parse S3 URL
+                    if '.s3.amazonaws.com' in img_url:
+                        parts = img_url.split('.s3.amazonaws.com/')
+                        bucket = parts[0].split('//')[-1]
+                        key = parts[1]
+                    else:
+                        parts = img_url.replace('https://s3.amazonaws.com/', '').split('/', 1)
+                        bucket = parts[0]
+                        key = parts[1] if len(parts) > 1 else ''
+                    
+                    # Get object metadata
+                    response = s3_client.head_object(Bucket=bucket, Key=key)
+                    metadata = response.get('Metadata', {})
+                    
+                    # Check for width/height in metadata or content-type
+                    if 'width' in metadata and 'height' in metadata:
+                        image_info['width'] = int(metadata['width'])
+                        image_info['height'] = int(metadata['height'])
+                        aspect_ratio = image_info['width'] / image_info['height']
+                        image_info['aspect_ratio'] = aspect_ratio
+                        # Determine layout: 16:9 (~1.78), 4:3 (~1.33)
+                        if aspect_ratio > 1.6:  # Wide image (16:9 or wider)
+                            image_info['suggested_layout'] = 'full-width'  # No bullets
+                        else:  # Squarer image (4:3 or portrait)
+                            image_info['suggested_layout'] = 'split'  # With bullets
+            except Exception as e:
+                logger.debug(f"Could not fetch image metadata for {alt_text}: {e}")
+                # Default to split layout if we can't determine
+                image_info['suggested_layout'] = 'split'
+            
+            lesson_images.append(image_info)
         
         logger.info(f"\n📝 Processing Lesson {lesson_idx}: {lesson_title}")
         logger.info(f"🖼️  Found {len(lesson_images)} images")
@@ -872,7 +1012,19 @@ def generate_complete_course(
     all_slides.append(thank_you_slide)
     logger.info(f"🙏 Added Thank You slide")
     
-    completion_status = "complete" if lessons_processed == len(batch_lessons) else "partial"
+    # Determine if this is the final batch for the entire course
+    # A batch is "complete" only if it processed all lessons up to the end of the course
+    # Use total_lessons parameter if provided, otherwise fall back to len(lessons) from book_data
+    logger.info(f"🔍 DEBUG: total_lessons param={total_lessons}, len(lessons)={len(lessons)}, lesson_batch_end={lesson_batch_end}")
+    course_total_lessons = total_lessons if total_lessons is not None else len(lessons)
+    is_final_batch = lesson_batch_end is not None and lesson_batch_end >= course_total_lessons
+    completion_status = "complete" if is_final_batch else "partial"
+    
+    logger.info(f"🔍 DEBUG: course_total_lessons={course_total_lessons}, is_final_batch={is_final_batch}, completion_status={completion_status}")
+    if is_final_batch:
+        logger.info(f"✅ FINAL BATCH: lesson_batch_end={lesson_batch_end} >= total_lessons={course_total_lessons}")
+    else:
+        logger.info(f"⏭️  INTERMEDIATE BATCH: lesson_batch_end={lesson_batch_end} < total_lessons={course_total_lessons}")
     
     return {
         'course_title': course_title,
@@ -903,9 +1055,25 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     - Clean, professional design
     """
     
-    # Generate presigned URLs for S3 images
+    # Generate presigned URLs for S3 images and logo
     s3_client = boto3.client('s3')
     presigned_mapping = {}
+    
+    # Generate presigned URL for logo
+    logo_s3_url = "https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png"
+    logo_presigned_url = logo_s3_url
+    try:
+        parts = logo_s3_url.split('.s3.amazonaws.com/')
+        bucket = parts[0].split('//')[-1]
+        key = parts[1]
+        logo_presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket, 'Key': key},
+            ExpiresIn=3600
+        )
+        logger.info(f"🔑 Generated presigned URL for logo")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not generate presigned URL for logo: {e}")
     
     if image_url_mapping:
         logger.info(f"🔑 Generating presigned URLs for {len(image_url_mapping)} images...")
@@ -1039,6 +1207,28 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             font-size: 16pt;
         }}
         
+        /* Nested bullets for agenda (second level) */
+        .bullets li ul {{
+            list-style: none;
+            margin: 8px 0 8px 0;
+            padding-left: 20px;
+        }}
+        
+        .bullets li ul li {{
+            font-size: 18pt;
+            line-height: 1.3;
+            padding: 2px 0 2px 25px;
+            margin-bottom: 2px;
+        }}
+        
+        .bullets li ul li:before {{
+            content: '○';
+            position: absolute;
+            left: 20px;
+            color: {colors['primary']};
+            font-size: 14pt;
+        }}
+        
         /* Headings */
         .content-heading {{
             font-size: 24pt;
@@ -1089,7 +1279,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .image-layout {{
             display: grid;
             gap: 30px;
-            align-items: start;
+            align-items: center;
+            height: 100%;
         }}
         
         .image-layout.image-left {{
@@ -1100,7 +1291,153 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             grid-template-columns: 1fr 1fr;
         }}
         
-        /* Branded title slides */
+        .image-layout.image-full {{
+            grid-template-columns: 1fr;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }}
+        
+        .image-layout .image-column {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }}
+        
+        .image-layout .bullets-column {{
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }}
+        
+        .image-layout .bullets-column ul.bullets {{
+            margin: 0;
+        }}
+        
+        .image-layout.image-full .slide-image {{
+            max-width: 100%;
+            max-height: 650px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }}
+        
+        /* Logo positioning */
+        .slide-logo {{
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            width: 120px;
+            height: auto;
+            opacity: 0.9;
+            z-index: 100;
+        }}
+        
+        /* COURSE TITLE SLIDE - Main branded opening */
+        .course-title-slide {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(135deg, {colors['primary']}, {colors['secondary']});
+            color: white;
+            text-align: center;
+            padding: 80px;
+            position: relative;
+        }}
+        
+        .course-title-slide .title {{
+            font-size: 72pt;
+            font-weight: 700;
+            margin-bottom: 40px;
+            line-height: 1.1;
+        }}
+        
+        .course-title-slide .logo {{
+            position: absolute;
+            top: 40px;
+            right: 40px;
+            width: 150px;
+            height: auto;
+            opacity: 1;
+        }}
+        
+        /* MODULE TITLE SLIDE - Section divider */
+        .module-title-slide {{
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(to right, {colors['primary']}, {colors['secondary']});
+            color: white;
+            padding: 100px 80px;
+            position: relative;
+        }}
+        
+        .module-title-slide .title {{
+            font-size: 56pt;
+            font-weight: 700;
+            margin-top: 80px;
+            text-align: left;
+            width: 100%;
+            border-left: 8px solid {colors['accent']};
+            padding-left: 30px;
+        }}
+        
+        .module-title-slide .logo {{
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            height: auto;
+            opacity: 0.95;
+        }}
+        
+        /* LESSON TITLE SLIDE - Topic introduction */
+        .lesson-title-slide {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            height: 100%;
+            background: white;
+            color: {colors['primary']};
+            padding: 60px 80px;
+            position: relative;
+            border-top: 10px solid {colors['accent']};
+        }}
+        
+        .lesson-title-slide .title {{
+            font-size: 48pt;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-align: center;
+            color: {colors['primary']};
+        }}
+        
+        .lesson-title-slide .subtitle {{
+            font-size: 28pt;
+            color: {colors['secondary']};
+            opacity: 0.8;
+            text-align: center;
+        }}
+        
+        .lesson-title-slide .logo {{
+            position: absolute;
+            top: 40px;
+            right: 40px;
+            width: 100px;
+            height: auto;
+            opacity: 0.85;
+        }}
+        
+        /* Legacy branded-title (for thank you slide) */
         .branded-title {{
             display: flex;
             align-items: center;
@@ -1154,57 +1491,186 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         f'    <h1 style="text-align: center; color: {colors["primary"]}; margin-bottom: 30px; font-size: 32pt;">{course_title}</h1>',
     ]
     
+    # Use presigned logo URL
+    logo_url = logo_presigned_url
+    
     # Generate each slide
     for slide_idx, slide in enumerate(slides, 1):
-        html_parts.append(f'<div class="slide" data-slide="{slide_idx}">')
-        
-        # Header
+        layout = slide.get('layout', 'single-column')
         title = slide.get('title', '')
         subtitle = slide.get('subtitle', '')
         
+        html_parts.append(f'<div class="slide" data-slide="{slide_idx}">')
+        
+        # Special layouts for title slides
+        if layout == 'course-title':
+            html_parts.append('  <div class="course-title-slide">')
+            html_parts.append(f'    <div class="title">{title}</div>')
+            html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
+            html_parts.append('  </div>')
+            html_parts.append('</div>')
+            continue
+        
+        elif layout == 'module-title':
+            html_parts.append('  <div class="module-title-slide">')
+            html_parts.append(f'    <div class="title">{title}</div>')
+            html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
+            html_parts.append('  </div>')
+            html_parts.append('</div>')
+            continue
+        
+        elif layout == 'lesson-title':
+            html_parts.append('  <div class="lesson-title-slide">')
+            html_parts.append(f'    <div class="title">{title}</div>')
+            if subtitle:
+                html_parts.append(f'    <div class="subtitle">{subtitle}</div>')
+            html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
+            html_parts.append('  </div>')
+            html_parts.append('</div>')
+            continue
+        
+        # Regular content slides with header
         html_parts.append('  <div class="slide-header">')
         html_parts.append(f'    <div class="slide-title">{title}</div>')
         if subtitle:
             html_parts.append(f'    <div class="slide-subtitle">{subtitle}</div>')
         html_parts.append('  </div>')
         
-        # Content
-        html_parts.append('  <div class="slide-content">')
-        
-        for block in slide.get('content_blocks', []):
-            block_type = block.get('type')
+        # Content - use special layout wrapper for image layouts
+        if layout in ['image-left', 'image-right', 'image-full']:
+            html_parts.append(f'  <div class="slide-content image-layout {layout}">')
             
-            if block_type == 'bullets':
-                heading = block.get('heading', '')
-                if heading:
-                    html_parts.append(f'    <div class="content-heading">{heading}</div>')
-                html_parts.append('    <ul class="bullets">')
-                for item in block.get('items', []):
-                    html_parts.append(f'      <li>{item}</li>')
-                html_parts.append('    </ul>')
+            # For image-left: image first, then bullets
+            # For image-right: bullets first, then image
+            # For image-full: just image
             
-            elif block_type == 'image':
-                img_ref = block.get('image_reference', '')
-                img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
-                caption = block.get('caption', '')
+            content_blocks = slide.get('content_blocks', [])
+            image_block = None
+            bullet_blocks = []
+            
+            for block in content_blocks:
+                if block.get('type') == 'image':
+                    image_block = block
+                elif block.get('type') == 'bullets':
+                    bullet_blocks.append(block)
+            
+            # Render based on layout
+            if layout == 'image-left':
+                # Image column
+                html_parts.append('    <div class="image-column">')
+                if image_block:
+                    img_ref = image_block.get('image_reference', '')
+                    img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
+                    if img_url:
+                        html_parts.append(f'      <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                html_parts.append('    </div>')
                 
-                # Debug logging for image resolution
-                if not img_url:
-                    logger.warning(f"⚠️ Image '{img_ref}' not found in mapping. Available: {list(final_image_mapping.keys())[:5]}")
+                # Bullets column
+                html_parts.append('    <div class="bullets-column">')
+                for bullet_block in bullet_blocks:
+                    heading = bullet_block.get('heading', '')
+                    if heading:
+                        html_parts.append(f'      <div class="content-heading">{heading}</div>')
+                    html_parts.append('      <ul class="bullets">')
+                    for item in bullet_block.get('items', []):
+                        html_parts.append(f'        <li>{item}</li>')
+                    html_parts.append('      </ul>')
+                html_parts.append('    </div>')
                 
-                if img_url:
-                    html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
-                    if caption:
-                        html_parts.append(f'    <div style="text-align: center; font-size: 16pt; color: #666;">{caption}</div>')
-                else:
-                    # Placeholder for missing images
-                    html_parts.append(f'    <div style="border: 2px dashed #ccc; padding: 100px; text-align: center; color: #999; margin: 20px 0;">Image: {img_ref}</div>')
+            elif layout == 'image-right':
+                # Bullets column
+                html_parts.append('    <div class="bullets-column">')
+                for bullet_block in bullet_blocks:
+                    heading = bullet_block.get('heading', '')
+                    if heading:
+                        html_parts.append(f'      <div class="content-heading">{heading}</div>')
+                    html_parts.append('      <ul class="bullets">')
+                    for item in bullet_block.get('items', []):
+                        html_parts.append(f'        <li>{item}</li>')
+                    html_parts.append('      </ul>')
+                html_parts.append('    </div>')
+                
+                # Image column
+                html_parts.append('    <div class="image-column">')
+                if image_block:
+                    img_ref = image_block.get('image_reference', '')
+                    img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
+                    if img_url:
+                        html_parts.append(f'      <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                html_parts.append('    </div>')
+                
+            elif layout == 'image-full':
+                # Just the image, centered
+                if image_block:
+                    img_ref = image_block.get('image_reference', '')
+                    img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
+                    if img_url:
+                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
             
-            elif block_type == 'callout':
-                text = block.get('text', '')
-                html_parts.append(f'    <div class="callout">{text}</div>')
+            html_parts.append('  </div>')
+            
+        else:
+            # Standard single-column or two-column layout
+            html_parts.append('  <div class="slide-content">')
+            
+            for block in slide.get('content_blocks', []):
+                block_type = block.get('type')
+                
+                if block_type == 'nested-bullets':
+                    # Nested bullets for agenda (modules with lessons)
+                    heading = block.get('heading', '')
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    html_parts.append('    <ul class="bullets">')
+                    for item in block.get('items', []):
+                        if isinstance(item, dict):
+                            # Module with nested lessons
+                            html_parts.append(f'      <li>{item.get("text", "")}')
+                            lessons = item.get('lessons', [])
+                            if lessons:
+                                html_parts.append('        <ul>')
+                                for lesson in lessons:
+                                    html_parts.append(f'          <li>{lesson}</li>')
+                                html_parts.append('        </ul>')
+                            html_parts.append('      </li>')
+                        else:
+                            # Plain text item (fallback)
+                            html_parts.append(f'      <li>{item}</li>')
+                    html_parts.append('    </ul>')
+                
+                elif block_type == 'bullets':
+                    heading = block.get('heading', '')
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    html_parts.append('    <ul class="bullets">')
+                    for item in block.get('items', []):
+                        html_parts.append(f'      <li>{item}</li>')
+                    html_parts.append('    </ul>')
+                
+                elif block_type == 'image':
+                    img_ref = block.get('image_reference', '')
+                    img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
+                    caption = block.get('caption', '')
+                    
+                    if not img_url:
+                        logger.warning(f"⚠️ Image '{img_ref}' not found in mapping. Available: {list(final_image_mapping.keys())[:5]}")
+                    
+                    if img_url:
+                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                        if caption:
+                            html_parts.append(f'    <div style="text-align: center; font-size: 16pt; color: #666;">{caption}</div>')
+                    else:
+                        html_parts.append(f'    <div style="border: 2px dashed #ccc; padding: 100px; text-align: center; color: #999; margin: 20px 0;">Image: {img_ref}</div>')
+                
+                elif block_type == 'callout':
+                    text = block.get('text', '')
+                    html_parts.append(f'    <div class="callout">{text}</div>')
+            
+            html_parts.append('  </div>')
         
-        html_parts.append('  </div>')
+        # Add logo to regular content slides (bottom-right)
+        html_parts.append(f'  <img src="{logo_url}" class="slide-logo" alt="Logo">')
+        
         html_parts.append('</div>')
     
     html_parts.extend([

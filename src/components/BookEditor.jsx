@@ -489,6 +489,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 return;
             }
 
+            console.log('Files found in book folder:', response.Contents.map(c => c.Key));
+
             // Look for lab guide file (_LabGuide_complete)
             const labGuideFile = response.Contents.find(obj =>
                 obj.Key && obj.Key.includes('_LabGuide_complete')
@@ -739,7 +741,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         // Helper to normalize strings for comparison
         const normalize = (str) => str.toLowerCase()
             .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-            .replace(/[^\w\s]/g, '') // Remove non-word chars
+            .replace(/[^\w\s]/g, ' ') // Replace non-word chars with space
             .replace(/\s+/g, ' ')
             .trim();
 
@@ -778,6 +780,31 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             // 4. Reverse contains (Outline Title contains Header)
             match = headers.find(h => normTitle.includes(normalize(h.title)));
+            if (match) return match;
+
+            // 5. Token Overlap Match (Bag of words)
+            // Handles cases like "Inter-VLAN routing..." vs "Enrutamiento Inter-VLAN..."
+            // where words are translated or reordered but key terms (Packet Tracer, Router-on-a-stick) remain.
+            const titleTokens = normTitle.split(' ').filter(t => t.length > 2); // Filter short words
+            if (titleTokens.length > 0) {
+                match = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const headerTokens = normalize(h.title).split(' ');
+
+                    // Count how many title tokens exist in header
+                    let matches = 0;
+                    titleTokens.forEach(token => {
+                        if (headerTokens.includes(token)) matches++;
+                    });
+
+                    // Calculate score: % of title tokens found in header
+                    const score = matches / titleTokens.length;
+
+                    // Threshold: 60% match?
+                    return score > 0.6;
+                });
+                if (match) return match;
+            }
 
             return match;
         };
@@ -790,10 +817,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         // Access modules from outline.course.modules (YAML structure) or outline.modules (flat structure)
         const modulesList = (outline.course && outline.course.modules) || outline.modules || [];
 
+        console.log('Outline modules found:', modulesList.length);
         if (modulesList.length === 0) {
             debugLog.push("CRITICAL: No modules found in outline object. Checked outline.course.modules and outline.modules.");
-            debugLog.push(`Outline keys: ${Object.keys(outline).join(', ')} `);
-            if (outline.course) debugLog.push(`Outline.course keys: ${Object.keys(outline.course).join(', ')} `);
+            debugLog.push(`Outline keys: ${Object.keys(outline).join(', ')}`);
+            if (outline.course) debugLog.push(`Outline.course keys: ${Object.keys(outline.course).join(', ')}`);
         }
 
         // Iterate through outline modules
@@ -804,10 +832,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             };
 
             debugLog.push(`Processing Module: "${outModule.title}"`);
-            debugLog.push(`  Module has ${outModule.lessons ? outModule.lessons.length : 0} lessons in outline`);
+            debugLog.push(`  Module has ${outModule.lessons ? outModule.lessons.length : 0} lessons and ${outModule.lab_activities ? outModule.lab_activities.length : 0} direct labs in outline`);
 
             // Collect all potential lesson items (Lessons + Lab Activities)
             const moduleItems = [];
+
+            if (outModule.lab_activities) {
+                outModule.lab_activities.forEach(lab => {
+                    moduleItems.push({
+                        title: lab.title,
+                        type: 'lab',
+                        original: lab
+                    });
+                });
+            }
 
             if (outModule.lessons) {
                 outModule.lessons.forEach((outLesson) => {
@@ -835,9 +873,29 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             // Now try to find headers for these items
             // The module assignment comes from the outline, not from markdown headers
+
+            // Try to find the module header to scope the search
+            const moduleHeader = findHeader(outModule.title, lastLineIndex);
+            const moduleStartLine = moduleHeader ? moduleHeader.lineIndex : lastLineIndex;
+
+            if (moduleHeader) {
+                debugLog.push(`  Found Module Header: "${moduleHeader.title}" at line ${moduleHeader.lineIndex}`);
+            } else {
+                debugLog.push(`  ⚠ Module Header "${outModule.title}" not found in markdown. Using last known line ${lastLineIndex}`);
+            }
+
             moduleItems.forEach((item, idx) => {
-                // Search the entire document for this lab activity
-                const header = findHeader(item.title, 0);
+                // 1. Try to find header within module boundaries (or after previous lesson)
+                let header = findHeader(item.title, Math.max(moduleStartLine, lastLineIndex));
+
+                // 2. Fallback: Global search if not found in expected location
+                if (!header) {
+                    const globalHeader = findHeader(item.title, 0);
+                    if (globalHeader && !usedHeaders.has(globalHeader.lineIndex)) {
+                        console.log(`  Found "${item.title}" globally at line ${globalHeader.lineIndex} (outside expected module range)`);
+                        header = globalHeader;
+                    }
+                }
 
                 if (header && !usedHeaders.has(header.lineIndex)) {
                     usedHeaders.add(header.lineIndex);
@@ -856,11 +914,33 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     moduleObj.lessons.push(lessonObj);
                     flatLessons.push(lessonObj);
 
-                    debugLog.push(`  ✓ Matched "${item.title}" -> "${header.title}" (Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`);
+                    const msg = `  ✓ Matched "${item.title}" -> "${header.title}" (Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`;
+                    debugLog.push(msg);
+                    console.log(msg);
                 } else if (header && usedHeaders.has(header.lineIndex)) {
-                    debugLog.push(`  ⚠ Header for "${item.title}" already used`);
+                    const msg = `  ⚠ Header for "${item.title}" already used`;
+                    debugLog.push(msg);
+                    console.log(msg);
                 } else {
-                    debugLog.push(`  ✗ FAILED to match "${item.title}"`);
+                    const msg = `  ✗ FAILED to match "${item.title}"`;
+                    debugLog.push(msg);
+                    console.log(msg);
+
+                    // Add as placeholder so it shows in the UI
+                    const lessonObj = {
+                        title: item.title, // Removed warning text as requested
+                        content: `# ${item.title}\n\n> **Error:** No se encontró el contenido para esta actividad en el archivo markdown.\n> Verifique que el título en el outline coincida con algún encabezado en el documento.\n> Título buscado: "${item.title}"`,
+                        module_title: outModule.title,
+                        moduleNumber: modIdx + 1,
+                        lesson_number: flatLessons.length + 1,
+                        filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
+                        startLine: -1, // Use -1 to indicate no line found
+                        type: item.type,
+                        isPlaceholder: true
+                    };
+
+                    moduleObj.lessons.push(lessonObj);
+                    flatLessons.push(lessonObj);
                 }
             });
 
@@ -872,8 +952,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         });
 
         // 3. Extract content for each lesson
+        // Filter out placeholders for content extraction
+        const realLessons = flatLessons.filter(l => !l.isPlaceholder);
+
         // Sort by line number to ensure correct order and content capture
-        const sortedLessons = flatLessons.sort((a, b) => a.startLine - b.startLine);
+        const sortedLessons = realLessons.sort((a, b) => a.startLine - b.startLine);
 
         sortedLessons.forEach((lesson, idx) => {
             const nextLesson = sortedLessons[idx + 1];
@@ -887,8 +970,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             // We start from startLine + 1 to skip the header itself (optional, but usually cleaner)
             // Or keep the header? The BookEditor usually expects content *without* the main title if it renders it separately.
             // But here, let's keep the header if it's part of the flow, or remove it if it duplicates the sidebar title.
-            // Let's include the header line for context, or maybe startLine + 1.
-            // Standard `parseMarkdownToBook` excludes the header (line.substring(2)).
             // Let's exclude the header line.
             const contentLines = lines.slice(lesson.startLine + 1, endLine);
             lesson.content = contentLines.join('\n').trim();
@@ -2763,7 +2844,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         <h3>{currentLesson.title}</h3>
                         <div className="lesson-stats">Palabras: {currentLesson.content ? currentLesson.content.split(/\s+/).filter(Boolean).length : 0}</div>
                     </div>
-                    <div className="editor-container">
+                    <div className="book-content-container">
                         {isEditing ? (
                             <div
                                 ref={editorRef}

@@ -707,6 +707,8 @@ Resources:
             Method: put
             Auth:
               Authorizer: NONE
+            Auth:
+              Authorizer: NONE
 
   LoadBookFunction:
     Type: AWS::Serverless::Function
@@ -835,17 +837,31 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
-        PresignOptions:
-          Type: Api
-          Properties:
-            Path: /presign
-            Method: options
-            Auth:
-              Authorizer: NONE
         GenerateInfographicOptions:
           Type: Api
           Properties:
             Path: /generate-infographic
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ListInfographicsOptions:
+          Type: Api
+          Properties:
+            Path: /list-infographics
+            Method: options
+            Auth:
+              Authorizer: NONE
+        GetInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UpdateInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /infographic
             Method: options
             Auth:
               Authorizer: NONE
@@ -989,6 +1005,7 @@ Resources:
                 model_provider.$: $.model_provider
                 content_source.$: $.content_source
                 modules_to_generate.$: $.modules_to_generate
+                image_model.$: $.image_model
             Retry:
               - ErrorEquals:
                   - Lambda.ServiceException
@@ -1111,6 +1128,7 @@ Resources:
                       project_folder.$: $.batch_task.project_folder
                       prompts_prefix.$: $.visual_result.Payload.prompts_s3_prefix
                       prompts.$: "$.remaining_prompts"
+                      image_model.$: $.batch_task.image_model
                   Retry:
                     - ErrorEquals:
                         - Lambda.ServiceException
@@ -1470,6 +1488,7 @@ Resources:
               modules_to_generate.$: $.modules_to_generate
               content_type.$: $.content_type
               master_lab_plan_result.$: $.master_lab_plan_result
+              image_model.$: $.image_model
             Next: ExpandModulesToBatches
           
           # ===== FAIL STATES =====

@@ -73,6 +73,9 @@ FUNCTIONS_WITH_DEPS=(
     "LabBatchExpander"              # Needs: pyyaml
     "ImagesGen"                     # ALL dependencies in GeminiLayer (empty requirements.txt)
     "BookBuilder"                   # Standard lib only (but deployed for consistency)
+    "ListInfographicsFunction"      # Lists available presentations (standard lib)
+    "GetInfographicFunction"        # Gets presentation details (standard lib)
+    "UpdateInfographicFunction"     # Updates and regenerates presentations (uses StrandsAgentsLayer)
 )
 
 echo ""

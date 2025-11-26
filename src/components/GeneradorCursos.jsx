@@ -15,7 +15,7 @@ function GeneradorCursos() {
     const [moduleInput, setModuleInput] = useState('1');
     const [generateFullCourse, setGenerateFullCourse] = useState(false);
     const [modelProvider, setModelProvider] = useState('bedrock');
-    const [imageModel, setImageModel] = useState('models/gemini-3-pro-image-preview'); // 'gemini' or 'imagen'
+    const [imageModel, setImageModel] = useState('models/gemini-2.5-flash-image'); // Default to cost-optimized
     const [contentType, setContentType] = useState('theory'); // 'theory', 'labs', 'both'
     const [labRequirements, setLabRequirements] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
@@ -55,7 +55,13 @@ function GeneradorCursos() {
 
             // Auto-generate project folder name if empty
             if (!projectFolder) {
-                const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                // Get date in YYMMDD format
+                const date = new Date();
+                const year = date.getFullYear().toString().slice(-2);
+                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                const day = date.getDate().toString().padStart(2, '0');
+                const timestamp = `${year}${month}${day}`;
+
                 const baseName = file.name.replace(/\.(yaml|yml)$/, '').replace(/[^a-zA-Z0-9-]/g, '-');
                 setProjectFolder(`${timestamp}-${baseName}`);
             }
@@ -292,7 +298,7 @@ function GeneradorCursos() {
                     <div className="generator-form">
                         {/* File Upload Section */}
                         <div className="form-section">
-                            <h3>📁 Outline del Curso</h3>
+                            <h3>📁 Temario del Curso</h3>
                             <p className="section-description">
                                 Selecciona el archivo YAML que contiene la estructura del curso
                             </p>
@@ -352,7 +358,7 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="bedrock">AWS Bedrock (Claude 3.7 Sonnet)</option>
+                                    <option value="bedrock">AWS Bedrock (Claude 4.5 Sonnet)</option>
                                     <option value="openai">OpenAI (GPT-5)</option>
                                 </select>
                                 <small className="form-hint">
@@ -369,8 +375,8 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Rápido, menor costo)</option>
-                                    <option value="imagen">Imagen 4.0 Ultra (Mejor calidad de texto, mayor costo)</option>
+                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Optimizado para costos)</option>
+                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Alta Calidad)</option>
                                 </select>
                                 <small className="form-hint">
                                     Imagen 4.0 es superior para diagramas con texto y etiquetas precisas

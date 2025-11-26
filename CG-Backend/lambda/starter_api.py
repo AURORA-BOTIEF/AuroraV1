@@ -322,6 +322,11 @@ def lambda_handler(event, context):
         # Only include optional parameters if they were provided
         if max_images is not None:
             execution_input["max_images"] = max_images
+            
+        # Pass image_model if provided (default handled by Lambda)
+        image_model = body.get('image_model')
+        if image_model:
+            execution_input["image_model"] = image_model
 
         print(f"Starting Step Functions execution with input: {json.dumps(execution_input, indent=2)}")
 

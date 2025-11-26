@@ -17,6 +17,21 @@ def lambda_handler(event, context):
     - Structure JSON with all slides
     - Image URL mappings
     """
+    print(f"Event received: {json.dumps(event)}")
+    
+    # Handle OPTIONS preflight request for CORS
+    if event.get('httpMethod') == 'OPTIONS':
+        print("Handling OPTIONS preflight request")
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                "Access-Control-Allow-Methods": "GET,OPTIONS"
+            },
+            "body": ""
+        }
+
     try:
         print("--- Getting Infographic Details ---")
         
@@ -63,51 +78,26 @@ def lambda_handler(event, context):
                 "body": json.dumps({"error": f"Infographic not found for project: {project_folder}"})
             }
         
-        # Generate presigned URLs for HTML and images
-        html_url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': bucket_name, 'Key': html_key},
-            ExpiresIn=3600  # 1 hour
-        )
+        # Fetch HTML content from S3 and return direct S3 URLs
+        # Frontend will use Cognito IAM credentials to fetch images
+        print(f"Fetching HTML from s3://{bucket_name}/{html_key}")
+        try:
+            html_response = s3_client.get_object(Bucket=bucket_name, Key=html_key)
+            html_content = html_response['Body'].read().decode('utf-8')
+            print(f"✓ HTML fetched successfully, size: {len(html_content)} bytes")
+        except s3_client.exceptions.NoSuchKey:
+            print(f"✗ HTML file not found: {html_key}")
+            html_content = "<html><body><h1>HTML file not found</h1></body></html>"
         
-        # Generate presigned URLs for all images in the mapping
-        image_url_mapping = structure_data.get('image_url_mapping', {})
-        presigned_image_mapping = {}
+        # Return HTML as-is with direct S3 URLs for Cognito IAM access
+        structure_data['html_content'] = html_content
         
-        for alt_text, s3_url in image_url_mapping.items():
-            try:
-                # Parse S3 URL to get bucket and key
-                if 's3.amazonaws.com' in s3_url or s3_url.startswith('s3://'):
-                    if s3_url.startswith('s3://'):
-                        parts = s3_url.replace('s3://', '').split('/', 1)
-                        img_bucket = parts[0]
-                        img_key = parts[1] if len(parts) > 1 else ''
-                    elif '.s3.amazonaws.com' in s3_url:
-                        parts = s3_url.split('.s3.amazonaws.com/')
-                        img_bucket = parts[0].split('//')[-1]
-                        img_key = parts[1]
-                    else:
-                        parts = s3_url.replace('https://s3.amazonaws.com/', '').split('/', 1)
-                        img_bucket = parts[0]
-                        img_key = parts[1] if len(parts) > 1 else ''
-                    
-                    # Generate presigned URL
-                    presigned_url = s3_client.generate_presigned_url(
-                        'get_object',
-                        Params={'Bucket': img_bucket, 'Key': img_key},
-                        ExpiresIn=3600
-                    )
-                    presigned_image_mapping[alt_text] = presigned_url
-                else:
-                    # Not an S3 URL, keep as is
-                    presigned_image_mapping[alt_text] = s3_url
-            except Exception as e:
-                print(f"Error generating presigned URL for {alt_text}: {e}")
-                presigned_image_mapping[alt_text] = s3_url
+        # Remove html_url since we're returning content directly
+        if 'html_url' in structure_data:
+            del structure_data['html_url']
         
-        # Update structure with presigned URLs
-        structure_data['image_url_mapping'] = presigned_image_mapping
-        structure_data['html_url'] = html_url
+        print(f"Response contains keys: {list(structure_data.keys())}")
+        print(f"Returning HTML with direct S3 URLs for Cognito IAM access")
         
         response = {
             "statusCode": 200,

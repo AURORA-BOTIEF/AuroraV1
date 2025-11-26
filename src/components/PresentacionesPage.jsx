@@ -18,12 +18,18 @@ function PresentacionesPage() {
         loadInfographics();
     }, [page]);
 
-    const loadInfographics = async () => {
+    const loadInfographics = async (forceRefresh = false) => {
         setLoading(true);
         setError(null);
 
         try {
-            const response = await fetch(`${API_BASE}/list-infographics?page=${page}&limit=12`);
+            let url = `${API_BASE}/list-infographics?page=${page}&limit=12`;
+
+            if (forceRefresh) {
+                url += `&_t=${new Date().getTime()}`;
+            }
+
+            const response = await fetch(url);
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -32,6 +38,10 @@ function PresentacionesPage() {
             const data = await response.json();
             setInfographics(data.infographics || []);
             setTotalPages(data.total_pages || 1);
+
+            if (forceRefresh) {
+                console.log('Cache cleared and list refreshed');
+            }
         } catch (err) {
             console.error('Error loading infographics:', err);
             setError('Error al cargar las presentaciones. Por favor, intenta de nuevo.');
@@ -104,8 +114,11 @@ function PresentacionesPage() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <button onClick={loadInfographics} className="refresh-btn">
+                <button onClick={() => loadInfographics(false)} className="refresh-btn">
                     🔄 Actualizar
+                </button>
+                <button onClick={() => loadInfographics(true)} className="clear-cache-btn">
+                    🗑️ Borrar Caché
                 </button>
             </div>
 

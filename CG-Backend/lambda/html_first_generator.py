@@ -889,7 +889,7 @@ def generate_complete_course(
     }
 
 
-def generate_html_output(slides: List[Dict], style: str = 'professional', image_url_mapping: Dict = None, course_title: str = "Course Presentation") -> str:
+def generate_html_output(slides: List[Dict], style: str = 'professional', image_url_mapping: Dict = None, course_title: str = "Course Presentation", custom_css: str = None) -> str:
     """
     Generate final production-ready HTML from slide structures.
     
@@ -963,7 +963,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
         f'    <title>{course_title}</title>',
         '    <style>',
-        f'''
+    ]
+    
+    if custom_css:
+        # Use provided custom CSS
+        html_parts.append(custom_css)
+    else:
+        # Use default generated CSS
+        html_parts.append(f'''
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         
         body {{ 
@@ -1147,64 +1154,172 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             font-size: 14pt;
             color: #999;
         }}
-        ''',
+        ''')
+
+    html_parts.extend([
         '    </style>',
         '</head>',
         '<body>',
         f'    <h1 style="text-align: center; color: {colors["primary"]}; margin-bottom: 30px; font-size: 32pt;">{course_title}</h1>',
-    ]
+    ])
     
     # Generate each slide
     for slide_idx, slide in enumerate(slides, 1):
-        html_parts.append(f'<div class="slide" data-slide="{slide_idx}">')
+        is_hidden = slide.get('hidden', False)
+        hidden_class = ' hidden-slide' if is_hidden else ''
+        # Support both 'layout' (legacy/editor) and 'layout_hint' (generator)
+        layout = slide.get('layout') or slide.get('layout_hint') or 'single-column'
         
-        # Header
-        title = slide.get('title', '')
-        subtitle = slide.get('subtitle', '')
+        html_parts.append(f'<div class="slide{hidden_class}" data-slide="{slide_idx}" style="{ "display: none !important;" if is_hidden else "" }">')
         
-        html_parts.append('  <div class="slide-header">')
-        html_parts.append(f'    <div class="slide-title">{title}</div>')
-        if subtitle:
-            html_parts.append(f'    <div class="slide-subtitle">{subtitle}</div>')
-        html_parts.append('  </div>')
-        
-        # Content
-        html_parts.append('  <div class="slide-content">')
-        
-        for block in slide.get('content_blocks', []):
-            block_type = block.get('type')
+        # Handle Special Layouts
+        if layout in ['course-title', 'module-title', 'lesson-title', 'thank-you']:
+            title = slide.get('title', '')
+            subtitle = slide.get('subtitle', '')
+            module_number = slide.get('module_number', '')
             
-            if block_type == 'bullets':
-                heading = block.get('heading', '')
-                if heading:
-                    html_parts.append(f'    <div class="content-heading">{heading}</div>')
-                html_parts.append('    <ul class="bullets">')
-                for item in block.get('items', []):
-                    html_parts.append(f'      <li>{item}</li>')
-                html_parts.append('    </ul>')
+            html_parts.append('  <div class="branded-title">')
             
-            elif block_type == 'image':
+            # Add Logo if available (and not lesson title to avoid clutter)
+            # You can customize which layouts get the logo
+            if layout == 'course-title':
+                 # Try to find logo in image mapping or use a placeholder if needed
+                 # For now, we'll just add a placeholder div that can be styled via custom CSS
+                 html_parts.append('    <div class="slide-logo"></div>')
+
+            if layout == 'module-title' and module_number:
+                 html_parts.append(f'    <div class="module-number">MÓDULO {module_number}</div>')
+            
+            html_parts.append(f'    <div class="title">{title}</div>')
+            
+            if subtitle:
+                html_parts.append(f'    <div class="subtitle">{subtitle}</div>')
+                
+            html_parts.append('  </div>')
+            
+        elif layout in ['image-left', 'image-right']:
+            # Split Layout (Image + Text)
+            
+            # Header
+            title = slide.get('title', '')
+            subtitle = slide.get('subtitle', '')
+            
+            html_parts.append('  <div class="slide-header">')
+            html_parts.append(f'    <div class="slide-title">{title}</div>')
+            if subtitle:
+                html_parts.append(f'    <div class="slide-subtitle">{subtitle}</div>')
+            html_parts.append('  </div>')
+            
+            # Content Container with specific layout class
+            html_parts.append(f'  <div class="slide-content {layout}">')
+            
+            # We need to separate image and text blocks
+            image_block = None
+            text_blocks = []
+            
+            for block in slide.get('content_blocks', []):
+                if block.get('type') == 'image':
+                    image_block = block
+                else:
+                    text_blocks.append(block)
+            
+            # Helper to render image
+            def render_image(block):
+                if not block: return ''
                 img_ref = block.get('image_reference', '')
                 img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
                 caption = block.get('caption', '')
                 
-                # Debug logging for image resolution
-                if not img_url:
-                    logger.warning(f"⚠️ Image '{img_ref}' not found in mapping. Available: {list(final_image_mapping.keys())[:5]}")
-                
+                html = '<div class="image-column">'
                 if img_url:
-                    html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                    html += f'<img src="{img_url}" class="slide-image" alt="{img_ref}">'
                     if caption:
-                        html_parts.append(f'    <div style="text-align: center; font-size: 16pt; color: #666;">{caption}</div>')
+                        html += f'<div class="image-caption">{caption}</div>'
                 else:
-                    # Placeholder for missing images
-                    html_parts.append(f'    <div style="border: 2px dashed #ccc; padding: 100px; text-align: center; color: #999; margin: 20px 0;">Image: {img_ref}</div>')
+                    html += f'<div class="image-placeholder">Image: {img_ref}</div>'
+                html += '</div>'
+                return html
+
+            # Helper to render text content
+            def render_text(blocks):
+                html = '<div class="text-column">'
+                for block in blocks:
+                    block_type = block.get('type')
+                    if block_type == 'bullets':
+                        heading = block.get('heading', '')
+                        if heading:
+                            html += f'<div class="content-heading">{heading}</div>'
+                        html += '<ul class="bullets">'
+                        for item in block.get('items', []):
+                            html += f'<li>{item}</li>'
+                        html += '</ul>'
+                    elif block_type == 'callout':
+                        text = block.get('text', '')
+                        html += f'<div class="callout">{text}</div>'
+                html += '</div>'
+                return html
+
+            # Render based on layout direction
+            if layout == 'image-left':
+                html_parts.append(render_image(image_block))
+                html_parts.append(render_text(text_blocks))
+            else: # image-right
+                html_parts.append(render_text(text_blocks))
+                html_parts.append(render_image(image_block))
             
-            elif block_type == 'callout':
-                text = block.get('text', '')
-                html_parts.append(f'    <div class="callout">{text}</div>')
-        
-        html_parts.append('  </div>')
+            html_parts.append('  </div>')
+
+        else:
+            # Standard Content Slide Layout (single-column)
+            
+            # Header
+            title = slide.get('title', '')
+            subtitle = slide.get('subtitle', '')
+            
+            html_parts.append('  <div class="slide-header">')
+            html_parts.append(f'    <div class="slide-title">{title}</div>')
+            if subtitle:
+                html_parts.append(f'    <div class="slide-subtitle">{subtitle}</div>')
+            html_parts.append('  </div>')
+            
+            # Content
+            html_parts.append('  <div class="slide-content">')
+            
+            for block in slide.get('content_blocks', []):
+                block_type = block.get('type')
+                
+                if block_type == 'bullets':
+                    heading = block.get('heading', '')
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    html_parts.append('    <ul class="bullets">')
+                    for item in block.get('items', []):
+                        html_parts.append(f'      <li>{item}</li>')
+                    html_parts.append('    </ul>')
+                
+                elif block_type == 'image':
+                    img_ref = block.get('image_reference', '')
+                    img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
+                    caption = block.get('caption', '')
+                    
+                    # Debug logging for image resolution
+                    if not img_url:
+                        logger.warning(f"⚠️ Image '{img_ref}' not found in mapping. Available: {list(final_image_mapping.keys())[:5]}")
+                    
+                    if img_url:
+                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                        if caption:
+                            html_parts.append(f'    <div style="text-align: center; font-size: 16pt; color: #666;">{caption}</div>')
+                    else:
+                        # Placeholder for missing images
+                        html_parts.append(f'    <div style="border: 2px dashed #ccc; padding: 100px; text-align: center; color: #999; margin: 20px 0;">Image: {img_ref}</div>')
+                
+                elif block_type == 'callout':
+                    text = block.get('text', '')
+                    html_parts.append(f'    <div class="callout">{text}</div>')
+            
+            html_parts.append('  </div>')
+            
         html_parts.append('</div>')
     
     html_parts.extend([

@@ -1112,7 +1112,7 @@ def lambda_handler(event, context):
         # Batch processing
         lesson_start = int(body.get('lesson_start', 1))
         lesson_end = body.get('lesson_end')
-        max_lessons_per_batch = int(body.get('max_lessons_per_batch', 6))  # Reduced from 10 to 6
+        max_lessons_per_batch = int(body.get('max_lessons_per_batch', 50))  # Increased for HTML-First (faster than legacy)
         
         if not course_bucket or not project_folder:
             raise ValueError("course_bucket and project_folder required")
@@ -1217,6 +1217,7 @@ def lambda_handler(event, context):
                 is_first_batch=is_first_batch,
                 lesson_batch_start=lesson_start,
                 lesson_batch_end=lesson_end,
+                total_lessons=total_lessons,  # Pass total lessons for completion detection
                 max_processing_time=840  # 14 minutes
             )
             

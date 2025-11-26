@@ -281,18 +281,25 @@ function EditorKNTRPage() {
 const Layout = ({ children, email, role }) => {
   const location = useLocation();
   const isBookEditor = location.pathname.startsWith('/book-editor');
+  const isPresentationViewer = location.pathname.startsWith('/presentaciones/viewer/');
+  const isInfographicEditor = location.pathname.startsWith('/presentaciones/editor/');
+  const isFullScreenMode = isBookEditor || isPresentationViewer || isInfographicEditor;
+
+  console.log('Current path:', location.pathname);
+  console.log('isInfographicEditor:', isInfographicEditor);
+  console.log('isFullScreenMode:', isFullScreenMode);
 
   return (
-    <div id="contenidoPrincipal" style={isBookEditor ? { paddingLeft: 0 } : {}}>
-      {!isBookEditor && <Sidebar email={email} grupo={role} />}
+    <div id="contenidoPrincipal" style={isFullScreenMode ? { paddingLeft: 0 } : {}}>
+      {!isFullScreenMode && <Sidebar email={email} grupo={role} />}
       <ProfileModal />
       {!isBookEditor && <ChatModal />}
 
-      <main className="main-content-area" style={isBookEditor ? { marginLeft: 0, width: '100%' } : {}}>
+      <main className="main-content-area" style={isFullScreenMode ? { marginLeft: 0, width: '100%' } : {}}>
         {children}
       </main>
 
-      {!isBookEditor && (
+      {!isFullScreenMode && (
         <button id="logout" onClick={async () => {
           try {
             await signOut();
