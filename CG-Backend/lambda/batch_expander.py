@@ -62,6 +62,7 @@ def lambda_handler(event, context):
         project_folder = event.get('project_folder')
         model_provider = event.get('model_provider', 'bedrock')
         content_source = event.get('content_source')
+        image_model = event.get('image_model')
         
         if not all([course_bucket, outline_s3_key, project_folder]):
             raise ValueError("Missing required parameters: course_bucket, outline_s3_key, project_folder")
@@ -118,7 +119,8 @@ def lambda_handler(event, context):
                     'outline_s3_key': outline_s3_key,
                     'project_folder': project_folder,
                     'model_provider': model_provider,
-                    'content_source': content_source
+                    'content_source': content_source,
+                    'image_model': image_model
                 }
                 
                 all_batches.append(batch_task)

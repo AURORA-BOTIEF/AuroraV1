@@ -228,14 +228,24 @@ export async function replaceDataUrlsWithS3Urls(content, projectFolder) {
 export async function getBlobUrlForS3Object(s3PathOrUrl) {
     try {
         // Determine key
+        // Determine key
         let s3Key = s3PathOrUrl;
         if (s3PathOrUrl.startsWith('http')) {
-            const parts = s3PathOrUrl.split('.s3.amazonaws.com/');
-            if (parts.length === 2) s3Key = parts[1];
-            else {
-                // fallback: try to extract path component
+            try {
                 const url = new URL(s3PathOrUrl);
-                s3Key = url.pathname.replace(/^\//, '');
+                // pathname includes the leading slash, e.g. "/folder/image.png"
+                // We want "folder/image.png"
+                s3Key = url.pathname.substring(1);
+
+                // URL decode the key (e.g. %20 -> space)
+                s3Key = decodeURIComponent(s3Key);
+
+                console.log(`[s3ImageLoader] Extracted key: ${s3Key} from URL: ${s3PathOrUrl}`);
+            } catch (e) {
+                console.error('[s3ImageLoader] Failed to parse URL:', s3PathOrUrl, e);
+                // Fallback to original logic if URL parsing fails
+                const parts = s3PathOrUrl.split('.s3.amazonaws.com/');
+                if (parts.length === 2) s3Key = parts[1];
             }
         }
 

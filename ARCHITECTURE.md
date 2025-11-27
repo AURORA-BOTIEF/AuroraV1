@@ -2,8 +2,8 @@
 
 **Project:** Aurora - AI-Powered Course Generation Platform  
 **Organization:** NETEC  
-**Last Updated:** November 4, 2025  
-**Version:** 1.3  
+**Last Updated:** November 26, 2025  
+**Version:** 1.4  
 **Repository:** AuroraV1 (Branch: testing)
 
 ---
@@ -356,6 +356,41 @@ Routes:
    - Role request system
    - Multi-tenant support (domain-based)
 
+### Key Component Architecture
+
+#### 1. Book Editor (`BookEditor.jsx`)
+**Purpose:** Comprehensive WYSIWYG editor for course content.
+
+**Architecture:**
+- **Layout Strategy:**
+  - **Container:** Uses `.book-content-container` (renamed from `.editor-container`) to prevent CSS collisions with other editors.
+  - **Sidebar:** Internal `.lesson-navigator` sidebar with forced visibility (`display: block !important`) to ensure module/lesson navigation is always accessible.
+- **State Management:**
+  - Manages `bookData` (JSON) and `labGuideData` independently.
+  - Handles version control with local history and S3 persistence.
+- **Integration:**
+  - Direct S3 loading/saving via `LoadBookFunction` and `SaveBookFunction`.
+  - PowerPoint generation trigger via `StrandsInfographicGenerator`.
+
+#### 2. Slides Editor & Viewer (`InfographicEditor.jsx` / `InfographicViewer.jsx`)
+**Purpose:** Edit and view HTML-first presentations with pixel-perfect rendering.
+
+**Architecture:**
+- **Iframe Isolation:**
+  - Content rendered inside an `<iframe>` to isolate slide CSS from application styles.
+  - `srcDoc` used for immediate rendering of generated HTML.
+- **Secure Image Loading (The "S3 Loader" Pattern):**
+  - **Problem:** Images are stored in private S3 buckets; standard `<img>` tags cannot load them directly.
+  - **Solution:**
+    1. **Fetch:** Parent component uses `s3ImageLoader.js` to fetch images using Cognito credentials.
+    2. **Blob:** Converts S3 objects to local Blob URLs.
+    3. **Transport:** Sends Blob URLs to iframe via `postMessage`.
+    4. **Injection:** Injects a client-side script into the iframe that listens for `UPDATE_IMAGE_SRC` events.
+    5. **Update:** Script updates both `src` attributes and `background-image` styles dynamically.
+- **Sidebar Logic:**
+  - Main application sidebar is conditionally hidden in `App.jsx` (`Layout` component) for these routes.
+  - Global CSS hiding rules were removed to prevent conflicts with other pages.
+
 ---
 
 ## Backend Architecture
@@ -560,297 +595,423 @@ OPENAI_API_KEY=(from Secrets Manager)
 
 ---
 
-#### 5. StrandsInfographicGenerator (PowerPoint Presentation Generator)
+#### 5. StrandsInfographicGenerator (HTML-First Presentation Generator)
 
-**Purpose:** Generate branded, editable PowerPoint presentations from course content with embedded images
+**Purpose:** Generate professional, branded HTML presentations with optional PowerPoint export
 
 **Configuration:**
 - Runtime: Python 3.12
 - Memory: 1024 MB
 - Timeout: 900 seconds (15 minutes)
 - Architecture: ARM64
-- Layer: PPTLayer (python-pptx + lxml)
+- Layer: None (lightweight HTML generation)
+
+**HTML-First Architecture Philosophy:**
+
+Aurora's presentation generator uses **HTML as the single source of truth** for all slide content and styling. This architectural decision provides several key benefits:
+
+1. **Self-Contained Output**: Complete presentation in a single HTML file with embedded CSS
+2. **Universal Compatibility**: Opens in any browser without external dependencies
+3. **Easy Debugging**: Inspect slides directly in browser DevTools
+4. **Future-Proof**: HTML/CSS is platform-independent and version-stable
+5. **Optional PPT Export**: PowerPoint conversion is secondary, not primary
 
 **Key Features:**
-- ✅ AI-powered slide structure generation
-- ✅ Branded template support (Netec corporate template)
-- ✅ Automatic content fitting with smart text splitting
-- ✅ Embedded S3 images in slides
-- ✅ Multiple slide layouts (title, content, module, lesson, lab, summary)
-- ✅ Hierarchical content organization (intro slides, module slides, lesson slides)
-- ✅ Professional formatting (no bullets on headings, proper spacing, top-aligned text)
+- ✅ Self-contained HTML with embedded CSS (no external stylesheets)
+- ✅ Professional Netec branding (colors, logo, layouts)
+- ✅ AI-powered slide structure generation (Bedrock/OpenAI)
+- ✅ Multiple slide types (course title, module title, lesson title, content)
+- ✅ Hierarchical bullet lists with nested styling
+- ✅ Embedded S3 images with presigned URLs
+- ✅ Responsive grid layouts for side-by-side images
+- ✅ Print-ready CSS for PDF export
+- ✅ Pixel-perfect slide dimensions (1280x720px)
+
+**Architecture: HTML as Source of Truth**
+
+```
+Course Book JSON → AI Slide Structure → HTML Generation → Browser Preview
+                                            ↓
+                                     S3: infographics/*.html
+                                            ↓
+                                    (Self-contained, ready to use)
+```
 
 **Workflow:**
 
-1. **Load Course Data**
-   - Read book JSON from S3
-   - Load YAML outline for module structure
-   - Extract course metadata (title, description, objectives, prerequisites, audience)
-
-2. **Generate Slide Structure (AI-Powered)**
-   ```python
-   structure = generate_infographic_structure(
-       book_data,      # Course content
-       model,          # AI model (Bedrock/OpenAI)
-       slides_per_lesson=5,
-       style='professional'
-   )
-   ```
-   - AI Agent analyzes course content
-   - Creates slide hierarchy with titles, content blocks, layout hints
-   - Generates HTML intermediate representation
-   - Saves structure JSON and HTML to S3
-
-3. **Convert to PowerPoint**
-   ```python
-   pptx_bytes = convert_html_to_pptx(
-       html_content,
-       structure,
-       course_bucket,
-       project_folder,
-       template_key='PPT_Templates/Esandar_Aumentado_3.pptx'
-   )
-   ```
-
-**Slide Generation Process:**
-
-```
-Course Book JSON → AI Analysis → Slide Structure JSON → HTML → PowerPoint
-                                                                    ↓
-                                              S3 Template + Images ←┘
+**Phase 1: AI Slide Structure Generation**
+```python
+def generate_slide_structure(book_data: Dict, slides_per_lesson: int) -> Dict:
+    """
+    Uses AI (Bedrock Claude / OpenAI GPT) to analyze lesson content
+    and create optimal slide structure with proper content distribution.
+    
+    Returns JSON structure with:
+    - slide_type: 'title' | 'content' | 'bullets' | 'image-left' | 'image-right'
+    - title: Slide headline
+    - subtitle: Optional subheading
+    - content_blocks: List of bullets, images, callouts
+    - layout: Visual layout strategy
+    """
 ```
 
-**Template-Based Generation:**
+**Phase 2: HTML Generation with Embedded CSS**
+```python
+def generate_complete_html(slides: List[Dict], course_title: str) -> str:
+    """
+    Generates self-contained HTML with:
+    - Embedded CSS in <style> tag (no external files)
+    - Semantic HTML structure (<div class="slide">, <ul class="bullets">)
+    - Presigned S3 image URLs (valid for 1 hour)
+    - Netec branding (logo, colors, gradients)
+    
+    Output: Single .html file that works standalone
+    """
+```
 
-The function uses a branded PowerPoint template (`Esandar_Aumentado_3.pptx`) with 14 predefined layouts:
+**CSS Architecture (Embedded in HTML):**
 
-| Layout Index | Name | Placeholder Indices | Purpose |
-|--------------|------|---------------------|---------|
-| 0 | Portada del curso | N/A | Course title slide |
-| 1 | Propiedad intelectual | N/A | Copyright/legal info |
-| 2 | Descripción del curso | idx 10 = description | Course description |
-| 3 | Objetivos del curso | idx varies | Learning outcomes |
-| 4 | Prerrequisitos | idx varies | Prerequisites |
-| 5 | Audiencia | idx varies | Target audience |
-| 6 | Temario del curso | idx varies | Course outline/TOC |
-| 7 | Presentación del grupo | N/A | Instructor intro |
-| 8 | Portada del capítulo | idx 0 = module #, idx 10 = module title | Module title slide |
-| 9 | Nombre del tema 2 | idx 0 = module, idx 10 = lesson | Lesson title slide |
-| 10 | Contenido - General | idx 11 = content | Content slide |
-| 11 | Resumen del capítulo | idx varies | Summary slide |
-| 12 | Descripción de la práctica | idx 0 = activity, idx 12 = duration | Lab activity slide |
-| 13 | Final de la presentación | N/A | Closing slide |
+```css
+/* Slide container - Fixed presentation dimensions */
+.slide {
+    width: 1280px;
+    height: 720px;
+    background: white;
+    overflow: hidden;  /* Prevent scrolling */
+    page-break-after: always;  /* Print-friendly */
+}
 
-**Content Formatting Rules:**
+/* Course title slide - Full-screen gradient */
+.course-title-slide {
+    background: linear-gradient(135deg, #003366, #4682B4);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 
-1. **Intro Slides** (Order):
-   - Course title (Layout 0)
-   - Intellectual property (Layout 1)
-   - Course description (Layout 2, placeholder idx 10)
-   - Learning objectives (Layout 3)
-   - Prerequisites (Layout 4)
-   - Target audience (Layout 5)
-   - Course outline/Temario (Layout 6)
-   - Group presentation (Layout 7)
+/* Module title slide - Branded section divider */
+.module-title-slide {
+    background: linear-gradient(to right, #003366, #4682B4);
+    border-left: 8px solid #FFC000;  /* Netec yellow accent */
+}
 
-2. **Module Structure**:
-   - Module title slide (Layout 8)
-     - Placeholder idx 0: "Módulo {number}"
-     - Placeholder idx 10: Module title from YAML outline
-   
-3. **Lesson Structure**:
-   - Lesson title slide (Layout 9)
-     - Placeholder idx 0: Module title
-     - Placeholder idx 10: Lesson title
-   - Content slides (Layout 10, max 2 content blocks per slide)
-   - Summary slide (Layout 11) if applicable
+/* Lesson title slide - Clean white with top accent */
+.lesson-title-slide {
+    background: white;
+    border-top: 10px solid #FFC000;
+    color: #003366;
+}
 
-4. **Content Slides** (Layout 10):
-   - Placeholder idx 11: Main content area (5.0" height × 11.96" width)
-   - Top-aligned text (`vertical_anchor = MSO_ANCHOR.TOP`)
-   - Smart content splitting: Max 2 content blocks per slide
-   - Auto-creates continuation slides if > 2 blocks
-   
-5. **Text Formatting**:
-   - Headings: 22pt, bold, NO BULLETS (uses XML `<buNone>` element)
-   - Bullet items: 18pt, level 0
-   - Line spacing: 1.0 (single spacing)
-   - Space after headings: 8pt
-   - Space after bullets: 4pt
-   - Space between blocks: 10pt
+/* Hierarchical bullets (agenda slides) */
+.bullets li {
+    color: #000000;  /* Black text for readability */
+    font-size: 20pt;
+}
 
-6. **Lab Activity Slides** (Layout 12):
-   - Placeholder idx 0: Lab activity name
-   - Placeholder idx 12: Duration (e.g., "20 minutos")
+.bullets li:before {
+    content: '▶';  /* Primary bullet marker */
+    color: #FFC000;  /* Netec yellow */
+}
 
-**Image Handling:**
+.bullets li ul li {
+    font-size: 18pt;
+    padding-left: 20px;  /* Indentation for nested items */
+}
+
+.bullets li ul li:before {
+    content: '○';  /* Secondary bullet marker */
+    color: #003366;  /* Netec blue */
+}
+```
+
+**Special Slide Layouts:**
+
+1. **Course Title Slide**
+   - Full-screen gradient background
+   - 72pt title
+   - Logo in top-right corner
+   - Used for: Opening slide
+
+2. **Module Title Slide**
+   - Gradient background
+   - 56pt title with left accent border
+   - Logo centered at bottom
+   - Used for: Section dividers
+
+3. **Lesson Title Slide**
+   - White background with top accent bar
+   - 48pt title + module name subtitle
+   - Logo in top-right
+   - Used for: Topic introductions
+
+4. **Content Slides**
+   - Header with title/subtitle
+   - Max content height: 520px (prevents overflow)
+   - Supports: bullets, images, callouts
+   - Logo in bottom-right
+
+**Image Integration:**
 
 ```python
-# Download images from S3
-image_bytes = download_image_from_s3(image_reference)
-
-# Determine layout strategy
-if has_images and has_text:
-    # Side-by-side: Text on left (5.5" wide), Image on right (5.5" wide)
-    img_left = 7.0
-    img_top = 1.5
-    text_width = 5.5
-elif has_images and not has_text:
-    # Centered: Large image (10.0" × 5.5")
-    img_left = centered
-else:
-    # Full-width text (11.5" wide)
-    text_width = 11.5
-
-# Add image to slide
-add_image_to_slide(slide, image_bytes, img_left, img_top, img_width, img_height)
+def generate_presigned_image_urls(image_mapping: Dict) -> Dict:
+    """
+    Converts S3 paths to presigned URLs for HTML embedding.
+    
+    - Expires: 1 hour (sufficient for viewing/editing)
+    - Permissions: Read-only
+    - CORS: Enabled for browser access
+    
+    Note: Images load directly in browser without auth
+    """
 ```
+
+**Side-by-Side Image Layout (Fixed Nov 2025):**
+
+```html
+<!-- Grid layout for multiple images -->
+<div class="image-grid">
+    <div class="image-wrapper">
+        <img src="presigned-url-1.png" alt="Image 1">
+    </div>
+    <div class="image-wrapper">
+        <img src="presigned-url-2.png" alt="Image 2">
+    </div>
+</div>
+```
+
+```css
+/* CSS Grid for side-by-side images */
+.image-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;  /* Equal columns */
+    gap: 30px;
+    padding: 20px;
+}
+
+.image-wrapper img {
+    max-width: 100%;
+    max-height: 400px;
+    object-fit: contain;  /* Preserve aspect ratio */
+}
+```
+
+**Agenda Slide with Nested Bullets (Fixed Nov 2025):**
+
+**Problem:** Double bullets appeared (CSS bullet + text ○ symbol)
+
+**Solution:** Proper HTML nesting with CSS classes
+
+```python
+# Python: Generate structured agenda data
+def create_agenda_slides(modules: List[Dict]) -> List[Dict]:
+    agenda_items = []
+    for module in modules:
+        # Level 1: Module (no nested list)
+        agenda_items.append({
+            'text': module['title'],
+            'lessons': []  # Nested lessons
+        })
+        
+        for lesson in module['lessons']:
+            # Level 2: Lesson (nested under module)
+            agenda_items[-1]['lessons'].append(lesson['title'])
+    
+    return [{
+        'slide_type': 'single-column',
+        'content_blocks': [{
+            'type': 'nested-bullets',  # Special type for hierarchy
+            'items': agenda_items
+        }]
+    }]
+```
+
+```python
+# HTML Generation: Nested <ul> structure
+html = '<ul class="bullets">'
+for item in agenda_items:
+    html += f'<li>{item["text"]}'  # Module title
+    
+    if item['lessons']:
+        html += '<ul>'  # Nested list for lessons
+        for lesson in item['lessons']:
+            html += f'<li>{lesson}</li>'
+        html += '</ul>'
+    
+    html += '</li>'
+html += '</ul>'
+```
+
+**Result:** Clean hierarchy with proper indentation, no double bullets
+
+**Batch Processing Architecture:**
+
+Aurora uses a sophisticated batch processing system to handle large courses (16+ lessons) within Lambda timeout limits:
+
+```
+Step Functions Orchestration
+    ↓
+PptBatchOrchestrator (State Machine)
+    ├── Batch 0: Lessons 1-3  → Generate slides → Save to shared JSON
+    ├── Batch 1: Lessons 4-6  → Generate slides → Append to JSON
+    ├── Batch 2: Lessons 7-9  → Generate slides → Append to JSON
+    ...
+    └── Batch N (final): Lessons 13-16
+            ↓
+        Generate slides → Append to JSON
+            ↓
+        completion_status = 'complete'
+            ↓
+        Generate HTML from complete JSON
+            ↓
+        Save final HTML to S3
+```
+
+**Shared State Management:**
+
+```python
+# infographic_structure.json accumulates slides from all batches
+{
+    "course_title": "Course Name",
+    "slides": [
+        # Batch 0 slides (lessons 1-3)
+        {"slide_number": 1, "title": "Agenda", ...},
+        {"slide_number": 2, "title": "Module 1", ...},
+        ...
+        # Batch 1 slides (lessons 4-6) - APPENDED
+        {"slide_number": 15, "title": "Lesson 4", ...},
+        ...
+        # Batch N slides (final lessons) - APPENDED
+        {"slide_number": 45, "title": "Thank You", ...}
+    ],
+    "total_slides": 46,
+    "image_url_mapping": {
+        # Merged from all batches
+        "01-01-0001": "s3://bucket/image1.png",
+        "02-03-0005": "s3://bucket/image2.png"
+    },
+    "completion_status": "complete",  # Only set by final batch
+    "last_batch_index": 5
+}
+```
+
+**Batch Completion Detection:**
+
+```python
+def determine_completion_status(
+    lesson_batch_end: int,
+    total_lessons: int
+) -> str:
+    """
+    Critical logic: Only final batch generates HTML
+    
+    - Batches 0-4: completion_status = 'partial' (save JSON only)
+    - Batch 5 (final): completion_status = 'complete' (generate HTML)
+    
+    Bug Fix (Nov 2025):
+    - lesson_batch_end must be absolute lesson number (3, 6, 9, 12, 15, 16)
+    - NOT capped at len(lessons)=3 (caused all batches to be partial)
+    """
+    is_final_batch = (lesson_batch_end >= total_lessons)
+    return 'complete' if is_final_batch else 'partial'
+```
+
+**Benefits of Batch Architecture:**
+
+- ✅ Handles unlimited course size (no Lambda timeout)
+- ✅ Parallel processing (6 batches can run simultaneously)
+- ✅ Better error isolation (one batch fails, others continue)
+- ✅ Memory efficient (processes 3 lessons at a time)
+- ✅ Single final HTML output (no fragmentation)
 
 **Input Event:**
 ```json
 {
   "course_bucket": "crewai-course-artifacts",
   "project_folder": "251104-mini-cisco",
-  "book_version_key": "251104-mini-cisco/book/Generated_Course_Book_data.json",
+  "book_version_key": "project/book/Generated_Course_Book_data.json",
   "book_type": "theory",
+  "lesson_start": 1,
+  "lesson_end": 3,
+  "total_lessons": 16,
+  "batch_index": 0,
   "model_provider": "bedrock",
-  "slides_per_lesson": 5,
   "style": "professional"
 }
 ```
 
-**Output:**
+**Output (Final Batch Only):**
 ```json
 {
-  "message": "Infographic generated successfully",
-  "course_title": "Generated Course Book",
-  "total_slides": 36,
+  "statusCode": 200,
+  "message": "Complete presentation generated successfully",
+  "course_title": "Fundamentos de Redes y Cisco IOS",
+  "total_slides": 46,
   "completion_status": "complete",
   "structure_s3_key": "project/infographics/infographic_structure.json",
   "html_s3_key": "project/infographics/infographic.html",
-  "pptx_s3_key": "project/infographics/Generated_Course_Book.pptx"
+  "pptx_s3_key": null
 }
 ```
 
-**Technical Implementation Details:**
+**Output (Partial Batches):**
+```json
+{
+  "statusCode": 200,
+  "message": "Partial presentation generated (lessons 1-3 of 16)",
+  "batch_slides": 10,
+  "total_slides_so_far": 10,
+  "completion_status": "partial",
+  "structure_s3_key": "project/infographics/infographic_structure.json",
+  "html_s3_key": null,  # Not generated for partial batches
+  "pptx_s3_key": null
+}
+```
 
-1. **Bullet Removal from Headings** (Professional Appearance):
-   ```python
-   # Access paragraph XML element
-   pPr = paragraph._element.get_or_add_pPr()
-   
-   # Add buNone element to explicitly remove bullet
-   from lxml import etree
-   buNone = etree.Element('{http://schemas.openxmlformats.org/drawingml/2006/main}buNone')
-   pPr.insert(0, buNone)
-   ```
-
-2. **Top Alignment** (Non-Centered Text):
-   ```python
-   from pptx.enum.text import MSO_ANCHOR
-   text_frame.vertical_anchor = MSO_ANCHOR.TOP
-   ```
-
-3. **Content Splitting** (Prevent Overflow):
-   ```python
-   # Max 2 content blocks per slide
-   blocks_per_slide = 2
-   block_groups = [content_blocks[i:i+2] for i in range(0, len(content_blocks), 2)]
-   
-   # Create continuation slides
-   for group_idx, blocks_group in enumerate(block_groups):
-       if group_idx > 0:
-           slide = prs.slides.add_slide(content_layout)
-           # Mark as continuation
-   ```
-
-4. **Template Placeholder Modification**:
-   - Modified content placeholder (idx 11) height: 5.19" → 5.0" (prevents footer overlap)
-   - Removed "Nombre del capítulo" text box from module layout (allows dynamic module title)
-   - Made module title placeholder (idx 10) editable
-
-**Generation Flow:**
+**S3 Artifacts:**
 
 ```
-┌──────────────────┐
-│  Lambda Invoke   │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Load Book JSON   │ ← S3: book/Generated_Course_Book_data.json
-│ Load YAML Outline│ ← S3: outline/course_outline.yaml
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ AI Agent:        │ ← Bedrock Claude 3.7 / OpenAI GPT-5
-│ Generate Slide   │
-│ Structure        │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Save Structure   │ → S3: infographics/infographic_structure.json
-│ JSON & HTML      │ → S3: infographics/infographic.html
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Load Template    │ ← S3: PPT_Templates/Esandar_Aumentado_3.pptx
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Create Intro     │   7 slides: title, property, description,
-│ Slides           │   objectives, prerequisites, audience, outline
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ For Each Module: │
-│ - Module Slide   │   Layout 8: Module title
-│ - Lesson Slide   │   Layout 9: Lesson title
-│ - Content Slides │   Layout 10: Content (max 2 blocks/slide)
-│ - Lab Slides     │   Layout 12: Lab activities
-│ - Summary Slide  │   Layout 11: Module summary
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Download Images  │ ← S3: images/*.png
-│ Embed in Slides  │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Save PowerPoint  │ → S3: infographics/Generated_Course_Book.pptx
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Return Success   │
-│ Response         │
-└──────────────────┘
+project/infographics/
+├── infographic_structure.json    # Shared state (all batches)
+├── infographic.html              # Final HTML (final batch only)
+└── (optional) course.pptx        # PowerPoint export (if enabled)
 ```
+
+**HTML File Characteristics:**
+
+- **Size:** ~50-200 KB (depends on slide count)
+- **Dependencies:** None (self-contained)
+- **Images:** Presigned S3 URLs (expire after 1 hour)
+- **Compatibility:** Any modern browser (Chrome, Firefox, Safari, Edge)
+- **Print:** CSS print rules for PDF export
+- **Editing:** Can be edited in browser DevTools or text editor
+
+**Why No PPT Generation?**
+
+HTML-first architecture makes PowerPoint conversion **optional**, not required:
+
+1. **HTML is sufficient**: Instructors can present directly from browser
+2. **Print to PDF**: Browser print → PDF gives presentation file
+3. **Universal access**: No PowerPoint license needed
+4. **Easier editing**: HTML/CSS is text-based, version-controllable
+5. **Future flexibility**: Can convert to any format (PDF, PPTX, Google Slides)
 
 **Error Handling:**
-- Auto-retry on S3 access errors
-- Graceful degradation if images fail to download
-- Fallback to text-only slides if template unavailable
-- Continuation slide creation if content overflows
-
-**Key Dependencies:**
-- `python-pptx`: PowerPoint file manipulation
-- `lxml`: XML element manipulation for bullet removal
-- `PIL (Pillow)`: Image processing and dimension calculation
-- `boto3`: S3 file operations
-- `strands-agents`: AI slide structure generation
+- AI generation failures → Retry with simplified prompt
+- Image load failures → Display placeholder with description
+- S3 access errors → Retry with exponential backoff
+- Timeout → Save partial progress to shared JSON
 
 **Performance:**
-- Typical execution: 60-90 seconds for 30-slide presentation
-- Memory usage: ~200-300 MB
-- Supports up to 100 slides per presentation
+- Typical execution: 60-120 seconds per batch (3 lessons)
+- Memory usage: ~300-500 MB
+- Supports: Unlimited slides (batched processing)
+
+**Future Enhancements:**
+- Interactive slides (JavaScript animations)
+- Speaker notes export
+- Video embedding
+- Live collaboration mode
 
 ---
 

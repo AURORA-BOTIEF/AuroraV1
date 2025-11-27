@@ -33,7 +33,7 @@ function GeneradorContenidosPage() {
             <div className="icono">🎓</div>
             <div className="texto">
               <h3>Generador de Cursos</h3>
-              <p>Sube outline y genera lecciones con CrewAI</p>
+              <p>Genera un curso completo a partir de tu temario</p>
             </div>
           </Link>
 
@@ -41,7 +41,7 @@ function GeneradorContenidosPage() {
             <div className="icono">📖</div>
             <div className="texto">
               <h3>Editor de Libros</h3>
-              <p>Visualiza y edita libros completos con texto e imágenes</p>
+              <p>Visualiza y edita las guías de estudiante</p>
             </div>
           </Link>
 
@@ -69,13 +69,13 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
-          <div className="opcion-menu disabled">
+          <Link to="/presentaciones" className="opcion-menu">
             <div className="icono">📊</div>
             <div className="texto">
-              <h3>Presentación (Próximamente)</h3>
-              <p>Realiza aquí la PPT del curso.</p>
+              <h3>Presentaciones</h3>
+              <p>Visualiza y edita tus presentaciones</p>
             </div>
-          </div>
+          </Link>
 
           <div className="opcion-menu disabled">
             <div className="icono">💻</div>
@@ -105,9 +105,11 @@ function GeneradorContenidosPage() {
         <Outlet />
       </div>
 
-      <BotonVersionesTemario
-        apiBase="https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2"
-      />
+      {location.pathname.includes('/curso-estandar') && (
+        <BotonVersionesTemario
+          apiBase="https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2"
+        />
+      )}
     </div>
   );
 }

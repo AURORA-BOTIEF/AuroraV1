@@ -1,26 +1,31 @@
 // src/components/BookBuilderPage.jsx
 import React, { useState, useEffect } from 'react';
-import BookEditor from './BookEditor';
+import { useNavigate } from 'react-router-dom';
 import './BookBuilderPage.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 
 function BookBuilderPage() {
+    const navigate = useNavigate();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedProject, setSelectedProject] = useState(null);
-    const [showEditor, setShowEditor] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        loadProjects();
-    }, []);
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [limit] = useState(10);
+    const [totalCount, setTotalCount] = useState(0);
 
-    const loadProjects = async () => {
+    useEffect(() => {
+        loadProjects(currentPage);
+    }, [currentPage]);
+
+    const loadProjects = async (page = 1) => {
         try {
             setLoading(true);
 
-            const response = await fetch(`${API_BASE}/list-projects`, {
+            const response = await fetch(`${API_BASE}/list-projects?page=${page}&limit=${limit}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -35,6 +40,8 @@ function BookBuilderPage() {
 
             const data = await response.json();
             setProjects(data.projects || []);
+            setTotalPages(data.total_pages || 1);
+            setTotalCount(data.total_count || 0);
         } catch (error) {
             console.error('Error loading projects:', error);
             alert('Error loading projects: ' + error.message);
@@ -68,7 +75,7 @@ function BookBuilderPage() {
             alert('Book built successfully!');
 
             // Refresh projects to show the new book
-            loadProjects();
+            loadProjects(currentPage);
         } catch (error) {
             console.error('Error building book:', error);
             alert('Error building book: ' + error.message);
@@ -76,30 +83,25 @@ function BookBuilderPage() {
     };
 
     const openBookEditor = (project, bookType = 'theory') => {
-        setSelectedProject({ ...project, bookType });
-        setShowEditor(true);
+        navigate(`/book-editor/${project.folder}?bookType=${bookType}`);
     };
 
-    const closeBookEditor = () => {
-        setShowEditor(false);
-        setSelectedProject(null);
-        loadProjects(); // Refresh in case book was modified
-    };
 
+
+    // Filter locally for search within the current page
+    // Note: For full dataset search, backend would need search support
     const filteredProjects = projects.filter(project =>
         project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         project.folder.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    if (showEditor && selectedProject) {
-        return (
-            <BookEditor
-                projectFolder={selectedProject.folder}
-                bookType={selectedProject.bookType || 'theory'}
-                onClose={closeBookEditor}
-            />
-        );
-    }
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setCurrentPage(newPage);
+        }
+    };
+
+    // Removed: if (showEditor && selectedProject) { ... } block
 
     return (
         <div className="book-builder-page">
@@ -111,69 +113,99 @@ function BookBuilderPage() {
             <div className="search-section">
                 <input
                     type="text"
-                    placeholder="Buscar proyectos..."
+                    placeholder="Buscar proyectos en esta página..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="search-input"
                 />
+                <div className="pagination-info">
+                    Total: {totalCount} proyectos
+                </div>
             </div>
 
             {loading ? (
                 <div className="loading">Cargando proyectos...</div>
             ) : (
-                <div className="projects-grid">
-                    {filteredProjects.map((project) => (
-                        <div key={project.folder} className="project-card">
-                            <div className="project-header">
-                                <h3>{project.title}</h3>
-                                <span className="project-folder">{project.folder}</span>
-                            </div>
+                <>
+                    <div className="projects-grid">
+                        {filteredProjects.map((project) => (
+                            <div key={project.folder} className="project-card">
+                                <div className="project-header">
+                                    <h3>{project.title}</h3>
+                                    <span className="project-folder">{project.folder}</span>
+                                </div>
 
-                            <div className="project-info">
-                                <p>{project.description}</p>
-                                <div className="project-stats">
-                                    <span>{project.lessonCount} lecciones</span>
-                                    {project.created && (
-                                        <span>Creado: {new Date(project.created).toLocaleDateString('es-ES')}</span>
+                                <div className="project-info">
+                                    <p>{project.description}</p>
+                                    <div className="project-stats">
+                                        <span>{project.lessonCount} lecciones</span>
+                                        {project.created && (
+                                            <span>Creado: {new Date(project.created).toLocaleDateString('es-ES')}</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="project-actions">
+                                    {project.hasBook ? (
+                                        <>
+                                            <button
+                                                className="btn-primary"
+                                                onClick={() => openBookEditor(project, 'theory')}
+                                            >
+                                                📚 Ver/Editar Libro
+                                            </button>
+                                            {project.hasLabGuide && (
+                                                <button
+                                                    className="btn-primary"
+                                                    onClick={() => openBookEditor(project, 'lab')}
+                                                    style={{ marginLeft: '10px' }}
+                                                >
+                                                    🧪 Guía de Labs
+                                                </button>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="no-book-message">
+                                            <span>📖 El libro se generará automáticamente con el curso</span>
+                                        </div>
                                     )}
                                 </div>
                             </div>
+                        ))}
 
-                            <div className="project-actions">
-                                {project.hasBook ? (
-                                    <>
-                                        <button
-                                            className="btn-primary"
-                                            onClick={() => openBookEditor(project, 'theory')}
-                                        >
-                                            📚 Libro Teoría
-                                        </button>
-                                        {project.hasLabGuide && (
-                                            <button
-                                                className="btn-primary"
-                                                onClick={() => openBookEditor(project, 'lab')}
-                                                style={{ marginLeft: '10px' }}
-                                            >
-                                                🧪 Guía de Labs
-                                            </button>
-                                        )}
-                                    </>
-                                ) : (
-                                    <div className="no-book-message">
-                                        <span>📖 El libro se generará automáticamente con el curso</span>
-                                    </div>
-                                )}
+                        {filteredProjects.length === 0 && (
+                            <div className="no-projects">
+                                <h3>No se encontraron proyectos</h3>
+                                <p>No hay proyectos en esta página que coincidan con tu búsqueda.</p>
                             </div>
-                        </div>
-                    ))}
+                        )}
+                    </div>
 
-                    {filteredProjects.length === 0 && (
-                        <div className="no-projects">
-                            <h3>No se encontraron proyectos</h3>
-                            <p>Primero genera algunos cursos para poder crear libros a partir de ellos.</p>
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                        <div className="pagination-controls">
+                            <button
+                                onClick={() => handlePageChange(currentPage - 1)}
+                                disabled={currentPage === 1}
+                                className="pagination-btn"
+                            >
+                                &laquo; Anterior
+                            </button>
+
+                            <span className="pagination-status">
+                                Página {currentPage} de {totalPages}
+                            </span>
+
+                            <button
+                                onClick={() => handlePageChange(currentPage + 1)}
+                                disabled={currentPage === totalPages}
+                                className="pagination-btn"
+                            >
+                                Siguiente &raquo;
+                            </button>
                         </div>
                     )}
-                </div>
+                </>
             )}
         </div>
     );

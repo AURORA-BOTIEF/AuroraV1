@@ -3,8 +3,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import './AdminPage.css';
 
+// ==========================
+//  API BASE 100% A PRUEBA DE FALLOS
+// ==========================
+const API_BASE = 
+  'https://' +
+  'h6ysn7u0tl' +          // ID
+  '.execute-api' +        // Región fija
+  '.us-east-1' +
+  '.amazonaws' +
+  '.com' +
+  '/dev2';                // Stage
+
+// ==========================
 const ADMIN_EMAIL = 'anette.flores@netec.com.mx';
-const API_BASE = 'https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2';
 
 function AdminPage() {
   const { pathname } = useLocation();
@@ -16,7 +28,7 @@ function AdminPage() {
 
   const authHeader = useMemo(() => {
     if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
+    return { Authorization: token };   // <---- SIN BEARER
   }, [token]);
 
   // Extraer email del token
@@ -35,7 +47,7 @@ function AdminPage() {
   const puedeGestionar = email.toLowerCase() === ADMIN_EMAIL;
 
   // ====== TABS ======
-  const [vista, setVista] = useState('solicitudes'); // 'solicitudes' | 'externos'
+  const [vista, setVista] = useState('solicitudes');
 
   // ====== SOLICITUDES DE ROL ======
   const [solicitudes, setSolicitudes] = useState([]);
@@ -55,11 +67,14 @@ function AdminPage() {
     try {
       const res = await fetch(`${API_BASE}/obtener-solicitudes-rol`, {
         method: 'GET',
-        headers: { ...authHeader },
+        headers: { ...authHeader }
       });
+
       if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
+
       const data = await res.json().catch(() => ({}));
       setSolicitudes(Array.isArray(data?.solicitudes) ? data.solicitudes : []);
+
     } catch (e) {
       console.error(e);
       setError('No se pudieron cargar las solicitudes.');
@@ -70,13 +85,10 @@ function AdminPage() {
 
   useEffect(() => {
     if (token) cargarSolicitudes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const pokeClientsToRefresh = () => {
-    try {
-      localStorage.setItem('force_attr_refresh', '1');
-    } catch {}
+    try { localStorage.setItem('force_attr_refresh', '1'); } catch {}
   };
 
   const accionSolicitud = async (correo, accion) => {
@@ -87,23 +99,26 @@ function AdminPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeader,
+          ...authHeader
         },
-        body: JSON.stringify({ correo, accion }),
+        body: JSON.stringify({ correo, accion })
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Error en la acción');
 
       pokeClientsToRefresh();
 
-      setSolicitudes((prev) =>
-        prev.map((s) =>
+      setSolicitudes(prev =>
+        prev.map(s =>
           s.correo === correo
             ? { ...s, estado: accion === 'aprobar' ? 'aprobado' : 'rechazado' }
             : s
         )
       );
+
       alert(`✅ Acción ${accion} aplicada para ${correo}.`);
+
     } catch (e) {
       console.error(e);
       setError(`No se pudo ${accion} la solicitud.`);
@@ -120,17 +135,20 @@ function AdminPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeader,
+          ...authHeader
         },
-        body: JSON.stringify({ correo }),
+        body: JSON.stringify({ correo })
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Error al eliminar');
 
       pokeClientsToRefresh();
 
-      setSolicitudes((prev) => prev.filter((s) => s.correo !== correo));
+      setSolicitudes(prev => prev.filter(s => s.correo !== correo));
+
       alert(`🗑️ Solicitud de ${correo} eliminada.`);
+
     } catch (e) {
       console.error(e);
       setError('No se pudo eliminar la solicitud.');
@@ -139,16 +157,16 @@ function AdminPage() {
     }
   };
 
-  const solicitudesFiltradas = useMemo(() => {
+  const solicitudesFiltradas = solicitudes.filter(s => {
     const txt = filtroTexto.trim().toLowerCase();
-    return solicitudes.filter((s) => {
-      const estado = (s.estado || 'pendiente').toLowerCase();
-      const correo = (s.correo || '').toLowerCase();
-      const pasaTexto = !txt || correo.includes(txt);
-      const pasaEstado = filtroEstado === 'all' || estado === filtroEstado;
-      return pasaTexto && pasaEstado;
-    });
-  }, [solicitudes, filtroTexto, filtroEstado]);
+    const estado = (s.estado || 'pendiente').toLowerCase();
+    const correo = (s.correo || '').toLowerCase();
+
+    const pasaTexto = !txt || correo.includes(txt);
+    const pasaEstado = filtroEstado === 'all' || estado === filtroEstado;
+
+    return pasaTexto && pasaEstado;
+  });
 
   useEffect(() => {
     localStorage.setItem('ui_role_preview', vistaRol);
@@ -168,11 +186,13 @@ function AdminPage() {
     try {
       const res = await fetch(`${API_BASE}/usuarios-externos`, {
         method: 'GET',
-        headers: { ...authHeader },
+        headers: { ...authHeader }
       });
+
       const data = await res.json().catch(() => ({}));
       setUsuariosExternos(Array.isArray(data?.externos) ? data.externos : []);
       setExternosCargados(true);
+
     } catch (e) {
       console.error(e);
       setErrorExternos('No se pudieron cargar los usuarios externos.');
@@ -183,25 +203,29 @@ function AdminPage() {
 
   const actualizarHabilitado = async (correo, habilitado) => {
     if (!puedeGestionar) return;
+
     setEnviandoExterno(correo);
     setErrorExternos('');
+
     try {
       const res = await fetch(`${API_BASE}/actualizar-externo`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeader,
+          ...authHeader
         },
-        body: JSON.stringify({ correo, habilitado }),
+        body: JSON.stringify({ correo, habilitado })
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'No se pudo actualizar');
 
-      setUsuariosExternos((prev) =>
-        prev.map((u) =>
+      setUsuariosExternos(prev =>
+        prev.map(u =>
           u.email === correo ? { ...u, habilitado } : u
         )
       );
+
     } catch (e) {
       console.error(e);
       setErrorExternos('Error al actualizar el estado del usuario externo.');
@@ -210,12 +234,9 @@ function AdminPage() {
     }
   };
 
-  const usuariosExternosFiltrados = useMemo(() => {
-    const txt = filtroTextoExt.trim().toLowerCase();
-    return usuariosExternos.filter((u) =>
-      !txt || (u.email || '').toLowerCase().includes(txt)
-    );
-  }, [usuariosExternos, filtroTextoExt]);
+  const usuariosExternosFiltrados = usuariosExternos.filter(u =>
+    (u.email || '').toLowerCase().includes(filtroTextoExt.toLowerCase())
+  );
 
   // ====== RENDER ======
   return (
@@ -237,6 +258,7 @@ function AdminPage() {
         >
           Solicitudes de Rol
         </button>
+
         <button
           className={vista === 'externos' ? 'active' : ''}
           onClick={() => {
@@ -248,10 +270,9 @@ function AdminPage() {
         </button>
       </div>
 
-      {/* ========== VISTA SOLICITUDES ========== */}
+      {/* ================= VISTA SOLICITUDES ================ */}
       {vista === 'solicitudes' && (
         <>
-          {/* Filtros */}
           <div className="filtros">
             <input
               type="text"
@@ -260,6 +281,7 @@ function AdminPage() {
               value={filtroTexto}
               onChange={(e) => setFiltroTexto(e.target.value)}
             />
+
             <select
               className="select-estado"
               value={filtroEstado}
@@ -270,6 +292,7 @@ function AdminPage() {
               <option value="aprobado">Aprobado</option>
               <option value="rechazado">Rechazado</option>
             </select>
+
             <button
               className="btn-recargar"
               onClick={cargarSolicitudes}
@@ -279,7 +302,6 @@ function AdminPage() {
             </button>
           </div>
 
-          {/* Vista de rol (solo UI) */}
           <div className="rol-preview">
             <label>Tu rol activo:&nbsp;</label>
             <select
@@ -310,6 +332,7 @@ function AdminPage() {
                     {puedeGestionar && <th>Acciones</th>}
                   </tr>
                 </thead>
+
                 <tbody>
                   {solicitudesFiltradas.map((s) => {
                     const estado = (s.estado || 'pendiente').toLowerCase();
@@ -321,9 +344,10 @@ function AdminPage() {
                         <td>{correo}</td>
                         <td>
                           <span className={`badge-estado ${estado}`}>
-                            {estado.replace(/^./, (c) => c.toUpperCase())}
+                            {estado.charAt(0).toUpperCase() + estado.slice(1)}
                           </span>
                         </td>
+
                         {puedeGestionar && (
                           <td className="col-acciones">
                             {protegido ? (
@@ -337,6 +361,7 @@ function AdminPage() {
                                 >
                                   {enviando === correo ? 'Aplicando…' : '✅ Aprobar'}
                                 </button>
+
                                 <button
                                   className="btn-rechazar"
                                   onClick={() => accionSolicitud(correo, 'rechazar')}
@@ -344,6 +369,7 @@ function AdminPage() {
                                 >
                                   {enviando === correo ? 'Aplicando…' : '❌ Rechazar'}
                                 </button>
+
                                 <button
                                   className="btn-rechazar"
                                   onClick={() => accionSolicitud(correo, 'revocar')}
@@ -352,6 +378,7 @@ function AdminPage() {
                                 >
                                   {enviando === correo ? 'Aplicando…' : '🗑️ Revocar'}
                                 </button>
+
                                 <button
                                   className="btn-rechazar"
                                   onClick={() => eliminarSolicitud(correo)}
@@ -374,7 +401,7 @@ function AdminPage() {
         </>
       )}
 
-      {/* ========== VISTA USUARIOS EXTERNOS ========== */}
+      {/* ================= VISTA USUARIOS EXTERNOS ================ */}
       {vista === 'externos' && (
         <div className="vista-externos">
           <p>
@@ -390,6 +417,7 @@ function AdminPage() {
               value={filtroTextoExt}
               onChange={(e) => setFiltroTextoExt(e.target.value)}
             />
+
             <button
               className="btn-recargar"
               onClick={cargarExternos}
@@ -417,10 +445,12 @@ function AdminPage() {
                     {puedeGestionar && <th>Acciones</th>}
                   </tr>
                 </thead>
+
                 <tbody>
                   {usuariosExternosFiltrados.map((u) => {
                     const correo = u.email;
                     const habilitado = !!u.habilitado;
+
                     return (
                       <tr key={correo}>
                         <td>{correo}</td>
@@ -431,6 +461,7 @@ function AdminPage() {
                             {habilitado ? 'Habilitado' : 'Deshabilitado'}
                           </span>
                         </td>
+
                         {puedeGestionar && (
                           <td className="col-acciones">
                             <button
@@ -438,19 +469,16 @@ function AdminPage() {
                               onClick={() => actualizarHabilitado(correo, true)}
                               disabled={enviandoExterno === correo || habilitado}
                             >
-                              {enviandoExterno === correo && habilitado === false
-                                ? 'Aplicando…'
-                                : '✅ Habilitar'}
+                              {enviandoExterno === correo ? 'Aplicando…' : '✅ Habilitar'}
                             </button>
+
                             <button
                               className="btn-rechazar"
                               onClick={() => actualizarHabilitado(correo, false)}
                               disabled={enviandoExterno === correo || !habilitado}
                               style={{ marginLeft: 8 }}
                             >
-                              {enviandoExterno === correo && habilitado === true
-                                ? 'Aplicando…'
-                                : '🚫 Deshabilitar'}
+                              {enviandoExterno === correo ? 'Aplicando…' : '🚫 Deshabilitar'}
                             </button>
                           </td>
                         )}
@@ -458,6 +486,7 @@ function AdminPage() {
                     );
                   })}
                 </tbody>
+
               </table>
             </div>
           )}
@@ -468,6 +497,7 @@ function AdminPage() {
 }
 
 export default AdminPage;
+
 
 
 

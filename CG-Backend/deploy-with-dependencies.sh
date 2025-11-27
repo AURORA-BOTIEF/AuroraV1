@@ -65,11 +65,17 @@ FUNCTIONS_WITH_DEPS=(
     "StrandsVisualPlanner"          # Needs: boto3 (but included for consistency)
     "StrandsLabPlanner"             # Needs: pyyaml
     "StrandsLabWriter"              # Needs: pyyaml
-    "StrandsInfographicGenerator"   # Needs: python-pptx, Pillow (HTML to editable PPT)
+    "StrandsInfographicGenerator"   # Needs: python-pptx, Pillow (HTML to editable PPT) - Agent 1
+    "StrandsVisualOptimizer"        # Needs: beautifulsoup4 (HTML parsing for slide optimization) - Agent 2
+    "PptBatchOrchestrator"          # Needs: boto3 (orchestrates PPT batch processing)
+    "StrandsPptMerger"              # Needs: python-pptx (merges PPT batch files)
     "BatchExpander"                 # Needs: pyyaml
     "LabBatchExpander"              # Needs: pyyaml
     "ImagesGen"                     # ALL dependencies in GeminiLayer (empty requirements.txt)
     "BookBuilder"                   # Standard lib only (but deployed for consistency)
+    "ListInfographicsFunction"      # Lists available presentations (standard lib)
+    "GetInfographicFunction"        # Gets presentation details (standard lib)
+    "UpdateInfographicFunction"     # Updates and regenerates presentations (uses StrandsAgentsLayer)
 )
 
 echo ""
