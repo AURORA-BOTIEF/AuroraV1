@@ -6,6 +6,9 @@ import { Hub } from 'aws-amplify/utils';
 import './App.css'; // si tienes estilos globales
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
 import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
+import EditorDeTemario_Practico from './components/EditorDeTemario_Practico.jsx';
+import EditorDeTemario_KNTR from "./components/EditorDeTemario_KNTR.jsx";
+
 
 // Imagenes
 import logoImg from './assets/Netec.png';
@@ -34,6 +37,7 @@ import GeneradorCursos from './components/GeneradorCursos.jsx';
 import BookBuilderPage from './components/BookBuilderPage.jsx';
 import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
 import FAQ from "./components/FAQ.jsx";
+
 
 
 // === Página de edición de seminario ===
@@ -67,6 +71,105 @@ function EditorSeminarioPage() {
   };
 
   return <EditorDeTemario_seminario temarioInicial={null} onSave={onSave} isLoading={false} />;
+}
+
+// === Página de edición de temario práctico ===
+// === Página de edición de temario práctico ===
+function EditorPracticoPage() {
+  const { cursoId, versionId } = useParams();
+
+  const [temarioInicial, setTemarioInicial] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // 🔹 Cargar versión exacta desde Lambda (POST cursoId + versionId)
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = localStorage.getItem("id_token");
+
+        const res = await fetch(
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/get",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              cursoId,
+              versionId
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || `Error ${res.status} al obtener la versión`);
+        }
+
+        const json = await res.json();
+        const item = json.data || json;
+
+        // Normalmente el temario está en item.contenido; si no, usamos item tal cual
+        const contenido = item.contenido ?? item;
+
+        console.log("Versión práctica cargada desde Lambda:", item);
+        console.log("Contenido enviado al editor:", contenido);
+
+        setTemarioInicial(contenido);
+      } catch (e) {
+        console.error("Error cargando versión práctica:", e);
+        setError(e.message || "Error al cargar la versión");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVersion();
+  }, [cursoId, versionId]);
+
+  // 🔹 Guardado de versión (se queda igual)
+  const onSave = async (contenido, nota) => {
+    const token = localStorage.getItem("id_token");
+    const res = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota || `Guardado el ${new Date().toISOString()}`,
+          nombre_curso: contenido?.nombre_curso || "Sin título",
+          tecnologia: contenido?.tecnologia || "",
+          asesor_comercial: contenido?.asesor_comercial || "",
+          nombre_preventa: contenido?.nombre_preventa || "",
+          enfoque: contenido?.enfoque || "General",
+          fecha_creacion: new Date().toISOString(),
+        }),
+      }
+    );
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || "Error al guardar versión");
+    }
+  };
+
+  if (error) {
+    return <div style={{ padding: "1rem", color: "red" }}>Error cargando versión: {error}</div>;
+  }
+
+  return (
+    <EditorDeTemario_Practico
+      temarioInicial={temarioInicial}
+      onSave={onSave}
+      isLoading={isLoading}
+    />
+  );
 }
 
 
@@ -235,6 +338,8 @@ function App() {
                 </Route>
                 <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
                 <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
+                <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
+                <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorDeTemario_KNTR />}/>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
