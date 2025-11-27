@@ -22,12 +22,7 @@ function InfographicEditor() {
         loadInfographic();
     }, [folder]);
 
-    // Fetch and update images when infographic loads
-    useEffect(() => {
-        if (infographic && infographic.html_content) {
-            fetchImages(infographic.html_content);
-        }
-    }, [infographic]);
+    // Effect removed: Image fetching is now handled by iframe onLoad to prevent race conditions
 
     const fetchImages = async (htmlContent) => {
         // Find all S3 URLs to fetch in background
@@ -58,50 +53,10 @@ function InfographicEditor() {
         }
     };
 
-    // Update iframe content when selected slide changes
-    useEffect(() => {
+    const updateIframeVisibility = () => {
         const iframe = iframeRef.current;
-        if (iframe && iframe.contentDocument && infographic) {
+        if (iframe && iframe.contentDocument) {
             const doc = iframe.contentDocument;
-
-            // Inject script for handling image updates if not present
-            if (!doc.getElementById('image-updater-script')) {
-                const script = doc.createElement('script');
-                script.id = 'image-updater-script';
-                script.textContent = `
-                    window.addEventListener('message', (event) => {
-                        if (event.data.type === 'UPDATE_IMAGE_SRC') {
-                            const { originalSrc, newSrc } = event.data;
-                            
-                            // Update img tags
-                            const images = document.querySelectorAll('img');
-                            images.forEach(img => {
-                                // Check both attribute and resolved URL, handling potential encoding differences
-                                const currentSrc = img.getAttribute('src');
-                                const resolvedSrc = img.src;
-                                
-                                if (currentSrc === originalSrc || 
-                                    resolvedSrc === originalSrc || 
-                                    resolvedSrc === originalSrc.replace(/ /g, '%20') ||
-                                    decodeURIComponent(resolvedSrc) === originalSrc) {
-                                    img.src = newSrc;
-                                }
-                            });
-
-                            // Update background images
-                            const allElements = document.querySelectorAll('*');
-                            allElements.forEach(el => {
-                                const style = window.getComputedStyle(el);
-                                const bgImage = style.backgroundImage;
-                                if (bgImage && bgImage !== 'none' && bgImage.includes(originalSrc)) {
-                                    el.style.backgroundImage = 'url(' + newSrc + ')';
-                                }
-                            });
-                        }
-                    });
-                `;
-                doc.head.appendChild(script);
-            }
 
             // Remove existing injected style if any
             const existingStyle = doc.getElementById('preview-style');
@@ -141,7 +96,65 @@ function InfographicEditor() {
             `;
             doc.head.appendChild(style);
         }
-    }, [selectedSlideIndex, infographic]);
+    };
+
+    const handleIframeLoad = () => {
+        const iframe = iframeRef.current;
+        if (iframe && iframe.contentDocument && infographic) {
+            const doc = iframe.contentDocument;
+
+            // Inject script for handling image updates
+            if (!doc.getElementById('image-updater-script')) {
+                const script = doc.createElement('script');
+                script.id = 'image-updater-script';
+                script.textContent = `
+                    window.addEventListener('message', (event) => {
+                        if (event.data.type === 'UPDATE_IMAGE_SRC') {
+                            const { originalSrc, newSrc } = event.data;
+                            
+                            // Update img tags
+                            const images = document.querySelectorAll('img');
+                            images.forEach(img => {
+                                const currentSrc = img.getAttribute('src');
+                                const resolvedSrc = img.src;
+                                
+                                if (currentSrc === originalSrc || 
+                                    resolvedSrc === originalSrc || 
+                                    resolvedSrc === originalSrc.replace(/ /g, '%20') ||
+                                    decodeURIComponent(resolvedSrc) === originalSrc) {
+                                    img.src = newSrc;
+                                }
+                            });
+
+                            // Update background images
+                            const allElements = document.querySelectorAll('*');
+                            allElements.forEach(el => {
+                                const style = window.getComputedStyle(el);
+                                const bgImage = style.backgroundImage;
+                                if (bgImage && bgImage !== 'none' && bgImage.includes(originalSrc)) {
+                                    el.style.backgroundImage = 'url(' + newSrc + ')';
+                                }
+                            });
+                        }
+                    });
+                `;
+                doc.head.appendChild(script);
+            }
+
+            // Update visibility styles
+            updateIframeVisibility();
+
+            // Fetch and inject images
+            if (infographic.html_content) {
+                fetchImages(infographic.html_content);
+            }
+        }
+    };
+
+    // Update visibility when selected slide changes
+    useEffect(() => {
+        updateIframeVisibility();
+    }, [selectedSlideIndex]);
 
     const loadInfographic = async () => {
         setLoading(true);
@@ -191,8 +204,26 @@ function InfographicEditor() {
 
             const result = await response.json();
             console.log('Saved successfully:', result);
+
+            // Fetch the updated HTML content to refresh the preview
+            if (result.html_url) {
+                try {
+                    const htmlResponse = await fetch(result.html_url);
+                    if (htmlResponse.ok) {
+                        const newHtmlContent = await htmlResponse.text();
+                        setInfographic(prev => ({
+                            ...prev,
+                            html_content: newHtmlContent
+                        }));
+                        console.log('Preview updated with new HTML content');
+                    }
+                } catch (fetchErr) {
+                    console.error('Error fetching updated HTML for preview:', fetchErr);
+                }
+            }
+
             setHasChanges(false);
-            alert('✅ Cambios guardados correctamente');
+            alert('✅ Cambios guardados y vista previa actualizada');
         } catch (err) {
             console.error('Error saving infographic:', err);
             setError(`Error al guardar: ${err.message}`);
@@ -399,6 +430,7 @@ function InfographicEditor() {
                                             ref={iframeRef}
                                             title="Slide Preview"
                                             srcDoc={infographic.html_content}
+                                            onLoad={handleIframeLoad}
                                             style={{
                                                 width: '100%',
                                                 height: '100%',
@@ -489,22 +521,7 @@ function InfographicEditor() {
                                         )}
 
                                         {block.type === 'image' && (
-                                            <div className="image-block">
-                                                <p><strong>Referencia:</strong> {block.image_reference}</p>
-                                                {infographic.image_url_mapping && infographic.image_url_mapping[block.image_reference] ? (
-                                                    <div className="image-preview-container">
-                                                        <img
-                                                            src={infographic.image_url_mapping[block.image_reference]}
-                                                            alt={block.image_reference}
-                                                            className="editor-image-preview"
-                                                            style={{ maxWidth: '100%', maxHeight: '200px', objectFit: 'contain', marginTop: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <p className="image-missing-warning">⚠️ Imagen no encontrada en el mapeo</p>
-                                                )}
-                                                {block.caption && <p><em>Caption:</em> {block.caption}</p>}
-                                            </div>
+                                            null
                                         )}
 
                                         {block.type === 'callout' && (

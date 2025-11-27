@@ -54,13 +54,21 @@ function InfographicViewer() {
 
     // Update iframe when current slide changes
     useEffect(() => {
-        if (iframeRef.current && iframeRef.current.contentWindow) {
-            iframeRef.current.contentWindow.postMessage({
-                type: 'NAVIGATE_SLIDE',
-                index: currentSlideIndex
-            }, '*');
+        if (iframeRef.current && iframeRef.current.contentWindow && infographic) {
+            // Map the current visible index to the original index in the full list
+            // This is crucial because the iframe contains ALL slides (including hidden ones)
+            // but our state (currentSlideIndex) tracks only VISIBLE slides.
+            const currentSlide = infographic.slides[currentSlideIndex];
+            const originalIndex = infographic.allSlides.indexOf(currentSlide);
+
+            if (originalIndex !== -1) {
+                iframeRef.current.contentWindow.postMessage({
+                    type: 'NAVIGATE_SLIDE',
+                    index: originalIndex
+                }, '*');
+            }
         }
-    }, [currentSlideIndex]);
+    }, [currentSlideIndex, infographic]);
 
     const fetchHtmlContent = async (htmlContent) => {
         try {
@@ -431,7 +439,19 @@ function InfographicViewer() {
                     }
                 }
             } else if (event.data.type === 'SLIDE_CLICKED') {
-                goToSlide(event.data.index);
+                // The iframe sends the ORIGINAL index (including hidden slides)
+                // We need to map this back to our VISIBLE index
+                if (infographic && infographic.allSlides) {
+                    const originalIndex = event.data.index;
+                    const targetSlide = infographic.allSlides[originalIndex];
+
+                    if (targetSlide && !targetSlide.hidden) {
+                        const visibleIndex = infographic.slides.indexOf(targetSlide);
+                        if (visibleIndex !== -1) {
+                            goToSlide(visibleIndex);
+                        }
+                    }
+                }
             }
         };
 
