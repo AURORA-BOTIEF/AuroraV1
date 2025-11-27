@@ -5,7 +5,7 @@ import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generado
 import { exportarPDF } from "./EditorDeTemario_KNTR";
 import { useNavigate } from "react-router-dom";
 
- // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
+ // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS) Hola
 const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Generador_Temario_Knowledge_Transfer";
 
 const guardarApiUrl =
