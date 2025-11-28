@@ -27,7 +27,7 @@
 /* ============================= */
 /* CONTENEDOR GLOBAL 
 /* ============================= */
-.editor-container {
+.kntr-editor-container {
   padding: 2rem 3rem;
   max-width: 1000px;
   margin: 1rem auto;
@@ -139,7 +139,8 @@
   align-items: center;
   gap: 0.8rem;
   margin-bottom: 0.7rem;
-  flex-wrap: nowrap; /* CLAVE: Fuerza a estar en una línea */
+  flex-wrap: nowrap;
+  /* CLAVE: Fuerza a estar en una línea */
 }
 
 /* Base de Input/Span en Subcapítulos */
@@ -167,21 +168,23 @@
 .subcapitulo-item span {
   font-weight: 600;
   color: var(--color-principal);
-  flex-shrink: 0; 
-  width: 45px; 
+  flex-shrink: 0;
+  width: 45px;
 }
 
 /* 2. Input de Texto del Tema */
 .subcapitulo-item input[type="text"] {
-  flex: 1; /* Ocupa el espacio restante */
-  min-width: 150px; 
+  flex: 1;
+  /* Ocupa el espacio restante */
+  min-width: 150px;
 }
 
 /* 3. Input de Número (Genérico - se aplica a Duración) */
 .subcapitulo-item input[type="number"] {
-  width: 60px; /* Ancho para la Duración (ej: "12") */
+  width: 60px;
+  /* Ancho para la Duración (ej: "12") */
   text-align: center;
-  flex-shrink: 0; 
+  flex-shrink: 0;
 }
 
 /* * 4. ¡¡CORRECCIÓN DE ESPECIFICIDAD!!
@@ -189,10 +192,12 @@
  * y SOBRESCRIBE el ancho del input de sesión.
 */
 .subcapitulo-item input.input-sesion {
-  width: 35px; /* Ancho MÍNIMO para el número de sesión ("1") */
-  padding: 0.5rem 0.2rem; /* Menos padding lateral */
+  width: 35px;
+  /* Ancho MÍNIMO para el número de sesión ("1") */
+  padding: 0.5rem 0.2rem;
+  /* Menos padding lateral */
   text-align: center;
-  flex-shrink: 0; 
+  flex-shrink: 0;
 }
 
 /* --- ESTILO PARA BOTÓN DE ELIMINAR TEMA (SOLO ÍCONO) --- */
@@ -210,7 +215,7 @@
   justify-content: center;
   font-weight: normal;
   line-height: 1;
-  flex-shrink: 0; 
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -308,7 +313,8 @@
   gap: 0.45rem;
   border: none;
   border-radius: var(--border-radius-base);
-  padding: 0.65rem 1.4rem; /* mismo padding */
+  padding: 0.65rem 1.4rem;
+  /* mismo padding */
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -421,6 +427,7 @@
     flex-direction: column;
     align-items: stretch;
   }
+
   .btn-agregar-capitulo-container {
     justify-content: center;
   }

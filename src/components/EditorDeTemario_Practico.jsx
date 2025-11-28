@@ -88,35 +88,59 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
   }, [temarioInicial]);
 
 
-// ===== CAMBIO DE CAMPOS =====
-const handleFieldChange = (capIndex, subIndex, field, value) => {
-  const nuevo = JSON.parse(JSON.stringify(temario));
-  if (!Array.isArray(nuevo.temario)) nuevo.temario = [];
-  if (!nuevo.temario[capIndex]) return;
+  // ===== CAMBIO DE CAMPOS =====
+  const handleFieldChange = (capIndex, subIndex, field, value) => {
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    if (!Array.isArray(nuevo.temario)) nuevo.temario = [];
+    if (!nuevo.temario[capIndex]) return;
 
-  if (subIndex === null) {
-    // 🔹 Estamos modificando un campo del capítulo
-    nuevo.temario[capIndex][field] = value;
+    if (subIndex === null) {
+      // 🔹 Estamos modificando un campo del capítulo
+      nuevo.temario[capIndex][field] = value;
 
-    // 🔹 Si el usuario edita la duración total manualmente
-    if (field === "tiempo_capitulo_min") {
-      const nuevoTotal = parseInt(value, 10) || 0;
-      nuevo.temario[capIndex].tiempo_capitulo_min = nuevoTotal;
+      // 🔹 Si el usuario edita la duración total manualmente
+      if (field === "tiempo_capitulo_min") {
+        const nuevoTotal = parseInt(value, 10) || 0;
+        nuevo.temario[capIndex].tiempo_capitulo_min = nuevoTotal;
 
-      // 🟢 Repartir equitativamente entre subcapítulos existentes
-      const subcaps = nuevo.temario[capIndex].subcapitulos || [];
-      if (subcaps.length > 0) {
-        const minutosPorSub = Math.floor(nuevoTotal / subcaps.length);
-        const residuo = nuevoTotal % subcaps.length;
+        // 🟢 Repartir equitativamente entre subcapítulos existentes
+        const subcaps = nuevo.temario[capIndex].subcapitulos || [];
+        if (subcaps.length > 0) {
+          const minutosPorSub = Math.floor(nuevoTotal / subcaps.length);
+          const residuo = nuevoTotal % subcaps.length;
 
-        subcaps.forEach((sub, idx) => {
-          sub.tiempo_subcapitulo_min =
-            minutosPorSub + (idx === 0 ? residuo : 0); // reparte residuo al primero
-        });
+          subcaps.forEach((sub, idx) => {
+            sub.tiempo_subcapitulo_min =
+              minutosPorSub + (idx === 0 ? residuo : 0); // reparte residuo al primero
+          });
+        }
+      } else {
+        // 🔹 Si el usuario edita otro campo (nombre, objetivos, etc.)
+        // recalculamos la duración total según los subcapítulos actuales
+        nuevo.temario[capIndex].tiempo_capitulo_min = (
+          nuevo.temario[capIndex].subcapitulos || []
+        ).reduce(
+          (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+          0
+        );
       }
     } else {
-      // 🔹 Si el usuario edita otro campo (nombre, objetivos, etc.)
-      // recalculamos la duración total según los subcapítulos actuales
+      // 🔹 Estamos modificando un campo de un subcapítulo
+      if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
+        nuevo.temario[capIndex].subcapitulos = [];
+      if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
+        nuevo.temario[capIndex].subcapitulos[subIndex] = {
+          nombre:
+            String(nuevo.temario[capIndex].subcapitulos[subIndex]) || "Tema",
+        };
+      }
+
+      nuevo.temario[capIndex].subcapitulos[subIndex][field] =
+        field.includes("tiempo") || field === "sesion"
+          ? parseInt(value, 10) || 0
+          : value;
+
+      // 🔹 Al cambiar un subcapítulo, recalculamos la duración total automáticamente
       nuevo.temario[capIndex].tiempo_capitulo_min = (
         nuevo.temario[capIndex].subcapitulos || []
       ).reduce(
@@ -124,33 +148,9 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
         0
       );
     }
-  } else {
-    // 🔹 Estamos modificando un campo de un subcapítulo
-    if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
-      nuevo.temario[capIndex].subcapitulos = [];
-    if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
-      nuevo.temario[capIndex].subcapitulos[subIndex] = {
-        nombre:
-          String(nuevo.temario[capIndex].subcapitulos[subIndex]) || "Tema",
-      };
-    }
 
-    nuevo.temario[capIndex].subcapitulos[subIndex][field] =
-      field.includes("tiempo") || field === "sesion"
-        ? parseInt(value, 10) || 0
-        : value;
-
-    // 🔹 Al cambiar un subcapítulo, recalculamos la duración total automáticamente
-    nuevo.temario[capIndex].tiempo_capitulo_min = (
-      nuevo.temario[capIndex].subcapitulos || []
-    ).reduce(
-      (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
-      0
-    );
-  }
-
-  setTemario(nuevo);
-};
+    setTemario(nuevo);
+  };
 
   // ===== AGREGAR CAPÍTULO =====
   const agregarCapitulo = () => {
@@ -167,27 +167,26 @@ const handleFieldChange = (capIndex, subIndex, field, value) => {
     setTemario(nuevo);
   };
 
-// ===== ELIMINAR CAPÍTULO =====
-const eliminarCapitulo = (capIndex) => {
-  if (
-    !window.confirm(
-      `¿Seguro que deseas eliminar el capítulo ${
-        capIndex + 1
-      } y todos sus temas?`
+  // ===== ELIMINAR CAPÍTULO =====
+  const eliminarCapitulo = (capIndex) => {
+    if (
+      !window.confirm(
+        `¿Seguro que deseas eliminar el capítulo ${capIndex + 1
+        } y todos sus temas?`
+      )
     )
-  )
-    return;
+      return;
 
-  const nuevo = JSON.parse(JSON.stringify(temario));
-  nuevo.temario.splice(capIndex, 1);
-  // Renumera capítulos restantes
-  nuevo.temario = nuevo.temario.map((c, i) => ({
-    ...c,
-    capitulo: c.capitulo || `Capítulo ${i + 1}`,
-  }));
-  setTemario(nuevo);
-  setMensaje({ tipo: "ok", texto: "🗑️ Capítulo eliminado" });
-};
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario.splice(capIndex, 1);
+    // Renumera capítulos restantes
+    nuevo.temario = nuevo.temario.map((c, i) => ({
+      ...c,
+      capitulo: c.capitulo || `Capítulo ${i + 1}`,
+    }));
+    setTemario(nuevo);
+    setMensaje({ tipo: "ok", texto: "🗑️ Capítulo eliminado" });
+  };
 
   // ===== AGREGAR TEMA =====
   const agregarTema = (capIndex) => {
@@ -203,14 +202,14 @@ const eliminarCapitulo = (capIndex) => {
     setTemario(nuevo);
   };
 
-// ===== ELIMINAR TEMA =====
-const eliminarTema = (capIndex, subIndex) => {
-  if (!window.confirm("¿Seguro que deseas eliminar este tema?")) return;
-  const nuevo = JSON.parse(JSON.stringify(temario));
-  nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
-  setTemario(nuevo);
-  setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
-};
+  // ===== ELIMINAR TEMA =====
+  const eliminarTema = (capIndex, subIndex) => {
+    if (!window.confirm("¿Seguro que deseas eliminar este tema?")) return;
+    const nuevo = JSON.parse(JSON.stringify(temario));
+    nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
+    setTemario(nuevo);
+    setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
+  };
 
 
   // ===== AJUSTAR TIEMPOS =====
@@ -476,158 +475,158 @@ const eliminarTema = (capIndex, subIndex) => {
   };
 
   // === RENDER ===
-return (
-  <div className="editor-container">
-    {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
+  return (
+    <div className="practico-editor-container">
+      {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
-    <h3>Información general del curso</h3>
-    {/* 🔹 Campo: Horas Totales del Curso */}
-    <label>Duración total del curso (horas)</label>
-    <input
-      type="number"
-      min="0"
-      value={temario.horas_total_curso || 0}
-      onChange={(e) =>
-        setTemario({ ...temario, horas_total_curso: e.target.value })
-      }
-      className="input-capitulo"
-      placeholder="Ej: 40"
-    />
+      <h3>Información general del curso</h3>
+      {/* 🔹 Campo: Horas Totales del Curso */}
+      <label>Duración total del curso (horas)</label>
+      <input
+        type="number"
+        min="0"
+        value={temario.horas_total_curso || 0}
+        onChange={(e) =>
+          setTemario({ ...temario, horas_total_curso: e.target.value })
+        }
+        className="input-capitulo"
+        placeholder="Ej: 40"
+      />
 
-    {/* 🔴 CAMPO AÑADIDO: DESCRIPCIÓN GENERAL */}
-    <label>Descripción General</label>
-    <textarea
-      value={temario.descripcion_general || ""}
-      onChange={(e) =>
-        setTemario({ ...temario, descripcion_general: e.target.value })
-      }
-      className="textarea-objetivos-capitulo"
-      placeholder="Ej: Curso introductorio a Scrum, dirigido a desarrolladores con 1 año de experiencia..."
-    />
-    {/* 🔴 CAMPO AÑADIDO: AUDIENCIA */}
-    <label>Audiencia</label>
-    <textarea
-      value={temario.audiencia || ""}
-      onChange={(e) =>
-        setTemario({ ...temario, audiencia: e.target.value })
-      }
-      className="textarea-objetivos-capitulo"
-      placeholder="Ej: Desarrolladores, líderes de proyecto, gerentes de producto..."
-    />
+      {/* 🔴 CAMPO AÑADIDO: DESCRIPCIÓN GENERAL */}
+      <label>Descripción General</label>
+      <textarea
+        value={temario.descripcion_general || ""}
+        onChange={(e) =>
+          setTemario({ ...temario, descripcion_general: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+        placeholder="Ej: Curso introductorio a Scrum, dirigido a desarrolladores con 1 año de experiencia..."
+      />
+      {/* 🔴 CAMPO AÑADIDO: AUDIENCIA */}
+      <label>Audiencia</label>
+      <textarea
+        value={temario.audiencia || ""}
+        onChange={(e) =>
+          setTemario({ ...temario, audiencia: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+        placeholder="Ej: Desarrolladores, líderes de proyecto, gerentes de producto..."
+      />
 
-    {/* 🔴 CAMPO AÑADIDO: PRERREQUISITOS */}
-    <label>Prerrequisitos</label>
-    <textarea
-      value={temario.prerrequisitos || ""}
-      onChange={(e) =>
-        setTemario({ ...temario, prerrequisitos: e.target.value })
-      }
-      className="textarea-objetivos-capitulo"
-      placeholder="Ej: Conocimientos básicos de gestión de proyectos..."
-    />
-    {/* 🔹 CAMPO AÑADIDO: OBJETIVOS */}
-    <label>Objetivos</label>
-    <textarea
-      value={temario.objetivos || ""}
-      onChange={(e) =>
-        setTemario({ ...temario, objetivos: e.target.value })
-      }
-      className="textarea-objetivos-capitulo"
-      placeholder="Ej: Al finalizar el curso, los participantes podrán..."
-    />
-    <hr style={{ margin: "20px 0" }} /> 
+      {/* 🔴 CAMPO AÑADIDO: PRERREQUISITOS */}
+      <label>Prerrequisitos</label>
+      <textarea
+        value={temario.prerrequisitos || ""}
+        onChange={(e) =>
+          setTemario({ ...temario, prerrequisitos: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+        placeholder="Ej: Conocimientos básicos de gestión de proyectos..."
+      />
+      {/* 🔹 CAMPO AÑADIDO: OBJETIVOS */}
+      <label>Objetivos</label>
+      <textarea
+        value={temario.objetivos || ""}
+        onChange={(e) =>
+          setTemario({ ...temario, objetivos: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+        placeholder="Ej: Al finalizar el curso, los participantes podrán..."
+      />
+      <hr style={{ margin: "20px 0" }} />
 
-    <h3>Temario Detallado</h3>
-    {(temario.temario || []).map((cap, i) => (
-      <div key={i} className="capitulo-editor">
-        <h4>Capítulo {i + 1}</h4>
+      <h3>Temario Detallado</h3>
+      {(temario.temario || []).map((cap, i) => (
+        <div key={i} className="capitulo-editor">
+          <h4>Capítulo {i + 1}</h4>
 
-        <input
-          value={cap.capitulo || ""}
-          onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
-          className="input-capitulo"
-          placeholder="Nombre del capítulo"
-        />
-
-        <div className="duracion-total">
-          ⏱️ Duración total:&nbsp;
           <input
-            type="number"
-            min="0"
-            value={cap.tiempo_capitulo_min || 0}
-            onChange={(e) =>
-              handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)
-            }
-            className="input-duracion"
-            style={{ width: "80px", textAlign: "center" }}
+            value={cap.capitulo || ""}
+            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+            className="input-capitulo"
+            placeholder="Nombre del capítulo"
           />
-          <span style={{ marginLeft: "8px", color: "#035b6e", fontWeight: 600 }}>
-            {formatDuration(cap.tiempo_capitulo_min || 0)}
-          </span>
-        </div>
 
-        <label>Objetivos del Capítulo</label>
-        <textarea
-          value={
-            Array.isArray(cap.objetivos_capitulo)
-              ? cap.objetivos_capitulo.join("\n")
-              : cap.objetivos_capitulo || ""
-          }
-          onChange={(e) =>
-            handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
-          }
-          className="textarea-objetivos-capitulo"
-          placeholder="Un objetivo por línea"
-        />
+          <div className="duracion-total">
+            ⏱️ Duración total:&nbsp;
+            <input
+              type="number"
+              min="0"
+              value={cap.tiempo_capitulo_min || 0}
+              onChange={(e) =>
+                handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)
+              }
+              className="input-duracion"
+              style={{ width: "80px", textAlign: "center" }}
+            />
+            <span style={{ marginLeft: "8px", color: "#035b6e", fontWeight: 600 }}>
+              {formatDuration(cap.tiempo_capitulo_min || 0)}
+            </span>
+          </div>
 
-        {/* === SUBCAPÍTULOS === */}
-        <ul>
-          {(cap.subcapitulos || []).map((sub, j) => (
-            <li key={j} className="subcapitulo-item">
-              <span>
-                {i + 1}.{j + 1}
-              </span>
-              <input
-                value={sub.nombre || ""}
-                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
-                type="text"
-                placeholder="Nombre del tema"
-              />
-              <input
-                type="number"
-                value={sub.tiempo_subcapitulo_min || 0}
-                onChange={(e) =>
-                  handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
-                }
-                placeholder="min"
-              />
-              <input
-                type="number"
-                value={sub.sesion || 1}
-                onChange={(e) =>
-                  handleFieldChange(i, j, "sesion", e.target.value)
-                }
-                placeholder="sesión"
-                className="input-sesion"
-              />
+          <label>Objetivos del Capítulo</label>
+          <textarea
+            value={
+              Array.isArray(cap.objetivos_capitulo)
+                ? cap.objetivos_capitulo.join("\n")
+                : cap.objetivos_capitulo || ""
+            }
+            onChange={(e) =>
+              handleFieldChange(i, null, "objetivos_capitulo", e.target.value.split("\n"))
+            }
+            className="textarea-objetivos-capitulo"
+            placeholder="Un objetivo por línea"
+          />
 
-              <button
-                className="btn-eliminar-tema"
-                onClick={() => eliminarTema(i, j)}
-                title="Eliminar tema"
-              >
-                <Trash2 size={18} strokeWidth={2} />
-                <span>Eliminar</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+          {/* === SUBCAPÍTULOS === */}
+          <ul>
+            {(cap.subcapitulos || []).map((sub, j) => (
+              <li key={j} className="subcapitulo-item">
+                <span>
+                  {i + 1}.{j + 1}
+                </span>
+                <input
+                  value={sub.nombre || ""}
+                  onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+                  type="text"
+                  placeholder="Nombre del tema"
+                />
+                <input
+                  type="number"
+                  value={sub.tiempo_subcapitulo_min || 0}
+                  onChange={(e) =>
+                    handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                  }
+                  placeholder="min"
+                />
+                <input
+                  type="number"
+                  value={sub.sesion || 1}
+                  onChange={(e) =>
+                    handleFieldChange(i, j, "sesion", e.target.value)
+                  }
+                  placeholder="sesión"
+                  className="input-sesion"
+                />
 
-        {/* 🔹 Acciones del capítulo */}
-        <div className="acciones-capitulo">
-          <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
-            <Plus size={18} strokeWidth={2} />
-            <span>Agregar Tema</span>
+                <button
+                  className="btn-eliminar-tema"
+                  onClick={() => eliminarTema(i, j)}
+                  title="Eliminar tema"
+                >
+                  <Trash2 size={18} strokeWidth={2} />
+                  <span>Eliminar</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {/* 🔹 Acciones del capítulo */}
+          <div className="acciones-capitulo">
+            <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
+              <Plus size={18} strokeWidth={2} />
+              <span>Agregar Tema</span>
             </button>
             <button
               className="btn-eliminar-capitulo"
@@ -648,18 +647,18 @@ return (
         </button>
       </div>
 
-    {/* === Acciones finales === */}
-    <div className="acciones-footer">
-      <button className="btn-primario" onClick={ajustarTiempos}>
-        Ajustar Tiempos
-      </button>
-      <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>
-        {guardando ? "Guardando..." : "Guardar Versión"}
-      </button>
-      <button className="btn-secundario" onClick={() => setModalExportar(true)}>
-        Exportar
-      </button>
-    </div>
+      {/* === Acciones finales === */}
+      <div className="acciones-footer">
+        <button className="btn-primario" onClick={ajustarTiempos}>
+          Ajustar Tiempos
+        </button>
+        <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>
+          {guardando ? "Guardando..." : "Guardar Versión"}
+        </button>
+        <button className="btn-secundario" onClick={() => setModalExportar(true)}>
+          Exportar
+        </button>
+      </div>
 
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
