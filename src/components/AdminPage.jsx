@@ -21,7 +21,8 @@ const API_BASE =
 const ADMIN_EMAILS = [
   'anette.flores@netec.com.mx',
   'mitzi.montiel@netec.com',
-  'america.vicente@netec.com.mx'
+  'america.vicente@netec.com.mx',
+  'juan.londono@netec.com.co'
 ];
 
 function AdminPage() {
