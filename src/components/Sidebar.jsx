@@ -157,7 +157,8 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   const correosAdminPrincipales = [
   'anette.flores@netec.com.mx',
   'mitzi.montiel@netec.com',
-  'america.vicente@netec.com.mx'
+  'america.vicente@netec.com.mx',
+  'juan.londono@netec.com.co'
 ];
 
 const esAdminPrincipal = correosAdminPrincipales.includes(email.toLowerCase());
