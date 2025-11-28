@@ -56,3 +56,15 @@ CG-Backend/lambda-layers/*.zip
 
 # SAM build artifacts
 .aws-sam/
+
+# Python dependencies (deployed via Lambda layers, not committed)
+CG-Backend/lambda/lxml/
+CG-Backend/lambda/lxml-*.dist-info/
+CG-Backend/lambda/beautifulsoup4-*.dist-info/
+CG-Backend/lambda/bs4/
+CG-Backend/lambda/soupsieve/
+CG-Backend/lambda/soupsieve-*.dist-info/
+CG-Backend/lambda/typing_extensions.py
+
+# Step Functions execution history (debug artifacts)
+CG-Backend/execution_history*.json

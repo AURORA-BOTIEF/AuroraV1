@@ -232,6 +232,78 @@ Resources:
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
+  PptBatchOrchestrator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PptBatchOrchestrator
+      Description: Orchestrate PPT batch generation via Step Functions for large courses
+      Runtime: python3.12
+      Handler: ppt_batch_orchestrator.lambda_handler
+      CodeUri: ./lambda/ppt_batch_orchestrator/
+      Timeout: 60
+      MemorySize: 512
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          PPT_ORCHESTRATOR_STATE_MACHINE_ARN: !Ref PptBatchOrchestratorStateMachine
+          MAX_LESSONS_PER_BATCH: '3'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource:
+                - !Ref PptBatchOrchestratorStateMachine
+      Events:
+        GenerateInfographicApi:
+          Type: Api
+          Properties:
+            Path: /generate-infographic
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  StrandsPptMerger:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsPptMerger
+      Description: Merge batch structures, generate final HTML, and create ONE PPT from complete HTML
+      Runtime: python3.12
+      Handler: ppt_merger.lambda_handler
+      CodeUri: ./lambda/ppt_merger/
+      Layers:
+        - !Ref StrandsAgentsLayer
+        - !Ref PPTLayer
+      Timeout: 600
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:DeleteObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
   StrandsInfographicGenerator:
     Type: AWS::Serverless::Function
     Properties:
@@ -250,7 +322,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-haiku-4-5-20251001-v1:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -258,6 +330,8 @@ Resources:
               Action:
                 - bedrock:InvokeModel
                 - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
               Resource: '*'
             - Effect: Allow
               Action:
@@ -275,14 +349,41 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
-      Events:
-        GenerateInfographicApi:
-          Type: Api
-          Properties:
-            Path: /generate-infographic
-            Method: post
-            Auth:
-              Authorizer: NONE
+
+  StrandsVisualOptimizer:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsVisualOptimizer
+      Description: Agent 2 - Intelligently optimizes oversized slides using Claude Haiku 4.5 (post-processing)
+      Runtime: python3.12
+      Handler: visual_optimizer.lambda_handler
+      CodeUri: ./lambda/strands_visual_optimizer/
+      Timeout: 600
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Layers:
+        - !Ref StrandsAgentsLayer
+        - !Ref PPTLayer
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          PYTHONPATH: /opt/python
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:Converse
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
 
   ImagesGen:
     Type: AWS::Serverless::Function
@@ -511,6 +612,104 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  ListInfographicsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lists available infographic presentations
+      Handler: list_infographics.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:HeadObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        ListInfographicsApi:
+          Type: Api
+          Properties:
+            Path: /list-infographics
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  GetInfographicFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Gets infographic details and structure for viewing/editing
+      Handler: get_infographic.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:HeadObject
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        GetInfographicApi:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  UpdateInfographicFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Updates infographic slides and regenerates HTML
+      Handler: update_infographic.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          PYTHONPATH: /opt/python
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        UpdateInfographicApi:
+          Type: Api
+          Properties:
+            Path: /infographic
+            Method: put
+            Auth:
+              Authorizer: NONE
+            Auth:
+              Authorizer: NONE
+
   LoadBookFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -638,17 +837,31 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
-        PresignOptions:
-          Type: Api
-          Properties:
-            Path: /presign
-            Method: options
-            Auth:
-              Authorizer: NONE
         GenerateInfographicOptions:
           Type: Api
           Properties:
             Path: /generate-infographic
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ListInfographicsOptions:
+          Type: Api
+          Properties:
+            Path: /list-infographics
+            Method: options
+            Auth:
+              Authorizer: NONE
+        GetInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UpdateInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /infographic
             Method: options
             Auth:
               Authorizer: NONE
@@ -792,6 +1005,7 @@ Resources:
                 model_provider.$: $.model_provider
                 content_source.$: $.content_source
                 modules_to_generate.$: $.modules_to_generate
+                image_model.$: $.image_model
             Retry:
               - ErrorEquals:
                   - Lambda.ServiceException
@@ -914,6 +1128,7 @@ Resources:
                       project_folder.$: $.batch_task.project_folder
                       prompts_prefix.$: $.visual_result.Payload.prompts_s3_prefix
                       prompts.$: "$.remaining_prompts"
+                      image_model.$: $.batch_task.image_model
                   Retry:
                     - ErrorEquals:
                         - Lambda.ServiceException
@@ -1273,6 +1488,7 @@ Resources:
               modules_to_generate.$: $.modules_to_generate
               content_type.$: $.content_type
               master_lab_plan_result.$: $.master_lab_plan_result
+              image_model.$: $.image_model
             Next: ExpandModulesToBatches
           
           # ===== FAIL STATES =====
@@ -1302,6 +1518,27 @@ Resources:
                 - !GetAtt LabGuideBuilder.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
+
+  PptBatchOrchestratorStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: PptBatchOrchestrator
+      DefinitionUri: ppt_batch_orchestrator_state_machine.json
+      DefinitionSubstitutions:
+        StrandsInfographicGeneratorArn: !GetAtt StrandsInfographicGenerator.Arn
+        StrandsPptMergerArn: !GetAtt StrandsPptMerger.Arn
+        StrandsVisualOptimizerArn: !GetAtt StrandsVisualOptimizer.Arn
+      Type: STANDARD
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt StrandsInfographicGenerator.Arn
+                - !GetAtt StrandsPptMerger.Arn
+                - !GetAtt StrandsVisualOptimizer.Arn
 
 Outputs:
   # Strands Agents Lambdas - Theory Generation

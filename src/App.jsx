@@ -1,6 +1,6 @@
 // src/App.jsx (corregido y funcional)
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import './App.css'; // si tienes estilos globales
@@ -35,8 +35,12 @@ import GeneradorTemarios_KNTR from './components/GeneradorTemarios_KNTR.jsx';
 import GeneradorTemarios_Seminarios from './components/GeneradorTemarios_Seminarios.jsx'
 import GeneradorCursos from './components/GeneradorCursos.jsx';
 import BookBuilderPage from './components/BookBuilderPage.jsx';
+import BookEditorPage from './components/BookEditorPage.jsx';
 import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
 import FAQ from "./components/FAQ.jsx";
+import PresentacionesPage from './components/PresentacionesPage.jsx';
+import InfographicViewer from './components/InfographicViewer.jsx';
+import InfographicEditor from './components/InfographicEditor.jsx';
 
 
 
@@ -73,7 +77,6 @@ function EditorSeminarioPage() {
   return <EditorDeTemario_seminario temarioInicial={null} onSave={onSave} isLoading={false} />;
 }
 
-// === Página de edición de temario práctico ===
 // === Página de edición de temario práctico ===
 function EditorPracticoPage() {
   const { cursoId, versionId } = useParams();
@@ -172,6 +175,145 @@ function EditorPracticoPage() {
   );
 }
 
+
+
+
+// === Página de edición de temarios KNTR ===
+function EditorKNTRPage() {
+  const { cursoId, versionId } = useParams();
+
+  const [temarioInicial, setTemarioInicial] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // 🔹 Cargar versión exacta desde Lambda (POST cursoId + versionId)
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = localStorage.getItem("id_token");
+
+        const res = await fetch(
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR/get",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              cursoId,
+              versionId
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || `Error ${res.status} al obtener la versión`);
+        }
+
+        const json = await res.json();
+        const item = json.data || json;
+
+        // Normalmente el temario está en item.contenido; si no, usamos item tal cual
+        const contenido = item.contenido ?? item;
+
+        console.log("Versión KNTR cargada desde Lambda:", item);
+        console.log("Contenido enviado al editor:", contenido);
+
+        setTemarioInicial(contenido);
+      } catch (e) {
+        console.error("Error cargando versión KNTR:", e);
+        setError(e.message || "Error al cargar la versión");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVersion();
+  }, [cursoId, versionId]);
+
+  // 🔹 Guardado de versión (se queda igual)
+  const onSave = async (contenido, nota) => {
+    const token = localStorage.getItem("id_token");
+    const res = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota || `Guardado el ${new Date().toISOString()}`,
+          nombre_curso: contenido?.nombre_curso || "Sin título",
+          tecnologia: contenido?.tecnologia || "",
+          asesor_comercial: contenido?.asesor_comercial || "",
+          nombre_preventa: contenido?.nombre_preventa || "",
+          enfoque: contenido?.enfoque || "General",
+          fecha_creacion: new Date().toISOString(),
+        }),
+      }
+    );
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || "Error al guardar versión");
+    }
+  };
+
+  if (error) {
+    return <div style={{ padding: "1rem", color: "red" }}>Error cargando versión: {error}</div>;
+  }
+
+  return (
+    <EditorDeTemario_KNTR
+      temarioInicial={temarioInicial}
+      onSave={onSave}
+      isLoading={isLoading}
+    />
+  );
+}
+
+
+// Component to handle conditional rendering of Sidebar and ChatModal
+const Layout = ({ children, email, role }) => {
+  const location = useLocation();
+  const isBookEditor = location.pathname.startsWith('/book-editor');
+  const isPresentationViewer = location.pathname.startsWith('/presentaciones/viewer/');
+  const isInfographicEditor = location.pathname.startsWith('/presentaciones/editor/');
+  const isFullScreenMode = isBookEditor || isPresentationViewer || isInfographicEditor;
+
+  console.log('Current path:', location.pathname);
+  console.log('isInfographicEditor:', isInfographicEditor);
+  console.log('isFullScreenMode:', isFullScreenMode);
+
+  return (
+    <div id="contenidoPrincipal" style={isFullScreenMode ? { paddingLeft: 0 } : {}}>
+      {!isFullScreenMode && <Sidebar email={email} grupo={role} />}
+      <ProfileModal />
+      {!isBookEditor && <ChatModal />}
+
+      <main className="main-content-area" style={isFullScreenMode ? { marginLeft: 0, width: '100%' } : {}}>
+        {children}
+      </main>
+
+      {!isFullScreenMode && (
+        <button id="logout" onClick={async () => {
+          try {
+            await signOut();
+            window.location.reload();
+          } catch (error) {
+            console.error('Error signing out: ', error);
+          }
+        }}>
+          Cerrar sesión
+        </button>
+      )}
+    </div>
+  );
+};
 
 function App() {
   const [user, setUser] = useState(null);
@@ -277,7 +419,7 @@ function App() {
           <div className="main-content">
             <div className="page-container">
               <div className="illustration-centered">
-                <img src={previewImg} alt="Ilustración" className="preview-image" />
+                <img src={previewImgSrc} alt="Ilustración" className="preview-image" />
               </div>
               <button
                 className="login-button"
@@ -290,11 +432,11 @@ function App() {
 
               <div className="country-flags">
                 {[
-                  { flag: chileFlag, label: 'Chile', url: 'https://www.netec.com/cursos-ti-chile' },
-                  { flag: peruFlag, label: 'Perú', url: 'https://www.netec.com/cursos-ti-peru' },
-                  { flag: colombiaFlag, label: 'Colombia', url: 'https://www.netec.com/cursos-ti-colombia' },
-                  { flag: mexicoFlag, label: 'México', url: 'https://www.netec.com/cursos-ti-mexico' },
-                  { flag: espanaFlag, label: 'España', url: 'https://www.netec.es/' }
+                  { flag: chileFlagImg, label: 'Chile', url: 'https://www.netec.com/cursos-ti-chile' },
+                  { flag: peruFlagImg, label: 'Perú', url: 'https://www.netec.com/cursos-ti-peru' },
+                  { flag: colombiaFlagImg, label: 'Colombia', url: 'https://www.netec.com/cursos-ti-colombia' },
+                  { flag: mexicoFlagImg, label: 'México', url: 'https://www.netec.com/cursos-ti-mexico' },
+                  { flag: espanaFlagImg, label: 'España', url: 'https://www.netec.es/' }
                 ].map(({ flag, label, url }) => (
                   <a key={label} href={url} target="_blank" rel="noopener noreferrer" className="flag-item">
                     <img src={flag} alt={label} className="flag-image" />
@@ -307,49 +449,38 @@ function App() {
         </div>
       ) : (
         // === Aplicación principal (usuario autenticado) ===
+        // === Aplicación principal (usuario autenticado) ===
         <Router>
-          <div id="contenidoPrincipal">
-            <Sidebar email={email} grupo={rol} />
-            <ProfileModal />
-            <ChatModal />
+          <Layout email={email} role={rol}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/generador-contenidos" replace />} />
+              <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
+                <Route path="curso-estandar" element={<GeneradorTemarios />} />
+                <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
+                <Route path="Temario-seminarios" element={<GeneradorTemarios_Seminarios />} />
+                <Route path="generador-cursos" element={<GeneradorCursos />} />
+                <Route path="book-builder" element={<BookBuilderPage />} />
+                <Route path="generador-contenido" element={<GeneradorContenido />} />
+                <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
+                <Route path="faq" element={<FAQ />} />
+              </Route>
 
-            <main className="main-content-area">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/actividades" element={<ActividadesPage />} />
-                <Route path="/resumenes" element={<ResumenesPage />} />
-                <Route path="/examenes" element={<ExamenesPage />} />
+              <Route path="/presentaciones" element={<PresentacionesPage />} />
+              <Route path="/presentaciones/viewer/:folder" element={<InfographicViewer />} />
+              <Route path="/presentaciones/editor/:folder" element={<InfographicEditor />} />
 
-                {/* ✅ Solo Anette o admins pueden acceder */}
-                <Route
-                  path="/admin"
-                  element={adminAllowed ? <AdminPage /> : <Navigate to="/" replace />}
-                />
+              <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
+              <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
+              <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
+              <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorKNTRPage />} />
+              <Route path="/book-editor/:projectFolder" element={<BookEditorPage />} />
 
-                <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
-                  <Route path="curso-estandar" element={<GeneradorTemarios />} />
-                  <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
-                  <Route path="Temario-seminarios" element={<GeneradorTemarios_Seminarios />} />
-                  <Route path="generador-cursos" element={<GeneradorCursos />} />
-                  <Route path="book-builder" element={<BookBuilderPage />} />
-                  <Route path="generador-contenido" element={<GeneradorContenido />} />
-                  <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
-                  <Route path="faq" element={<FAQ />} />
-                </Route>
-                <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
-                <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
-                <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
-                <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorDeTemario_KNTR />}/>
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </main>
-
-            <button id="logout" onClick={handleLogout}>
-              Cerrar sesión
-            </button>
-          </div>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Layout>
         </Router>
-      )}
+      )
+      }
     </>
   );
 }

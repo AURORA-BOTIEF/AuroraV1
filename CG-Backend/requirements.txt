@@ -10,3 +10,5 @@ google-generativeai
 google-cloud-aiplatform
 Pillow
 PyJWT
+beautifulsoup4
+lxml

@@ -90,26 +90,46 @@
 
 .book-editor-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.75rem;
 }
 
 .book-editor-actions button {
-    padding: 0.5rem 1rem;
-    border: 1px solid #ddd;
+    padding: 0.6rem 1.2rem;
+    border: 1px solid #e0e0e0;
     background: white;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+    color: #444;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .book-editor-actions button:hover {
-    background: #f0f0f0;
+    background: #f8f9fa;
+    border-color: #b0b0b0;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08);
+    color: #222;
+}
+
+.book-editor-actions button:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .book-editor-actions button:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    background: #f5f5f5;
 }
+
+/* Specific button styles removed to keep uniform look */
 
 .version-history {
     background: white;
@@ -236,6 +256,7 @@
 }
 
 .lesson-navigator {
+    display: block !important;
     width: 250px;
     background: white;
     border-right: 1px solid #ddd;
@@ -308,6 +329,26 @@
     box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
 }
 
+/* Lab Guide Theme - Yellow Tones */
+[data-view-mode="lab"] .module-header {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+[data-view-mode="lab"] .module-header:hover {
+    box-shadow: 0 3px 8px rgba(245, 158, 11, 0.4);
+}
+
+[data-view-mode="lab"] .lesson-item.active {
+    background: linear-gradient(to right, #fef3c7, #fde68a);
+    border-left: 3px solid #f59e0b;
+    border-color: #f59e0b;
+    color: #d97706;
+}
+
+[data-view-mode="lab"] .lesson-item:hover {
+    background: #fef3c7;
+}
+
 .module-toggle {
     font-size: 0.8rem;
     transition: transform 0.2s;
@@ -354,6 +395,11 @@
     text-align: center;
 }
 
+/* Yellow lesson numbers for Lab Guide */
+[data-view-mode="lab"] .lesson-number {
+    background: #f59e0b;
+}
+
 .lesson-title-text {
     flex: 1;
     font-size: 0.9rem;
@@ -378,12 +424,12 @@
 }
 
 .lesson-editor,
-.editor-container {
+.book-content-container {
     /* allow flex children with overflow to size correctly */
     min-height: 0;
 }
 
-.editor-container {
+.book-content-container {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -837,10 +883,12 @@
 
 /* Button style for Lab Guide toggle */
 .btn-active {
-    background: linear-gradient(to bottom, #3498db, #2980b9) !important;
-    color: white !important;
+    background: white !important;
+    color: #333 !important;
     font-weight: 600;
+    border: 1px solid #e0e0e0 !important;
 }
+
 /* PowerPoint Generation Modal */
 .ppt-modal-overlay {
     position: fixed;
@@ -868,8 +916,13 @@
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes slideUp {
@@ -877,6 +930,7 @@
         transform: translateY(30px);
         opacity: 0;
     }
+
     to {
         transform: translateY(0);
         opacity: 1;
@@ -1055,7 +1109,9 @@
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .btn-generate-ppt {
