@@ -114,12 +114,10 @@ function PresentacionesPage() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <button onClick={() => loadInfographics(false)} className="refresh-btn">
+                <button onClick={() => loadInfographics(false)} className="presentaciones-refresh-btn">
                     🔄 Actualizar
                 </button>
-                <button onClick={() => loadInfographics(true)} className="clear-cache-btn">
-                    🗑️ Borrar Caché
-                </button>
+
             </div>
 
             {filteredInfographics.length === 0 ? (

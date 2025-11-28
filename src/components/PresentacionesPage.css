@@ -68,7 +68,7 @@
     border-color: #4682B4;
 }
 
-.refresh-btn {
+.presentaciones-refresh-btn {
     padding: 0.75rem 1.5rem;
     background-color: #4682B4;
     color: white;
@@ -79,7 +79,7 @@
     transition: background-color 0.3s;
 }
 
-.refresh-btn:hover {
+.presentaciones-refresh-btn:hover {
     background-color: #3a6d99;
 }
 
