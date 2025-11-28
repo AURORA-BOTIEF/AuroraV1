@@ -71,7 +71,14 @@ def lambda_handler(event, context):
         bucket_name = os.getenv('UPLOAD_BUCKET', 'crewai-course-artifacts')
 
         # Generate S3 key
-        s3_key = f"{folder}/{user_id}/{file_name}"
+        project_folder = body.get('projectFolder')
+        
+        if project_folder:
+            # Use specific project structure: project/outline/filename
+            s3_key = f"{project_folder}/outline/{file_name}"
+        else:
+            # Default behavior: uploads/userid/filename
+            s3_key = f"{folder}/{user_id}/{file_name}"
 
         # Create S3 client
         s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))

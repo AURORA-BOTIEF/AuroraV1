@@ -1075,6 +1075,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     - Print-ready styles
     - Clean, professional design
     """
+    logger.info(f"🔍 DEBUG generate_html_output: Processing {len(slides)} slides")
     
     # Generate presigned URLs for S3 images and logo
     s3_client = boto3.client('s3')
@@ -1635,11 +1636,15 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             # Standard single-column or two-column layout
             html_parts.append('  <div class="slide-content">')
             
+            logger.info(f"🔍 DEBUG: Slide {slide_idx} '{title}' has {len(slide.get('content_blocks', []))} content blocks")
+            
             for block in slide.get('content_blocks', []):
                 block_type = block.get('type')
+                logger.info(f"🔍 DEBUG: Block type='{block_type}', items={len(block.get('items', []))}")
                 
                 if block_type == 'nested-bullets':
                     # Nested bullets for agenda (modules with lessons)
+                    logger.info(f"🔍 DEBUG: NESTED-BULLETS BRANCH 1! Items: {block.get('items')}")
                     heading = block.get('heading', '')
                     if heading:
                         html_parts.append(f'    <div class="content-heading">{heading}</div>')

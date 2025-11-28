@@ -47,6 +47,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const [pptStyle, setPptStyle] = useState('professional');
     const [slidesPerLesson, setSlidesPerLesson] = useState(6);
     const [pptModelProvider, setPptModelProvider] = useState('bedrock');
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Function to extract module number from lesson filename or title
@@ -2484,108 +2485,95 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             console.log('📤 Request:', requestBody);
 
-            // Close modal immediately and show async message
-            setShowPPTModal(false);
-            setPptGenerating(false);
-
-            // Show async generation message
-            alert('🚀 Generación de Presentación Iniciada\n\n' +
-                'La presentación PowerPoint se está generando en segundo plano.\n' +
-                'Este proceso puede tardar varios minutos dependiendo del tamaño del libro.\n\n' +
-                '📊 Configuración:\n' +
-                `- Estilo: ${pptStyle}\n` +
-                `- Diapositivas por lección: ${slidesPerLesson}\n` +
-                `- Modelo: ${pptModelProvider}\n\n` +
-                'Puedes continuar trabajando mientras se genera.\n' +
-                'La presentación se guardará automáticamente en S3.');
-
-            // Make async request without blocking the UI
-            fetch(`${API_BASE}/generate-infographic`, {
+            // Make API request first, THEN close modal if successful
+            const response = await fetch(`${API_BASE}/generate-infographic`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                 },
-                body: JSON.stringify(requestBody)
-            }).then(async response => {
-                if (!response.ok) {
-                    let errorMessage = `HTTP ${response.status}`;
-                    try {
-                        const errorData = await response.json();
-                        errorMessage = errorData.error || errorMessage;
-                    } catch {
-                        const errorText = await response.text();
-                        errorMessage = errorText || errorMessage;
-                    }
-                    throw new Error(`Error generando PPT: ${errorMessage}`);
-                }
-                return response.json();
-            }).then(data => {
-                // Check for backend errors
-                if (data.error) {
-                    throw new Error(`Backend error: ${data.error}`);
-                }
+                body: JSON.stringify(requestBody),
+                mode: 'cors',  // Explicitly set CORS mode
+            });
 
-                console.log('✅ Infographic generated:', data);
+            // Check response status BEFORE closing modal
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorData.message || errorMessage;
+                } catch {
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                }
+                throw new Error(`Error generando PPT: ${errorMessage}`);
+            }
 
-                // Enhanced success notification for HTML infographic
+            const data = await response.json();
+
+            // Check for backend errors
+            if (data.error) {
+                throw new Error(`Backend error: ${data.error}`);
+            }
+
+            console.log('✅ API Response:', data);
+
+            // SUCCESS - Close modal and reset state
+            setShowPPTModal(false);
+            setPptGenerating(false);
+
+            // Show success notification based on response
+            // If we got execution_arn, it means async processing started
+            if (data.execution_arn || data.message?.includes('started') || data.message?.includes('Iniciada') || data.message?.includes('orchestration')) {
+                // Async batch orchestration started - show custom modal
+                setShowSuccessModal(true);
+            } else if (data.html_s3_key || data.html_url) {
+                // Immediate completion (single batch)
+                const htmlUrl = data.html_url || `https://crewai-course-artifacts.s3.amazonaws.com/${data.html_s3_key}`;
+                const totalSlides = data.total_slides || 'múltiples';
+
                 const successMessage = `✅ ¡Infografía Interactiva Generada!\n\n` +
-                    `📊 ${data.total_slides} diapositivas creadas\n` +
+                    `📊 ${totalSlides} diapositivas creadas\n` +
                     `✏️ Contenido 100% editable en navegador\n` +
                     `📄 Exportable a PDF (Ctrl+P)\n` +
-                    `🎨 Estilo: ${pptStyle}\n` +
-                    `📝 Diapositivas por lección: ${slidesPerLesson}`;
+                    `🎨 Estilo: ${pptStyle}\n\n` +
+                    `🔗 HTML Editable: ${htmlUrl}\n\n` +
+                    `💡 Haz clic en cualquier texto para editar\n` +
+                    `💾 Botón "Save Changes" para descargar versión editada\n` +
+                    `📄 Botón "Download PDF" para exportar a PDF\n\n` +
+                    `¿Deseas abrir la infografía editable ahora?`;
 
-                // Create download link for the HTML file (editable)
-                if (data.html_s3_key) {
-                    const htmlUrl = `https://crewai-course-artifacts.s3.amazonaws.com/${data.html_s3_key}`;
-                    const pptxUrl = data.pptx_s3_key ?
-                        `https://crewai-course-artifacts.s3.amazonaws.com/${data.pptx_s3_key}` : null;
-
-                    let fullMessage = successMessage +
-                        `\n\n� HTML Editable: ${htmlUrl}\n` +
-                        `\n💡 Haz clic en cualquier texto para editar\n` +
-                        `💾 Botón "Save Changes" para descargar versión editada\n` +
-                        `📄 Botón "Download PDF" para exportar a PDF`;
-
-                    if (pptxUrl) {
-                        fullMessage += `\n\n📊 PowerPoint: ${pptxUrl}`;
-                    }
-
-                    fullMessage += `\n\n¿Deseas abrir la infografía editable ahora?`;
-
-                    // Show notification with download option
-                    if (confirm(fullMessage)) {
-                        window.open(htmlUrl, '_blank');
-                    }
-                } else {
-                    alert(successMessage);
+                if (confirm(successMessage)) {
+                    window.open(htmlUrl, '_blank');
                 }
-            }).catch(error => {
-                console.error('❌ Error generating PPT:', error);
-
-                let userMessage = '❌ Error al generar presentación PowerPoint';
-                if (error.message.includes('credentials')) {
-                    userMessage += '\n\nVerifica que estés autenticado correctamente.';
-                } else if (error.message.includes('ImportError') || error.message.includes('ModuleNotFoundError')) {
-                    userMessage += '\n\nError de dependencias en el servidor. Contacta al administrador.';
-                } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
-                    userMessage += '\n\nEl proceso tardó demasiado. Intenta con menos diapositivas por lección.';
-                } else if (error.message.includes('No book files')) {
-                    userMessage += '\n\nNo se encontró el archivo del libro. Verifica que el proyecto tenga un libro válido.';
-                }
-
-                alert(userMessage + '\n\nDetalles técnicos: ' + error.message);
-            });
+            } else {
+                // Generic success
+                alert('✅ Presentación generada exitosamente\n\n' +
+                    'Revisa la sección de Presentaciones para ver el resultado.');
+            }
 
         } catch (error) {
             console.error('❌ Error initiating PPT generation:', error);
 
-            let userMessage = '❌ Error al iniciar generación de presentación PowerPoint';
-            if (error.message.includes('credentials')) {
+            let userMessage = '❌ Error al generar presentación PowerPoint';
+
+            // Specific error handling for common issues
+            if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                userMessage += '\n\n🌐 Error de conexión al servidor\n\n' +
+                    'Posibles causas:\n' +
+                    '• Problema de conectividad de red\n' +
+                    '• El servidor backend no está disponible\n' +
+                    '• Problema de configuración CORS\n\n' +
+                    'Por favor, verifica tu conexión e intenta nuevamente.';
+            } else if (error.message.includes('credentials')) {
                 userMessage += '\n\nVerifica que estés autenticado correctamente.';
+            } else if (error.message.includes('HTTP 4') || error.message.includes('HTTP 5')) {
+                userMessage += '\n\nError del servidor. Por favor contacta al administrador.';
+            } else {
+                userMessage += '\n\nDetalles técnicos: ' + error.message;
             }
 
-            alert(userMessage + '\n\nDetalles técnicos: ' + error.message);
+            alert(userMessage);
             setPptGenerating(false);
         }
     };
@@ -2872,7 +2860,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 <div className="ppt-modal-overlay" onClick={() => !pptGenerating && setShowPPTModal(false)}>
                     <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
                         <div className="ppt-modal-header">
-                            <h2>📊 Generar Presentación PowerPoint</h2>
+                            <h2>📊 Generar Presentación del Curso</h2>
                             <button
                                 className="ppt-modal-close"
                                 onClick={() => setShowPPTModal(false)}
@@ -2901,39 +2889,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                 <small>Selecciona qué versión del libro usar para generar las diapositivas</small>
                             </div>
 
-                            <div className="ppt-form-group">
-                                <label>Estilo de Presentación:</label>
-                                <select
-                                    value={pptStyle}
-                                    onChange={(e) => setPptStyle(e.target.value)}
-                                    disabled={pptGenerating}
-                                >
-                                    <option value="professional">💼 Profesional - Diseño corporativo limpio</option>
-                                    <option value="educational">📚 Educativo - Amigable para estudiantes</option>
-                                    <option value="modern">✨ Moderno - Minimalista y dinámico</option>
-                                </select>
-                            </div>
-
-                            <div className="ppt-form-group">
-                                <label>Modelo de IA:</label>
-                                <select
-                                    value={pptModelProvider}
-                                    onChange={(e) => setPptModelProvider(e.target.value)}
-                                    disabled={pptGenerating}
-                                >
-                                    <option value="bedrock">AWS Bedrock (Claude 4.5 Sonnet)</option>
-                                    <option value="openai">OpenAI (GPT-5)</option>
-                                </select>
-                            </div>
-
                             <div className="ppt-info-box">
                                 <strong>ℹ️ Información:</strong>
                                 <ul>
                                     <li>Se generará una presentación con TODO el contenido del libro</li>
                                     <li>El número de diapositivas se ajustará automáticamente según el contenido</li>
                                     <li>Las imágenes del libro se incluirán automáticamente</li>
-                                    <li>El proceso puede tardar 5-15 minutos dependiendo del tamaño</li>
-                                    <li>La presentación se guardará en S3 para descargar</li>
                                 </ul>
                             </div>
                         </div>
@@ -2959,6 +2920,44 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                 ) : (
                                     '📊 Generar Presentación'
                                 )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Success Confirmation Modal */}
+            {showSuccessModal && (
+                <div className="ppt-modal-overlay" onClick={() => setShowSuccessModal(false)}>
+                    <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="ppt-modal-header">
+                            <h2>🚀 Generación de Presentación Iniciada</h2>
+                            <button
+                                className="ppt-modal-close"
+                                onClick={() => setShowSuccessModal(false)}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="ppt-modal-body">
+                            <div className="ppt-info-box" style={{ marginBottom: '0' }}>
+                                <p style={{ margin: '0 0 16px 0', lineHeight: '1.6' }}>
+                                    El proceso puede tardar entre 5 a 30 minutos, dependiendo de la complejidad del contenido.
+                                </p>
+                                <p style={{ margin: '0', lineHeight: '1.6' }}>
+                                    Usted recibirá la notificación a su correo cuando el proceso sea completado.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="ppt-modal-footer">
+                            <button
+                                className="btn-generate-ppt-submit"
+                                onClick={() => setShowSuccessModal(false)}
+                                style={{ width: '100%', textAlign: 'center' }}
+                            >
+                                OK
                             </button>
                         </div>
                     </div>

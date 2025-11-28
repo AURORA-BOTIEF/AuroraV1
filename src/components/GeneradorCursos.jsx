@@ -1,6 +1,6 @@
 // src/components/GeneradorCursos.jsx
 import React, { useState, useEffect } from 'react';
-import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+import { getCurrentUser, fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { post } from 'aws-amplify/api';
@@ -20,6 +20,7 @@ function GeneradorCursos() {
     const [labRequirements, setLabRequirements] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [userEmail, setUserEmail] = useState('');
     const [statusMessage, setStatusMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
@@ -33,8 +34,10 @@ function GeneradorCursos() {
     const checkAuth = async () => {
         try {
             const user = await getCurrentUser();
+            const attributes = await fetchUserAttributes();
             setIsAuthenticated(true);
-            console.log('Usuario autenticado:', user.username);
+            setUserEmail(attributes.email || '');
+            console.log('Usuario autenticado:', user.username, attributes.email);
         } catch (e) {
             setIsAuthenticated(false);
             console.log('Usuario no autenticado');
@@ -98,8 +101,7 @@ function GeneradorCursos() {
                 credentials: session.credentials,
             });
 
-            // Change: Use project folder structure instead of generic uploads
-            // Old: const key = `uploads/${Date.now()}-${file.name}`;
+            // Use project folder structure as requested
             const key = `${currentProjectFolder}/outline/${file.name}`;
 
             const fileSize = file.size || 0;
@@ -151,6 +153,7 @@ function GeneradorCursos() {
                 image_model: imageModel, // 'gemini' or 'imagen'
                 content_type: contentType, // 'theory', 'labs', or 'both'
                 lab_requirements: labRequirements.trim() || undefined, // Optional
+                user_email: userEmail, // Send user email for notifications
                 // Note: NOT sending lesson_number = MODULE mode
             };
 

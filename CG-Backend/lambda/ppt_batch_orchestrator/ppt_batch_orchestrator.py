@@ -153,6 +153,12 @@ def lambda_handler(event, context):
         if not course_bucket or not project_folder:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'error': 'Missing required parameters: course_bucket, project_folder'
                 })
@@ -174,6 +180,12 @@ def lambda_handler(event, context):
         if total_lessons == 0:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'error': 'No lessons found in course book'
                 })
@@ -240,6 +252,12 @@ def lambda_handler(event, context):
             
             return {
                 'statusCode': 202,  # Accepted
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'message': f'PPT batch orchestration started',
                     'execution_arn': execution_arn,
@@ -266,6 +284,12 @@ def lambda_handler(event, context):
         logger.error(f"❌ Error in PPT batch orchestrator: {str(e)}")
         return {
             'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                'Content-Type': 'application/json'
+            },
             'body': json.dumps({
                 'error': str(e)
             })

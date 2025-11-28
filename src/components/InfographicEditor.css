@@ -345,6 +345,32 @@
     gap: 0.5rem;
 }
 
+.nested-module {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(70, 130, 180, 0.05);
+    border-radius: 6px;
+    border-left: 3px solid #4682B4;
+}
+
+.nested-module .module-title {
+    font-weight: 600;
+    color: #003366;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+}
+
+.nested-module .nested-lesson {
+    margin-left: 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.nested-module .nested-lesson .bullet-number {
+    background: #FFC107;
+    color: #003366;
+    min-width: 35px;
+}
+
 .bullet-item {
     display: flex;
     align-items: center;
@@ -563,6 +589,91 @@
     border: none;
     border-radius: 6px;
     cursor: pointer;
+}
+
+/* Slides Loading Overlay */
+.slides-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.95);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.slides-loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 30px;
+}
+
+.slides-loading-spinner {
+    width: 60px;
+    height: 60px;
+    border: 6px solid #e0e0e0;
+    border-top: 6px solid #4682B4;
+    border-radius: 50%;
+    animation: slides-spin 1s linear infinite;
+}
+
+@keyframes slides-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.slides-loading-text {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.slides-loading-bar {
+    width: 300px;
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.slides-loading-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4682B4, #5a9fd4, #4682B4);
+    background-size: 200% 100%;
+    border-radius: 3px;
+    animation: slides-loading-progress 1.5s ease-in-out infinite;
+    box-shadow: 0 0 10px rgba(70, 130, 180, 0.5);
+}
+
+@keyframes slides-loading-progress {
+    0% {
+        width: 0%;
+        background-position: 0% 50%;
+    }
+
+    50% {
+        width: 70%;
+        background-position: 100% 50%;
+    }
+
+    100% {
+        width: 100%;
+        background-position: 0% 50%;
+    }
 }
 
 @media (max-width: 1200px) {

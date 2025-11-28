@@ -48,16 +48,30 @@ def lambda_handler(event, context):
                 infographic_data = check_for_infographic(s3_client, bucket_name, project_folder)
                 
                 if infographic_data:
-                    # Load project metadata for title
+                    # Load course title from outline.yaml (preferred) or fallback to metadata
+                    outline_data = load_outline_data(s3_client, bucket_name, project_folder)
                     metadata = load_project_metadata(s3_client, bucket_name, project_folder)
                     
                     # Extract creation date from folder name (YYMMDD-...)
                     creation_date = extract_date_from_folder(project_folder) or metadata.get('created', '')
                     
+                    # Get course title from outline, fallback to metadata, then folder name
+                    course_title = (
+                        outline_data.get('course', {}).get('title') or 
+                        metadata.get('title') or 
+                        (project_folder.split('-', 1)[1] if '-' in project_folder else project_folder)
+                    )
+                    
+                    # Get description from outline or metadata
+                    description = (
+                        outline_data.get('course', {}).get('description') or 
+                        metadata.get('description', '')
+                    )
+                    
                     infographics.append({
                         'folder': project_folder,
-                        'title': metadata.get('title', project_folder.split('-', 1)[1] if '-' in project_folder else project_folder),
-                        'description': metadata.get('description', ''),
+                        'title': course_title,
+                        'description': description,
                         'created': creation_date,
                         'html_url': infographic_data['html_url'],
                         'html_key': infographic_data['html_key'],
@@ -174,6 +188,37 @@ def extract_date_from_folder(folder_name):
         # Assume 20xx for year
         return f"20{year}-{month}-{day}"
     return None
+
+def load_outline_data(s3_client, bucket_name, project_folder):
+    """Load course outline from S3 if available."""
+    import yaml
+    try:
+        # List files in the outline folder
+        outline_prefix = f"{project_folder}/outline/"
+        response = s3_client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix=outline_prefix,
+            MaxKeys=10
+        )
+        
+        # Find the first .yaml file in the outline folder
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                key = obj['Key']
+                if key.endswith('.yaml') or key.endswith('.yml'):
+                    # Found a YAML file, load it
+                    file_response = s3_client.get_object(Bucket=bucket_name, Key=key)
+                    outline_content = file_response['Body'].read().decode('utf-8')
+                    outline_data = yaml.safe_load(outline_content)
+                    print(f"Loaded outline from: {key}")
+                    return outline_data
+        
+        # No outline file found
+        return {}
+    except Exception as e:
+        print(f"Error loading outline for {project_folder}: {e}")
+        # Outline doesn't exist, return empty dict
+        return {}
 
 def load_project_metadata(s3_client, bucket_name, project_folder):
     """Load project metadata from S3 if available."""

@@ -512,6 +512,27 @@ Resources:
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
+  StrandsNotification:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsNotification
+      Description: Sends email notifications upon workflow completion
+      Runtime: python3.12
+      Handler: strands_notification.lambda_handler
+      CodeUri: ./lambda/strands_notification/
+      Timeout: 60
+      MemorySize: 128
+      Architectures:
+        - arm64
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+
   # ======================================
   # SUPPORTING LAMBDAS
   # ======================================
@@ -865,6 +886,13 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
+        PresignOptions:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   StarterApiFunction:
     Type: AWS::Serverless::Function
@@ -920,7 +948,7 @@ Resources:
               Action:
                 - s3:PutObject
               Resource:
-                - arn:aws:s3:::crewai-course-artifacts/uploads/*
+                - arn:aws:s3:::crewai-course-artifacts/*
       Events:
         PresignApi:
           Type: Api
@@ -1191,6 +1219,7 @@ Resources:
               all_image_mappings.$: $.all_batches_results[*].image_mappings
               master_lab_plan_result.$: $.master_lab_plan_result
               model_provider.$: $.model_provider
+              user_email.$: $.user_email
             Next: InvokeBookBuilder
           
           InvokeBookBuilder:
@@ -1222,7 +1251,7 @@ Resources:
               - Variable: $.content_type
                 StringEquals: "both"
                 Next: ExpandLabsToBatchesBoth
-            Default: SuccessState
+            Default: NotifyCompletion
           
           ExpandLabsToBatchesBoth:
             Type: Task
@@ -1303,6 +1332,7 @@ Resources:
               all_lab_keys.$: $.all_lab_batches_results[*].lab_guide_keys[*]
               lesson_count.$: $.book_result.Payload.lesson_count
               book_result.$: $.book_result
+              user_email.$: $.user_email
             Next: InvokeLabGuideBuilder
           
           InvokeLabGuideBuilder:
@@ -1324,7 +1354,7 @@ Resources:
                 MaxAttempts: 2
                 BackoffRate: 2.0
             ResultPath: $.lab_guide_result
-            Next: SuccessState
+            Next: NotifyCompletion
           
           # ===== LABS ONLY BRANCH =====
           LabsOnlyBranch:
@@ -1440,7 +1470,8 @@ Resources:
               course_bucket.$: $.course_bucket
               project_folder.$: $.project_folder
               all_lab_keys.$: $.all_lab_batches_results[*].lab_guide_keys[*]
-            Next: SuccessState
+              user_email.$: $.user_email
+            Next: NotifyCompletion
           
           # ===== BOTH THEORY AND LABS BRANCH =====
           GenerateLabMasterPlan:
@@ -1489,6 +1520,7 @@ Resources:
               content_type.$: $.content_type
               master_lab_plan_result.$: $.master_lab_plan_result
               image_model.$: $.image_model
+              user_email.$: $.user_email
             Next: ExpandModulesToBatches
           
           # ===== FAIL STATES =====
@@ -1498,6 +1530,28 @@ Resources:
             Cause: "LabPlanner returned error"
             Error: "MasterLabPlanningFailed"
           
+          # ===== NOTIFICATION STATE =====
+          NotifyCompletion:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Send completion notification to user and admin"
+            Parameters:
+              FunctionName: !GetAtt StrandsNotification.Arn
+              Payload:
+                project_folder.$: $.project_folder
+                user_email.$: $.user_email
+                input.$: $
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.notification_result
+            Next: SuccessState
+
           # ===== SUCCESS STATE =====
           SuccessState:
             Type: Succeed
@@ -1518,6 +1572,7 @@ Resources:
                 - !GetAtt LabGuideBuilder.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
+                - !GetAtt StrandsNotification.Arn
 
   PptBatchOrchestratorStateMachine:
     Type: AWS::Serverless::StateMachine
