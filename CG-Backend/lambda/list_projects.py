@@ -48,7 +48,21 @@ def lambda_handler(event, context):
                 metadata = load_project_metadata(s3_client, bucket_name, project_folder)
 
                 # Check if this project has a book
-                has_book = check_for_book(s3_client, bucket_name, project_folder)
+                has_book, has_lab_guide = check_for_book(s3_client, bucket_name, project_folder)
+                
+                # Get course title with priority:
+                # 1. outline.yaml (most authoritative)
+                # 2. book structure
+                # 3. metadata.json
+                # 4. folder name
+                course_title = get_course_title_from_outline(s3_client, bucket_name, project_folder)
+                
+                if not course_title:
+                    course_title = get_course_title_from_book(s3_client, bucket_name, project_folder)
+                
+                # Finally, fall back to metadata or folder name
+                if not course_title or course_title == "Generated Course Book":
+                    course_title = metadata.get('title', project_folder.split('-', 1)[1] if '-' in project_folder else project_folder)
                 
                 # Determine creation date with priority:
                 # 1. Date from folder name (YYMMDD-...) - Most reliable for "creation"
@@ -58,10 +72,11 @@ def lambda_handler(event, context):
 
                 projects.append({
                     'folder': project_folder,
-                    'title': metadata.get('title', project_folder.split('-', 1)[1] if '-' in project_folder else project_folder),
+                    'title': course_title,
                     'description': metadata.get('description', ''),
                     'created': creation_date,
                     'hasBook': has_book,
+                    'hasLabGuide': has_lab_guide,
                     'lessonCount': metadata.get('lessonCount', 0),
                     'course_topic': metadata.get('course_topic', ''),
                     'model_provider': metadata.get('model_provider', 'bedrock')
@@ -165,15 +180,86 @@ def load_project_metadata(s3_client, bucket_name, project_folder):
             }
 
 def check_for_book(s3_client, bucket_name, project_folder):
-    """Check if the project has a completed book."""
+    """Check if the project has a completed book and/or lab guide."""
+    has_book = False
+    has_lab_guide = False
+    
     try:
-        # Check for book files
-        book_prefix = f"{project_folder}/book/"
+        # Check for theory book
+        book_key = f"{project_folder}/book/Generated_Course_Book_data.json"
+        try:
+            s3_client.head_object(Bucket=bucket_name, Key=book_key)
+            has_book = True
+        except:
+            pass
+        
+        # Check for lab guide
+        lab_key = f"{project_folder}/book/Generated_Lab_Guide_data.json"
+        try:
+            s3_client.head_object(Bucket=bucket_name, Key=lab_key)
+            has_lab_guide = True
+        except:
+            pass
+            
+        return has_book, has_lab_guide
+    except Exception:
+        return False, False
+
+def get_course_title_from_book(s3_client, bucket_name, project_folder):
+    """Extract course title from book structure JSON."""
+    try:
+        book_key = f"{project_folder}/book/Generated_Course_Book_data.json"
+        response = s3_client.get_object(Bucket=bucket_name, Key=book_key)
+        book_data = json.loads(response['Body'].read().decode('utf-8'))
+        
+        # Try course_metadata first (most reliable)
+        if 'course_metadata' in book_data and 'title' in book_data['course_metadata']:
+            return book_data['course_metadata']['title']
+        
+        # Fallback to metadata
+        if 'metadata' in book_data and 'title' in book_data['metadata']:
+            return book_data['metadata']['title']
+            
+        return None
+    except Exception as e:
+        print(f"Could not load course title from book for {project_folder}: {e}")
+        return None
+
+def get_course_title_from_outline(s3_client, bucket_name, project_folder):
+    """Extract course title from outline.yaml if available."""
+    try:
+        # List files in the outline folder
+        outline_prefix = f"{project_folder}/outline/"
         response = s3_client.list_objects_v2(
             Bucket=bucket_name,
-            Prefix=book_prefix,
-            MaxKeys=1
+            Prefix=outline_prefix,
+            MaxKeys=10
         )
-        return 'Contents' in response and len(response['Contents']) > 0
-    except Exception:
-        return False
+        
+        # Find the first .yaml file in the outline folder
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                key = obj['Key']
+                if key.endswith('.yaml') or key.endswith('.yml'):
+                    # Found a YAML file, load it as text and parse manually
+                    file_response = s3_client.get_object(Bucket=bucket_name, Key=key)
+                    outline_content = file_response['Body'].read().decode('utf-8')
+                    
+                    # Try PyYAML if available
+                    try:
+                        import yaml
+                        outline_data = yaml.safe_load(outline_content)
+                        if 'course' in outline_data and 'title' in outline_data['course']:
+                            return outline_data['course']['title']
+                    except ImportError:
+                        # PyYAML not available, parse manually with regex
+                        import re
+                        # Look for: course:\n  title: "Title Here"
+                        match = re.search(r'course:\s*\n\s*title:\s*["\']?([^"\'\n]+)["\']?', outline_content)
+                        if match:
+                            return match.group(1).strip()
+        
+        return None
+    except Exception as e:
+        print(f"Error loading outline for {project_folder}: {e}")
+        return None
