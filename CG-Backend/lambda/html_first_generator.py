@@ -279,7 +279,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
         for lesson in lessons:
             lesson_title = lesson.get('title', '')
             if lesson_title:
-                agenda_items.append(f"      ○ {lesson_title}")
+                agenda_items.append(f"      {lesson_title}")
     
     # Max bullets per slide: ~9 bullets (460px / 50px per bullet)
     MAX_BULLETS_PER_SLIDE = 9
@@ -808,7 +808,7 @@ def generate_complete_course(
             logger.info(f"\n⏭️  Skipping Lab Lesson {lesson_idx}: {lesson_title} (will be added from outline)")
             continue
         
-        # Insert module title slide when entering new module
+        # Insert module title slide when entering new module (only on first lesson)
         current_module_title = ""
         if current_module_number != last_module_number and 'outline_modules' in book_data:
             outline_modules = book_data.get('outline_modules', [])
@@ -821,8 +821,9 @@ def generate_complete_course(
                 slide_counter += 1
                 last_module_number = current_module_number
                 lesson_number_in_module = 0
-        elif 'outline_modules' in book_data:
-            # Get module title for lesson subtitle
+        
+        # Always get module title for lesson subtitle (without adding the slide again)
+        if 'outline_modules' in book_data:
             outline_modules = book_data.get('outline_modules', [])
             if current_module_number <= len(outline_modules):
                 module_info = outline_modules[current_module_number - 1]
@@ -864,13 +865,14 @@ def generate_complete_course(
             all_slides.append(slide)
             slide_counter += 1
         
+        # Add thank you slide after each lesson
+        thank_you_slide = create_thank_you_slide(is_spanish, slide_counter)
+        all_slides.append(thank_you_slide)
+        logger.info(f"🙏 Added Thank You slide after lesson {lesson_idx}")
+        slide_counter += 1
+        
         lessons_processed += 1
         logger.info(f"✅ Completed lesson {lesson_idx} - Total slides: {len(all_slides)}")
-    
-    # Add thank you slide
-    thank_you_slide = create_thank_you_slide(is_spanish, slide_counter)
-    all_slides.append(thank_you_slide)
-    logger.info(f"🙏 Added Thank You slide")
     
     completion_status = "complete" if lessons_processed == len(batch_lessons) else "partial"
     
@@ -1039,7 +1041,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
         
         .bullets li:before {{
-            content: '▶';
+            content: '▸';
             position: absolute;
             left: 0;
             color: {colors['accent']};
@@ -1153,6 +1155,37 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             right: 30px;
             font-size: 14pt;
             color: #999;
+        }}
+        
+        /* Small dark blue square blocks for regular content slides (top corners) */
+        .slide:not(.course-title):not(.module-title):not(.lesson-title)::before {{
+            content: "";
+            position: absolute;
+            top: 48px;
+            left: 0;
+            width: 50px;
+            height: 60px;
+            background: {colors['primary']};
+            z-index: 1;
+        }}
+        
+        .slide:not(.course-title):not(.module-title):not(.lesson-title)::after {{
+            content: "";
+            position: absolute;
+            top: 48px;
+            right: 0;
+            width: 50px;
+            height: 60px;
+            background: {colors['primary']};
+            z-index: 1;
+        }}
+
+        /* Logo in BOTTOM-right corner for regular content slides (not hidden by title) */
+        .slide:not(.course-title):not(.module-title):not(.lesson-title) {{
+            background-image: url('https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png');
+            background-repeat: no-repeat;
+            background-position: bottom 20px right 20px;
+            background-size: 180px 60px;
         }}
         ''')
 
