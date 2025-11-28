@@ -268,18 +268,24 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
     Automatically splits into multiple slides if content exceeds height limits.
     Returns list of slide dictionaries.
     """
-    # Build full agenda first
+    # Build full agenda with nested structure
     agenda_items = []
     for idx, module in enumerate(modules, 1):
         module_title = module.get('title', f"Módulo {idx}")
-        agenda_items.append(module_title)
         
-        # Add lessons under each module (indented)
+        # Get lessons for this module
         lessons = module.get('lessons', [])
+        lesson_titles = []
         for lesson in lessons:
             lesson_title = lesson.get('title', '')
             if lesson_title:
-                agenda_items.append(f"      ○ {lesson_title}")
+                lesson_titles.append(lesson_title)
+        
+        # Add as nested structure
+        agenda_items.append({
+            'text': module_title,
+            'lessons': lesson_titles
+        })
     
     # Max modules per slide (each module + lessons counts as ~2-3 bullets worth of space)
     MAX_MODULES_PER_SLIDE = 3
@@ -886,6 +892,19 @@ def generate_complete_course(
         lesson_title = lesson.get('title', f'Lesson {lesson_idx}')
         current_module_number = lesson.get('module_number', 1)
         
+        # Calculate actual lesson number within module by counting lessons in outline
+        actual_lesson_number_in_module = 0
+        if 'outline_modules' in book_data:
+            outline_modules = book_data.get('outline_modules', [])
+            if current_module_number <= len(outline_modules):
+                module_info = outline_modules[current_module_number - 1]
+                module_lessons = module_info.get('lessons', [])
+                # Find which lesson this is in the module
+                for idx, mod_lesson in enumerate(module_lessons, 1):
+                    if mod_lesson.get('title', '') == lesson_title:
+                        actual_lesson_number_in_module = idx
+                        break
+        
         # Skip lab lessons - THEORY ONLY (exclude all lab/practice activities)
         lesson_title_lower = lesson_title.lower().strip()
         
@@ -910,21 +929,22 @@ def generate_complete_course(
             logger.info(f"\n⏭️  Skipping Lab/Practice Lesson {lesson_idx}: {lesson_title} (theory content only)")
             continue
         
-        # Insert module title slide when entering new module
+        # Insert module title slide ONLY for the first lesson of each module
         current_module_title = ""
-        if current_module_number != last_module_number and 'outline_modules' in book_data:
+        if actual_lesson_number_in_module == 1 and 'outline_modules' in book_data:
             outline_modules = book_data.get('outline_modules', [])
             if current_module_number <= len(outline_modules):
                 module_info = outline_modules[current_module_number - 1]
                 current_module_title = module_info.get('title', '')
                 module_slide = create_module_title_slide(module_info, current_module_number, is_spanish, slide_counter)
                 all_slides.append(module_slide)
-                logger.info(f"📚 Added Module {current_module_number} title slide: {current_module_title}")
+                logger.info(f"📚 Added Module {current_module_number} title slide: {current_module_title} (first lesson of module)")
                 slide_counter += 1
                 last_module_number = current_module_number
                 lesson_number_in_module = 0
-        elif 'outline_modules' in book_data:
-            # Get module title for lesson subtitle
+        
+        # Always get module title for lesson subtitle (without adding the slide again)
+        if 'outline_modules' in book_data:
             outline_modules = book_data.get('outline_modules', [])
             if current_module_number <= len(outline_modules):
                 module_info = outline_modules[current_module_number - 1]
@@ -1004,13 +1024,14 @@ def generate_complete_course(
             all_slides.append(slide)
             slide_counter += 1
         
+        # Add thank you slide after each lesson
+        thank_you_slide = create_thank_you_slide(is_spanish, slide_counter)
+        all_slides.append(thank_you_slide)
+        logger.info(f"🙏 Added Thank You slide after lesson {lesson_idx}")
+        slide_counter += 1
+        
         lessons_processed += 1
         logger.info(f"✅ Completed lesson {lesson_idx} - Total slides: {len(all_slides)}")
-    
-    # Add thank you slide
-    thank_you_slide = create_thank_you_slide(is_spanish, slide_counter)
-    all_slides.append(thank_you_slide)
-    logger.info(f"🙏 Added Thank You slide")
     
     # Determine if this is the final batch for the entire course
     # A batch is "complete" only if it processed all lessons up to the end of the course
@@ -1199,8 +1220,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             /* Total height per bullet: 38px + 8px + 4px = 50px */
         }}
         
-        .bullets li:before {{
-            content: '▶';
+        .bullets > li:before {{
+            content: '▸';
             position: absolute;
             left: 0;
             color: {colors['accent']};
@@ -1210,23 +1231,24 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         /* Nested bullets for agenda (second level) */
         .bullets li ul {{
             list-style: none;
-            margin: 8px 0 8px 0;
-            padding-left: 20px;
+            margin: 8px 0 0 0;
+            padding-left: 30px;
         }}
         
         .bullets li ul li {{
             font-size: 18pt;
-            line-height: 1.3;
-            padding: 2px 0 2px 25px;
+            line-height: 1.4;
+            padding: 2px 0;
             margin-bottom: 2px;
+            position: relative;
         }}
         
         .bullets li ul li:before {{
             content: '○';
             position: absolute;
-            left: 20px;
+            left: -20px;
             color: {colors['primary']};
-            font-size: 14pt;
+            font-size: 12pt;
         }}
         
         /* Headings */
@@ -1645,6 +1667,26 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     html_parts.append('    <ul class="bullets">')
                     for item in block.get('items', []):
                         html_parts.append(f'      <li>{item}</li>')
+                    html_parts.append('    </ul>')
+                
+                elif block_type == 'nested-bullets':
+                    heading = block.get('heading', '')
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    html_parts.append('    <ul class="bullets">')
+                    for item in block.get('items', []):
+                        if isinstance(item, dict):
+                            # Module with nested lessons
+                            html_parts.append(f'      <li>{item.get("text", "")}')
+                            if item.get('lessons'):
+                                html_parts.append('        <ul>')
+                                for lesson in item['lessons']:
+                                    html_parts.append(f'          <li>{lesson}</li>')
+                                html_parts.append('        </ul>')
+                            html_parts.append('      </li>')
+                        else:
+                            # Fallback for simple strings
+                            html_parts.append(f'      <li>{item}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'image':

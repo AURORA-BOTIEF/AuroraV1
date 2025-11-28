@@ -599,10 +599,7 @@ function InfographicViewer() {
         }
     };
 
-    const downloadAsPDF = () => {
-        // Open print dialog which allows saving as PDF
-        window.print();
-    };
+
 
     // renderSlide and renderContentBlocks are no longer needed in the parent component
     // as the iframe will handle rendering all slides, including the grid view.
@@ -678,13 +675,7 @@ function InfographicViewer() {
                 </div>
 
                 <div className="viewer-actions">
-                    <button
-                        onClick={downloadAsPDF}
-                        className="btn-download"
-                        title="Descargar como PDF"
-                    >
-                        📄 PDF
-                    </button>
+
 
                     <button
                         onClick={toggleFullscreen}
