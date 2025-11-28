@@ -8,27 +8,32 @@ import './AdminPage.css';
 // ==========================
 const API_BASE = 
   'https://' +
-  'h6ysn7u0tl' +          // ID
-  '.execute-api' +        // Región fija
+  'h6ysn7u0tl' +
+  '.execute-api' +
   '.us-east-1' +
   '.amazonaws' +
   '.com' +
-  '/dev2';                // Stage
+  '/dev2';
 
 // ==========================
-const ADMIN_EMAIL = 'anette.flores@netec.com.mx';
+//  🔥 ADMINISTRADORES PRINCIPALES
+// ==========================
+const ADMIN_EMAILS = [
+  'anette.flores@netec.com.mx',
+  'mitzi.montiel@netec.com',
+  'america.vicente@netec.com.mx'
+];
 
 function AdminPage() {
   const { pathname } = useLocation();
   if (!pathname.startsWith('/admin')) return null;
 
-  // ====== ESTADO GENERAL ======
   const [email, setEmail] = useState('');
   const token = localStorage.getItem('id_token');
 
   const authHeader = useMemo(() => {
     if (!token) return {};
-    return { Authorization: token };   // <---- SIN BEARER
+    return { Authorization: token };
   }, [token]);
 
   // Extraer email del token
@@ -44,7 +49,8 @@ function AdminPage() {
     }
   }, [token]);
 
-  const puedeGestionar = email.toLowerCase() === ADMIN_EMAIL;
+  // 🔥 Ahora soporta 3 correos administradores
+  const puedeGestionar = ADMIN_EMAILS.includes(email.toLowerCase());
 
   // ====== TABS ======
   const [vista, setVista] = useState('solicitudes');
@@ -246,7 +252,7 @@ function AdminPage() {
 
       {!puedeGestionar && (
         <p className="solo-autorizado">
-          🚫 Solo la administradora autorizada puede aprobar/rechazar/revocar/eliminar.
+          🚫 Solo las administradoras autorizadas pueden aprobar/rechazar/revocar/eliminar.
         </p>
       )}
 
@@ -337,7 +343,9 @@ function AdminPage() {
                   {solicitudesFiltradas.map((s) => {
                     const estado = (s.estado || 'pendiente').toLowerCase();
                     const correo = s.correo;
-                    const protegido = correo === ADMIN_EMAIL;
+                    
+                    // 🔥 Ahora protege los 3 correos
+                    const protegido = ADMIN_EMAILS.includes(correo.toLowerCase());
 
                     return (
                       <tr key={correo}>
@@ -497,7 +505,3 @@ function AdminPage() {
 }
 
 export default AdminPage;
-
-
-
-
