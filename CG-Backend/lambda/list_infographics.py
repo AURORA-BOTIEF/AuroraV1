@@ -48,25 +48,33 @@ def lambda_handler(event, context):
                 infographic_data = check_for_infographic(s3_client, bucket_name, project_folder)
                 
                 if infographic_data:
-                    # Load course title from outline.yaml (preferred) or fallback to metadata
+                    # Extract creation date from folder name (YYMMDD-...)
+                    creation_date = extract_date_from_folder(project_folder)
+                    
+                    # Get course title from infographic structure (primary source)
+                    # If not available, try outline.yaml, then metadata, then folder name
+                    course_title = infographic_data.get('course_title', '')
+                    description = infographic_data.get('course_description', '')
+                    
+                    # Always load metadata for course_topic and model_provider
                     outline_data = load_outline_data(s3_client, bucket_name, project_folder)
                     metadata = load_project_metadata(s3_client, bucket_name, project_folder)
                     
-                    # Extract creation date from folder name (YYMMDD-...)
-                    creation_date = extract_date_from_folder(project_folder) or metadata.get('created', '')
+                    if not course_title:
+                        course_title = (
+                            outline_data.get('course', {}).get('title') or 
+                            metadata.get('title') or 
+                            (project_folder.split('-', 1)[1] if '-' in project_folder else project_folder)
+                        )
                     
-                    # Get course title from outline, fallback to metadata, then folder name
-                    course_title = (
-                        outline_data.get('course', {}).get('title') or 
-                        metadata.get('title') or 
-                        (project_folder.split('-', 1)[1] if '-' in project_folder else project_folder)
-                    )
+                    if not description:
+                        description = (
+                            outline_data.get('course', {}).get('description') or 
+                            metadata.get('description', '')
+                        )
                     
-                    # Get description from outline or metadata
-                    description = (
-                        outline_data.get('course', {}).get('description') or 
-                        metadata.get('description', '')
-                    )
+                    if not creation_date:
+                        creation_date = metadata.get('created', '')
                     
                     infographics.append({
                         'folder': project_folder,
@@ -149,12 +157,19 @@ def check_for_infographic(s3_client, bucket_name, project_folder):
         if not html_exists:
             return None
         
-        # Try to get structure metadata
+        # Try to get structure metadata including course title
         total_slides = 0
+        course_title = ''
+        course_description = ''
         try:
             structure_response = s3_client.get_object(Bucket=bucket_name, Key=structure_key)
             structure_data = json.loads(structure_response['Body'].read().decode('utf-8'))
             total_slides = structure_data.get('total_slides', len(structure_data.get('slides', [])))
+            course_title = structure_data.get('course_title', '')
+            
+            # Get description from course_metadata if available
+            course_metadata = structure_data.get('course_metadata', {})
+            course_description = course_metadata.get('description', '')
         except:
             # Structure file doesn't exist, that's okay
             pass
@@ -171,7 +186,9 @@ def check_for_infographic(s3_client, bucket_name, project_folder):
             'html_key': html_key,
             'structure_key': structure_key,
             'total_slides': total_slides,
-            'last_modified': last_modified
+            'last_modified': last_modified,
+            'course_title': course_title,
+            'course_description': course_description
         }
         
     except Exception as e:
