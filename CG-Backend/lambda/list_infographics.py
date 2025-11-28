@@ -191,7 +191,13 @@ def extract_date_from_folder(folder_name):
 
 def load_outline_data(s3_client, bucket_name, project_folder):
     """Load course outline from S3 if available."""
-    import yaml
+    try:
+        # Try to import yaml - it might not be available in all Lambda environments
+        import yaml
+    except ImportError:
+        print(f"PyYAML not available - skipping outline loading for {project_folder}")
+        return {}
+    
     try:
         # List files in the outline folder
         outline_prefix = f"{project_folder}/outline/"
