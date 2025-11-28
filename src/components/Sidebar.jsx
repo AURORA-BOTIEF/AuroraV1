@@ -154,7 +154,13 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   // Roles
   const esAdmin = (grupo === 'admin');
   const esCreador = (grupo === 'creador');
-  const esAdminPrincipal = email.toLowerCase() === 'anette.flores@netec.com.mx, mitzi.montiel@netec.com, america.vicente@netec.com.mx';
+  const correosAdminPrincipales = [
+  'anette.flores@netec.com.mx',
+  'mitzi.montiel@netec.com',
+  'america.vicente@netec.com.mx'
+];
+
+const esAdminPrincipal = correosAdminPrincipales.includes(email.toLowerCase());
 
   // ⭐ NUEVO: botón visible si:
   // - es Netec (siempre)
