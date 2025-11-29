@@ -236,7 +236,15 @@ const Layout = ({ children, email, role }) => {
       </main>
 
       {!isFullScreenMode && (
-        <button id="logout" onClick={async () => { await signOut(); window.location.reload(); }}>
+        <button id="logout" onClick={async () => {
+          try {
+            await signOut({ global: true });
+          } catch (err) {
+            console.error('Logout error:', err);
+            localStorage.clear();
+            window.location.href = '/';
+          }
+        }}>
           Cerrar sesión
         </button>
       )}
