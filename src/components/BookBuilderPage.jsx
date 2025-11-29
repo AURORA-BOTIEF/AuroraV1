@@ -140,7 +140,7 @@ function BookBuilderPage() {
                                     <div className="project-stats">
                                         <span>{project.lessonCount} lecciones</span>
                                         {project.created && (
-                                            <span>Creado: {new Date(project.created).toLocaleDateString('es-ES')}</span>
+                                            <span>Creado: {project.created.split('-').reverse().join('/')}</span>
                                         )}
                                     </div>
                                 </div>
