@@ -1,0 +1,214 @@
+{
+    "events": [
+        {
+            "timestamp": "2025-10-26T20:34:50.316000-05:00",
+            "type": "ExecutionStarted",
+            "id": 1,
+            "previousEventId": 0,
+            "executionStartedEventDetails": {
+                "input": "{\"course_topic\": \"Custom Course\", \"course_duration_hours\": 40, \"modules_to_generate\": [1], \"total_modules\": 1, \"lesson_to_generate\": null, \"performance_mode\": \"balanced\", \"model_provider\": \"bedrock\", \"user_id\": \"unknown-user\", \"user_email\": \"unknown@example.com\", \"request_timestamp\": \"2025-10-27T01:34:50.113868\", \"content_source\": \"s3\", \"outline_s3_key\": \"uploads/1761528886699-mini_cisco.yaml\", \"course_bucket\": \"crewai-course-artifacts\", \"project_folder\": \"20251027-mini-cisco\", \"allow_openai_fallback\": true, \"content_type\": \"both\", \"lab_requirements\": \"\"}",
+                "inputDetails": {
+                    "truncated": false
+                },
+                "roleArn": "arn:aws:iam::746434296869:role/crewai-course-generator-s-CourseGeneratorStateMachi-VPkwqyVTg6Gy"
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:34:50.353000-05:00",
+            "type": "ChoiceStateEntered",
+            "id": 2,
+            "previousEventId": 0,
+            "stateEnteredEventDetails": {
+                "name": "DetermineContentType",
+                "input": "{\"course_topic\": \"Custom Course\", \"course_duration_hours\": 40, \"modules_to_generate\": [1], \"total_modules\": 1, \"lesson_to_generate\": null, \"performance_mode\": \"balanced\", \"model_provider\": \"bedrock\", \"user_id\": \"unknown-user\", \"user_email\": \"unknown@example.com\", \"request_timestamp\": \"2025-10-27T01:34:50.113868\", \"content_source\": \"s3\", \"outline_s3_key\": \"uploads/1761528886699-mini_cisco.yaml\", \"course_bucket\": \"crewai-course-artifacts\", \"project_folder\": \"20251027-mini-cisco\", \"allow_openai_fallback\": true, \"content_type\": \"both\", \"lab_requirements\": \"\"}",
+                "inputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:34:50.353000-05:00",
+            "type": "ChoiceStateExited",
+            "id": 3,
+            "previousEventId": 2,
+            "stateExitedEventDetails": {
+                "name": "DetermineContentType",
+                "output": "{\"course_topic\": \"Custom Course\", \"course_duration_hours\": 40, \"modules_to_generate\": [1], \"total_modules\": 1, \"lesson_to_generate\": null, \"performance_mode\": \"balanced\", \"model_provider\": \"bedrock\", \"user_id\": \"unknown-user\", \"user_email\": \"unknown@example.com\", \"request_timestamp\": \"2025-10-27T01:34:50.113868\", \"content_source\": \"s3\", \"outline_s3_key\": \"uploads/1761528886699-mini_cisco.yaml\", \"course_bucket\": \"crewai-course-artifacts\", \"project_folder\": \"20251027-mini-cisco\", \"allow_openai_fallback\": true, \"content_type\": \"both\", \"lab_requirements\": \"\"}",
+                "outputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:34:50.353000-05:00",
+            "type": "TaskStateEntered",
+            "id": 4,
+            "previousEventId": 3,
+            "stateEnteredEventDetails": {
+                "name": "GenerateLabMasterPlan",
+                "input": "{\"course_topic\": \"Custom Course\", \"course_duration_hours\": 40, \"modules_to_generate\": [1], \"total_modules\": 1, \"lesson_to_generate\": null, \"performance_mode\": \"balanced\", \"model_provider\": \"bedrock\", \"user_id\": \"unknown-user\", \"user_email\": \"unknown@example.com\", \"request_timestamp\": \"2025-10-27T01:34:50.113868\", \"content_source\": \"s3\", \"outline_s3_key\": \"uploads/1761528886699-mini_cisco.yaml\", \"course_bucket\": \"crewai-course-artifacts\", \"project_folder\": \"20251027-mini-cisco\", \"allow_openai_fallback\": true, \"content_type\": \"both\", \"lab_requirements\": \"\"}",
+                "inputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:34:50.353000-05:00",
+            "type": "TaskScheduled",
+            "id": 5,
+            "previousEventId": 4,
+            "taskScheduledEventDetails": {
+                "resourceType": "lambda",
+                "resource": "invoke",
+                "region": "us-east-1",
+                "parameters": "{\"FunctionName\":\"arn:aws:lambda:us-east-1:746434296869:function:StrandsLabPlanner\",\"Payload\":{\"modules_to_generate\":[1],\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"lab_requirements\":\"\",\"course_bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\",\"project_folder\":\"20251027-mini-cisco\"}}"
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:34:50.414000-05:00",
+            "type": "TaskStarted",
+            "id": 6,
+            "previousEventId": 5,
+            "taskStartedEventDetails": {
+                "resourceType": "lambda",
+                "resource": "invoke"
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.419000-05:00",
+            "type": "TaskSucceeded",
+            "id": 7,
+            "previousEventId": 6,
+            "taskSucceededEventDetails": {
+                "resourceType": "lambda",
+                "resource": "invoke",
+                "output": "{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200}",
+                "outputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "TaskStateExited",
+            "id": 8,
+            "previousEventId": 7,
+            "stateExitedEventDetails": {
+                "name": "GenerateLabMasterPlan",
+                "output": "{\"course_topic\":\"Custom Course\",\"course_duration_hours\":40,\"modules_to_generate\":[1],\"total_modules\":1,\"lesson_to_generate\":null,\"performance_mode\":\"balanced\",\"model_provider\":\"bedrock\",\"user_id\":\"unknown-user\",\"user_email\":\"unknown@example.com\",\"request_timestamp\":\"2025-10-27T01:34:50.113868\",\"content_source\":\"s3\",\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"course_bucket\":\"crewai-course-artifacts\",\"project_folder\":\"20251027-mini-cisco\",\"allow_openai_fallback\":true,\"content_type\":\"both\",\"lab_requirements\":\"\",\"master_lab_plan_result\":{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200}}",
+                "outputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "ChoiceStateEntered",
+            "id": 9,
+            "previousEventId": 8,
+            "stateEnteredEventDetails": {
+                "name": "CheckMasterLabPlanResult",
+                "input": "{\"course_topic\":\"Custom Course\",\"course_duration_hours\":40,\"modules_to_generate\":[1],\"total_modules\":1,\"lesson_to_generate\":null,\"performance_mode\":\"balanced\",\"model_provider\":\"bedrock\",\"user_id\":\"unknown-user\",\"user_email\":\"unknown@example.com\",\"request_timestamp\":\"2025-10-27T01:34:50.113868\",\"content_source\":\"s3\",\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"course_bucket\":\"crewai-course-artifacts\",\"project_folder\":\"20251027-mini-cisco\",\"allow_openai_fallback\":true,\"content_type\":\"both\",\"lab_requirements\":\"\",\"master_lab_plan_result\":{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200}}",
+                "inputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "ChoiceStateExited",
+            "id": 10,
+            "previousEventId": 9,
+            "stateExitedEventDetails": {
+                "name": "CheckMasterLabPlanResult",
+                "output": "{\"course_topic\":\"Custom Course\",\"course_duration_hours\":40,\"modules_to_generate\":[1],\"total_modules\":1,\"lesson_to_generate\":null,\"performance_mode\":\"balanced\",\"model_provider\":\"bedrock\",\"user_id\":\"unknown-user\",\"user_email\":\"unknown@example.com\",\"request_timestamp\":\"2025-10-27T01:34:50.113868\",\"content_source\":\"s3\",\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"course_bucket\":\"crewai-course-artifacts\",\"project_folder\":\"20251027-mini-cisco\",\"allow_openai_fallback\":true,\"content_type\":\"both\",\"lab_requirements\":\"\",\"master_lab_plan_result\":{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200}}",
+                "outputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "PassStateEntered",
+            "id": 11,
+            "previousEventId": 10,
+            "stateEnteredEventDetails": {
+                "name": "BothTheoryAndLabsBranch",
+                "input": "{\"course_topic\":\"Custom Course\",\"course_duration_hours\":40,\"modules_to_generate\":[1],\"total_modules\":1,\"lesson_to_generate\":null,\"performance_mode\":\"balanced\",\"model_provider\":\"bedrock\",\"user_id\":\"unknown-user\",\"user_email\":\"unknown@example.com\",\"request_timestamp\":\"2025-10-27T01:34:50.113868\",\"content_source\":\"s3\",\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"course_bucket\":\"crewai-course-artifacts\",\"project_folder\":\"20251027-mini-cisco\",\"allow_openai_fallback\":true,\"content_type\":\"both\",\"lab_requirements\":\"\",\"master_lab_plan_result\":{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200}}",
+                "inputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "PassStateExited",
+            "id": 12,
+            "previousEventId": 11,
+            "stateExitedEventDetails": {
+                "name": "BothTheoryAndLabsBranch",
+                "output": "{\"modules_to_generate\":[1],\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"master_lab_plan_result\":{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200},\"content_type\":\"both\",\"content_source\":\"s3\",\"course_bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\",\"project_folder\":\"20251027-mini-cisco\"}",
+                "outputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "TaskStateEntered",
+            "id": 13,
+            "previousEventId": 12,
+            "stateEnteredEventDetails": {
+                "name": "ExpandModulesToBatches",
+                "input": "{\"modules_to_generate\":[1],\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"master_lab_plan_result\":{\"ExecutedVersion\":\"$LATEST\",\"Payload\":{\"statusCode\":200,\"master_plan_key\":\"20251027-mini-cisco/labguide/lab-master-plan.json\",\"total_labs\":1,\"total_duration_minutes\":20,\"project_folder\":\"20251027-mini-cisco\",\"bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\"},\"SdkHttpMetadata\":{\"AllHttpHeaders\":{\"X-Amz-Executed-Version\":[\"$LATEST\"],\"x-amzn-Remapped-Content-Length\":[\"0\"],\"Connection\":[\"keep-alive\"],\"x-amzn-RequestId\":[\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"],\"Content-Length\":[\"245\"],\"Date\":[\"Mon, 27 Oct 2025 01:35:30 GMT\"],\"X-Amzn-Trace-Id\":[\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"],\"Content-Type\":[\"application/json\"]},\"HttpHeaders\":{\"Connection\":\"keep-alive\",\"Content-Length\":\"245\",\"Content-Type\":\"application/json\",\"Date\":\"Mon, 27 Oct 2025 01:35:30 GMT\",\"X-Amz-Executed-Version\":\"$LATEST\",\"x-amzn-Remapped-Content-Length\":\"0\",\"x-amzn-RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\",\"X-Amzn-Trace-Id\":\"Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=7d66494d2f9c8616;Sampled=0;Lineage=2:db33087a:0\"},\"HttpStatusCode\":200},\"SdkResponseMetadata\":{\"RequestId\":\"6f892db8-d7ae-4014-b94d-126f6e0be5be\"},\"StatusCode\":200},\"content_type\":\"both\",\"content_source\":\"s3\",\"course_bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\",\"project_folder\":\"20251027-mini-cisco\"}",
+                "inputDetails": {
+                    "truncated": false
+                }
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.442000-05:00",
+            "type": "TaskScheduled",
+            "id": 14,
+            "previousEventId": 13,
+            "taskScheduledEventDetails": {
+                "resourceType": "lambda",
+                "resource": "invoke",
+                "region": "us-east-1",
+                "parameters": "{\"FunctionName\":\"arn:aws:lambda:us-east-1:746434296869:function:BatchExpander\",\"Payload\":{\"modules_to_generate\":[1],\"outline_s3_key\":\"uploads/1761528886699-mini_cisco.yaml\",\"content_source\":\"s3\",\"course_bucket\":\"crewai-course-artifacts\",\"model_provider\":\"bedrock\",\"project_folder\":\"20251027-mini-cisco\"}}"
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:30.513000-05:00",
+            "type": "TaskStarted",
+            "id": 15,
+            "previousEventId": 14,
+            "taskStartedEventDetails": {
+                "resourceType": "lambda",
+                "resource": "invoke"
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:31.177000-05:00",
+            "type": "TaskFailed",
+            "id": 16,
+            "previousEventId": 15,
+            "taskFailedEventDetails": {
+                "resourceType": "lambda",
+                "resource": "invoke",
+                "error": "Runtime.ImportModuleError",
+                "cause": "{\"errorMessage\":\"Unable to import module 'batch_expander': No module named 'yaml'\",\"errorType\":\"Runtime.ImportModuleError\",\"requestId\":\"\",\"stackTrace\":[]}"
+            }
+        },
+        {
+            "timestamp": "2025-10-26T20:35:31.225000-05:00",
+            "type": "ExecutionFailed",
+            "id": 17,
+            "previousEventId": 16,
+            "executionFailedEventDetails": {
+                "error": "Runtime.ImportModuleError",
+                "cause": "{\"errorMessage\":\"Unable to import module 'batch_expander': No module named 'yaml'\",\"errorType\":\"Runtime.ImportModuleError\",\"requestId\":\"\",\"stackTrace\":[]}"
+            }
+        }
+    ]
+}
