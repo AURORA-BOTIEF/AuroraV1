@@ -216,6 +216,19 @@ def lambda_handler(event, context):
                 user_email = f"cognito-user-{user_id}@example.com"
                 print(f"User identified via Cognito Identity: {user_email} ({user_id})")
         
+        # Method 6: Check body for user_email (explicitly passed from frontend)
+        # Parse request body first to check for email
+        if isinstance(event.get('body'), str):
+            body_for_email = json.loads(event['body'])
+        else:
+            body_for_email = event.get('body', {})
+            
+        if body_for_email.get('user_email'):
+            user_email = body_for_email.get('user_email')
+            print(f"User identified via request body: {user_email}")
+            if not user_id:
+                user_id = user_email.split('@')[0] # Fallback ID
+
         # Fallback to unknown-user if nothing worked
         if not user_id:
             user_id = 'unknown-user'

@@ -991,6 +991,18 @@ Resources:
     Type: AWS::Serverless::StateMachine
     Properties:
       Name: CourseGeneratorStateMachine
+      DefinitionUri: current_state_machine.json
+      DefinitionSubstitutions:
+        BatchExpanderArn: !GetAtt BatchExpander.Arn
+        LabBatchExpanderArn: !GetAtt LabBatchExpander.Arn
+        StrandsContentGenArn: !GetAtt StrandsContentGen.Arn
+        StrandsVisualPlannerArn: !GetAtt StrandsVisualPlanner.Arn
+        ImagesGenArn: !GetAtt ImagesGen.Arn
+        BookBuilderArn: !GetAtt BookBuilder.Arn
+        LabGuideBuilderArn: !GetAtt LabGuideBuilder.Arn
+        StrandsLabPlannerArn: !GetAtt StrandsLabPlanner.Arn
+        StrandsLabWriterArn: !GetAtt StrandsLabWriter.Arn
+        StrandsNotificationArn: !GetAtt StrandsNotification.Arn
       Type: STANDARD
       Policies:
         - Version: '2012-10-17'
@@ -1030,6 +1042,7 @@ Resources:
                 - !GetAtt StrandsInfographicGenerator.Arn
                 - !GetAtt StrandsPptMerger.Arn
                 - !GetAtt StrandsVisualOptimizer.Arn
+                - !GetAtt StrandsNotification.Arn
 
 Outputs:
   # Strands Agents Lambdas - Theory Generation

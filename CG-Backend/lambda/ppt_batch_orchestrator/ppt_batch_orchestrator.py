@@ -145,6 +145,7 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         model_provider = body.get('model_provider', 'bedrock')
         html_first = body.get('html_first', True)
+        user_email = body.get('user_email')  # Optional: for end-user notifications
         
         # HTML-first architecture: Skip PPT merging and conversion (HTML is final output)
         # Legacy architecture: Merge batches and convert to PPT
@@ -234,6 +235,11 @@ def lambda_handler(event, context):
             'total_lessons': total_lessons,
             'max_concurrent_batches': MAX_CONCURRENT_BATCHES
         }
+        
+        # Add user_email if provided (for notifications)
+        if user_email:
+            state_machine_input['user_email'] = user_email
+            logger.info(f"📧 User email for notifications: {user_email}")
         
         # Start Step Functions execution
         execution_name = f"ppt-orchestration-{project_folder}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"

@@ -2472,6 +2472,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             console.log('🎯 Generating PPT from version:', bookVersionKey || 'auto-discover latest');
 
+            // Get user email from session for notifications
+            let userEmail = null;
+            try {
+                const session = await fetchAuthSession();
+                userEmail = session?.tokens?.idToken?.payload?.email || null;
+                if (userEmail) {
+                    console.log('📧 User email for notifications:', userEmail);
+                }
+            } catch (error) {
+                console.warn('Could not extract user email:', error);
+            }
+
             const requestBody = {
                 course_bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
                 project_folder: projectFolder,
@@ -2480,7 +2492,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 model_provider: pptModelProvider,
                 slides_per_lesson: 999, // High number to ensure all content is included
                 use_all_content: true, // Flag to generate slides for ALL content
-                presentation_style: pptStyle
+                presentation_style: pptStyle,
+                user_email: userEmail // For end-user notifications
             };
 
             console.log('📤 Request:', requestBody);
