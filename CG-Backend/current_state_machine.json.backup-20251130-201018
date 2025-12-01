@@ -490,9 +490,8 @@
       "Type": "Pass"
     },
     "ProcessBatchesInParallel": {
-      "Comment": "Process batches sequentially to avoid Bedrock throttling (reduced from 2 to 1)",
+      "Comment": "Process 2 batches concurrently using Step Functions MaxConcurrency",
       "ItemsPath": "$.batch_expansion.Payload.batches",
-      "MaxConcurrency": 1,
       "Iterator": {
         "StartAt": "GenerateBatchContent",
         "States": {
@@ -539,44 +538,21 @@
           "CheckForVisualTags": {
             "Choices": [
               {
-                "Comment": "Success with visual tags found",
                 "And": [
                   {
-                    "Variable": "$.visual_result.Payload.statusCode",
-                    "NumericEquals": 200
+                    "IsPresent": true,
+                    "Variable": "$.visual_result.Payload"
                   },
                   {
-                    "Variable": "$.visual_result.Payload.prompts_s3_prefix",
-                    "IsPresent": true
+                    "IsPresent": true,
+                    "Variable": "$.visual_result.Payload.prompts_s3_prefix"
                   }
                 ],
                 "Next": "InitializeImageGeneration"
-              },
-              {
-                "Comment": "Success but no visual tags (legitimate skip)",
-                "And": [
-                  {
-                    "Variable": "$.visual_result.Payload.statusCode",
-                    "NumericEquals": 200
-                  },
-                  {
-                    "Or": [
-                      {
-                        "Variable": "$.visual_result.Payload.prompts_s3_prefix",
-                        "IsPresent": false
-                      },
-                      {
-                        "Variable": "$.visual_result.Payload.prompts",
-                        "IsPresent": true
-                      }
-                    ]
-                  }
-                ],
-                "Next": "SkipImageGeneration"
               }
             ],
-            "Comment": "Check if visual planner succeeded and found visual tags",
-            "Default": "VisualPlannerFailed",
+            "Comment": "Check if any visual tags were found in this batch",
+            "Default": "SkipImageGeneration",
             "Type": "Choice"
           },
           "CheckRemainingImages": {
@@ -653,8 +629,7 @@
                 "course_bucket.$": "$.batch_task.course_bucket",
                 "project_folder.$": "$.batch_task.project_folder",
                 "prompts.$": "$.remaining_prompts",
-                "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix",
-                "image_model.$": "$.batch_task.image_model"
+                "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix"
               }
             },
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -712,24 +687,6 @@
                 ],
                 "IntervalSeconds": 5,
                 "MaxAttempts": 2
-              },
-              {
-                "Comment": "Retry on Bedrock throttling with longer backoff",
-                "ErrorEquals": [
-                  "States.TaskFailed"
-                ],
-                "IntervalSeconds": 30,
-                "MaxAttempts": 3,
-                "BackoffRate": 2.0
-              }
-            ],
-            "Catch": [
-              {
-                "ErrorEquals": [
-                  "States.ALL"
-                ],
-                "ResultPath": "$.error",
-                "Next": "VisualPlannerFailed"
               }
             ],
             "Type": "Task"
@@ -766,14 +723,10 @@
             },
             "ResultPath": "$",
             "Type": "Pass"
-          },
-          "VisualPlannerFailed": {
-            "Type": "Fail",
-            "Error": "VisualPlannerError",
-            "Cause": "Visual planner failed to process lessons. Check $.visual_result.Payload.error for details (likely Bedrock API throttling or other service error)"
           }
         }
       },
+      "MaxConcurrency": 2,
       "Next": "CombineResultsAndBuildBook",
       "Parameters": {
         "batch_task.$": "$$.Map.Item.Value"

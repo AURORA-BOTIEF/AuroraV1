@@ -288,8 +288,8 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
-        # Lab generation parameters
-        content_type = body.get('content_type', 'theory')  # 'theory', 'labs', or 'both'
+        # Lab generation parameters - default to 'both' (theory + labs)
+        content_type = body.get('content_type', 'both')  # 'theory', 'labs', or 'both'
         lab_requirements = body.get('lab_requirements', '')  # Optional additional requirements for labs (default to empty string)
 
         # Get environment variables

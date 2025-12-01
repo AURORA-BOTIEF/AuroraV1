@@ -490,9 +490,8 @@
       "Type": "Pass"
     },
     "ProcessBatchesInParallel": {
-      "Comment": "Process batches sequentially to avoid Bedrock throttling (reduced from 2 to 1)",
+      "Comment": "Process 2 batches concurrently using Step Functions MaxConcurrency",
       "ItemsPath": "$.batch_expansion.Payload.batches",
-      "MaxConcurrency": 1,
       "Iterator": {
         "StartAt": "GenerateBatchContent",
         "States": {
@@ -653,8 +652,7 @@
                 "course_bucket.$": "$.batch_task.course_bucket",
                 "project_folder.$": "$.batch_task.project_folder",
                 "prompts.$": "$.remaining_prompts",
-                "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix",
-                "image_model.$": "$.batch_task.image_model"
+                "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix"
               }
             },
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -712,24 +710,6 @@
                 ],
                 "IntervalSeconds": 5,
                 "MaxAttempts": 2
-              },
-              {
-                "Comment": "Retry on Bedrock throttling with longer backoff",
-                "ErrorEquals": [
-                  "States.TaskFailed"
-                ],
-                "IntervalSeconds": 30,
-                "MaxAttempts": 3,
-                "BackoffRate": 2.0
-              }
-            ],
-            "Catch": [
-              {
-                "ErrorEquals": [
-                  "States.ALL"
-                ],
-                "ResultPath": "$.error",
-                "Next": "VisualPlannerFailed"
               }
             ],
             "Type": "Task"
@@ -774,6 +754,7 @@
           }
         }
       },
+      "MaxConcurrency": 2,
       "Next": "CombineResultsAndBuildBook",
       "Parameters": {
         "batch_task.$": "$$.Map.Item.Value"

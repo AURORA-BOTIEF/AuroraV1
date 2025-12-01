@@ -52,7 +52,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Changed from Sonnet to Haiku for performance
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
 
@@ -336,18 +336,31 @@ def lambda_handler(event: Dict[str, Any], context):
         generated_prompts = []
         request_id = context.aws_request_id if hasattr(context, 'aws_request_id') else 'unknown'
         
-        # Create a lookup for original visuals (with IDs)
-        original_visuals = {v.get('id', f"{v['lesson_id']}-{i+1:04d}"): v for i, v in enumerate(all_visuals)}
+        # Create lookup by lesson_id + description to match enhanced visuals back to originals
+        original_lookup = {}
+        for orig in all_visuals:
+            key = f"{orig['lesson_id']}::{orig['description']}"
+            original_lookup[key] = orig
         
-        for idx, visual in enumerate(enhanced_visuals, start=1):
-            # Use the ID from the visual tag if available
-            prompt_id = visual.get('id', f"{visual.get('lesson_id', '00-00')}-{idx:04d}")
-            original_visual = original_visuals.get(prompt_id, visual)
+        print(f"📝 Matching enhanced visuals back to originals with IDs...")
+        
+        for idx, enhanced in enumerate(enhanced_visuals, start=1):
+            # Match back to original using lesson_id + description
+            lookup_key = f"{enhanced.get('lesson_id', '')}::{enhanced.get('description', '')}"
+            original_visual = original_lookup.get(lookup_key)
             
-            # IMPORTANT: Use original description from lesson, not LLM's rewritten version
-            description = original_visual.get('description', visual.get('description', ''))
-            visual_type = visual.get('type', 'diagram')
-            enhanced_prompt = visual.get('enhanced_prompt', description)
+            if original_visual:
+                # Use the ID from the original visual tag (MM-LL-XXXX from Content Generator)
+                prompt_id = original_visual['id']
+                print(f"  ✓ Matched: {prompt_id}")
+            else:
+                # Fallback (shouldn't happen if LLM preserves descriptions)
+                print(f"  ⚠️  No match found for: {lookup_key[:50]}... using fallback")
+                prompt_id = f"{enhanced.get('lesson_id', '00-00')}-{idx:04d}"
+            
+            description = original_visual.get('description', enhanced.get('description', '')) if original_visual else enhanced.get('description', '')
+            visual_type = enhanced.get('type', 'diagram')
+            enhanced_prompt = enhanced.get('enhanced_prompt', description)
             
             filename = create_unique_filename(description, prefix=prompt_id)
             
