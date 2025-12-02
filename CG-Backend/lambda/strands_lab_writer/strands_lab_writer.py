@@ -632,27 +632,26 @@ def lambda_handler(event, context):
             'target_language': target_language  # NEW: Pass language to prompt
         }
         
-        # Step 2: Generate lab guides in BATCHES (1 lab per API call for reliability)
-        BATCH_SIZE = 1
+        # Step 2: Generate lab guides ONE AT A TIME for reliability
+        # Both GPT-5 and Bedrock handle single-lab requests reliably
+        # GPT-5 sometimes skips labs in multi-lab requests
         labs_markdown = {}
         
-        for i in range(0, len(lab_plans), BATCH_SIZE):
-            batch = lab_plans[i:i+BATCH_SIZE]
-            batch_num = (i // BATCH_SIZE) + 1
-            total_batches = (len(lab_plans) + BATCH_SIZE - 1) // BATCH_SIZE
-            
-            print(f"\n📦 Batch {batch_num}/{total_batches}: Generating {len(batch)} labs...")
+        for idx, lab_plan in enumerate(lab_plans, start=1):
+            lab_id = lab_plan['lab_id']
+            print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
             
             try:
+                # Generate ONE lab at a time (pass as single-item list)
                 batch_results = generate_all_labs_batch(
-                    lab_plans=batch,
+                    lab_plans=[lab_plan],  # Always single lab for reliability
                     master_context=master_context,
                     model_provider=model_provider
                 )
                 labs_markdown.update(batch_results)
             except Exception as e:
-                print(f"❌ Batch {batch_num} generation failed: {e}")
-                # Continue with next batch instead of failing completely
+                print(f"❌ Lab {lab_id} generation failed: {e}")
+                # Continue with next lab instead of failing completely
                 continue
         
         # Step 3: Save each lab guide to S3

@@ -226,7 +226,16 @@ REQUIREMENTS:
 6. Meet the target word count for each lesson
 8. Maintain technical accuracy and professional tone
 9. Include practical examples where appropriate
-10. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-XXXX - description]
+10. **TABLES**: For tabular data (comparisons, specifications, feature lists, etc.), use **Markdown table syntax** directly in the content.
+   - DO NOT create visual tags for tables
+   - Use proper Markdown table formatting with headers and alignment
+   - Example:
+     | Feature | Description | Benefit |
+     |---------|-------------|---------|
+     | Feature 1 | Details | Advantage |
+     | Feature 2 | Details | Advantage |
+   - Tables are rendered natively and are more accessible than images
+11. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-XXXX - description]
    - Format: [VISUAL: MM-LL-XXXX - description] where:
      * MM = Module number (2 digits, zero-padded) - USE {module_number:02d}
      * LL = Lesson number within module (2 digits, zero-padded)

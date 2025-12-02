@@ -195,13 +195,25 @@ You will receive a list of visual descriptions extracted from technical course l
    - "diagram": flowcharts, architecture diagrams, technical diagrams, charts, graphs, sequences
    - "artistic_image": scenes, photos, illustrations, metaphors, artistic representations
 
-2. **Create an enhanced prompt** with:
-   - **Exact text with correct spelling**: List every label, title, annotation
+2. **Translate to English** (CRITICAL - for optimal image generation):
+   - ALL enhanced prompts MUST be in English for optimal image generation
+   - **IMPORTANT**: Translate ALL text that will appear IN the diagram/image:
+     * Button labels: "Comprar ahora" → "Buy now"
+     * Annotations: "Anillo de enfoque visible" → "Visible focus ring"
+     * Titles: "Accesibilidad: enfoque visible" → "Accessibility: visible focus"
+     * Error messages, warnings, tooltips - everything must be English
+   - Translate Spanish/other languages to clear, technical English
+   - Preserve technical accuracy
+   - Example: "Diagrama del ciclo HTTP con solicitud y respuesta" → 
+     "Diagram of HTTP request-response cycle showing client, server, request, and response"
+
+3. **Create an enhanced prompt** with:
+   - **Exact text with correct spelling**: List every label, title, annotation IN ENGLISH
    - **Typography**: Font style, weight, size, case
    - **Layout**: Position, spacing, alignment
    - **Colors**: Specific hex codes or names (#0066CC blue, #4CAF50 green, etc.)
    - **Style**: Professional, modern, clean, technical, minimalist
-   - **Verification**: "Ensure all text is spelled correctly: [list critical terms]"
+   - **Verification**: "Ensure all text is spelled correctly: [list critical English terms]"
 
 INPUT VISUALS:
 {json.dumps(visuals, indent=2)}
