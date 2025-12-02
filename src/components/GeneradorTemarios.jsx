@@ -617,6 +617,7 @@ const handleExportarPDF = async (version) => {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
+                      <th>Nota</th> 
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -627,7 +628,8 @@ const handleExportarPDF = async (version) => {
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                        <td>{v.autor}</td>
+                        <td>{v.autor}</td><td>{v.nota_version || "Sin nota"}</td>
+
                         <td className="acciones-cell">
                           <button
                             className="menu-btn"
