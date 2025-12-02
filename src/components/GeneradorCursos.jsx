@@ -355,7 +355,8 @@ function GeneradorCursos() {
                                     className="form-select"
                                 >
                                     <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Optimizado para costos)</option>
-                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Alta Calidad)</option>
+                                    {/* Gemini 3 Pro disabled due to Lambda timeout issues (takes ~10min per image) */}
+                                    {/* <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Alta Calidad)</option> */}
                                 </select>
                                 <small className="form-hint">
                                     Imagen 4.0 es superior para diagramas con texto y etiquetas precisas

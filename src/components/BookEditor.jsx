@@ -5,6 +5,7 @@ import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoad
 import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { load as loadYaml } from 'js-yaml';
+import jsPDF from 'jspdf';
 import './BookEditor.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
@@ -48,7 +49,430 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const [slidesPerLesson, setSlidesPerLesson] = useState(6);
     const [pptModelProvider, setPptModelProvider] = useState('bedrock');
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [downloadingPDF, setDownloadingPDF] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
+
+    // Download book or lab guide as PDF with logo and footer
+    const downloadAsPDF = async () => {
+        setDownloadingPDF(true);
+        try {
+            const data = viewMode === 'book' ? bookData : labGuideData;
+
+            // Load course title and module titles from outline
+            let courseTitle = 'Curso';
+            let moduleTitles = {};
+
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                const outlinePrefix = `${projectFolder}/outline/`;
+
+                const outlineResponse = await s3.send(new ListObjectsV2Command({
+                    Bucket: bucketName,
+                    Prefix: outlinePrefix,
+                    MaxKeys: 10
+                }));
+
+                if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                    let outlineFile = outlineResponse.Contents.find(obj =>
+                        obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                    );
+
+                    if (!outlineFile) {
+                        outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                    }
+
+                    if (outlineFile) {
+                        const outlineObj = await s3.send(new GetObjectCommand({
+                            Bucket: bucketName,
+                            Key: outlineFile.Key
+                        }));
+                        const outlineContent = await outlineObj.Body.transformToString();
+
+                        let outlineData;
+                        if (outlineFile.Key.endsWith('.json')) {
+                            outlineData = JSON.parse(outlineContent);
+                        } else {
+                            outlineData = loadYaml(outlineContent);
+                        }
+
+                        // Handle nested course structure
+                        const courseData = outlineData.course || outlineData;
+                        courseTitle = courseData.course_title || courseData.title || 'Curso';
+
+                        // Extract module titles
+                        const modulesArray = courseData.modules || outlineData.modules;
+                        if (modulesArray && Array.isArray(modulesArray)) {
+                            modulesArray.forEach((module, idx) => {
+                                moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading outline:', error);
+            }
+
+            const title = viewMode === 'book' ? courseTitle : `${courseTitle} - Guía de Laboratorios`;
+
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            // Load logo from S3
+            let logoDataUrl = null;
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const logoResponse = await s3.send(new GetObjectCommand({
+                    Bucket: 'crewai-course-artifacts',
+                    Key: 'logo/LogoNetec.png'
+                }));
+
+                const logoBlob = await logoResponse.Body.transformToByteArray();
+                const logoBase64 = btoa(String.fromCharCode(...logoBlob));
+                logoDataUrl = `data:image/png;base64,${logoBase64}`;
+            } catch (error) {
+                console.error('Error loading logo:', error);
+            }
+
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 20;
+            const lineHeight = 7;
+            const maxWidth = pageWidth - 2 * margin;
+            let yPosition = margin;
+
+            // Helper function to add header with design
+            const addHeader = (pageNum) => {
+                if (pageNum === 1) return;
+                pdf.setFillColor(230, 240, 250); // Light blue instead of dark blue
+                pdf.rect(0, 0, pageWidth, 15, 'F');
+                pdf.setTextColor(0, 51, 102); // Dark blue text for contrast
+                pdf.setFontSize(10);
+                pdf.setFont('helvetica', 'bold');
+                pdf.text(courseTitle, margin, 10);
+                if (logoDataUrl) {
+                    pdf.addImage(logoDataUrl, 'PNG', pageWidth - margin - 20, 4, 20, 7.5);
+                }
+            };
+
+            // Helper function to add footer with design
+            const addFooter = (pageNum, totalPages) => {
+                pdf.setFillColor(230, 240, 250); // Light blue like header
+                pdf.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+                pdf.setFontSize(8);
+                pdf.setFont('helvetica', 'italic');
+                pdf.setTextColor(0, 51, 102); // Dark blue like header text
+                const footerText = 'Este contenido ha sido generado con IA y supervisado por Netec';
+                pdf.text(footerText, (pageWidth - pdf.getTextWidth(footerText)) / 2, pageHeight - 7);
+                pdf.setFont('helvetica', 'normal');
+                const pageText = `Página ${pageNum} de ${totalPages}`;
+                pdf.text(pageText, pageWidth - margin - pdf.getTextWidth(pageText), pageHeight - 7);
+            };
+
+            // Helper function to check if we need a new page
+            const checkNewPage = (requiredSpace = 40) => {
+                if (yPosition > pageHeight - requiredSpace) {
+                    pdf.addPage();
+                    yPosition = 20;
+                    return true;
+                }
+                return false;
+            };
+
+            // Add logo on first page
+            if (logoDataUrl) {
+                pdf.addImage(logoDataUrl, 'PNG', pageWidth - margin - 40, margin, 40, 15);
+                yPosition += 25;
+            }
+
+            // Add title
+            pdf.setFontSize(24);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setTextColor(0, 0, 0);
+
+            // Split title if too long
+            const titleLines = pdf.splitTextToSize(title, maxWidth);
+            titleLines.forEach(line => {
+                pdf.text(line, margin, yPosition);
+                yPosition += 12;
+            });
+            yPosition += 8;
+
+            // Group lessons by module
+            const moduleGroups = {};
+            data.lessons.forEach(lesson => {
+                const moduleNum = lesson.moduleNumber || 1;
+                if (!moduleGroups[moduleNum]) {
+                    moduleGroups[moduleNum] = [];
+                }
+                moduleGroups[moduleNum].push(lesson);
+            });
+
+            const sortedModuleNums = Object.keys(moduleGroups).sort((a, b) => parseInt(a) - parseInt(b));
+
+            // Process each module
+            for (const moduleNum of sortedModuleNums) {
+                const moduleLessons = moduleGroups[moduleNum];
+                checkNewPage(20);
+
+                // Module header
+                const moduleTitle = moduleTitles[parseInt(moduleNum)] || `Módulo ${moduleNum}`;
+                pdf.setFillColor(0, 102, 204);
+                pdf.rect(margin - 5, yPosition - 7, maxWidth + 10, 15, 'F');
+                pdf.setFontSize(16);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setTextColor(255, 255, 255);
+                pdf.text(`Módulo ${moduleNum}: ${moduleTitle}`, margin, yPosition);
+                yPosition += 15;
+                pdf.setTextColor(0, 0, 0);
+
+                // Process lessons within this module
+                for (let i = 0; i < moduleLessons.length; i++) {
+                    const lesson = moduleLessons[i];
+                    const lessonNumInModule = lesson.lessonNumberInModule || (i + 1);
+
+                    checkNewPage();
+
+                    // Lesson title (only the numbered title, not the "Lesson X:" prefix)
+                    pdf.setFontSize(14);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.text(`${moduleNum}.${lessonNumInModule} ${lesson.title || 'Sin título'}`, margin, yPosition);
+                    yPosition += lineHeight + 3;
+
+                    // Process lesson content with images and code blocks
+                    let content = lesson.content || '';
+
+                    // Remove the "Lesson X: Title" line - try multiple patterns
+                    // Pattern 1: Standard "Lesson 1: Title\n"
+                    content = content.replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
+                    // Pattern 2: At start with possible whitespace
+                    content = content.replace(/^\s*Lesson\s+\d+\s*:\s*[^\n]+\n*/gi, '');
+                    // Pattern 3: Just in case it's a header
+                    content = content.replace(/^#+\s*Lesson\s+\d+\s*:\s*[^\n]+\n*/gim, '');
+
+                    // Trim any leading whitespace after removal
+                    content = content.trimStart();
+
+                    // Split content by images
+                    const imageRegex = /!\[.*?\]\((data:image\/[^;]+;base64,[^\)]+)\)/g;
+                    const parts = [];
+                    let lastIndex = 0;
+                    let match;
+
+                    while ((match = imageRegex.exec(content)) !== null) {
+                        if (match.index > lastIndex) {
+                            parts.push({ type: 'text', content: content.substring(lastIndex, match.index) });
+                        }
+                        parts.push({ type: 'image', dataUrl: match[1] });
+                        lastIndex = match.index + match[0].length;
+                    }
+
+                    if (lastIndex < content.length) {
+                        parts.push({ type: 'text', content: content.substring(lastIndex) });
+                    }
+
+                    // Process each part
+                    pdf.setFontSize(10);
+                    pdf.setFont('helvetica', 'normal');
+
+                    for (const part of parts) {
+                        if (part.type === 'text') {
+                            let text = part.content;
+
+                            // Extract code blocks
+                            const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+                            const textParts = [];
+                            let lastIdx = 0;
+                            let codeMatch;
+
+                            while ((codeMatch = codeBlockRegex.exec(text)) !== null) {
+                                if (codeMatch.index > lastIdx) {
+                                    textParts.push({ type: 'text', content: text.substring(lastIdx, codeMatch.index) });
+                                }
+                                textParts.push({ type: 'code', content: codeMatch[2].trim() });
+                                lastIdx = codeMatch.index + codeMatch[0].length;
+                            }
+
+                            if (lastIdx < text.length) {
+                                textParts.push({ type: 'text', content: text.substring(lastIdx) });
+                            }
+
+                            if (textParts.length === 0) {
+                                textParts.push({ type: 'text', content: text });
+                            }
+
+                            for (const textPart of textParts) {
+                                if (textPart.type === 'code') {
+                                    // Check if we need to move to new page before code block
+                                    pdf.setFont('courier', 'normal');
+                                    pdf.setFontSize(8);
+                                    pdf.setTextColor(0, 0, 0);
+
+                                    const codeLines = textPart.content.split('\n');
+                                    const boxPadding = 3;
+                                    const codeLineHeight = 4.5;
+                                    const wrappedLines = [];
+
+                                    for (const codeLine of codeLines) {
+                                        if (codeLine.length === 0) {
+                                            wrappedLines.push('');
+                                        } else {
+                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 6);
+                                            wrappedLines.push(...splitLines);
+                                        }
+                                    }
+
+                                    const totalHeight = (wrappedLines.length * codeLineHeight) + (2 * boxPadding);
+
+                                    // If code block doesn't fit, move to new page
+                                    if (yPosition + totalHeight > pageHeight - 40) {
+                                        pdf.addPage();
+                                        yPosition = 20;
+                                    }
+
+                                    pdf.setFillColor(245, 245, 245);
+                                    pdf.rect(margin - 2, yPosition - 2, maxWidth + 4, totalHeight, 'F');
+
+                                    yPosition += boxPadding;
+                                    for (const line of wrappedLines) {
+                                        pdf.text(line, margin, yPosition);
+                                        yPosition += codeLineHeight;
+                                    }
+
+                                    yPosition += boxPadding + 3;
+                                    pdf.setFont('helvetica', 'normal');
+                                    pdf.setFontSize(10);
+
+                                } else {
+                                    let cleanText = textPart.content;
+                                    cleanText = cleanText.replace(/#{1,6}\s/g, '');
+                                    cleanText = cleanText.replace(/\*\*(.+?)\*\*/g, '$1');
+                                    cleanText = cleanText.replace(/\*(.+?)\*/g, '$1');
+                                    cleanText = cleanText.replace(/\[VISUAL:.*?\]/g, '');
+                                    cleanText = cleanText.replace(/`(.+?)`/g, '$1');
+                                    cleanText = cleanText.trim();
+
+                                    if (cleanText) {
+                                        const lines = pdf.splitTextToSize(cleanText, maxWidth);
+                                        const textHeight = lines.length * lineHeight;
+
+                                        // Look ahead to see what's coming next
+                                        const currentIdx = textParts.indexOf(textPart);
+                                        const nextPart = currentIdx < textParts.length - 1 ? textParts[currentIdx + 1] : null;
+
+                                        // Detect if this is a heading/intro
+                                        // - Short text ending with colon
+                                        // - Numbered list (1., 2., etc.)  
+                                        // - Text that looks like a section header (short and starts with capital)
+                                        const looksLikeHeading = (cleanText.length < 200 && cleanText.trim().endsWith(':')) ||
+                                            /^\d+\.\s/.test(cleanText) ||
+                                            (cleanText.length < 100 && /^[A-ZÁÉÍÓÚÑ]/.test(cleanText));
+
+                                        // If this looks like a heading and next is code/image, keep them together
+                                        if (looksLikeHeading && nextPart && (nextPart.type === 'code' || nextPart.type === 'image')) {
+                                            // Estimate next content height more accurately
+                                            let estimatedNextHeight = 70;
+                                            if (nextPart.type === 'code') {
+                                                // Try to estimate code block height based on line count
+                                                const codeLineCount = (nextPart.content.match(/\n/g) || []).length + 1;
+                                                estimatedNextHeight = Math.min(codeLineCount * 5, 120);
+                                            } else {
+                                                estimatedNextHeight = 90; // Image estimate
+                                            }
+
+                                            // If heading + next content won't fit, move both to next page
+                                            if (yPosition + textHeight + estimatedNextHeight > pageHeight - 40) {
+                                                pdf.addPage();
+                                                yPosition = 20;
+                                            }
+                                        }
+
+                                        for (const line of lines) {
+                                            checkNewPage();
+                                            pdf.text(line, margin, yPosition);
+                                            yPosition += lineHeight;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (part.type === 'image') {
+                            try {
+                                const img = new Image();
+                                img.src = part.dataUrl;
+
+                                await new Promise((resolve, reject) => {
+                                    img.onload = () => resolve();
+                                    img.onerror = () => reject(new Error('Image load failed'));
+                                    setTimeout(() => reject(new Error('Image load timeout')), 5000);
+                                });
+
+                                const maxImgWidth = maxWidth - 10;
+                                const aspectRatio = img.height / img.width;
+                                let imgWidth = Math.min(img.width * 0.264583, maxImgWidth);
+                                let imgHeight = imgWidth * aspectRatio;
+
+                                const maxImgHeight = 180;
+                                if (imgHeight > maxImgHeight) {
+                                    imgHeight = maxImgHeight;
+                                    imgWidth = imgHeight / aspectRatio;
+                                }
+
+                                if (yPosition + imgHeight > pageHeight - 40) {
+                                    pdf.addPage();
+                                    yPosition = 20;
+                                }
+
+                                const imgFormat = part.dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+                                pdf.addImage(part.dataUrl, imgFormat, margin, yPosition, imgWidth, imgHeight);
+
+                                yPosition += imgHeight + 5;
+
+                            } catch (imgError) {
+                                console.error('Error adding image to PDF:', imgError);
+                                pdf.text('[IMAGEN NO DISPONIBLE]', margin, yPosition);
+                                yPosition += lineHeight;
+                            }
+                        }
+                    }
+
+                    yPosition += 10;
+                }
+
+                yPosition += 15;
+            }
+
+            // Add headers and footers to all pages
+            const totalPages = pdf.internal.getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {
+                pdf.setPage(i);
+                addHeader(i);
+                addFooter(i, totalPages);
+            }
+
+            // Download the PDF
+            const fileName = `${projectFolder}_${viewMode === 'book' ? 'libro' : 'lab_guide'}.pdf`;
+            pdf.save(fileName);
+
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            alert('Error al generar el PDF. Por favor, intente nuevamente.');
+        } finally {
+            setDownloadingPDF(false);
+        }
+    };
 
     // Function to extract module number from lesson filename or title
     const extractModuleInfo = (lesson, index) => {
@@ -2697,6 +3121,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                             {viewMode === 'book' ? '🧪 Lab Guide' : '📚 Libro'}
                         </button>
                     )}
+                    <button
+                        className="btn-download-pdf"
+                        onClick={downloadAsPDF}
+                        disabled={downloadingPDF}
+                        title={viewMode === 'book' ? 'Descargar libro como PDF' : 'Descargar guía de laboratorios como PDF'}
+                    >
+                        {downloadingPDF ? '⏳ Generando...' : '📄 Descargar PDF'}
+                    </button>
                     <button
                         className="btn-generate-ppt"
                         onClick={() => setShowPPTModal(true)}

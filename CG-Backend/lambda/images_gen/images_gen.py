@@ -480,7 +480,16 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         prompts_from_input = exec_input.get('prompts', [])
         prompts_prefix = exec_input.get('prompts_prefix')
         requested_max_images = exec_input.get('max_images')
-        image_model = exec_input.get('image_model', DEFAULT_IMAGE_MODEL).lower()  # 'gemini' or 'imagen'
+        
+        # DEBUG: Log raw image_model parameter before processing
+        raw_image_model = exec_input.get('image_model')
+        logger.info(f"🔍 DEBUG - Raw image_model from input: {repr(raw_image_model)} (type: {type(raw_image_model).__name__})")
+        logger.info(f"🔍 DEBUG - DEFAULT_IMAGE_MODEL: {DEFAULT_IMAGE_MODEL}")
+        logger.info(f"🔍 DEBUG - GEMINI_MODEL: {GEMINI_MODEL}")
+        
+        image_model = (raw_image_model or DEFAULT_IMAGE_MODEL).lower()  # Safe None handling
+        logger.info(f"🔍 DEBUG - Final image_model after processing: {image_model}")
+        
         rate_limit_override = exec_input.get('rate_limit_override')  # For performance testing
         
         # Override rate limit if specified (for testing)

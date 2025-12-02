@@ -14,7 +14,8 @@
         "modules_to_generate.$": "$.modules_to_generate",
         "outline_s3_key.$": "$.outline_s3_key",
         "project_folder.$": "$.project_folder",
-        "user_email.$": "$.user_email"
+        "user_email.$": "$.user_email",
+        "image_model.$": "$.image_model"
       },
       "Type": "Pass"
     },
@@ -305,7 +306,8 @@
           "model_provider.$": "$.model_provider",
           "modules_to_generate.$": "$.modules_to_generate",
           "outline_s3_key.$": "$.outline_s3_key",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "image_model.$": "$.image_model"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -593,10 +595,15 @@
                   }
                 ],
                 "Next": "PrepareNextImageBatch"
+              },
+              {
+                "Variable": "$.images_result.Payload.image_mappings",
+                "IsPresent": true,
+                "Next": "FinalizeImageMappings"
               }
             ],
             "Comment": "Check if there are remaining images to process (timeout resume)",
-            "Default": "FinalizeImageMappings",
+            "Default": "SkipImageMappings",
             "Type": "Choice"
           },
           "FinalizeImageMappings": {
@@ -604,6 +611,19 @@
             "Next": "BatchComplete",
             "Parameters": {
               "accumulated_mappings.$": "$.images_result.Payload.image_mappings",
+              "batch_result.$": "$.batch_result",
+              "batch_task.$": "$.batch_task",
+              "images_result.$": "$.images_result",
+              "visual_result.$": "$.visual_result"
+            },
+            "ResultPath": "$",
+            "Type": "Pass"
+          },
+          "SkipImageMappings": {
+            "Comment": "No image mappings available, use empty",
+            "Next": "BatchComplete",
+            "Parameters": {
+              "accumulated_mappings": {},
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "images_result.$": "$.images_result",
@@ -682,7 +702,7 @@
               "accumulated_mappings": {},
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
-              "remaining_prompts": [],
+              "remaining_prompts.$": "$.visual_result.Payload.prompts",
               "visual_result.$": "$.visual_result"
             },
             "ResultPath": "$",
