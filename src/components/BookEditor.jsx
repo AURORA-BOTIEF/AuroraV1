@@ -969,7 +969,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 setLabGuideData({
                     ...parsedBookWithImages,
                     filename: labGuideFile.Key.split('/').pop(),
-                    lastModified: labGuideFile.LastModified
+                    lastModified: labGuideFile.LastModified,
+                    outlineKey: outlineFilename // Preserve outline key when images load
                 });
                 console.log('Lab Guide images loaded successfully');
             }).catch(err => {
