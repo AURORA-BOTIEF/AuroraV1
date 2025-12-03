@@ -457,7 +457,8 @@
           "model_provider.$": "$.model_provider",
           "modules_to_generate.$": "$.modules_to_generate",
           "outline_s3_key.$": "$.outline_s3_key",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
