@@ -3141,13 +3141,27 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         📊 Generar PPT
                     </button>
                     {viewMode === 'lab' && (
-                        <button
-                            className="btn-regenerate-lab"
-                            onClick={() => setShowRegenerateLabModal(true)}
-                            title="Regenerar este laboratorio con nuevos requisitos"
-                        >
-                            🔄 Regenerar Laboratorio
-                        </button>
+                        <>
+                            <button
+                                className="btn-refresh-labs"
+                                onClick={async () => {
+                                    setLoadingImages(true);
+                                    await loadLabGuide();
+                                    setLoadingImages(false);
+                                }}
+                                disabled={loadingImages}
+                                title="Recargar guía de laboratorios desde S3"
+                            >
+                                {loadingImages ? '⏳ Recargando...' : '🔄 Recargar Labs'}
+                            </button>
+                            <button
+                                className="btn-regenerate-lab"
+                                onClick={() => setShowRegenerateLabModal(true)}
+                                title="Regenerar este laboratorio con nuevos requisitos"
+                            >
+                                🔄 Regenerar Laboratorio
+                            </button>
+                        </>
                     )}
                     <button
                         className={isEditing ? 'btn-editing' : 'btn-edit'}
