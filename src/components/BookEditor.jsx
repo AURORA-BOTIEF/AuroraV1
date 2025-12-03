@@ -6,6 +6,7 @@ import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } fr
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { load as loadYaml } from 'js-yaml';
 import jsPDF from 'jspdf';
+import RegenerateLab from './RegenerateLab';
 import './BookEditor.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
@@ -50,6 +51,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const [pptModelProvider, setPptModelProvider] = useState('bedrock');
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [downloadingPDF, setDownloadingPDF] = useState(false);
+    const [showRegenerateLabModal, setShowRegenerateLabModal] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Download book or lab guide as PDF with logo and footer
@@ -3136,6 +3138,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     >
                         📊 Generar PPT
                     </button>
+                    {viewMode === 'lab' && (
+                        <button
+                            className="btn-regenerate-lab"
+                            onClick={() => setShowRegenerateLabModal(true)}
+                            title="Regenerar este laboratorio con nuevos requisitos"
+                        >
+                            🔄 Regenerar Laboratorio
+                        </button>
+                    )}
                     <button
                         className={isEditing ? 'btn-editing' : 'btn-edit'}
                         onClick={async () => {
@@ -3407,6 +3418,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Regenerate Lab Modal */}
+            {showRegenerateLabModal && viewMode === 'lab' && labGuideData && (
+                <RegenerateLab
+                    projectFolder={projectFolder}
+                    currentLabId={labGuideData.lessons?.[currentLabLessonIndex]?.id || ''}
+                    currentLabTitle={labGuideData.lessons?.[currentLabLessonIndex]?.title || ''}
+                    onClose={() => setShowRegenerateLabModal(false)}
+                    onSuccess={(response) => {
+                        console.log('Lab regeneration initiated:', response);
+                        // Optionally reload lab data here after some time
+                    }}
+                />
             )}
         </div>
 

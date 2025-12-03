@@ -1116,21 +1116,41 @@
 }
 
 .btn-generate-ppt {
-    padding: 0.5rem 1rem;
-    border: 2px solid #007bff;
-    background: linear-gradient(to right, #007bff, #0056b3);
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
     color: white;
-    border-radius: 6px;
+    border: none;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
     cursor: pointer;
+    border-radius: 8px;
     font-weight: 600;
-    transition: all 0.2s;
-    box-shadow: 0 2px 6px rgba(0, 123, 255, 0.2);
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(240, 147, 251, 0.3);
 }
 
 .btn-generate-ppt:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+    box-shadow: 0 4px 12px rgba(240, 147, 251, 0.5);
 }
+
+.btn-regenerate-lab {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-regenerate-lab:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
+}
+
 
 .btn-download-pdf {
     padding: 0.5rem 1rem;

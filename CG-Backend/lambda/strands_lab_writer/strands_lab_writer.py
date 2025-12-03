@@ -580,12 +580,18 @@ def lambda_handler(event, context):
         master_plan_key = event['master_plan_key']
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
+        
+        # FORCE Bedrock for lab generation (more reliable format compliance)
+        # GPT-5 shows model drift: correct format initially, missing headers later
+        # Claude Sonnet 4.5 consistently generates proper lab headers
+        model_provider = 'bedrock'
+        
         lab_ids_to_process = event.get('lab_ids', [])  # NEW: For batch processing
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📋 Master Plan: {master_plan_key}")
         print(f"📁 Project: {project_folder}")
-        print(f"🤖 Model: {model_provider}")
+        print(f"🤖 Model: {model_provider} (forced to Bedrock for lab reliability)")
         if lab_ids_to_process:
             print(f"🎯 Batch Mode: Processing specific labs: {', '.join(lab_ids_to_process)}")
         else:
