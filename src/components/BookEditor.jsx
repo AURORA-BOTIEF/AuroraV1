@@ -1332,10 +1332,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     // Calculate lab_id if this is a lab activity
                     let labId = null;
                     if (item.type === 'lab' && item.original) {
-                        // Extract lab number from outline
                         const labNumber = item.original.number || (idx + 1);
-                        // Format: {module:02d}-00-{lab:02d} for module-level labs
                         labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                        console.log(`Calculated lab_id for "${item.title}": ${labId}`);
                     }
 
                     const lessonObj = {
@@ -1368,7 +1367,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     // Calculate lab_id for placeholder too if it's a lab
                     let labId = null;
                     if (item.type === 'lab' && item.original) {
-                        const labNumber = item.original.number || (idx + 1);
+                        const labNumberRaw = item.original.number;
+                        const labNumber = labNumberRaw != null ? labNumberRaw : (idx + 1);
                         labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
                     }
 
