@@ -102,12 +102,38 @@
     "CheckLabPlannerResult": {
       "Choices": [
         {
-          "Next": "ExpandLabsToBatches",
-          "NumericEquals": 200,
-          "Variable": "$.lab_planner_result.Payload.statusCode"
+          "And": [
+            {
+              "Variable": "$.lab_planner_result.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.master_plan_key",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.master_plan_key",
+              "IsNull": false
+            }
+          ],
+          "Next": "ExpandLabsToBatches"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.lab_planner_result.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.total_labs",
+              "NumericEquals": 0
+            }
+          ],
+          "Next": "NotifyFailure",
+          "Comment": "No labs found matching criteria"
         }
       ],
-      "Comment": "Check if LabPlanner succeeded (statusCode 200)",
+      "Comment": "Check if LabPlanner succeeded with valid master_plan_key",
       "Default": "NotifyFailure",
       "Type": "Choice"
     },

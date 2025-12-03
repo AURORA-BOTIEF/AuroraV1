@@ -274,9 +274,32 @@ def lambda_handler(event, context):
         course_duration_hours = body.get('course_duration_hours', 40)
         course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket - must be defined early
         
+        # Get lab_ids_to_regenerate first - if present, extract modules from lab IDs
+        lab_ids_to_regenerate = body.get('lab_ids_to_regenerate')
+        
         # Support both 'module_number' (from GeneradorCursos) and 'module_to_generate' (from GeneradorContenido)
         # Can be: single int (1), string ("1"), "all", comma-separated ("1,3"), range ("1-3"), or mixed ("1,3-5")
-        module_input = body.get('module_number') or body.get('module_to_generate', 1)
+        module_input = body.get('module_number') or body.get('module_to_generate')
+        
+        # If lab_ids_to_regenerate is provided, extract module numbers from lab IDs
+        # Lab ID format is MM-LL-II (module-lesson-lab_index), e.g., "04-00-01" -> module 4
+        if lab_ids_to_regenerate and not module_input:
+            try:
+                modules_from_lab_ids = set()
+                for lab_id in lab_ids_to_regenerate:
+                    if isinstance(lab_id, str) and '-' in lab_id:
+                        module_num = int(lab_id.split('-')[0])
+                        modules_from_lab_ids.add(module_num)
+                if modules_from_lab_ids:
+                    module_input = list(modules_from_lab_ids)
+                    print(f"📋 Extracted modules from lab_ids: {module_input}")
+            except (ValueError, IndexError) as e:
+                print(f"⚠️  Could not extract modules from lab_ids: {e}, defaulting to 'all'")
+                module_input = 'all'
+        
+        # Default to module 1 if no module specified
+        if not module_input:
+            module_input = 1
         
         # Parse module input into list of module numbers
         modules_to_generate = parse_module_input(module_input, outline_s3_key, course_bucket)
