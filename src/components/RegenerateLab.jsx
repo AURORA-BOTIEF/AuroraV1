@@ -22,6 +22,7 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
     const [labRequirements, setLabRequirements] = useState('');
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [error, setError] = useState(null);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
 
     /**
      * Extract module number from lab ID
@@ -88,26 +89,13 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
 
             console.log('✅ Lab regeneration started:', response);
 
-            // Show success message
-            const executionName = response.response?.executionArn?.split(':').pop() || 'unknown';
-            alert(
-                `✅ Regeneración de Laboratorio Iniciada\n\n` +
-                `📝 Lab: ${currentLabTitle}\n` +
-                `🆔 Lab ID: ${currentLabId}\n` +
-                `📦 Módulo: ${moduleNumber}\n` +
-                `🔧 Modelo: Bedrock (Claude Sonnet 4.5)\n\n` +
-                `⏱️ Tiempo estimado: 2-3 minutos\n\n` +
-                `Recibirás una notificación por correo cuando el lab esté listo.\n` +
-                `Refresca el editor de libro para ver el lab actualizado.`
-            );
+            // Show custom success modal
+            setShowSuccessModal(true);
 
             // Call success callback
             if (onSuccess) {
                 onSuccess(response);
             }
-
-            // Close modal
-            onClose();
 
         } catch (err) {
             console.error('❌ Error regenerating lab:', err);
@@ -116,84 +104,115 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
         }
     };
 
+    /**
+     * Handle closing the success modal
+     */
+    const handleSuccessClose = () => {
+        setShowSuccessModal(false);
+        onClose();
+    };
+
     return (
-        <div className="regenerate-lab-overlay" onClick={onClose}>
-            <div className="regenerate-lab-modal" onClick={(e) => e.stopPropagation()}>
-                <div className="regenerate-lab-header">
-                    <h2>🔄 Regenerar Laboratorio</h2>
-                    <button
-                        className="regenerate-lab-close"
-                        onClick={onClose}
-                        disabled={isRegenerating}
-                        title="Cerrar"
-                    >
-                        ✕
-                    </button>
-                </div>
-
-                <div className="regenerate-lab-body">
-                    <div className="regenerate-lab-info">
-                        <p><strong>Lab Actual:</strong></p>
-                        <p className="lab-title">{currentLabTitle || currentLabId}</p>
-                        <p className="lab-id">ID: {currentLabId}</p>
-                        <p className="lab-module">Módulo: {getModuleNumber()}</p>
-                    </div>
-
-                    <div className="regenerate-lab-form">
-                        <label htmlFor="labRequirements">
-                            🧪 Requerimientos Adicionales (Opcional)
-                        </label>
-                        <textarea
-                            id="labRequirements"
-                            rows={4}
-                            value={labRequirements}
-                            onChange={(e) => setLabRequirements(e.target.value)}
+        <>
+            <div className="regenerate-lab-overlay" onClick={onClose}>
+                <div className="regenerate-lab-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="regenerate-lab-header">
+                        <h2>🔄 Regenerar Laboratorio</h2>
+                        <button
+                            className="regenerate-lab-close"
+                            onClick={onClose}
                             disabled={isRegenerating}
-                            placeholder="Ej: Usar contenedores Docker, enfocarse en servicios AWS, incluir troubleshooting común..."
-                            className="lab-requirements-input"
-                        />
-                        <small className="form-hint">
-                            Especifica requisitos técnicos, plataformas, herramientas específicas, o consideraciones especiales que deben incluirse en los laboratorios
-                        </small>
+                            title="Cerrar"
+                        >
+                            ✕
+                        </button>
                     </div>
 
-                    {error && (
-                        <div className="regenerate-lab-error">
-                            ⚠️ {error}
+                    <div className="regenerate-lab-body">
+                        <div className="regenerate-lab-info">
+                            <p><strong>Lab Actual:</strong></p>
+                            <p className="lab-title">{currentLabTitle || currentLabId}</p>
+                            <p className="lab-id">ID: {currentLabId}</p>
+                            <p className="lab-module">Módulo: {getModuleNumber()}</p>
                         </div>
-                    )}
 
-                    <div className="regenerate-lab-warning">
-                        <strong>⚠️ Nota:</strong> El laboratorio actual será reemplazado por la nueva versión generada.
-                        Se recomienda crear una versión antes de regenerar.
-                    </div>
-                </div>
+                        <div className="regenerate-lab-form">
+                            <label htmlFor="labRequirements">
+                                🧪 Requerimientos Adicionales (Opcional)
+                            </label>
+                            <textarea
+                                id="labRequirements"
+                                rows={4}
+                                value={labRequirements}
+                                onChange={(e) => setLabRequirements(e.target.value)}
+                                disabled={isRegenerating}
+                                placeholder="Ej: Usar contenedores Docker, enfocarse en servicios AWS, incluir troubleshooting común..."
+                                className="lab-requirements-input"
+                            />
+                            <small className="form-hint">
+                                Especifica requisitos técnicos, plataformas, herramientas específicas, o consideraciones especiales que deben incluirse en los laboratorios
+                            </small>
+                        </div>
 
-                <div className="regenerate-lab-footer">
-                    <button
-                        className="btn-cancel"
-                        onClick={onClose}
-                        disabled={isRegenerating}
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        className="btn-regenerate"
-                        onClick={handleRegenerate}
-                        disabled={isRegenerating}
-                    >
-                        {isRegenerating ? (
-                            <>
-                                <span className="spinner-small"></span>
-                                Regenerando...
-                            </>
-                        ) : (
-                            '🚀 Regenerar Laboratorio'
+                        {error && (
+                            <div className="regenerate-lab-error">
+                                ⚠️ {error}
+                            </div>
                         )}
-                    </button>
+
+                        <div className="regenerate-lab-warning">
+                            <strong>⚠️ Nota:</strong> El laboratorio actual será reemplazado por la nueva versión generada.
+                            Se recomienda crear una versión antes de regenerar.
+                        </div>
+                    </div>
+
+                    <div className="regenerate-lab-footer">
+                        <button
+                            className="btn-cancel"
+                            onClick={onClose}
+                            disabled={isRegenerating}
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            className="btn-regenerate"
+                            onClick={handleRegenerate}
+                            disabled={isRegenerating}
+                        >
+                            {isRegenerating ? (
+                                <>
+                                    <span className="spinner-small"></span>
+                                    Regenerando...
+                                </>
+                            ) : (
+                                '🚀 Regenerar Laboratorio'
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+
+            {/* Success Modal */}
+            {showSuccessModal && (
+                <div className="regenerate-success-overlay" onClick={handleSuccessClose}>
+                    <div className="regenerate-success-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="regenerate-success-header">
+                            <h3>✅ Regeneración lista para iniciar</h3>
+                        </div>
+                        <div className="regenerate-success-body">
+                            <p>⏱️ <span className="highlight">Tiempo estimado:</span> 2-3 minutos</p>
+                            <p>Recibirás una notificación por correo cuando el lab esté listo.</p>
+                            <p>Refresca el editor de libro para ver el lab actualizado.</p>
+                        </div>
+                        <div className="regenerate-success-footer">
+                            <button className="btn-success-ok" onClick={handleSuccessClose}>
+                                OK
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
 
