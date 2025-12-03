@@ -1355,12 +1355,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     const msg = `  ✓ Matched "${item.title}" -> "${header.title}" (Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`;
                     debugLog.push(msg);
                     console.log(msg);
-                } else if (header && usedHeaders.has(header.lineIndex)) {
-                    const msg = `  ⚠ Header for "${item.title}" already used`;
-                    debugLog.push(msg);
-                    console.log(msg);
                 } else {
-                    const msg = `  ✗ FAILED to match "${item.title}"`;
+                    // Either header not found, or header already used by another module
+                    // In both cases, create a placeholder so the lab appears in the UI
+                    const reason = header && usedHeaders.has(header.lineIndex)
+                        ? `Header already used by another module`
+                        : `No matching header found`;
+                    const msg = `  ⚠ PLACEHOLDER for "${item.title}" (${reason})`;
                     debugLog.push(msg);
                     console.log(msg);
 
@@ -1372,9 +1373,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
                     }
 
-                    // Add as placeholder so it shows in the UI
+                    // Add as placeholder so it shows in the UI for regeneration
                     const lessonObj = {
-                        title: item.title, // Removed warning text as requested
+                        title: item.title,
                         content: `# ${item.title}\n\n> **Error:** No se encontró el contenido para esta actividad en el archivo markdown.\n> Verifique que el título en el outline coincida con algún encabezado en el documento.\n> Título buscado: "${item.title}"`,
                         module_title: outModule.title,
                         moduleNumber: modIdx + 1,
@@ -1382,7 +1383,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
                         startLine: -1, // Use -1 to indicate no line found
                         type: item.type,
-                        lab_id: labId,  // NEW: Include lab_id even for placeholders
+                        lab_id: labId,
                         isPlaceholder: true
                     };
 
