@@ -12,12 +12,13 @@ import './RegenerateLab.css';
  * 
  * Props:
  * - projectFolder: string - Current project folder name
+ * - outlineKey: string - S3 key to the outline file
  * - currentLabId: string - Current lab ID (e.g., "02-00-01")
  * - currentLabTitle: string - Current lab title for display
  * - onClose: function - Callback to close the modal
  * - onSuccess: function - Callback on successful regeneration start
  */
-function RegenerateLab({ projectFolder, currentLabId, currentLabTitle, onClose, onSuccess }) {
+function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitle, onClose, onSuccess }) {
     const [labRequirements, setLabRequirements] = useState('');
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [error, setError] = useState(null);
@@ -30,14 +31,6 @@ function RegenerateLab({ projectFolder, currentLabId, currentLabTitle, onClose, 
         if (!currentLabId) return null;
         const moduleNum = parseInt(currentLabId.split('-')[0], 10);
         return isNaN(moduleNum) ? null : moduleNum;
-    };
-
-    /**
-     * Get outline file S3 key
-     * Assumes outline is at: {projectFolder}/outline/{projectFolder}.yaml
-     */
-    const getOutlineKey = () => {
-        return `${projectFolder}/outline/${projectFolder}.yaml`;
     };
 
     /**
@@ -68,7 +61,7 @@ function RegenerateLab({ projectFolder, currentLabId, currentLabTitle, onClose, 
             // Build request body
             const requestBody = {
                 course_bucket: 'crewai-course-artifacts',
-                outline_s3_key: getOutlineKey(),
+                outline_s3_key: outlineKey, // Use actual outline key from BookEditor
                 project_folder: projectFolder,
                 content_type: 'labs',  // Labs only, not theory
                 model_provider: 'bedrock',  // Force Bedrock for lab reliability

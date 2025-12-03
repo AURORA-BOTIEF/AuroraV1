@@ -952,7 +952,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             setLabGuideData({
                 ...parsedBook,
                 filename: labGuideFile.Key.split('/').pop(),
-                lastModified: labGuideFile.LastModified
+                lastModified: labGuideFile.LastModified,
+                outlineKey: outlineFilename // Store outline key for regeneration
             });
 
             // Load images in the background
@@ -3424,6 +3425,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             {showRegenerateLabModal && viewMode === 'lab' && labGuideData && (
                 <RegenerateLab
                     projectFolder={projectFolder}
+                    outlineKey={labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
                     currentLabId={(() => {
                         // Calculate lab ID from lesson index using same logic as sidebar
                         const currentLesson = labGuideData.lessons?.[currentLabLessonIndex];
