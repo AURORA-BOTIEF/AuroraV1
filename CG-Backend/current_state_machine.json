@@ -418,7 +418,6 @@
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:crewai-course-generator-stack-LabGuideBuilder-3G4pm9YpQeCp",
         "Payload": {
           "course_bucket.$": "$.course_bucket",
-          "lab_keys.$": "$.all_lab_keys",
           "project_folder.$": "$.project_folder"
         }
       },
