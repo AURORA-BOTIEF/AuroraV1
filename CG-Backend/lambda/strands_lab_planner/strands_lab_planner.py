@@ -58,9 +58,13 @@ def load_outline_from_s3(bucket: str, key: str) -> dict:
         raise
 
 
-def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> List[Dict[str, Any]]:
+def extract_all_labs(
+    outline_data: dict,
+    modules_to_generate: any = "all",
+    lab_ids_to_filter: List[str] = None
+) -> List[Dict[str, Any]]:
     """
-    Extract lab activities from the outline, optionally filtering by modules.
+    Extract lab activities from the outline, optionally filtering by modules or specific lab IDs.
     
     Args:
         outline_data: The course outline dictionary
@@ -68,6 +72,9 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
             - "all": Extract from all modules
             - int (e.g., 3): Single module
             - list of ints (e.g., [1, 3, 5]): Multiple modules
+        lab_ids_to_filter:
+            - None: No lab ID filtering (use module filtering if specified)
+            - list of lab IDs (e.g., ["01-00-01", "02-00-01"]): Only extract these specific labs
     
     Returns list of lab info with context:
     [
@@ -225,6 +232,14 @@ def extract_all_labs(outline_data: dict, modules_to_generate: any = "all") -> Li
                 print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
     
     print(f"\n📊 Total labs found: {len(labs)}")
+    
+    # NEW: Filter by specific lab IDs if requested
+    if lab_ids_to_filter:
+        print(f"🎯 Filtering for specific lab IDs: {lab_ids_to_filter}")
+        original_count = len(labs)
+        labs = [lab for lab in labs if lab['lab_id'] in lab_ids_to_filter]
+        print(f"✓ Filtered from {original_count} to {len(labs)} lab(s)")
+    
     print(f"{'='*70}\n")
     
     return labs
@@ -536,7 +551,7 @@ def lambda_handler(event, context):
         model_provider = event.get('model_provider', 'bedrock')
         lab_requirements = event.get('lab_requirements')
         
-        # Support both old (single module) and new (multiple modules) formats
+        # Support both old (modules) and new (lab_ids) parameters
         modules_to_generate = event.get('modules_to_generate')
         if modules_to_generate is None:
             # Fallback to old single-module parameter
@@ -548,19 +563,28 @@ def lambda_handler(event, context):
         elif not isinstance(modules_to_generate, list):
             modules_to_generate = [int(modules_to_generate)]
         
+        # NEW: Get lab IDs to regenerate (takes priority over module filtering)
+        lab_ids_to_regenerate = event.get('lab_ids_to_regenerate')
+        
         print(f"📦 Bucket: {course_bucket}")
         print(f"📄 Outline: {outline_key}")
         print(f"📁 Project: {project_folder}")
         print(f"🤖 Model: {model_provider}")
         print(f"🎯 Module Scope: {modules_to_generate}")
+        if lab_ids_to_regenerate:
+            print(f"🆔 Lab IDs to Regenerate: {lab_ids_to_regenerate}")
         print(f"📋 Additional Requirements: {lab_requirements if lab_requirements else 'None'}")
         
         # Step 1: Load outline
         outline_data = load_outline_from_s3(course_bucket, outline_key)
         course_info = outline_data.get('course', {})
         
-        # Step 2: Extract labs (filtered by modules if specified)
-        labs = extract_all_labs(outline_data, modules_to_generate)
+        # Step 2: Extract labs (filtered by lab_ids if specified, otherwise by modules)
+        labs = extract_all_labs(
+            outline_data,
+            modules_to_generate=modules_to_generate,
+            lab_ids_to_filter=lab_ids_to_regenerate
+        )
         
         if not labs:
             print("⚠️  No labs found in outline! Returning success with empty plan.")
