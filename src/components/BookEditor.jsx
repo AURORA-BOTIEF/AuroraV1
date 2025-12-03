@@ -3424,7 +3424,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             {showRegenerateLabModal && viewMode === 'lab' && labGuideData && (
                 <RegenerateLab
                     projectFolder={projectFolder}
-                    currentLabId={labGuideData.lessons?.[currentLabLessonIndex]?.id || ''}
+                    currentLabId={(() => {
+                        // Extract lab ID from filename (e.g., "lab-02-00-01-module-20-..." -> "02-00-01")
+                        const filename = labGuideData.lessons?.[currentLabLessonIndex]?.filename || '';
+                        const match = filename.match(/lab-(\d{2}-\d{2}-\d{2})/);
+                        return match ? match[1] : '';
+                    })()}
                     currentLabTitle={labGuideData.lessons?.[currentLabLessonIndex]?.title || ''}
                     onClose={() => setShowRegenerateLabModal(false)}
                     onSuccess={(response) => {
