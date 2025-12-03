@@ -66,7 +66,7 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
                 content_type: 'labs',  // Labs only, not theory
                 model_provider: 'bedrock',  // Force Bedrock for lab reliability
                 image_model: 'models/gemini-2.5-flash-image',
-                modules_to_generate: [moduleNumber],  // Only current module
+                lab_ids_to_regenerate: [currentLabId],  // NEW: Specific lab ID, not module
                 user_email: userEmail
             };
 
@@ -93,6 +93,7 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
             alert(
                 `✅ Regeneración de Laboratorio Iniciada\n\n` +
                 `📝 Lab: ${currentLabTitle}\n` +
+                `🆔 Lab ID: ${currentLabId}\n` +
                 `📦 Módulo: ${moduleNumber}\n` +
                 `🔧 Modelo: Bedrock (Claude Sonnet 4.5)\n\n` +
                 `⏱️ Tiempo estimado: 2-3 minutos\n\n` +

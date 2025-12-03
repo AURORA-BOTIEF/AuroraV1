@@ -1329,6 +1329,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 if (header && !usedHeaders.has(header.lineIndex)) {
                     usedHeaders.add(header.lineIndex);
 
+                    // Calculate lab_id if this is a lab activity
+                    let labId = null;
+                    if (item.type === 'lab' && item.original) {
+                        // Extract lab number from outline
+                        const labNumber = item.original.number || (idx + 1);
+                        // Format: {module:02d}-00-{lab:02d} for module-level labs
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                    }
+
                     const lessonObj = {
                         title: item.title,
                         content: '',
@@ -1337,7 +1346,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         lesson_number: flatLessons.length + 1,
                         filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
                         startLine: header.lineIndex,
-                        type: item.type
+                        type: item.type,
+                        lab_id: labId  // NEW: Store lab_id for regeneration
                     };
 
                     moduleObj.lessons.push(lessonObj);
@@ -1355,6 +1365,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     debugLog.push(msg);
                     console.log(msg);
 
+                    // Calculate lab_id for placeholder too if it's a lab
+                    let labId = null;
+                    if (item.type === 'lab' && item.original) {
+                        const labNumber = item.original.number || (idx + 1);
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                    }
+
                     // Add as placeholder so it shows in the UI
                     const lessonObj = {
                         title: item.title, // Removed warning text as requested
@@ -1365,6 +1382,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
                         startLine: -1, // Use -1 to indicate no line found
                         type: item.type,
+                        lab_id: labId,  // NEW: Include lab_id even for placeholders
                         isPlaceholder: true
                     };
 
@@ -3442,19 +3460,19 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     projectFolder={projectFolder}
                     outlineKey={labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
                     currentLabId={(() => {
-                        // Calculate lab ID from lesson index using same logic as sidebar
                         const currentLesson = labGuideData.lessons?.[currentLabLessonIndex];
                         if (!currentLesson) return '';
 
-                        // Use extractModuleInfo to get module and lesson numbers
+                        // Use lab_id from lesson object (calculated during parsing)
+                        if (currentLesson.lab_id) {
+                            console.log('✅ Using lab_id from lesson:', currentLesson.lab_id);
+                            return currentLesson.lab_id;
+                        }
+
+                        // Fallback (should rarely happen with new parsing logic)
+                        console.warn('⚠️ No lab_id found in lesson, falling back to calculation');
                         const moduleInfo = extractModuleInfo(currentLesson, currentLabLessonIndex);
-                        const moduleNum = moduleInfo.moduleNumber;
-                        const lessonNum = moduleInfo.lessonNumber;
-
-                        // Format as XX-00-YY (module-00-lesson)
-                        const labId = `${String(moduleNum).padStart(2, '0')}-00-${String(lessonNum).padStart(2, '0')}`;
-
-                        console.log('🔍 Calculated lab ID:', labId, 'from module:', moduleNum, 'lesson:', lessonNum);
+                        const labId = `${String(moduleInfo.moduleNumber).padStart(2, '0')}-00-${String(moduleInfo.lessonNumber).padStart(2, '0')}`;
                         return labId;
                     })()}
                     currentLabTitle={labGuideData.lessons?.[currentLabLessonIndex]?.title || ''}
