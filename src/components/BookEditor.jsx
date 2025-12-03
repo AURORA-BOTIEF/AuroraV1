@@ -3425,10 +3425,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 <RegenerateLab
                     projectFolder={projectFolder}
                     currentLabId={(() => {
-                        // Extract lab ID from filename (e.g., "lab-02-00-01-module-20-..." -> "02-00-01")
-                        const filename = labGuideData.lessons?.[currentLabLessonIndex]?.filename || '';
-                        const match = filename.match(/lab-(\d{2}-\d{2}-\d{2})/);
-                        return match ? match[1] : '';
+                        // Calculate lab ID from lesson index using same logic as sidebar
+                        const currentLesson = labGuideData.lessons?.[currentLabLessonIndex];
+                        if (!currentLesson) return '';
+
+                        // Use extractModuleInfo to get module and lesson numbers
+                        const moduleInfo = extractModuleInfo(currentLesson, currentLabLessonIndex);
+                        const moduleNum = moduleInfo.moduleNumber;
+                        const lessonNum = moduleInfo.lessonNumber;
+
+                        // Format as XX-00-YY (module-00-lesson)
+                        const labId = `${String(moduleNum).padStart(2, '0')}-00-${String(lessonNum).padStart(2, '0')}`;
+
+                        console.log('🔍 Calculated lab ID:', labId, 'from module:', moduleNum, 'lesson:', lessonNum);
+                        return labId;
                     })()}
                     currentLabTitle={labGuideData.lessons?.[currentLabLessonIndex]?.title || ''}
                     onClose={() => setShowRegenerateLabModal(false)}
