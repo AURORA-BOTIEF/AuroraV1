@@ -125,7 +125,7 @@
     },
     "CombineLabResults": {
       "Comment": "Flatten lab results from all batches",
-      "Next": "NotifyCompletion",
+      "Next": "InvokeLabGuideBuilder",
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
         "course_bucket.$": "$.course_bucket",
