@@ -314,6 +314,7 @@ def lambda_handler(event, context):
         # Lab generation parameters - default to 'both' (theory + labs)
         content_type = body.get('content_type', 'both')  # 'theory', 'labs', or 'both'
         lab_requirements = body.get('lab_requirements', '')  # Optional additional requirements for labs (default to empty string)
+        lesson_requirements = body.get('lesson_requirements', '')  # Optional additional requirements for lessons (default to empty string)
 
         # Get environment variables
         state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
@@ -353,6 +354,7 @@ def lambda_handler(event, context):
             "allow_openai_fallback": allow_openai_fallback,
             "content_type": content_type,  # 'theory', 'labs', or 'both'
             "lab_requirements": lab_requirements,  # Always include (empty string if not provided)
+            "lesson_requirements": lesson_requirements,  # Always include (empty string if not provided)
             "lab_ids_to_regenerate": body.get('lab_ids_to_regenerate'),  # NEW: Always include (None if not provided)
         }
         

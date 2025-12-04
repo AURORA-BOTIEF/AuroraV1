@@ -62,13 +62,35 @@ def lambda_handler(event, context):
             )
 
             if 'Contents' in response:
-                lab_keys = [
-                    obj['Key'] for obj in response['Contents'] 
+                # Get all lab files with their metadata
+                lab_files = [
+                    {'key': obj['Key'], 'last_modified': obj['LastModified']}
+                    for obj in response['Contents'] 
                     if obj['Key'].endswith('.md') and 'lab-' in obj['Key'].lower()
                 ]
+                
+                # Deduplicate: keep only the most recent file for each lab ID (e.g., "05-00-01")
+                # Lab ID is extracted from filename pattern: lab-MM-LL-NN-title.md
+                lab_id_pattern = re.compile(r'lab-(\d{2}-\d{2}-\d{2})', re.IGNORECASE)
+                lab_by_id = {}
+                
+                for lab_file in lab_files:
+                    filename = lab_file['key'].split('/')[-1]
+                    match = lab_id_pattern.match(filename)
+                    if match:
+                        lab_id = match.group(1)
+                        # Keep the most recent file for each lab ID
+                        if lab_id not in lab_by_id or lab_file['last_modified'] > lab_by_id[lab_id]['last_modified']:
+                            lab_by_id[lab_id] = lab_file
+                            print(f"  Lab ID {lab_id}: using {filename} (modified: {lab_file['last_modified']})")
+                    else:
+                        # If no lab ID found in filename, include it anyway
+                        lab_by_id[lab_file['key']] = lab_file
+                
+                lab_keys = [lab_file['key'] for lab_file in lab_by_id.values()]
                 # Sort lab keys to ensure correct order
                 lab_keys.sort()
-                print(f"Found {len(lab_keys)} lab guide files: {lab_keys}")
+                print(f"Found {len(lab_keys)} unique lab guide files (after deduplication): {lab_keys}")
             else:
                 print(f"No lab guide files found in {labguide_prefix}")
                 lab_keys = []

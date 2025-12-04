@@ -450,6 +450,16 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
             batch_plan = json.loads(response_text.strip())
             
             # Aggregate results from this batch
+            # IMPORTANT: Override AI-generated titles with exact titles from outline
+            for lab_plan in batch_plan.get('lab_plans', []):
+                lab_id = lab_plan.get('lab_id')
+                # Find the original lab from outline to get exact title
+                original_lab = next((l for l in batch_labs if l['lab_id'] == lab_id), None)
+                if original_lab:
+                    # Override with exact outline title
+                    lab_plan['lab_title'] = original_lab['lab_title']
+                    print(f"  ✓ Lab {lab_id}: Enforced outline title '{original_lab['lab_title']}'")
+                    
             all_lab_plans.extend(batch_plan.get('lab_plans', []))
             all_hardware_reqs.update(batch_plan.get('hardware_requirements', []))
             
