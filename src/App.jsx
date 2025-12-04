@@ -317,10 +317,10 @@ function App() {
         if (!idToken || !accessToken) throw new Error("No tokens available");
 
         const attributes = idToken.payload;
-        // cuidar: los grupos pueden venir en idToken o accessToken según la configuración
+        // Para la lógica/gestión de usuarios preferimos los grupos del idToken
         const groups =
-          (accessToken.payload && accessToken.payload["cognito:groups"]) ||
           (idToken.payload && idToken.payload["cognito:groups"]) ||
+          (accessToken.payload && accessToken.payload["cognito:groups"]) ||
           [];
 
         // Guardar tokens correctos en sessionStorage
