@@ -626,6 +626,8 @@ Aurora's presentation generator uses **HTML as the single source of truth** for 
 - ✅ Responsive grid layouts for side-by-side images
 - ✅ Print-ready CSS for PDF export
 - ✅ Pixel-perfect slide dimensions (1280x720px)
+- ✅ **Book Version Selection** - Uses saved/edited book versions (Dec 2025)
+- ✅ **Markdown Table Extraction** - Tables from content rendered in slides (Dec 2025)
 
 **Architecture: HTML as Source of Truth**
 
@@ -796,6 +798,91 @@ def generate_presigned_image_urls(image_mapping: Dict) -> Dict:
 }
 ```
 
+**Table Extraction & Rendering (Added Dec 2025):**
+
+Markdown tables in lesson content are now automatically extracted and rendered as professional HTML tables in slides.
+
+**Table Extraction Function:**
+```python
+def extract_tables_from_content(text: str) -> List[Dict]:
+    """
+    Extracts markdown tables from lesson content.
+    
+    Input (markdown):
+    | Header 1 | Header 2 | Header 3 |
+    |----------|----------|----------|
+    | Cell 1   | Cell 2   | Cell 3   |
+    | Cell 4   | Cell 5   | Cell 6   |
+    
+    Output (structured):
+    [{
+        'headers': ['Header 1', 'Header 2', 'Header 3'],
+        'rows': [
+            ['Cell 1', 'Cell 2', 'Cell 3'],
+            ['Cell 4', 'Cell 5', 'Cell 6']
+        ]
+    }]
+    """
+```
+
+**AI Prompt Integration:**
+```python
+# Tables are now included in AI slide generation prompts:
+tables = extract_tables_from_content(lesson_content)
+if tables:
+    prompt += f"\n\nTABLES IN THIS LESSON:\n{json.dumps(tables, indent=2)}"
+    prompt += "\nIMPORTANT: If tables are present, YOU MUST include at least one table slide."
+```
+
+**Table Content Block Format:**
+```json
+{
+    "type": "table",
+    "headers": ["Feature", "Description", "Example"],
+    "rows": [
+        ["Feature A", "Does X", "Usage: command"],
+        ["Feature B", "Does Y", "Usage: other"]
+    ]
+}
+```
+
+**Table CSS Styling:**
+```css
+/* Professional table styling */
+.slide table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+    font-size: 14pt;
+    background: white;
+}
+
+.slide table th {
+    background: linear-gradient(135deg, #003366, #4682B4);
+    color: white;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 600;
+    border: 1px solid #003366;
+}
+
+.slide table td {
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    color: #333;
+}
+
+.slide table tr:nth-child(even) {
+    background-color: #f8f9fa;
+}
+
+.slide table tr:hover {
+    background-color: #e8f4fd;
+}
+```
+
+**Result:** Tables from markdown content now appear as professional, branded tables in generated slides with proper Netec styling.
+
 **Agenda Slide with Nested Bullets (Fixed Nov 2025):**
 
 **Problem:** Double bullets appeared (CSS bullet + text ○ symbol)
@@ -940,6 +1027,31 @@ def determine_completion_status(
 }
 ```
 
+**Book Version Selection (Added Dec 2025):**
+
+PPT generation now supports **selecting which book version** to use for slide content. This enables generating presentations from user-edited books rather than only the original AI-generated content:
+
+- `book_version_key`: S3 path to specific book JSON (e.g., `project/book/Generated_Course_Book_data.json`)
+- `book_type`: Book variant to use - `theory` (default), `practice`, or `exam`
+
+**Flow:**
+```
+PptBatchOrchestrator
+    ↓
+Step Functions (book_version_key, book_type)
+    ↓
+StrandsInfographicGenerator
+    ↓
+Load specific book version from S3
+    ↓
+Generate slides from that version's content
+```
+
+This allows users to:
+1. Edit a book in BookEditor (add/remove content, fix tables, etc.)
+2. Save the edited version
+3. Generate PPT from the **saved version** (not original)
+
 **Output (Final Batch Only):**
 ```json
 {
@@ -1006,6 +1118,11 @@ HTML-first architecture makes PowerPoint conversion **optional**, not required:
 - Typical execution: 60-120 seconds per batch (3 lessons)
 - Memory usage: ~300-500 MB
 - Supports: Unlimited slides (batched processing)
+
+**Recent Improvements (Dec 2025):**
+- ✅ **Book Version Selection**: Generate PPT from saved/edited book versions
+- ✅ **Table Extraction**: Markdown tables rendered as professional HTML tables
+- ✅ **Table CSS Styling**: Netec-branded table design with headers, borders, hover effects
 
 **Future Enhancements:**
 - Interactive slides (JavaScript animations)
