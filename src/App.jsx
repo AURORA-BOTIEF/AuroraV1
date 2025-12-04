@@ -1,9 +1,11 @@
 // src/App.jsx (CORREGIDO Y FUNCIONAL)
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import './App.css';
+import Amplify from 'aws-amplify';
+import awsExports from './aws-exports';
 
 // === EDITORES ===
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
@@ -47,6 +49,8 @@ import PresentacionesPage from './components/PresentacionesPage.jsx';
 import InfographicViewer from './components/InfographicViewer.jsx';
 import InfographicEditor from './components/InfographicEditor.jsx';
 
+// Forzar sessionStorage para evitar problemas entre pestañas
+Amplify.configure({ ...awsExports, storage: window.sessionStorage });
 
 // ==================================================================
 // ========================== EDITORES ==============================
@@ -240,6 +244,7 @@ const Layout = ({ children, email, role }) => {
           onClick={async () => {
             try {
               try { sessionStorage.clear(); } catch (e) {}
+              try { bcRef.current?.postMessage('signedOut'); } catch(e) {}
               await signOut({ global: true });
               window.location.href = "/";
             } catch (err) {
@@ -265,32 +270,12 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [loginError, setLoginError] = useState(null);
+  const bcRef = useRef(null);
+
   // ======== Autenticación Amplify ========
   useEffect(() => {
-
-    const hubListener = Hub.listen('auth', ({ payload, source }) => {
-      if (source !== 'auth') return;
-      console.log("Auth Event:", payload.event);
-
-      if (payload.event === 'signedIn') {
-        if (window.location.search.includes("code=")) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        checkAuthSession();
-      }
-
-      if (payload.event === 'tokenRefresh') {
-        checkAuthSession();
-      }
-
-      if (payload.event === 'signedOut') {
-        setUser(null);
-        setLoading(false);
-      }
-    });
-
-    const bc = new BroadcastChannel('auth');
-    bc.onmessage = (ev) => {
+    bcRef.current = new BroadcastChannel('auth');
+    const onMessage = (ev) => {
       if (ev.data === 'signedOut') {
         setUser(null);
         setLoading(false);
@@ -299,16 +284,27 @@ function App() {
         checkAuthSession();
       }
     };
+    bcRef.current.onmessage = onMessage;
 
-    // NO limpiar aquí el code (esto causaba inestabilidad)
+    const hubListener = Hub.listen('auth', ({ payload, source }) => {
+      if (source !== 'auth') return;
+      if (payload.event === 'signedOut') {
+        bcRef.current?.postMessage('signedOut');
+        setUser(null);
+        setLoading(false);
+      }
+      if (payload.event === 'signedIn' || payload.event === 'tokenRefresh') {
+        checkAuthSession();
+      }
+    });
+
+    // primer chequeo
     checkAuthSession();
 
-    return () => { 
-      hubListener(); 
-      bc.close(); 
+    return () => {
+      try { hubListener(); } catch(e) {}
+      try { bcRef.current?.close(); } catch(e) {}
     };
-
-    
   }, []);
 
 
