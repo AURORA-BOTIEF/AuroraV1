@@ -1,8 +1,5 @@
 // src/amplify.js
-import { Amplify, Logger } from 'aws-amplify';
-
-// solo INFO en dev, ERROR en prod
-Logger.LOG_LEVEL = import.meta.env.DEV ? 'INFO' : 'ERROR';
+import { Amplify } from 'aws-amplify';
 /**
  * AWS Amplify v6 Configuration
  * Uses environment variables:
