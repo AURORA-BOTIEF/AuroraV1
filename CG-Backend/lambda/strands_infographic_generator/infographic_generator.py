@@ -217,6 +217,55 @@ def extract_images_from_content(content: str) -> List[Dict[str, str]]:
     return images
 
 
+def extract_tables_from_content(content: str) -> List[Dict]:
+    """
+    Extract markdown tables from lesson content.
+    Returns list of dicts with 'headers' and 'rows' for each table found.
+    """
+    tables = []
+    lines = content.split('\n')
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Check if this line looks like a table header (starts and ends with |)
+        if line.startswith('|') and line.endswith('|') and '|' in line[1:-1]:
+            # Potential table found - check for separator line next
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # Separator line has dashes and pipes: |---|---|
+                if next_line.startswith('|') and '---' in next_line:
+                    # This is a markdown table
+                    # Parse header row
+                    headers = [cell.strip() for cell in line.split('|')[1:-1]]
+                    
+                    # Skip separator line
+                    i += 2
+                    
+                    # Parse data rows
+                    rows = []
+                    while i < len(lines):
+                        row_line = lines[i].strip()
+                        if row_line.startswith('|') and row_line.endswith('|'):
+                            row_cells = [cell.strip() for cell in row_line.split('|')[1:-1]]
+                            if row_cells:
+                                rows.append(row_cells)
+                            i += 1
+                        else:
+                            break
+                    
+                    if headers and rows:
+                        tables.append({
+                            'headers': headers,
+                            'rows': rows
+                        })
+                    continue
+        i += 1
+    
+    return tables
+
+
 def get_image_dimensions(image_url: str) -> tuple:
     """
     Fetch actual image dimensions from S3 or web URL.
@@ -580,12 +629,20 @@ SLIDE STRUCTURE (JSON):
 - subtitle: Optional context  
 - layout_hint: "single-column" | "two-column" | "image-left" | "image-right"
 - content_blocks: Array of content sections (mix multiple types!)
-  - type: 'bullets' | 'image' | 'callout'
+  - type: 'bullets' | 'image' | 'callout' | 'table'
   - heading: Section heading (optional)
   - items: Array of detailed bullet points (6-12 items)
   - text: String (for callout)
   - image_reference: EXACT alt text from AVAILABLE IMAGES
   - caption: Image description
+  - headers: Array of table header strings (for tables)
+  - rows: Array of arrays - each inner array is a row with cell values (for tables)
+
+7. **TABLES** (preserve from lesson content!):
+   - If the lesson contains tables, you MUST include them as content blocks
+   - Use type: 'table' with 'headers' and 'rows' arrays
+   - Tables are valuable for comparisons, specifications, or structured data
+   - Do NOT convert tables to bullets - preserve the tabular format
 
 EXAMPLE - Image slide with complementary text (MANDATORY FORMAT):
 {{
@@ -601,6 +658,24 @@ EXAMPLE - Image slide with complementary text (MANDATORY FORMAT):
       "type": "image",
       "image_reference": "architecture-diagram",
       "caption": "Architecture overview"
+    }}
+  ]
+}}
+
+EXAMPLE - Table slide (for structured data/comparisons from lesson):
+{{
+  "title": "Feature Comparison",
+  "layout_hint": "single-column",
+  "content_blocks": [
+    {{
+      "type": "table",
+      "heading": "Option Comparison",
+      "headers": ["Feature", "Option A", "Option B", "Option C"],
+      "rows": [
+        ["Performance", "High", "Medium", "Low"],
+        ["Cost", "$100/mo", "$50/mo", "$20/mo"],
+        ["Support", "24/7", "Business hours", "Email only"]
+      ]
     }}
   ]
 }}
@@ -848,6 +923,10 @@ OUTPUT FORMAT (JSON):
             for img in available_images[:5]:  # Log first 5 images
                 logger.info(f"   - Alt: {img.get('alt_text', 'N/A')} | URL: {img.get('url', 'N/A')}")
         
+        # Extract tables from content
+        available_tables = extract_tables_from_content(lesson_content)
+        logger.info(f"📊 Found {len(available_tables)} tables in lesson content")
+        
         # Generate slides for this lesson
         # Determine if we should use all content (no limit on slides)
         use_all_content = slides_per_lesson >= 50  # High number indicates "use all content" mode
@@ -877,6 +956,20 @@ OUTPUT FORMAT (JSON):
             image_info_lines.append(f"  - '{alt}': {url}")
         image_info_str = '\n'.join(image_info_lines) if image_info_lines else "  (none)"
         
+        # Build tables info string for the prompt - EXPLICIT table data
+        tables_info_str = ""
+        if available_tables:
+            tables_info_lines = []
+            for idx, table in enumerate(available_tables, 1):
+                headers = table.get('headers', [])
+                rows = table.get('rows', [])
+                tables_info_lines.append(f"  TABLE {idx}:")
+                tables_info_lines.append(f"    Headers: {json.dumps(headers)}")
+                tables_info_lines.append(f"    Rows ({len(rows)} total): {json.dumps(rows[:3])}{'...' if len(rows) > 3 else ''}")
+            tables_info_str = '\n'.join(tables_info_lines)
+        else:
+            tables_info_str = "  (none)"
+        
         lesson_prompt = f"""
 Create {slide_count_instruction} for this lesson.
 
@@ -887,6 +980,9 @@ CONTENT:
 
 AVAILABLE IMAGES ({len(available_images)}):
 {image_info_str}
+
+TABLES FOUND IN CONTENT ({len(available_tables)}):
+{tables_info_str}
 
 IMPORTANT: When referencing images, use the alt text (the text in quotes above). 
 For example: set image_reference to "pasted-image" or "01-01-0001" to use those images.
@@ -906,6 +1002,11 @@ REQUIREMENTS:
   * Bullets should describe/explain the image content
   * Short caption below image is OK, but main description goes BESIDE
 - **USE ALL IMAGES**: Every image with 5-7 descriptive bullets beside it
+- **MANDATORY - INCLUDE ALL TABLES**: You MUST create table content blocks for EACH table listed above!
+  * Use type: 'table' with the EXACT headers and rows from TABLES FOUND above
+  * Tables provide critical structured information - do NOT skip or convert to bullets!
+  * Each table should have its own dedicated slide with appropriate title
+  * Format: {{"type": "table", "heading": "Table Title", "headers": [...], "rows": [...]}}
 - **COMPREHENSIVE**: Cover all major topics (create more slides if needed)
 - **LAST SLIDE**: Lesson summary with 6-8 key takeaways
 - **LANGUAGE**: Use the same language as the lesson content (Spanish/English)
