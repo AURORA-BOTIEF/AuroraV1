@@ -60,7 +60,7 @@ function EditorSeminarioPage() {
   const { cursoId, versionId } = useParams();
 
   const onSave = async (contenido, nota) => {
-    const token = sessionStorage.getItem("id_token");
+    const token = sessionStorage.getItem("access_token");
     const res = await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario",
       {
@@ -97,7 +97,7 @@ function EditorPracticoPage() {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const token = sessionStorage.getItem("id_token");
+        const token = sessionStorage.getItem("access_token");
         const res = await fetch(
           "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/get",
           {
@@ -124,7 +124,7 @@ function EditorPracticoPage() {
   }, [cursoId, versionId]);
 
   const onSave = async (contenido, nota) => {
-    const token = sessionStorage.getItem("id_token");
+    const token = sessionStorage.getItem("access_token");
     const res = await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
       {
@@ -162,7 +162,7 @@ function EditorKNTRPage() {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const token = sessionStorage.getItem("id_token");
+        const token = sessionStorage.getItem("access_token");
         const res = await fetch(
           "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR/get",
           {
@@ -189,7 +189,7 @@ function EditorKNTRPage() {
   }, [cursoId, versionId]);
 
   const onSave = async (contenido, nota) => {
-    const token = sessionStorage.getItem("id_token");
+    const token = sessionStorage.getItem("access_token");
     await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR",
       {
@@ -414,7 +414,7 @@ function App() {
 
   // apiFetch: wrapper simple para añadir Authorization y detectar 401
   const apiFetch = async (url, opts = {}) => {
-    const token = sessionStorage.getItem('id_token');
+    const token = sessionStorage.getItem('access_token');
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
     if (token) headers.Authorization = `Bearer ${token}`;
 

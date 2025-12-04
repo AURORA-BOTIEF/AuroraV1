@@ -15,41 +15,44 @@ const API_BASE =
   "/dev2";
 
 // Wrapper de fetch con token actualizado
+// Wrapper de fetch con token estricto (solo access_token)
 async function apiFetch(url, opts = {}) {
-  // Primer intento sin forzar refresh
+  // Obtener sesión sin refrescar
   let session = await getSessionOrNull(false);
-  let token =
-    session?.tokens?.accessToken?.toString?.() ||
-    session?.tokens?.accessToken?.jwtToken ||
-    session?.tokens?.idToken?.toString?.() ||
-    session?.tokens?.idToken?.jwtToken ||
-    "";
+  let token = session?.tokens?.accessToken?.jwtToken;
 
-  const makeRequest = async (tk) => {
+  // Si no hay token válido, no usar id_token jamás
+  if (!token) {
+    // Forzar refresh una sola vez
+    session = await getSessionOrNull(true);
+    token = session?.tokens?.accessToken?.jwtToken;
+  }
+
+  if (!token) {
+    throw new Error("No access token available");
+  }
+
+  const makeRequest = async () => {
     const headers = {
       "Content-Type": "application/json",
       ...(opts.headers || {}),
-      Authorization: `Bearer ${String(tk).startsWith('Bearer ') ? String(tk).slice(7) : tk}`,
+      Authorization: `Bearer ${token}`,
     };
     return fetch(url, { ...opts, headers });
   };
 
-  let res = await makeRequest(token);
+  let res = await makeRequest();
 
-  // Si 401, intentar una única vez forzando refresh
+  // Si expira durante la llamada → refrescar una sola vez
   if (res.status === 401) {
-    try {
-      session = await getSessionOrNull(true); // force refresh
-      token =
-        session?.tokens?.accessToken?.toString?.() ||
-        session?.tokens?.accessToken?.jwtToken ||
-        session?.tokens?.idToken?.toString?.() ||
-        session?.tokens?.idToken?.jwtToken ||
-        "";
-      res = await makeRequest(token);
-    } catch (e) {
-      // ignore y se manejará abajo
+    session = await getSessionOrNull(true);
+    token = session?.tokens?.accessToken?.jwtToken;
+
+    if (!token) {
+      throw new Error("Cannot refresh access token");
     }
+
+    res = await makeRequest();
   }
 
   if (!res.ok) {
