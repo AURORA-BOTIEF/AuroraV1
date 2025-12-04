@@ -261,23 +261,34 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ======== Autenticación Amplify ========
-  useEffect(() => {
-    const hubListener = Hub.listen('auth', ({ payload }) => {
-      if (payload.event === 'signedIn' || payload.event === 'tokenRefresh') {
-        checkAuthSession();
-      } else if (payload.event === 'signedOut') {
-        setUser(null);
-        setLoading(false);
-      }
-    });
+// ======== Autenticación Amplify ========
+useEffect(() => {
 
-    const code = new URLSearchParams(window.location.search).get('code');
-    if (code) window.history.replaceState({}, document.title, window.location.pathname);
-    checkAuthSession();
+  const hubListener = Hub.listen('auth', ({ payload }) => {
+    console.log("Auth Event:", payload.event);
 
-    return () => hubListener();
-  }, []);
+    if (payload.event === 'signedIn') {
+      // OAuth COMPLETÓ correctamente → ahora SÍ se puede limpiar el code
+      window.history.replaceState({}, document.title, window.location.pathname);
+      checkAuthSession();
+    }
+
+    if (payload.event === 'tokenRefresh') {
+      checkAuthSession();
+    }
+
+    if (payload.event === 'signedOut') {
+      setUser(null);
+      setLoading(false);
+    }
+  });
+
+  // NO limpiar aquí el code (esto causaba inestabilidad)
+  checkAuthSession();
+
+  return () => hubListener();
+}, []);
+
 
   const checkAuthSession = () => {
     fetchAuthSession()
