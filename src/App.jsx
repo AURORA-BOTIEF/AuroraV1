@@ -5,7 +5,6 @@ import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth'
 import { Hub } from 'aws-amplify/utils';
 import './App.css';
 import './amplify';
-import AdminRoute from './routes/AdminRoute';
 import { Toaster } from 'react-hot-toast';
 
 // === EDITORES ===
