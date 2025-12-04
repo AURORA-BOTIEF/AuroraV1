@@ -5,6 +5,8 @@ import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth'
 import { Hub } from 'aws-amplify/utils';
 import './App.css';
 import './amplify';
+import AdminRoute from './routes/AdminRoute';
+import { Toaster } from 'react-hot-toast';
 
 // === EDITORES ===
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
@@ -30,6 +32,7 @@ import ActividadesPage from './components/ActividadesPage.jsx';
 import ResumenesPage from './components/ResumenesPage.jsx';
 import ExamenesPage from './components/ExamenesPage.jsx';
 import AdminPage from './components/AdminPage.jsx';
+import AdminRoute from './routes/AdminRoute';
 
 // === GENERADOR DE CONTENIDOS ===
 import GeneradorContenidosPage from './components/GeneradorContenidosPage.jsx';
@@ -434,6 +437,7 @@ function App() {
 
   return (
     <>
+      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
       {!user ? (
         // ========== PANTALLA INICIAL (NO AUTENTICADO) ==========
         <div id="paginaInicio">
@@ -502,9 +506,9 @@ function App() {
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminRoute>
                     <AdminPage />
-                  </ProtectedRoute>
+                  </AdminRoute>
                 }
               />
 
