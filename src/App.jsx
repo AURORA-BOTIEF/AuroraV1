@@ -1,4 +1,3 @@
-
 // src/App.jsx (CORREGIDO Y FUNCIONAL)
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
@@ -322,11 +321,22 @@ function App() {
         if (!idToken || !accessToken) throw new Error("No tokens available");
 
         const attributes = idToken.payload;
-        const groups = accessToken.payload["cognito:groups"] || [];
+        // cuidar: los grupos pueden venir en idToken o accessToken según la configuración
+        const groups =
+          (accessToken.payload && accessToken.payload["cognito:groups"]) ||
+          (idToken.payload && idToken.payload["cognito:groups"]) ||
+          [];
 
         // Guardar tokens correctos en sessionStorage
         sessionStorage.setItem("id_token", idToken.jwtToken);
         sessionStorage.setItem("access_token", accessToken.jwtToken);
+
+        // DEBUG: revisar en consola los claims para validar dónde están los grupos
+        console.debug("checkAuthSession -> tokens payloads:", {
+          idTokenPayload: idToken.payload,
+          accessTokenPayload: accessToken.payload,
+          resolvedGroups: groups,
+        });
 
         setUser({ attributes, groups });
         setLoading(false);
@@ -336,7 +346,6 @@ function App() {
         try { sessionStorage.clear(); } catch (e) {}
 
         if (err?.message?.includes("UserNotConfirmedException")) {
-          // ajustar dominio en .env si procede
           window.location.href = `https://${import.meta.env.VITE_COGNITO_DOMAIN}/signup`;
           return;
         }
@@ -355,12 +364,31 @@ function App() {
     groups.includes("Participante") ? "participant" :
     "usuario";
 
+  const groupNameForRole = {
+    admin: "Administrador",
+    creador: "Creador",
+    participant: "Participante",
+  };
+
   const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     if (!user) return <Navigate to="/" replace />;
-    if (allowedRoles.length > 0 && !allowedRoles.includes(rol)) {
-      return <Navigate to="/" replace />;
-    }
-    return children;
+
+    if (allowedRoles.length === 0) return children;
+
+    // si cualquiera de los allowedRoles coincide con el rol derivado, permitir
+    if (allowedRoles.includes(rol)) return children;
+
+    // además comprobar los nombres reales de grupos Cognito
+    const userGroups = user?.groups || [];
+    const allowedGroupNames = allowedRoles
+      .map(r => groupNameForRole[r] || r) // mapear 'admin'->'Administrador', else asumir ya es nombre de grupo
+      .filter(Boolean);
+
+    const hasGroup = allowedGroupNames.some(g => userGroups.includes(g));
+    if (hasGroup) return children;
+
+    // no autorizado
+    return <Navigate to="/" replace />;
   };
 
   // apiFetch: wrapper simple para añadir Authorization y detectar 401
