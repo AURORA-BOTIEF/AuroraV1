@@ -1815,6 +1815,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
         closeLists();
 
+        // Close any unclosed table at the end
+        if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
+            out += '</tbody></table>';
+        }
+
         // Collapse adjacent empty paragraphs
         out = out.replace(/<p>\s*<\/p>/g, '');
 
@@ -2739,16 +2744,97 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     }
                     return children;
                 }
-                case 'ul':
-                    return Array.from(node.children)
-                        .map(li => `- ${convertNodeToMarkdown(li)}`)
-                        .join('') + '\n';
-                case 'ol':
-                    return Array.from(node.children)
-                        .map((li, idx) => `${idx + 1}. ${convertNodeToMarkdown(li)}`)
-                        .join('') + '\n';
-                case 'li': return `${children}\n`;
+                case 'ul': {
+                    // Filter to only actual li elements and skip empty ones
+                    const items = Array.from(node.children)
+                        .filter(li => li.tagName && li.tagName.toLowerCase() === 'li')
+                        .map(li => {
+                            const content = convertNodeToMarkdown(li).trim();
+                            return content ? `- ${content}` : null;
+                        })
+                        .filter(item => item !== null);
+                    return items.length > 0 ? items.join('\n') + '\n\n' : '';
+                }
+                case 'ol': {
+                    // Filter to only actual li elements and skip empty ones
+                    const items = Array.from(node.children)
+                        .filter(li => li.tagName && li.tagName.toLowerCase() === 'li')
+                        .map((li, idx) => {
+                            const content = convertNodeToMarkdown(li).trim();
+                            return content ? `${idx + 1}. ${content}` : null;
+                        })
+                        .filter(item => item !== null);
+                    return items.length > 0 ? items.join('\n') + '\n\n' : '';
+                }
+                case 'li': {
+                    // Return trimmed content, let parent ul/ol handle formatting
+                    return children.trim();
+                }
                 case 'blockquote': return `> ${children}\n\n`;
+                // Table handling - convert HTML tables to Markdown tables
+                case 'table': {
+                    const rows = [];
+                    const thead = node.querySelector('thead');
+                    const tbody = node.querySelector('tbody') || node;
+
+                    // Process header row
+                    if (thead) {
+                        const headerRow = thead.querySelector('tr');
+                        if (headerRow) {
+                            const headerCells = Array.from(headerRow.querySelectorAll('th, td'))
+                                .map(cell => convertNodeToMarkdown(cell).trim().replace(/\|/g, '\\|'));
+                            if (headerCells.length > 0) {
+                                rows.push('| ' + headerCells.join(' | ') + ' |');
+                                rows.push('|' + headerCells.map(() => '---').join('|') + '|');
+                            }
+                        }
+                    }
+
+                    // Process body rows
+                    const bodyRows = tbody.querySelectorAll('tr');
+                    let isFirstRow = !thead; // If no thead, first row becomes header
+                    bodyRows.forEach(tr => {
+                        // Skip if this is inside thead (already processed)
+                        if (thead && thead.contains(tr)) return;
+
+                        const cells = Array.from(tr.querySelectorAll('th, td'))
+                            .map(cell => convertNodeToMarkdown(cell).trim().replace(/\|/g, '\\|'));
+                        if (cells.length > 0) {
+                            rows.push('| ' + cells.join(' | ') + ' |');
+                            // Add separator after first row if no thead
+                            if (isFirstRow) {
+                                rows.push('|' + cells.map(() => '---').join('|') + '|');
+                                isFirstRow = false;
+                            }
+                        }
+                    });
+
+                    return rows.length > 0 ? '\n' + rows.join('\n') + '\n\n' : '';
+                }
+                case 'thead':
+                case 'tbody':
+                case 'tfoot':
+                    // These are handled by the table case
+                    return '';
+                case 'tr':
+                case 'th':
+                case 'td':
+                    // These are handled by the table case, but if encountered standalone, return content
+                    return children;
+                case 'code': {
+                    // Inline code
+                    const text = children.trim();
+                    if (text && !text.includes('\n')) {
+                        return `\`${text}\``;
+                    }
+                    return text;
+                }
+                case 'pre': {
+                    // Code block - extract content from nested code tag if present
+                    const codeTag = node.querySelector('code');
+                    const codeContent = codeTag ? (codeTag.textContent || '') : (node.textContent || '');
+                    return '\n```\n' + codeContent.trim() + '\n```\n\n';
+                }
                 case 'img': {
                     const src = node.src || '';
                     const alt = node.alt || 'image';

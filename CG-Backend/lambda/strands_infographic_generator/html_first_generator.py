@@ -35,6 +35,55 @@ from datetime import datetime
 logger = logging.getLogger("aurora.infographic_generator")
 
 
+def extract_tables_from_content(content: str) -> List[Dict]:
+    """
+    Extract markdown tables from lesson content.
+    Returns list of dicts with 'headers' and 'rows' for each table found.
+    """
+    tables = []
+    lines = content.split('\n')
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Check if this line looks like a table header (starts and ends with |)
+        if line.startswith('|') and line.endswith('|') and '|' in line[1:-1]:
+            # Potential table found - check for separator line next
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # Separator line has dashes and pipes: |---|---|
+                if next_line.startswith('|') and '---' in next_line:
+                    # This is a markdown table
+                    # Parse header row
+                    headers = [cell.strip() for cell in line.split('|')[1:-1]]
+                    
+                    # Skip separator line
+                    i += 2
+                    
+                    # Parse data rows
+                    rows = []
+                    while i < len(lines):
+                        row_line = lines[i].strip()
+                        if row_line.startswith('|') and row_line.endswith('|'):
+                            row_cells = [cell.strip() for cell in row_line.split('|')[1:-1]]
+                            if row_cells:
+                                rows.append(row_cells)
+                            i += 1
+                        else:
+                            break
+                    
+                    if headers and rows:
+                        tables.append({
+                            'headers': headers,
+                            'rows': rows
+                        })
+                    continue
+        i += 1
+    
+    return tables
+
+
 class HTMLSlideBuilder:
     """Builds HTML slides with real-time overflow detection."""
     
@@ -593,16 +642,28 @@ For each slide, calculate available space and fit content accordingly:
             "layout": "single-column" | "image-left" | "image-right" | "image-full" | "two-column",
             "bullets": ["Bullet 1", "Bullet 2", ...],  // As many as fit! Empty for image-full
             "image_reference": "06-01-0001",  // EXACT ID from AVAILABLE IMAGES list!
-            "callout": "Optional important note"
+            "callout": "Optional important note",
+            "table": {{  // OPTIONAL: Include when content has tabular data
+                "headers": ["Col1", "Col2", "Col3"],
+                "rows": [["R1C1", "R1C2", "R1C3"], ["R2C1", "R2C2", "R2C3"]]
+            }}
         }}
     ]
 }}
+
+📊 TABLE HANDLING (CRITICAL):
+- If TABLES FOUND section lists tables, you MUST include them as table objects
+- Tables are ~200px height (depends on rows) - calculate space accordingly
+- Use the EXACT headers and rows provided in TABLES FOUND section
+- Create dedicated slides for tables with appropriate titles
+- Do NOT convert tables to bullet points - preserve the tabular structure!
 
 🎯 YOUR MISSION:
 1. For each topic, CALCULATE max bullets: (460 or 520) - extras ÷ 50
 2. If topic has ≤ max bullets: Create ONE section with all bullets
 3. If topic has > max bullets: Split intelligently (e.g., 15 bullets, max 10 → two slides: 10 + 5)
 4. AVOID premature splitting: 5 bullets fitting in 10-bullet space = ONE slide, not multiple!
+5. INCLUDE ALL TABLES from TABLES FOUND section - do NOT skip them!
 """,
             tools=[]
         )
@@ -617,6 +678,35 @@ For each slide, calculate available space and fit content accordingly:
         
         image_info = "\n".join(image_info_list) if image_info_list else "  (none)"
         
+        # Extract tables from content
+        tables = extract_tables_from_content(lesson_content)
+        logger.info(f"📊 Found {len(tables)} tables in lesson content")
+        
+        # Build tables info for prompt
+        tables_info = ""
+        if tables:
+            tables_info_lines = [""]
+            for idx, table in enumerate(tables, 1):
+                headers = table.get('headers', [])
+                rows = table.get('rows', [])
+                tables_info_lines.append(f"TABLE {idx}:")
+                tables_info_lines.append(f"  Headers: {json.dumps(headers)}")
+                # Show first 3 rows as sample
+                sample_rows = rows[:3]
+                tables_info_lines.append(f"  Rows ({len(rows)} total): {json.dumps(sample_rows)}{'...' if len(rows) > 3 else ''}")
+                tables_info_lines.append("")
+            tables_info = "\n".join(tables_info_lines)
+        
+        # Build tables section for prompt
+        tables_prompt_section = ""
+        if tables:
+            tables_prompt_section = f"""
+TABLES FOUND IN CONTENT ({len(tables)}):
+{tables_info}
+⚠️ MANDATORY: You MUST create a section with "table" object for EACH table above!
+Use the EXACT headers and rows provided. Do NOT convert tables to bullets!
+"""
+        
         # Ask AI to structure content with HEIGHT AWARENESS
         prompt = f"""
 Create slide sections for this lesson using DYNAMIC SPACE CALCULATION.
@@ -628,7 +718,7 @@ CONTENT:
 
 AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
 {image_info}
-
+{tables_prompt_section}
 ⚠️ CRITICAL IMAGE INSTRUCTIONS:
 - Use the EXACT image ID from the list above (e.g., "06-01-0001", "04-01-0003")
 - DO NOT create descriptive names like "diagram" or "flow chart"
@@ -637,13 +727,14 @@ AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
 
 CRITICAL SPACE CALCULATION:
 - Available: 460px (with subtitle) or 520px (without)
-- Subtract extras: heading (-65px), image (-400px), callout (-75px)  
+- Subtract extras: heading (-65px), image (-400px), callout (-75px), table (-200px approx)
 - Formula: remaining_space ÷ 50px = MAX bullets per slide
 - **ONLY split if bullets > MAX**
 - Example: Topic has 6 bullets, MAX is 10 → Use ONE slide with 6 bullets (don't split!)
 - Example: Topic has 15 bullets, MAX is 10 → Use TWO slides (10 + 5 bullets)
 
 Create sections intelligently - combine related points up to the calculated MAX, split only when necessary.
+{"Include ALL tables from TABLES FOUND section as table objects in your output!" if tables else ""}
 """
         
         logger.info(f"🤖 AI Web Designer generating content sections...")
@@ -701,8 +792,9 @@ Create sections intelligently - combine related points up to the calculated MAX,
             bullets = section.get('bullets', [])
             image_ref = section.get('image_reference', '')
             callout = section.get('callout', '')
+            table_data = section.get('table', None)
             
-            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets, layout: {layout})")
+            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets, layout: {layout}, has_table: {table_data is not None})")
             
             # Start slide with AI-specified layout
             self.builder.start_slide(title, subtitle=subtitle, layout=layout)
@@ -729,6 +821,22 @@ Create sections intelligently - combine related points up to the calculated MAX,
                     })
                     # Still update height for tracking
                     self.builder.current_height += len(bullets) * self.builder.BULLET_HEIGHT + self.builder.SPACING
+            
+            # Add table if present
+            if table_data:
+                headers = table_data.get('headers', [])
+                rows = table_data.get('rows', [])
+                if headers and rows:
+                    logger.info(f"  📊 Adding table with {len(headers)} columns and {len(rows)} rows")
+                    self.builder.current_slide['content_blocks'].append({
+                        'type': 'table',
+                        'heading': '',
+                        'headers': headers,
+                        'rows': rows
+                    })
+                    # Estimate table height (header + rows)
+                    table_height = 50 + (len(rows) * 35)  # ~50px header, ~35px per row
+                    self.builder.current_height += table_height + self.builder.SPACING
             
             # Add callout if present
             if callout:
@@ -1273,6 +1381,37 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             /* Total height: ~75px minimum */
         }}
         
+        /* Tables */
+        .slide-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 16pt;
+        }}
+        
+        .slide-table th {{
+            background: {colors['primary']};
+            color: white;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            border: 1px solid {colors['secondary']};
+        }}
+        
+        .slide-table td {{
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            line-height: 1.3;
+        }}
+        
+        .slide-table tr:nth-child(even) {{
+            background: #f5f5f5;
+        }}
+        
+        .slide-table tr:hover {{
+            background: #eef4fa;
+        }}
+        
         /* Images */
         .slide-image {{
             max-width: 100%;
@@ -1712,6 +1851,38 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 elif block_type == 'callout':
                     text = block.get('text', '')
                     html_parts.append(f'    <div class="callout">{text}</div>')
+                
+                elif block_type == 'table':
+                    # Render table from headers and rows
+                    heading = block.get('heading', '')
+                    headers = block.get('headers', [])
+                    rows = block.get('rows', [])
+                    
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    
+                    html_parts.append('    <table class="slide-table">')
+                    
+                    # Table headers
+                    if headers:
+                        html_parts.append('      <thead>')
+                        html_parts.append('        <tr>')
+                        for header in headers:
+                            html_parts.append(f'          <th>{header}</th>')
+                        html_parts.append('        </tr>')
+                        html_parts.append('      </thead>')
+                    
+                    # Table body
+                    if rows:
+                        html_parts.append('      <tbody>')
+                        for row in rows:
+                            html_parts.append('        <tr>')
+                            for cell in row:
+                                html_parts.append(f'          <td>{cell}</td>')
+                            html_parts.append('        </tr>')
+                        html_parts.append('      </tbody>')
+                    
+                    html_parts.append('    </table>')
             
             html_parts.append('  </div>')
         
