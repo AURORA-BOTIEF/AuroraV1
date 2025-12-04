@@ -15,7 +15,9 @@
         "outline_s3_key.$": "$.outline_s3_key",
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
-        "image_model.$": "$.image_model"
+        "image_model.$": "$.image_model",
+        "lesson_to_generate": null,
+        "lesson_requirements": null
       },
       "Type": "Pass"
     },
@@ -176,17 +178,31 @@
       "Type": "Pass"
     },
     "CombineResultsAndBuildBook": {
-      "Comment": "Flatten results from all batches for BookBuilder",
+      "Comment": "Flatten results from all batches for BookBuilder (theory-only, no master_lab_plan)",
       "Next": "InvokeBookBuilder",
       "Parameters": {
         "all_image_mappings.$": "$.all_batches_results[*].image_mappings",
         "all_lesson_keys.$": "$.all_batches_results[*].lesson_keys[*]",
         "content_type.$": "$.content_type",
         "course_bucket.$": "$.course_bucket",
-        "master_lab_plan_result.$": "$.master_lab_plan_result",
         "model_provider.$": "$.model_provider",
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email"
+      },
+      "Type": "Pass"
+    },
+    "CombineResultsAndBuildBookBoth": {
+      "Comment": "Flatten results from all batches for BookBuilder (both mode, preserves master_lab_plan)",
+      "Next": "InvokeBookBuilder",
+      "Parameters": {
+        "all_image_mappings.$": "$.all_batches_results[*].image_mappings",
+        "all_lesson_keys.$": "$.all_batches_results[*].lesson_keys[*]",
+        "content_type.$": "$.content_type",
+        "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "master_lab_plan_result.$": "$.master_lab_plan_result"
       },
       "Type": "Pass"
     },
@@ -333,7 +349,9 @@
           "modules_to_generate.$": "$.modules_to_generate",
           "outline_s3_key.$": "$.outline_s3_key",
           "project_folder.$": "$.project_folder",
-          "image_model.$": "$.image_model"
+          "image_model.$": "$.image_model",
+          "lesson_to_generate.$": "$.lesson_to_generate",
+          "lesson_requirements.$": "$.lesson_requirements"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -401,14 +419,13 @@
       "Type": "Task"
     },
     "InvokeBookBuilder": {
-      "Comment": "Build final book with all modules",
+      "Comment": "Build final book with all modules (auto-discovers all lessons from S3)",
       "Next": "CheckIfLabsNeeded",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:crewai-course-generator-stack-BookBuilder-F8jUrBbphojQ",
         "Payload": {
           "course_bucket.$": "$.course_bucket",
           "image_mappings.$": "$.all_image_mappings",
-          "lesson_keys.$": "$.all_lesson_keys",
           "project_folder.$": "$.project_folder"
         }
       },
@@ -820,7 +837,7 @@
           }
         }
       },
-      "Next": "CombineResultsAndBuildBook",
+      "Next": "ChooseCombineResultsPath",
       "Parameters": {
         "batch_task.$": "$$.Map.Item.Value"
       },
@@ -835,6 +852,18 @@
         }
       ],
       "Type": "Map"
+    },
+    "ChooseCombineResultsPath": {
+      "Type": "Choice",
+      "Comment": "Route to appropriate Combine state based on content_type",
+      "Choices": [
+        {
+          "Variable": "$.content_type",
+          "StringEquals": "both",
+          "Next": "CombineResultsAndBuildBookBoth"
+        }
+      ],
+      "Default": "CombineResultsAndBuildBook"
     },
     "ProcessLabBatchesInParallel": {
       "Comment": "Process 2 lab batches concurrently",
@@ -1041,9 +1070,79 @@
       "Type": "Fail"
     },
     "TheoryOnlyBranch": {
-      "Comment": "Prepare input for batch expansion",
-      "Next": "ExpandModulesToBatches",
+      "Comment": "Prepare input for batch expansion - check if regeneration mode",
+      "Next": "CheckIfRegenerationMode",
       "Type": "Pass"
+    },
+    "CheckIfRegenerationMode": {
+      "Comment": "Route based on whether lesson_to_generate is present (regeneration vs new course)",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.lesson_to_generate",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lesson_to_generate",
+              "IsNull": false
+            }
+          ],
+          "Next": "CheckIfLessonRequirementsPresent",
+          "Comment": "Regeneration mode - lesson_to_generate is set"
+        }
+      ],
+      "Default": "PrepareNewCourseParams"
+    },
+    "CheckIfLessonRequirementsPresent": {
+      "Comment": "Check if lesson_requirements is present for regeneration",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.lesson_requirements",
+          "IsPresent": true,
+          "Next": "ExpandModulesToBatches",
+          "Comment": "lesson_requirements provided"
+        }
+      ],
+      "Default": "PrepareRegenerationParams"
+    },
+    "PrepareRegenerationParams": {
+      "Comment": "Set default for lesson_requirements in regeneration mode",
+      "Type": "Pass",
+      "Next": "ExpandModulesToBatches",
+      "Parameters": {
+        "content_source.$": "$.content_source",
+        "content_type.$": "$.content_type",
+        "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
+        "modules_to_generate.$": "$.modules_to_generate",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "image_model.$": "$.image_model",
+        "lesson_to_generate.$": "$.lesson_to_generate",
+        "lesson_requirements": null
+      }
+    },
+    "PrepareNewCourseParams": {
+      "Comment": "Set null defaults for new course generation (no specific lesson)",
+      "Type": "Pass",
+      "Next": "ExpandModulesToBatches",
+      "Parameters": {
+        "content_source.$": "$.content_source",
+        "content_type.$": "$.content_type",
+        "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
+        "modules_to_generate.$": "$.modules_to_generate",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "image_model.$": "$.image_model",
+        "lesson_to_generate": null,
+        "lesson_requirements": null
+      }
     }
   }
 }

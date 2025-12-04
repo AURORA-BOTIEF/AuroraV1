@@ -154,7 +154,8 @@ def generate_batch_single_call(
     course_data: dict,
     model_provider: str = 'bedrock',
     openai_api_key: Optional[str] = None,
-    starting_visual_number: int = 1
+    starting_visual_number: int = 1,
+    lesson_requirements: str = ''
 ) -> List[Dict[str, Any]]:
     """
     Generate a single batch of lessons (3 lessons max) in ONE LLM call.
@@ -204,6 +205,15 @@ def generate_batch_single_call(
     
     lessons_specification = "\n".join(lesson_specs)
     
+    # Build additional requirements section if provided
+    additional_requirements_section = ""
+    if lesson_requirements and lesson_requirements.strip():
+        additional_requirements_section = f"""
+ADDITIONAL REQUIREMENTS (USER-SPECIFIED):
+{lesson_requirements}
+Please incorporate these additional requirements into the lesson content.
+"""
+    
     # Build the prompt
     prompt = f"""You are an expert technical educator creating lesson content for a professional course.
 
@@ -216,7 +226,7 @@ Description: {module_description}
 
 LESSONS TO GENERATE:
 {lessons_specification}
-
+{additional_requirements_section}
 REQUIREMENTS:
 1. Generate EXACTLY {num_lessons} complete lesson(s)
 2. Each lesson must be comprehensive, detailed, and ready to teach
@@ -504,6 +514,11 @@ def lambda_handler(event, context):
         starting_visual_number = count_existing_visuals(course_bucket, project_folder) + 1
         print(f"✅ Starting visual number for this batch: {starting_visual_number:04d}")
         
+        # Get lesson requirements if provided
+        lesson_requirements = event.get('lesson_requirements', '')
+        if lesson_requirements:
+            print(f"📝 Additional lesson requirements: {lesson_requirements[:100]}...")
+        
         # GENERATE THIS BATCH
         print(f"\n{'='*70}")
         print(f"📚 GENERATING MODULE {module_num} - BATCH {batch_index}/{total_batches}")
@@ -517,7 +532,8 @@ def lambda_handler(event, context):
             course_data={'title': course_info.get('title', 'Course'), 'modules': modules},
             model_provider=model_provider,
             openai_api_key=openai_api_key,
-            starting_visual_number=starting_visual_number
+            starting_visual_number=starting_visual_number,
+            lesson_requirements=lesson_requirements
         )
         
         # Save lessons to S3

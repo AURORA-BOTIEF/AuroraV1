@@ -536,8 +536,23 @@ IMPORTANT: Use the delimiter format exactly as shown. Do NOT use JSON format.
                     labs_dict[lab_id] = markdown
                     print(f"  ✓ Lab {lab_id}: {len(markdown)} characters (from JSON)")
             except Exception as fallback_error:
-                print(f"❌ Fallback JSON parsing also failed: {fallback_error}")
-                raise ValueError("Could not parse labs from AI response in any format")
+                print(f"⚠️  Fallback JSON parsing also failed: {fallback_error}")
+                
+                # Third fallback: If only ONE lab requested and response looks like markdown, use it directly
+                if len(lab_plans) == 1:
+                    print("🔄 Trying raw markdown fallback for single lab...")
+                    raw_response = response_text if 'response_text' in dir() else ""
+                    # Check if the response looks like valid markdown (starts with # or has markdown patterns)
+                    if raw_response and (raw_response.strip().startswith('#') or 
+                                        raw_response.strip().startswith('```') or
+                                        '##' in raw_response[:500]):
+                        lab_id = lab_plans[0]['lab_id']
+                        labs_dict[lab_id] = raw_response.strip()
+                        print(f"  ✓ Lab {lab_id}: {len(raw_response)} characters (from raw markdown)")
+                    else:
+                        raise ValueError("Could not parse labs from AI response in any format")
+                else:
+                    raise ValueError("Could not parse labs from AI response in any format")
         
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict

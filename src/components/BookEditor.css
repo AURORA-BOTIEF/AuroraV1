@@ -1162,6 +1162,24 @@
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
 }
 
+.btn-regenerate-lesson {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.btn-regenerate-lesson:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.5);
+}
+
 .btn-refresh-labs {
     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     color: white;
