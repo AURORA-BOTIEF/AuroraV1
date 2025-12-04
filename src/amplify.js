@@ -1,6 +1,8 @@
 // src/amplify.js
-import { Amplify } from 'aws-amplify';
+import { Amplify, Logger } from 'aws-amplify';
 
+// solo INFO en dev, ERROR en prod
+Logger.LOG_LEVEL = import.meta.env.DEV ? 'INFO' : 'ERROR';
 /**
  * AWS Amplify v6 Configuration
  * Uses environment variables:
@@ -43,17 +45,21 @@ if (!userPoolId) {
 }
 
 if (missing.length) {
-  console.error('[Amplify] Missing required VITE_ variables:', missing);
+  if (import.meta.env.DEV) {
+    console.error('[Amplify] Missing required VITE_ variables:', missing);
+  }
 } else {
-  console.log('[Amplify] Configuring with:', {
-    region,
-    userPoolId,
-    identityPoolId: identityPoolId || '(not set)',
-    apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
-    httpApi: import.meta.env.VITE_HTTP_API_URL || "(not set)"
-  });
+  if (import.meta.env.DEV) {
+    console.log('[Amplify] Configuring with:', {
+      region,
+      userPoolId: userPoolId ? '***' : '(missing)',
+      identityPoolId: identityPoolId ? '***' : '(not set)',
+      apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL ? '***' : '(default)',
+      httpApi: import.meta.env.VITE_HTTP_API_URL ? '***' : '(not set)',
+    });
+  }
 
-  // === ✅ AWS Amplify v6 configuration ===
+    // === ✅ AWS Amplify v6 configuration ===
   Amplify.configure({
     Auth: {
       Cognito: {

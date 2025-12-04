@@ -338,14 +338,32 @@ function App() {
           resolvedGroups: groups,
         });
 
+        // DEBUG: solo mostrar grupos en desarrollo
+        if (import.meta.env.DEV) {
+          try {
+            const groupsForDebug =
+              (accessToken?.payload && accessToken.payload["cognito:groups"]) ||
+              (idToken?.payload && idToken.payload["cognito:groups"]) ||
+              [];
+            console.debug("Grupos Cognito (DEV):", groupsForDebug);
+          } catch (e) {
+            // no bloquear producción si algo falla
+          }
+        }
+
         setUser({ attributes, groups });
         setLoading(false);
       })
       .catch((err) => {
-        console.warn("checkAuthSession error:", err);
-        try { sessionStorage.clear(); } catch (e) {}
+        // Caso típico: usuario aún no ha iniciado sesión
+        if (err?.message === 'No tokens available') {
+          console.log('No hay sesión activa todavía, mostrando pantalla de login.');
+        } else {
+          console.warn('checkAuthSession error:', err);
+          try { sessionStorage.clear(); } catch (e) {}
+        }
 
-        if (err?.message?.includes("UserNotConfirmedException")) {
+        if (err?.message?.includes('UserNotConfirmedException')) {
           window.location.href = `https://${import.meta.env.VITE_COGNITO_DOMAIN}/signup`;
           return;
         }
@@ -353,16 +371,22 @@ function App() {
         setUser(null);
         setLoading(false);
       });
+
   };
 
   const email = user?.attributes?.email || '';
-  const groups = user?.groups || [];
+  // raw groups from Cognito (may be undefined)
+  const rawGroups = user?.groups || [];
 
+  // normalizar nombres de grupo para comparaciones robustas
+  const groups = Array.isArray(rawGroups) ? rawGroups.map(g => String(g || '').toLowerCase().trim()) : [];
+
+  // rol derivado (prioridad: admin > creador > participante)
   const rol =
-    groups.includes("Administrador") ? "admin" :
-    groups.includes("Creador") ? "creador" :
-    groups.includes("Participante") ? "participant" :
-    "usuario";
+    groups.includes('administrador') || groups.includes('admin') ? 'admin' :
+    groups.includes('creador') ? 'creador' :
+    groups.includes('participante') ? 'participant' :
+    'usuario';
 
   const groupNameForRole = {
     admin: "Administrador",
@@ -375,19 +399,20 @@ function App() {
 
     if (allowedRoles.length === 0) return children;
 
-    // si cualquiera de los allowedRoles coincide con el rol derivado, permitir
+    // permiso por rol derivado
     if (allowedRoles.includes(rol)) return children;
 
-    // además comprobar los nombres reales de grupos Cognito
-    const userGroups = user?.groups || [];
-    const allowedGroupNames = allowedRoles
-      .map(r => groupNameForRole[r] || r) // mapear 'admin'->'Administrador', else asumir ya es nombre de grupo
-      .filter(Boolean);
+    // comprobar grupos Cognito normalizados
+    const userGroupsNormalized = (user?.groups || []).map(g => String(g || '').toLowerCase().trim());
 
-    const hasGroup = allowedGroupNames.some(g => userGroups.includes(g));
+    const allowedGroupNamesNormalized = allowedRoles
+      .map(r => (groupNameForRole[r] || r))
+      .filter(Boolean)
+      .map(g => String(g).toLowerCase().trim());
+
+    const hasGroup = allowedGroupNamesNormalized.some(g => userGroupsNormalized.includes(g));
     if (hasGroup) return children;
 
-    // no autorizado
     return <Navigate to="/" replace />;
   };
 
