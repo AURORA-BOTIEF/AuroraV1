@@ -1,18 +1,24 @@
+// src/utils/auth.js
 export function isAdmin(session) {
   if (!session) return false;
 
-  const groups =
-    session?.tokens?.idToken?.payload?.["cognito:groups"] ??
-    session?.tokens?.accessToken?.payload?.["cognito:groups"] ??
-    [];
+  const idGroups = session?.tokens?.idToken?.payload?.['cognito:groups'] ?? [];
+  const accessGroups = session?.tokens?.accessToken?.payload?.['cognito:groups'] ?? [];
+
+  // preferir idToken groups si existen, si no tomar accessToken
+  const groups = Array.isArray(idGroups) && idGroups.length ? idGroups
+               : Array.isArray(accessGroups) && accessGroups.length ? accessGroups
+               : [];
 
   if (!Array.isArray(groups)) return false;
 
-  const norm = new Set(groups.map((g) => String(g || "").toLowerCase().trim()));
+  const norm = groups.map(g => String(g || '').toLowerCase().trim());
 
-  return norm.has("admin") || norm.has("administrador");
+  // lista de alias aceptados para rol admin (añade variantes si es necesario)
+  const adminAliases = new Set(['admin', 'administrador', 'administradores']);
+
+  return norm.some(g => adminAliases.has(g));
 }
-
 
 // src/utils/authSafe.js
 import { fetchAuthSession } from "aws-amplify/auth";
