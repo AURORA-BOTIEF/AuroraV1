@@ -57,7 +57,7 @@ function EditorSeminarioPage() {
   const { cursoId, versionId } = useParams();
 
   const onSave = async (contenido, nota) => {
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
     const res = await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario",
       {
@@ -94,7 +94,7 @@ function EditorPracticoPage() {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const token = localStorage.getItem("id_token");
+        const token = sessionStorage.getItem("id_token");
         const res = await fetch(
           "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/get",
           {
@@ -121,7 +121,7 @@ function EditorPracticoPage() {
   }, [cursoId, versionId]);
 
   const onSave = async (contenido, nota) => {
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
     const res = await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
       {
@@ -159,7 +159,7 @@ function EditorKNTRPage() {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const token = localStorage.getItem("id_token");
+        const token = sessionStorage.getItem("id_token");
         const res = await fetch(
           "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR/get",
           {
@@ -186,7 +186,7 @@ function EditorKNTRPage() {
   }, [cursoId, versionId]);
 
   const onSave = async (contenido, nota) => {
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
     await fetch(
       "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR",
       {
@@ -236,15 +236,19 @@ const Layout = ({ children, email, role }) => {
       </main>
 
       {!isFullScreenMode && (
-        <button id="logout" onClick={async () => {
-          try {
-            await signOut({ global: true });
-          } catch (err) {
-            console.error('Logout error:', err);
-            localStorage.clear();
-            window.location.href = '/';
-          }
-        }}>
+        <button
+          id="logout"
+          onClick={async () => {
+            try {
+              try { sessionStorage.clear(); } catch (e) {}
+              await signOut({ global: true });
+              window.location.href = "/";
+            } catch (err) {
+              console.error("Logout error:", err);
+              window.location.href = "/";
+            }
+          }}
+        >
           Cerrar sesión
         </button>
       )}
@@ -260,34 +264,53 @@ const Layout = ({ children, email, role }) => {
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
+  const [loginError, setLoginError] = useState(null);
+  // ======== Autenticación Amplify ========
+  useEffect(() => {
 
-// ======== Autenticación Amplify ========
-useEffect(() => {
+    const hubListener = Hub.listen('auth', ({ payload, source }) => {
+      if (source !== 'auth') return;
+      console.log("Auth Event:", payload.event);
 
-  const hubListener = Hub.listen('auth', ({ payload }) => {
-    console.log("Auth Event:", payload.event);
+      if (payload.event === 'signedIn') {
+        if (window.location.search.includes("code=")) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        checkAuthSession();
+      }
 
-    if (payload.event === 'signedIn') {
-      // OAuth COMPLETÓ correctamente → ahora SÍ se puede limpiar el code
-      window.history.replaceState({}, document.title, window.location.pathname);
-      checkAuthSession();
-    }
+      if (payload.event === 'tokenRefresh') {
+        checkAuthSession();
+      }
 
-    if (payload.event === 'tokenRefresh') {
-      checkAuthSession();
-    }
+      if (payload.event === 'signedOut') {
+        setUser(null);
+        setLoading(false);
+      }
+    });
 
-    if (payload.event === 'signedOut') {
-      setUser(null);
-      setLoading(false);
-    }
-  });
+    const bc = new BroadcastChannel('auth');
+    bc.onmessage = (ev) => {
+      if (ev.data === 'signedOut') {
+        setUser(null);
+        setLoading(false);
+      }
+      if (ev.data === 'signedIn') {
+        checkAuthSession();
+      }
+    };
 
-  // NO limpiar aquí el code (esto causaba inestabilidad)
-  checkAuthSession();
+    // NO limpiar aquí el code (esto causaba inestabilidad)
+    checkAuthSession();
 
-  return () => hubListener();
-}, []);
+    return () => { 
+      hubListener(); 
+      bc.close(); 
+    };
+
+    
+  }, []);
 
 
   const checkAuthSession = () => {
@@ -296,18 +319,28 @@ useEffect(() => {
         const idToken = session.tokens?.idToken;
         const accessToken = session.tokens?.accessToken;
 
-        if (!idToken || !accessToken) throw new Error('No tokens available');
+        if (!idToken || !accessToken) throw new Error("No tokens available");
 
         const attributes = idToken.payload;
-        const groups = accessToken.payload['cognito:groups'] || [];
+        const groups = accessToken.payload["cognito:groups"] || [];
 
-        localStorage.setItem('id_token', idToken.toString());
-        localStorage.setItem('access_token', accessToken.toString());
+        // Guardar tokens correctos en sessionStorage
+        sessionStorage.setItem("id_token", idToken.jwtToken);
+        sessionStorage.setItem("access_token", accessToken.jwtToken);
 
         setUser({ attributes, groups });
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.warn("checkAuthSession error:", err);
+        try { sessionStorage.clear(); } catch (e) {}
+
+        if (err?.message?.includes("UserNotConfirmedException")) {
+          // ajustar dominio en .env si procede
+          window.location.href = `https://${import.meta.env.VITE_COGNITO_DOMAIN}/signup`;
+          return;
+        }
+
         setUser(null);
         setLoading(false);
       });
@@ -315,13 +348,38 @@ useEffect(() => {
 
   const email = user?.attributes?.email || '';
   const groups = user?.groups || [];
-  let rol = '';
 
-  if (groups.includes('Administrador')) rol = 'admin';
-  else if (groups.includes('Creador')) rol = 'creador';
-  else if (groups.includes('Participante')) rol = 'participant';
+  const rol =
+    groups.includes("Administrador") ? "admin" :
+    groups.includes("Creador") ? "creador" :
+    groups.includes("Participante") ? "participant" :
+    "usuario";
 
-  if (loading) return <div>Loading...</div>;
+  const ProtectedRoute = ({ children, allowedRoles = [] }) => {
+    if (!user) return <Navigate to="/" replace />;
+    if (allowedRoles.length > 0 && !allowedRoles.includes(rol)) {
+      return <Navigate to="/" replace />;
+    }
+    return children;
+  };
+
+  // apiFetch: wrapper simple para añadir Authorization y detectar 401
+  const apiFetch = async (url, opts = {}) => {
+    const token = sessionStorage.getItem('id_token');
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(url, { ...opts, headers });
+    if (res.status === 401) {
+      try { sessionStorage.clear(); } catch(e) {}
+      setUser(null);
+      window.location.href = '/';
+      throw new Error('Unauthorized');
+    }
+    return res;
+  };
+
+  if (loading) return <div>Cargando...</div>;
 
   // ==================================================================
   // ========================= RUTAS CORREGIDAS ========================
@@ -344,10 +402,23 @@ useEffect(() => {
 
               <button
                 className="login-button"
-                onClick={() => signInWithRedirect({ provider: 'Cognito' })}
+                onClick={async () => {
+                  try {
+                    setSigningIn(true);
+                    setLoginError(null);
+                    await signInWithRedirect(); // Hosted UI + PKCE correcto
+                  } catch (err) {
+                    console.error("Error al iniciar sesión:", err);
+                    setSigningIn(false);
+                    setLoginError("No se pudo iniciar sesión. Intenta nuevamente.");
+                  }
+                }}
+                disabled={signingIn}
               >
-                🚀 Comenzar Ahora
+                {signingIn ? "Iniciando…" : "🚀 Comenzar Ahora"}
               </button>
+
+              {loginError && <div className="login-error-banner">{loginError}</div>}
 
               <div className="country-flags">
                 <a href="https://www.netec.com/cursos-ti-chile" target="_blank">
@@ -374,18 +445,31 @@ useEffect(() => {
         <Router>
           <Layout email={email} role={rol}>
             <Routes>
-
-              {/* === RUTAS DEL SIDEBAR → YA NO SE PASMAN === */}
+              {/* rutas públicas para usuarios autenticados */}
               <Route path="/" element={<Home />} />
               <Route path="/resumenes" element={<ResumenesPage />} />
               <Route path="/actividades" element={<ActividadesPage />} />
               <Route path="/examenes" element={<ExamenesPage />} />
 
-              {/* === ADMIN === */}
-              <Route path="/admin" element={<AdminPage />} />
+              {/* ADMIN */}
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <AdminPage />
+                  </ProtectedRoute>
+                }
+              />
 
-              {/* === GENERADOR DE CONTENIDOS === */}
-              <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
+              {/* GENERADOR DE CONTENIDOS -> admin/creador */}
+              <Route
+                path="/generador-contenidos"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'creador']}>
+                    <GeneradorContenidosPage />
+                  </ProtectedRoute>
+                }
+              >
                 <Route path="curso-estandar" element={<GeneradorTemarios />} />
                 <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
                 <Route path="Temario-seminarios" element={<GeneradorTemarios_Seminarios />} />
@@ -396,21 +480,22 @@ useEffect(() => {
                 <Route path="faq" element={<FAQ />} />
               </Route>
 
-              {/* === PRESENTACIONES === */}
-              <Route path="/presentaciones" element={<PresentacionesPage />} />
-              <Route path="/presentaciones/viewer/:folder" element={<InfographicViewer />} />
-              <Route path="/presentaciones/editor/:folder" element={<InfographicEditor />} />
+              {/* PRESENTACIONES -> accesible a todos autenticados */}
+              <Route path="/presentaciones" element={<ProtectedRoute><PresentacionesPage /></ProtectedRoute>} />
+              <Route path="/presentaciones/viewer/:folder" element={<ProtectedRoute><InfographicViewer /></ProtectedRoute>} />
+              <Route path="/presentaciones/editor/:folder" element={<ProtectedRoute allowedRoles={['admin','creador']}><InfographicEditor /></ProtectedRoute>} />
 
-              {/* === EDITORES EXTERNOS === */}
-              <Route path="/editor-seminario/:cursoId/:versionId" element={<EditorSeminarioPage />} />
-              <Route path="/editor-temario/:cursoId/:versionId" element={<EditorTemarioPage />} />
-              <Route path="/editor-practico/:cursoId/:versionId" element={<EditorPracticoPage />} />
-              <Route path="/editor-KNTR/:cursoId/:versionId" element={<EditorKNTRPage />} />
-              <Route path="/book-editor/:projectFolder" element={<BookEditorPage />} />
+              {/* EDITORES EXTERNOS -> admin/creador */}
+              <Route path="/editor-seminario/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin','creador']}><EditorSeminarioPage /></ProtectedRoute>} />
+              <Route path="/editor-temario/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin','creador']}><EditorTemarioPage /></ProtectedRoute>} />
+              <Route path="/editor-practico/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin','creador']}><EditorPracticoPage /></ProtectedRoute>} />
+              <Route path="/editor-KNTR/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin','creador']}><EditorKNTRPage /></ProtectedRoute>} />
 
-              {/* === FALLBACK === */}
+              {/* BOOK EDITOR -> creador/admin */}
+              <Route path="/book-editor/:projectFolder" element={<ProtectedRoute allowedRoles={['admin','creador']}><BookEditorPage /></ProtectedRoute>} />
+
+              {/* FALLBACK */}
               <Route path="*" element={<Navigate to="/" replace />} />
-
             </Routes>
           </Layout>
         </Router>

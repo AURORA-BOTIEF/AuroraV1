@@ -127,7 +127,7 @@ function GeneradorTemarios() {
 
       console.log("Enviando payload:", payload);
 
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       
       // --- AJUSTE API: Se usa tu 'generarApiUrl' ---
       const response = await fetch(
@@ -172,7 +172,7 @@ function GeneradorTemarios() {
 
  const handleGuardarVersion = async (temarioParaGuardar, nota) => {
   try {
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
 
     const bodyData = {
       contenido: temarioParaGuardar,
@@ -218,7 +218,7 @@ function GeneradorTemarios() {
 
   const handleListarVersiones = async () => {
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       
       // --- AJUSTE API: Se usa tu 'guardarApiUrl' con método GET ---
       const res = await fetch(
@@ -282,7 +282,7 @@ const handleExportarPDF = async (version) => {
     setIsLoading(true);
     setError("");
 
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
 
     // 🔹 Construye la URL con los parámetros esperados por tu Lambda
     const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(

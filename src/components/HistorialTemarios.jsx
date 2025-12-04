@@ -30,9 +30,9 @@ export default function HistorialTemarios({ cursoId, onPickVersion }) {
   const authHeader = useMemo(() => {
     try {
       const token =
-        localStorage.getItem("id_token") ||
-        localStorage.getItem("access_token") ||
-        localStorage.getItem("jwtToken") ||
+        sessionStorage.getItem("id_token") ||
+        sessionStorage.getItem("access_token") ||
+        sessionStorage.getItem("jwtToken") ||
         "";
       return token ? { Authorization: `Bearer ${token}` } : {};
     } catch {

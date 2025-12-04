@@ -42,7 +42,7 @@ function EditorTemarioPracticoPage() {
 
   const onSave = async (contenido, nota) => {
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       const res = await fetch(
         "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
         {
@@ -75,7 +75,7 @@ function EditorTemarioPracticoPage() {
     const fetchVersion = async () => {
       try {
         setIsLoading(true);
-        const token = localStorage.getItem("id_token");
+        const token = sessionStorage.getItem("id_token");
 
         // ⚠️ El filtro por id puede ser sensible a may/minus.
         // Si no devuelve nada, quita el query y filtra por versionId en cliente.
