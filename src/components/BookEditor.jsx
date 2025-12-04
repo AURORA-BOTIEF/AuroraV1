@@ -7,6 +7,7 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import { load as loadYaml } from 'js-yaml';
 import jsPDF from 'jspdf';
 import RegenerateLab from './RegenerateLab';
+import RegenerateLesson from './RegenerateLesson';
 import './BookEditor.css';
 
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
@@ -52,6 +53,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [downloadingPDF, setDownloadingPDF] = useState(false);
     const [showRegenerateLabModal, setShowRegenerateLabModal] = useState(false);
+    const [showRegenerateLessonModal, setShowRegenerateLessonModal] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Download book or lab guide as PDF with logo and footer
@@ -486,9 +488,19 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             };
         }
 
-        // PRIORITY 2: Try to extract from filename (e.g., "lesson_01-01.md" or "01-01-lesson.md")
+        // PRIORITY 2: Try to extract from filename (e.g., "lesson_01-01.md" or "module-1-lesson-2-title.md")
         if (lesson.filename) {
-            const match = lesson.filename.match(/(\d+)-(\d+)/);
+            // First try the standard pattern: digits-digits (e.g., "01-02")
+            let match = lesson.filename.match(/(\d+)-(\d+)/);
+            if (match) {
+                return {
+                    moduleNumber: parseInt(match[1]),
+                    lessonNumber: parseInt(match[2])
+                };
+            }
+
+            // Try alternative pattern: module-N-lesson-M (e.g., "module-2-lesson-1-title.md")
+            match = lesson.filename.match(/module[_-]?(\d+)[_-]?lesson[_-]?(\d+)/i);
             if (match) {
                 return {
                     moduleNumber: parseInt(match[1]),
@@ -658,6 +670,42 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
             const data = await response.json();
 
+            // Fetch outline key for regeneration feature
+            let outlineKey = null;
+            try {
+                const session = await fetchAuthSession();
+                if (session?.credentials) {
+                    const s3 = new S3Client({
+                        region: AWS_REGION,
+                        credentials: session.credentials,
+                    });
+                    const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                    const outlinePrefix = `${projectFolder}/outline/`;
+
+                    const outlineResponse = await s3.send(new ListObjectsV2Command({
+                        Bucket: bucketName,
+                        Prefix: outlinePrefix,
+                        MaxKeys: 10
+                    }));
+
+                    if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                        // Prioritize YAML over JSON
+                        let outlineFile = outlineResponse.Contents.find(obj =>
+                            obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                        );
+                        if (!outlineFile) {
+                            outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                        }
+                        if (outlineFile) {
+                            outlineKey = outlineFile.Key;
+                            console.log('Found outline key for regeneration:', outlineKey);
+                        }
+                    }
+                }
+            } catch (outlineErr) {
+                console.warn('Could not fetch outline key:', outlineErr);
+            }
+
             console.log('=== Book Data Response ===');
             console.log('Keys:', Object.keys(data));
             console.log('Has bookData:', !!data.bookData);
@@ -723,7 +771,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 // Ensure lessons is an array
                 if (data.bookData.lessons && Array.isArray(data.bookData.lessons)) {
                     // Set book data immediately WITHOUT waiting for images
-                    bookToSet = data.bookData;
+                    bookToSet = { ...data.bookData, outlineKey }; // Include outlineKey for regeneration
                     setBookData(bookToSet);
                     setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
                     setLoading(false); // Show UI immediately
@@ -764,7 +812,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             } else if (data.bookContent) {
                 // Parse book content immediately without waiting for images
                 console.log('Parsing book content (images will load in background)...');
-                const parsedBook = parseMarkdownToBook(data.bookContent);
+                const parsedBook = { ...parseMarkdownToBook(data.bookContent), outlineKey };
 
                 // Set book data immediately for fast UI display
                 setBookData(parsedBook);
@@ -774,7 +822,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 // Load images in the background
                 console.log('Loading images from S3 in background...');
                 replaceS3UrlsWithDataUrls(data.bookContent).then(contentWithImages => {
-                    const parsedBookWithImages = parseMarkdownToBook(contentWithImages);
+                    const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
                     setBookData(parsedBookWithImages);
                     setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
                     console.log('Images loaded successfully');
@@ -804,7 +852,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 for (let lesson of fetchedJson.lessons) {
                     if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
                 }
-                bookToSet = fetchedJson;
+                bookToSet = { ...fetchedJson, outlineKey };
             } else if (data.bookMdUrl) {
                 // Fetch markdown via presigned URL and parse
                 console.log('Fetching book markdown from presigned URL...');
@@ -813,7 +861,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 const markdown = await mdResp.text();
 
                 // Parse immediately without waiting for images
-                const parsedBook = parseMarkdownToBook(markdown);
+                const parsedBook = { ...parseMarkdownToBook(markdown), outlineKey };
                 setBookData(parsedBook);
                 setOriginalBookData(JSON.parse(JSON.stringify(parsedBook)));
                 setLoadingImages(false);
@@ -821,7 +869,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 // Load images in background
                 console.log('Loading images from S3 in background...');
                 replaceS3UrlsWithDataUrls(markdown).then(contentWithImages => {
-                    const parsedBookWithImages = parseMarkdownToBook(contentWithImages);
+                    const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
                     setBookData(parsedBookWithImages);
                     setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
                     console.log('Images loaded successfully');
@@ -1175,29 +1223,55 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             .trim();
 
         // Helper to find best matching header
-        const findHeader = (title, startLine = 0) => {
+        // moduleNum is optional - if provided, prioritize headers that match the module number
+        const findHeader = (title, startLine = 0, moduleNum = null) => {
             if (!title) return null;
             const normTitle = normalize(title);
+
+            // NEW: If moduleNum is provided, first try to find a header with matching Lab ID prefix
+            // Lab ID format: "Lab MM-00-NN: Title" where MM is the module number
+            // After normalization, dashes become spaces: "lab 05 00 01 title"
+            if (moduleNum !== null) {
+                const modulePrefix = String(moduleNum).padStart(2, '0');
+                // Pattern matches normalized format: "lab 05 00 01" (dashes become spaces after normalize)
+                const labIdPattern = new RegExp(`^lab\\s+${modulePrefix}\\s+\\d+\\s+\\d+`, 'i');
+
+                // Look for a header that matches the lab ID pattern AND contains the title
+                const labMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+                    // Check if header starts with the right lab ID pattern (e.g., "lab 05 00 01")
+                    if (labIdPattern.test(normH)) {
+                        // Check if the rest of the header contains key words from the title
+                        return normH.includes(normTitle) || normTitle.split(' ').filter(t => t.length > 3).some(word => normH.includes(word));
+                    }
+                    return false;
+                });
+                if (labMatch) {
+                    console.log(`  Found lab by module-specific ID: "${labMatch.title}" for module ${moduleNum}`);
+                    return labMatch;
+                }
+            }
 
             // 1. Exact match (case insensitive, normalized)
             let match = headers.find(h => h.lineIndex >= startLine && normalize(h.title) === normTitle);
             if (match) return match;
 
-            // 2. Try "Module X" / "Módulo X" match for modules
-            // Matches "Module 1", "Módulo 1", "Module 01", etc.
-            const modMatch = title.match(/(?:Module|Módulo)\s+(\d+)/i);
+            // 2. Try "Module X" / "Módulo X" / "Capítulo X" match for modules
+            // Matches "Module 1", "Módulo 1", "Capítulo 1", "Module 01", etc.
+            const modMatch = title.match(/(?:Module|Módulo|Capitulo|Capítulo)\s+(\d+)/i);
             if (modMatch) {
                 const modNumber = modMatch[1];
-                // Look for header containing "Module <num>" or "Modulo <num>"
+                // Look for header containing "Module <num>" or "Modulo <num>" or "Capitulo <num>"
                 // We use word boundaries or just simple inclusion?
                 // "module 1" should match "module 1" or "module 01"
                 // Let's try simple inclusion of the number
                 match = headers.find(h => {
                     if (h.lineIndex < startLine) return false;
                     const normH = normalize(h.title);
-                    // Check for "module <num>" or "modulo <num>"
-                    if (normH.includes(`module ${modNumber}`) || normH.includes(`modulo ${modNumber}`)) return true;
-                    if (normH.includes(`module 0${modNumber}`) || normH.includes(`modulo 0${modNumber}`)) return true;
+                    // Check for "module <num>" or "modulo <num>" or "capitulo <num>"
+                    if (normH.includes(`module ${modNumber}`) || normH.includes(`modulo ${modNumber}`) || normH.includes(`capitulo ${modNumber}`)) return true;
+                    if (normH.includes(`module 0${modNumber}`) || normH.includes(`modulo 0${modNumber}`) || normH.includes(`capitulo 0${modNumber}`)) return true;
                     return false;
                 });
                 if (match) return match;
@@ -1214,11 +1288,22 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             // 5. Token Overlap Match (Bag of words)
             // Handles cases like "Inter-VLAN routing..." vs "Enrutamiento Inter-VLAN..."
             // where words are translated or reordered but key terms (Packet Tracer, Router-on-a-stick) remain.
+            // IMPORTANT: Skip "Lab X: ..." headers when moduleNum is null (searching for module headers)
+            // to prevent matching lab content headers when looking for module section headers.
             const titleTokens = normTitle.split(' ').filter(t => t.length > 2); // Filter short words
             if (titleTokens.length > 0) {
                 match = headers.find(h => {
                     if (h.lineIndex < startLine) return false;
-                    const headerTokens = normalize(h.title).split(' ');
+                    const normH = normalize(h.title);
+
+                    // When moduleNum is null (searching for module headers, not lab headers),
+                    // skip headers that look like lab content (e.g., "Lab 1: ...", "Lab 07-00-01: ...")
+                    // This prevents module header search from accidentally matching lab headers
+                    if (moduleNum === null && /^lab\s+\d/.test(normH)) {
+                        return false;
+                    }
+
+                    const headerTokens = normH.split(' ');
 
                     // Count how many title tokens exist in header
                     let matches = 0;
@@ -1314,12 +1399,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             }
 
             moduleItems.forEach((item, idx) => {
+                // Pass module number (modIdx + 1) to help match lab headers with Lab ID prefix
+                const currentModuleNum = modIdx + 1;
+
                 // 1. Try to find header within module boundaries (or after previous lesson)
-                let header = findHeader(item.title, Math.max(moduleStartLine, lastLineIndex));
+                let header = findHeader(item.title, Math.max(moduleStartLine, lastLineIndex), currentModuleNum);
 
                 // 2. Fallback: Global search if not found in expected location
                 if (!header) {
-                    const globalHeader = findHeader(item.title, 0);
+                    const globalHeader = findHeader(item.title, 0, currentModuleNum);
                     if (globalHeader && !usedHeaders.has(globalHeader.lineIndex)) {
                         console.log(`  Found "${item.title}" globally at line ${globalHeader.lineIndex} (outside expected module range)`);
                         header = globalHeader;
@@ -3159,6 +3247,29 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     >
                         📊 Generar PPT
                     </button>
+                    {viewMode === 'book' && (
+                        <>
+                            <button
+                                className="btn-refresh-labs"
+                                onClick={async () => {
+                                    setLoadingImages(true);
+                                    await loadBook();
+                                    setLoadingImages(false);
+                                }}
+                                disabled={loadingImages}
+                                title="Recargar lecciones desde S3"
+                            >
+                                {loadingImages ? '⏳ Recargando...' : '🔄 Recargar Lecciones'}
+                            </button>
+                            <button
+                                className="btn-regenerate-lesson"
+                                onClick={() => setShowRegenerateLessonModal(true)}
+                                title="Regenerar esta lección con nuevos requisitos"
+                            >
+                                📖 Regenerar Lección
+                            </button>
+                        </>
+                    )}
                     {viewMode === 'lab' && (
                         <>
                             <button
@@ -3484,6 +3595,40 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     }}
                 />
             )}
+
+            {/* Regenerate Lesson Modal */}
+            {showRegenerateLessonModal && viewMode === 'book' && bookData && (() => {
+                const currentLesson = bookData.lessons?.[currentLessonIndex];
+                const moduleInfo = currentLesson ? extractModuleInfo(currentLesson, currentLessonIndex) : { moduleNumber: 1, lessonNumber: 1 };
+
+                console.log('🔍 DEBUG BookEditor RegenerateLesson calculation:', {
+                    currentLessonIndex,
+                    currentLesson: currentLesson ? {
+                        title: currentLesson.title,
+                        filename: currentLesson.filename,
+                        moduleNumber: currentLesson.moduleNumber,
+                        lessonNumberInModule: currentLesson.lessonNumberInModule,
+                        module_number: currentLesson.module_number,
+                        lesson_number: currentLesson.lesson_number
+                    } : null,
+                    extractedModuleInfo: moduleInfo
+                });
+
+                return (
+                    <RegenerateLesson
+                        projectFolder={projectFolder}
+                        outlineKey={bookData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                        currentLessonId={`${String(moduleInfo.moduleNumber).padStart(2, '0')}-${String(moduleInfo.lessonNumber).padStart(2, '0')}`}
+                        currentLessonTitle={currentLesson?.title || ''}
+                        moduleNumber={moduleInfo.moduleNumber}
+                        lessonNumber={moduleInfo.lessonNumber}
+                        onClose={() => setShowRegenerateLessonModal(false)}
+                        onSuccess={(response) => {
+                            console.log('Lesson regeneration initiated:', response);
+                        }}
+                    />
+                );
+            })()}
         </div>
 
     );
