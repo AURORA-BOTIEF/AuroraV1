@@ -43,20 +43,22 @@ function AdminPage() {
   const [email, setEmail] = useState('');
 
   // Preferir sessionStorage (consistente con App.jsx). Fallback a localStorage por compatibilidad.
-  const token = sessionStorage.getItem('access_token') || sessionStorage.getItem('id_token') || localStorage.getItem('id_token');
+  // Normalizamos: guardamos solo el raw token (sin "Bearer ").
+  const rawToken = sessionStorage.getItem('id_token') || sessionStorage.getItem('access_token') || localStorage.getItem('id_token') || '';
 
-  // Encabezado de autorización correcto (Bearer ...)
+  // Encabezado de autorización correcto (evitar "Bearer Bearer ...")
   const authHeader = useMemo(() => {
-    if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
-  }, [token]);
+    if (!rawToken) return {};
+    const cleaned = String(rawToken).startsWith('Bearer ') ? String(rawToken).slice(7) : rawToken;
+    return { Authorization: `Bearer ${cleaned}` };
+  }, [rawToken]);
 
   // Extraer email y grupos del token
   useEffect(() => {
-    if (!token) return;
+    if (!rawToken) return;
     try {
-      const idPayload = parseJwt(sessionStorage.getItem('id_token') || token);
-      const accessPayload = parseJwt(sessionStorage.getItem('access_token') || token);
+      const idPayload = parseJwt(sessionStorage.getItem('id_token') || rawToken);
+      const accessPayload = parseJwt(sessionStorage.getItem('access_token') || rawToken);
 
       const resolvedEmail = idPayload?.email || accessPayload?.email || '';
       setEmail(resolvedEmail);
@@ -70,12 +72,12 @@ function AdminPage() {
     } catch (e) {
       console.error('Error al decodificar token', e);
     }
-  }, [token]);
+  }, [rawToken]);
 
   // ====== permisos: combinar lista fija + grupos Cognito ======
   // Extraer de nuevo los grupos para la comprobación de permisos (mínimo cambio)
-  const accessPayloadNow = parseJwt(sessionStorage.getItem('access_token') || token);
-  const idPayloadNow = parseJwt(sessionStorage.getItem('id_token') || token);
+  const accessPayloadNow = parseJwt(sessionStorage.getItem('access_token') || rawToken);
+  const idPayloadNow = parseJwt(sessionStorage.getItem('id_token') || rawToken);
   const groupsNow = (accessPayloadNow?.['cognito:groups'] || idPayloadNow?.['cognito:groups'] || []);
   const groupsNormalized = Array.isArray(groupsNow) ? groupsNow.map(g => String(g || '').toLowerCase().trim()) : [];
 
@@ -108,22 +110,34 @@ function AdminPage() {
         headers: { ...authHeader }
       });
 
+     
+      // Manejo explícito de 401 para mostrar mensaje útil y forzar logout local si hace falta
+      if (res.status === 401) {
+        console.warn('[AdminPage] obtener-solicitudes-rol -> 401 Unauthorized');
+        setError('No autorizado. Por favor inicia sesión nuevamente.');
+        try { sessionStorage.clear(); localStorage.removeItem('id_token'); } catch(e) {}
+        // opcional: redirigir al inicio para forzar login
+        // window.location.href = '/';
+        setCargando(false);
+        return;
+      }
+
       if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
-
-      const data = await res.json().catch(() => ({}));
-      setSolicitudes(Array.isArray(data?.solicitudes) ? data.solicitudes : []);
-
-    } catch (e) {
-      console.error(e);
-      setError('No se pudieron cargar las solicitudes.');
-    } finally {
-      setCargando(false);
-    }
-  };
+ 
+       const data = await res.json().catch(() => ({}));
+       setSolicitudes(Array.isArray(data?.solicitudes) ? data.solicitudes : []);
+ 
+     } catch (e) {
+       console.error(e);
+       setError('No se pudieron cargar las solicitudes.');
+     } finally {
+       setCargando(false);
+     }
+   };
 
   useEffect(() => {
-    if (token) cargarSolicitudes();
-  }, [token]);
+    if (rawToken) cargarSolicitudes();
+  }, [rawToken]);
 
   const pokeClientsToRefresh = () => {
     try { localStorage.setItem('force_attr_refresh', '1'); } catch {}
