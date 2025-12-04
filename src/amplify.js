@@ -66,6 +66,7 @@ if (missing.length) {
         userPoolId,
         userPoolClientId: clientId,
         identityPoolId,
+        storage: window.sessionStorage, // Forzar sessionStorage para evitar problemas entre pestañas
         loginWith: {
           oauth: {
             domain,

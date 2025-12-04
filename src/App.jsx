@@ -4,8 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocatio
 import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import './App.css';
-import Amplify from 'aws-amplify';
-import awsExports from './aws-exports';
+import './amplify';
 
 // === EDITORES ===
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
@@ -49,8 +48,7 @@ import PresentacionesPage from './components/PresentacionesPage.jsx';
 import InfographicViewer from './components/InfographicViewer.jsx';
 import InfographicEditor from './components/InfographicEditor.jsx';
 
-// Forzar sessionStorage para evitar problemas entre pestañas
-Amplify.configure({ ...awsExports, storage: window.sessionStorage });
+
 
 // ==================================================================
 // ========================== EDITORES ==============================
