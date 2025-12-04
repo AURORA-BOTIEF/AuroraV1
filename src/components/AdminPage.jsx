@@ -25,33 +25,64 @@ const ADMIN_EMAILS = [
   'juan.londono@netec.com.co'
 ];
 
+// helper: parsear JWT de forma segura (payload sólo, sin validar)
+function parseJwt(token) {
+  try {
+    const part = (token || '').split('.')[1] || '';
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(json);
+  } catch (e) {
+    return {};
+  }
+}
+
 function AdminPage() {
   const { pathname } = useLocation();
   if (!pathname.startsWith('/admin')) return null;
 
   const [email, setEmail] = useState('');
-  const token = localStorage.getItem('id_token');
 
+  // Preferir sessionStorage (consistente con App.jsx). Fallback a localStorage por compatibilidad.
+  const token = sessionStorage.getItem('access_token') || sessionStorage.getItem('id_token') || localStorage.getItem('id_token');
+
+  // Encabezado de autorización correcto (Bearer ...)
   const authHeader = useMemo(() => {
     if (!token) return {};
-    return { Authorization: token };
+    return { Authorization: `Bearer ${token}` };
   }, [token]);
 
-  // Extraer email del token
+  // Extraer email y grupos del token
   useEffect(() => {
     if (!token) return;
     try {
-      const payload = JSON.parse(
-        atob((token.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/'))
-      );
-      setEmail(payload?.email || '');
+      const idPayload = parseJwt(sessionStorage.getItem('id_token') || token);
+      const accessPayload = parseJwt(sessionStorage.getItem('access_token') || token);
+
+      const resolvedEmail = idPayload?.email || accessPayload?.email || '';
+      setEmail(resolvedEmail);
+
+      // extraer grupos (pueden venir en accessToken o idToken)
+      const groupsRaw = accessPayload?.['cognito:groups'] || idPayload?.['cognito:groups'] || [];
+      // normalizar y almacenar en user state si lo necesitas (aquí sólo comprobamos permisos más abajo)
+      // setUserGroups(Array.isArray(groupsRaw) ? groupsRaw.map(g => String(g).toLowerCase().trim()) : []);
+      // (no se guarda en estado en este componente para mantener cambio mínimo)
+
     } catch (e) {
       console.error('Error al decodificar token', e);
     }
   }, [token]);
 
-  // 🔥 Ahora soporta 3 correos administradores
-  const puedeGestionar = ADMIN_EMAILS.includes(email.toLowerCase());
+  // ====== permisos: combinar lista fija + grupos Cognito ======
+  // Extraer de nuevo los grupos para la comprobación de permisos (mínimo cambio)
+  const accessPayloadNow = parseJwt(sessionStorage.getItem('access_token') || token);
+  const idPayloadNow = parseJwt(sessionStorage.getItem('id_token') || token);
+  const groupsNow = (accessPayloadNow?.['cognito:groups'] || idPayloadNow?.['cognito:groups'] || []);
+  const groupsNormalized = Array.isArray(groupsNow) ? groupsNow.map(g => String(g || '').toLowerCase().trim()) : [];
+
+  // permitir si está en ADMIN_EMAILS o pertenece al grupo 'administrador' / 'admin'
+  const puedeGestionar = ADMIN_EMAILS.map(e => e.toLowerCase()).includes(String(email || '').toLowerCase())
+    || groupsNormalized.includes('administrador')
+    || groupsNormalized.includes('admin');
 
   // ====== TABS ======
   const [vista, setVista] = useState('solicitudes');
