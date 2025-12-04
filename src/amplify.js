@@ -56,41 +56,50 @@ if (missing.length) {
     });
   }
 
-    // === ✅ AWS Amplify v6 configuration ===
-  Amplify.configure({
-    Auth: {
-      Cognito: {
-        userPoolId,
-        userPoolClientId: clientId,
-        identityPoolId,
-        storage: window.sessionStorage, // Forzar sessionStorage para evitar problemas entre pestañas
-        loginWith: {
-          oauth: {
-            domain,
-            scopes: ['openid', 'email', 'profile', 'aws.cognito.signin.user.admin'],
-            redirectSignIn: [redirectSignIn],
-            redirectSignOut: [redirectSignOut],
-            responseType: 'code',
-          }
-        }
-      }
-    },
-    API: {
-      REST: {
-        CourseGeneratorAPI: {
-          endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
-          region: region
-        },
-        // 👇 Nueva API registrada (HTTP API Gateway)
-        SeminariosAPI: {
-          endpoint: import.meta.env.VITE_HTTP_API_URL || "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev",
-          region: region
+  // wrapper ligero para evitar pasar el objeto host sessionStorage a Amplify (evita Object.freeze error)
+const sessionStorageWrapper = (typeof window !== 'undefined' && window.sessionStorage) ? {
+  getItem: (k) => window.sessionStorage.getItem(k),
+  setItem: (k, v) => window.sessionStorage.setItem(k, v),
+  removeItem: (k) => window.sessionStorage.removeItem(k),
+  clear: () => window.sessionStorage.clear()
+} : undefined;
+
+// === ✅ AWS Amplify v6 configuration ===
+Amplify.configure({
+  Auth: {
+    Cognito: {
+      userPoolId,
+      userPoolClientId: clientId,
+      identityPoolId,
+      storage: sessionStorageWrapper, // usar wrapper para evitar Object.freeze sobre host object
+      loginWith: {
+        oauth: {
+          domain,
+          scopes: ['openid', 'email', 'profile', 'aws.cognito.signin.user.admin'],
+          redirectSignIn: [redirectSignIn],
+          redirectSignOut: [redirectSignOut],
+          responseType: 'code',
         }
       }
     }
-  }, {
-    ssr: false
-  });
+  },
+  API: {
+    REST: {
+      CourseGeneratorAPI: {
+        endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
+        region: region
+      },
+      // 👇 Nueva API registrada (HTTP API Gateway)
+      SeminariosAPI: {
+        endpoint: import.meta.env.VITE_HTTP_API_URL || "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev",
+        region: region
+      }
+    }
+  }
+}, {
+  ssr: false
+});
+
 }
 
 export function hostedUiAuthorizeUrl() {
