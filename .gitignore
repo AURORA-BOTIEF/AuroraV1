@@ -68,3 +68,9 @@ CG-Backend/lambda/typing_extensions.py
 
 # Step Functions execution history (debug artifacts)
 CG-Backend/execution_history*.json
+
+# Python virtual environments
+.venv/
+venv/
+*.pyc
+__pycache__/
