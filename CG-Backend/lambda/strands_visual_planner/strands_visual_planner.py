@@ -175,6 +175,9 @@ def process_visual_batch(visuals: List[Dict[str, Any]], model_provider: str = "b
     Classifies each as diagram/artistic_image and creates enhanced prompts.
     Modern LLMs can handle dozens of visuals in one call.
     
+    CRITICAL: All prompts MUST be generated 100% in English for optimal
+    image generation quality (Gemini produces fewer text errors in English).
+    
     Args:
         visuals: List of visual tags from multiple lessons
         model_provider: "bedrock" or "openai"
@@ -189,25 +192,31 @@ def process_visual_batch(visuals: List[Dict[str, Any]], model_provider: str = "b
     # Build the unified prompt for classification + enhancement
     prompt = f"""You are an expert visual prompt engineer specializing in creating detailed, precise image generation prompts.
 
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL output MUST be 100% in ENGLISH. This is mandatory for optimal image generation quality.
+The image generation model (Google Gemini) produces significantly fewer text rendering errors when prompts are in English.
+
 You will receive a list of visual descriptions extracted from technical course lessons. For each visual:
 
 1. **Classify the type**:
    - "diagram": flowcharts, architecture diagrams, technical diagrams, charts, graphs, sequences
    - "artistic_image": scenes, photos, illustrations, metaphors, artistic representations
 
-2. **Translate to English** (CRITICAL - for optimal image generation):
-   - ALL enhanced prompts MUST be in English for optimal image generation
-   - **IMPORTANT**: Translate ALL text that will appear IN the diagram/image:
+2. **MANDATORY: Write everything in English** (CRITICAL - NON-NEGOTIABLE):
+   - The enhanced_prompt field MUST be 100% in English
+   - ALL text that will appear IN the diagram/image MUST be in English:
+     * Node labels: "Base de datos" → "Database"
      * Button labels: "Comprar ahora" → "Buy now"
      * Annotations: "Anillo de enfoque visible" → "Visible focus ring"
      * Titles: "Accesibilidad: enfoque visible" → "Accessibility: visible focus"
-     * Error messages, warnings, tooltips - everything must be English
-   - Translate Spanish/other languages to clear, technical English
-   - Preserve technical accuracy
+     * Error messages, warnings, tooltips - EVERYTHING must be English
+     * Technical terms: "Servidor" → "Server", "Cliente" → "Client"
+   - If the original description is in Spanish or another language, translate it completely
+   - Preserve technical accuracy while translating
    - Example: "Diagrama del ciclo HTTP con solicitud y respuesta" → 
      "Diagram of HTTP request-response cycle showing client, server, request, and response"
 
-3. **Create an enhanced prompt** with:
+3. **Create an enhanced prompt** (IN ENGLISH) with:
    - **Exact text with correct spelling**: List every label, title, annotation IN ENGLISH
    - **Typography**: Font style, weight, size, case
    - **Layout**: Position, spacing, alignment
@@ -225,17 +234,21 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
       "lesson_id": "01-01",
       "description": "original description",
       "type": "diagram|artistic_image",
-      "enhanced_prompt": "Detailed, comprehensive prompt with exact specifications..."
+      "enhanced_prompt": "Detailed, comprehensive prompt IN ENGLISH with exact specifications..."
     }},
     ...
   ]
 }}
 
-CRITICAL: 
-- Preserve correct spelling of all technical terms
-- Be specific about text placement and typography
-- Include color codes
-- Verify spelling of technical terms at the end of each prompt"""
+⚠️ FINAL CHECKLIST - VERIFY BEFORE RESPONDING:
+1. ✓ Is the enhanced_prompt 100% in English? (MANDATORY)
+2. ✓ Are ALL labels, titles, and annotations in English?
+3. ✓ Did you translate any Spanish/other language text to English?
+4. ✓ Are technical terms spelled correctly?
+5. ✓ Did you include specific color codes?
+6. ✓ Did you specify text placement and typography?
+
+If ANY text in enhanced_prompt is not in English, FIX IT before responding."""
 
     print(f"🤖 Calling {model_provider.upper()} with {len(visuals)} visual tags...")
     

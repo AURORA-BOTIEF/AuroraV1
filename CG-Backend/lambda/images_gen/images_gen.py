@@ -54,6 +54,12 @@ DEFAULT_IMAGE_MODEL = 'models/gemini-2.5-flash-image'
 # Backend hard cap to avoid expensive runs
 BACKEND_MAX = int(os.getenv('IMAGES_BACKEND_MAX', '50'))
 
+# Model-specific batch limits (to prevent Lambda timeout)
+# Gemini 3 Pro: ~25s per image, limit batch to prevent 15-min timeout
+# Gemini 2.5 Flash: ~7s per image, can handle more
+GEMINI3_MAX_BATCH = int(os.getenv('GEMINI3_MAX_BATCH', '4'))  # ~100s + overhead = safe for 15min
+GEMINI25_MAX_BATCH = int(os.getenv('GEMINI25_MAX_BATCH', '15'))  # ~105s + overhead = safe for 15min
+
 # Default max images if not specified
 DEFAULT_MAX_IMAGES = 5
 
@@ -679,7 +685,16 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             prompts_from_input = prompts_from_input[start_index:]
             num_prompts = len(prompts_from_input)
         
-        effective_max = min(num_prompts, BACKEND_MAX)
+        # Apply model-specific batch limits to prevent Lambda timeout
+        # Gemini 3 Pro is slower (~25s/image) so needs smaller batches
+        if 'gemini-3' in image_model.lower():
+            model_max_batch = GEMINI3_MAX_BATCH
+            logger.info(f"⚙️  Gemini 3 Pro detected: limiting batch to {model_max_batch} images (slower model)")
+        else:
+            model_max_batch = GEMINI25_MAX_BATCH
+            logger.info(f"⚙️  Gemini 2.5 Flash: batch limit {model_max_batch} images")
+        
+        effective_max = min(num_prompts, model_max_batch, BACKEND_MAX)
         
         if num_prompts > BACKEND_MAX:
             logger.info(f"⚠️  Truncating from {num_prompts} to backend cap {BACKEND_MAX}")

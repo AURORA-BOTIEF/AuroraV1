@@ -354,12 +354,11 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
-                                    {/* Gemini 3 Pro disabled due to Lambda timeout issues (takes ~10min per image) */}
-                                    {/* <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Alta Calidad)</option> */}
+                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Rápido, Económico)</option>
+                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image (Alta Calidad, Más Lento)</option>
                                 </select>
                                 <small className="form-hint">
-                                    Modelo de IA usado para generar imágenes
+                                    Gemini 2.5: ~7s/imagen, económico | Gemini 3: ~25s/imagen, mejor calidad (máx 4 por lote)
                                 </small>
                             </div>
                         </div>
