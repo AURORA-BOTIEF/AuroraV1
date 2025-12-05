@@ -155,17 +155,43 @@ def optimize_prompt_for_gemini(prompt_text: str) -> str:
     Optimize prompt text for better Gemini image generation results.
     
     Key improvements:
-    1. Add explicit style guidance
-    2. Specify technical/professional context
-    3. Add composition and quality keywords
-    4. Remove confusing text-heavy requests that Gemini can't render
+    1. PRESERVE detailed enhanced_prompts (from Visual Planner) - don't simplify them
+    2. Add explicit ENGLISH language enforcement
+    3. For simple descriptions, add style guidance
+    4. Convert text-heavy requests to conceptual illustrations
     
     Args:
         prompt_text: Original prompt description
         
     Returns:
-        str: Optimized prompt
+        str: Optimized prompt with English enforcement
     """
+    # CRITICAL: English enforcement prefix - ALWAYS added
+    # This ensures Gemini generates text in English, not the course's language
+    english_prefix = (
+        "⚠️ CRITICAL INSTRUCTION: ALL TEXT RENDERED IN THE IMAGE MUST BE IN ENGLISH. "
+        "Do NOT use Spanish, Portuguese, or any other language. "
+        "Every label, title, annotation, and text element must be written in English only.\n\n"
+    )
+    
+    # Check if this is already a detailed enhanced_prompt from Visual Planner
+    # These prompts contain specific formatting instructions and should be preserved
+    detailed_prompt_indicators = [
+        'typography:', 'exact on-canvas text', 'layout:', 'colors and styling:',
+        'verification:', 'style notes:', 'alignment and spacing:', 'font:',
+        'spell exactly', 'professional illustration', '#ffffff', '1920x1080'
+    ]
+    
+    is_detailed_prompt = any(indicator in prompt_text.lower() for indicator in detailed_prompt_indicators)
+    
+    if is_detailed_prompt:
+        # This is a detailed enhanced_prompt - preserve it, just add English enforcement
+        logger.info("📝 Detected detailed enhanced_prompt - preserving with English enforcement")
+        return f"{english_prefix}{prompt_text}"
+    
+    # For simple descriptions, apply the template optimization
+    logger.info("📝 Simple description detected - applying template optimization")
+    
     # Keywords that indicate text-heavy content Gemini struggles with
     text_heavy_keywords = ['table', 'screenshot', 'text', 'code snippet', 'terminal', 
                           'command line', 'spreadsheet', 'document', 'form']
@@ -175,15 +201,15 @@ def optimize_prompt_for_gemini(prompt_text: str) -> str:
     
     if is_text_heavy:
         # For text-heavy content, request a conceptual illustration instead
-        prefix = "Create a professional conceptual illustration representing: "
-        suffix = ". Style: clean, modern, minimalist, icon-based design. No text or labels needed."
+        prefix = "Create a professional conceptual illustration IN ENGLISH representing: "
+        suffix = ". Style: clean, modern, minimalist, icon-based design. All labels and text must be in English."
     else:
         # For visual content, enhance with quality keywords
-        prefix = "Create a professional educational illustration: "
-        suffix = ". Style: clean, modern, high-quality, well-composed, professional lighting, clear focus."
+        prefix = "Create a professional educational illustration IN ENGLISH: "
+        suffix = ". Style: clean, modern, high-quality, well-composed. All text, labels, and annotations must be in English only."
     
-    # Build optimized prompt
-    optimized = f"{prefix}{prompt_text}{suffix}"
+    # Build optimized prompt with English enforcement
+    optimized = f"{english_prefix}{prefix}{prompt_text}{suffix}"
     
     return optimized
 

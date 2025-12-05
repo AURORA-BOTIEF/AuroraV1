@@ -386,13 +386,15 @@ def lambda_handler(event: Dict[str, Any], context):
             description = original_visual.get('description', enhanced.get('description', '')) if original_visual else enhanced.get('description', '')
             visual_type = enhanced.get('type', 'diagram')
             enhanced_prompt = enhanced.get('enhanced_prompt', description)
+            # Get lesson_id safely - handle case where original_visual is None
+            lesson_id = original_visual.get('lesson_id', '00-00') if original_visual else enhanced.get('lesson_id', '00-00')
             
             filename = create_unique_filename(description, prefix=prompt_id)
             
             # Create prompt JSON
             prompt_data = {
                 "id": prompt_id,
-                "lesson_id": original_visual.get('lesson_id', '00-00'),
+                "lesson_id": lesson_id,
                 "description": description,
                 "visual_type": visual_type,
                 "enhanced_prompt": enhanced_prompt,

@@ -354,11 +354,11 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Rápido, Económico)</option>
+                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Rápido, Menor Costo)</option>
                                     <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image (Alta Calidad, Más Lento)</option>
                                 </select>
                                 <small className="form-hint">
-                                    Gemini 2.5: ~7s/imagen, económico | Gemini 3: ~25s/imagen, mejor calidad (máx 4 por lote)
+                                    Gemini 2.5: ~7s/imagen, menor costo | Gemini 3: ~25s/imagen, mejor calidad (máx 4 por lote)
                                 </small>
                             </div>
                         </div>
