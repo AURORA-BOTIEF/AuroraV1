@@ -5,66 +5,84 @@
   flex-direction: column;
   gap: 2rem;
   padding: 2rem;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
 }
 
+/* Grid de opciones */
 .menu-contenidos {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1.5rem;
 }
 
+/* Tarjeta de opción */
 .opcion-menu {
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 1.5rem;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background-color: #fff;
+  border: 1px solid #e3e6ea;
+  border-radius: 12px;
+  background-color: #fbfcfd;
   text-decoration: none;
   color: inherit;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
 }
 
 .opcion-menu:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  transform: translateY(-4px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
   border-color: #1b5784;
+  background: #ffffff;
 }
 
 .opcion-menu .icono {
   font-size: 2.5rem;
+  color: #1b5784;
+  flex-shrink: 0;
 }
 
 .opcion-menu .texto h3 {
   margin: 0 0 0.25rem 0;
+  font-size: 1.1rem;
+  color: #1b5784;
 }
 
 .opcion-menu .texto p {
   margin: 0;
   font-size: 0.9rem;
-  color: #666;
+  color: #555;
+  line-height: 1.4;
 }
 
 .opcion-menu.disabled {
   background-color: #f9f9f9;
   cursor: not-allowed;
   opacity: 0.6;
+  box-shadow: none;
 }
 
+/* Contenedor del generador activo */
 .contenido-generador {
   margin-top: 1rem;
+  padding: 1.5rem;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
 }
-/* En GeneradorContenidosPage.css */
 
+/* Botón volver al menú */
 .btn-regresar-menu {
-  background: none;
-  border: 1px solid #ccc;
-  color: #333;
+  background: #eef3f7;
+  border: 1px solid #cfd7de;
+  color: #234;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1.2rem;
   border-radius: 20px;
   margin-bottom: 1.5rem;
   align-self: flex-start; /* Se alinea a la izquierda */
@@ -72,6 +90,7 @@
 }
 
 .btn-regresar-menu:hover {
-  background-color: #f0f0f0;
-  border-color: #aaa;
+  background-color: #e4edf5;
+  border-color: #b7c4cf;
 }
+

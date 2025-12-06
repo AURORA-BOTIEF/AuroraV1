@@ -1,414 +1,461 @@
-/* src/components/EditorDeTemario.css (CÓDIGO COMPLETO Y FINAL) */
+/* ============================= */
+/* VARIABLES 
+/* ============================= */
+:root {
+  /* Colores primarios */
+  --color-principal: #035b6e;
+  --color-secundario: #197fa6;
+  --color-texto-input: #333;
+  --color-borde-input: #ccc;
 
-.editor-container {
-  padding: 2rem;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-  margin-top: 2rem;
+  /* Colores de mensaje */
+  --msg-ok-bg: #e6f4ea;
+  --msg-ok-color: #1b5e20;
+  --msg-ok-border: #a5d6a7;
+  --msg-error-bg: #fdecea;
+  --msg-error-color: #c62828;
+  --msg-error-border: #f5b7b1;
+
+  /* Estilos comunes */
+  --border-radius-base: 8px;
+  --border-radius-lg: 12px;
+  --transition-base: all 0.2s ease-in-out;
+  --font-family-base: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --shadow-base: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
-.spinner-container {
-    text-align: center;
-    padding: 3rem;
+/* ============================= */
+/* CONTENEDOR GLOBAL 
+/* ============================= */
+.temario-editor-container {
+  padding: 2rem 3rem;
+  max-width: 1000px;
+  margin: 1rem auto;
+  background: #fff;
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-base);
+  font-family: var(--font-family-base);
 }
 
-.spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #1b5784;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 1rem auto;
-}
-@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-/* --- ESTILOS PARA EL SELECTOR DE VISTA --- */
-.vista-selector {
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-  padding: 0.5rem;
-  background-color: #e9ecef;
-  border-radius: 8px;
-  width: fit-content;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.vista-selector .btn-vista {
-  padding: 8px 16px;
-  border: none;
-  background-color: transparent;
+/* ============================= */
+/* MENSAJES 
+/* ============================= */
+.msg.ok,
+.msg.error {
+  padding: 10px 15px;
   border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  color: #495057;
-  transition: all 0.2s ease;
-}
-
-.vista-selector .btn-vista.activo {
-  background-color: white;
-  color: #1b5784;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-.vista-info {
-  text-align: center;
-  margin-bottom: 1.5rem;
-}
-
-.vista-info p {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #666;
-  font-style: italic;
-}
-
-/* --- ESTILOS PARA LA VISTA DETALLADA (EDITABLE) --- */
-.editor-label {
-  display: block;
-  margin-top: 1.5rem;
-  margin-bottom: 0.5rem;
-  font-weight: bold;
-  font-size: 0.9rem;
-  color: #555;
-}
-
-.input-titulo {
-  font-size: 1.8rem;
-  font-weight: bold;
-  border: none;
-  border-bottom: 2px solid #eee;
-  width: 100%;
   margin-bottom: 1rem;
-  padding: 0.5rem 0;
-  transition: border-color 0.3s;
-  background-color: transparent;
+  border: 1px solid;
 }
-.input-titulo:focus {
-  border-bottom-color: #1b5784;
-  outline: none;
+
+.msg.ok {
+  background: var(--msg-ok-bg);
+  color: var(--msg-ok-color);
+  border-color: var(--msg-ok-border);
 }
-.textarea-descripcion {
-  width: 100%;
-  min-height: 80px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 0.75rem;
-  font-size: 1rem;
-  font-family: inherit;
-  resize: vertical;
-  margin-bottom: 1.5rem;
+
+.msg.error {
+  background: var(--msg-error-bg);
+  color: var(--msg-error-color);
+  border-color: var(--msg-error-border);
 }
+
+/* ============================= */
+/* CAPÍTULOS 
+/* ============================= */
 .capitulo-editor {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  background: #f9f9f9;
-  border-radius: 6px;
-  border: 1px solid #eee;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: box-shadow 0.2s ease;
 }
-.input-capitulo {
-  font-size: 1.2rem;
-  font-weight: bold;
-  border: none;
-  width: 100%;
-  border-bottom: 1px solid #ccc;
-  padding-bottom: 0.5rem;
-  margin-bottom: 1rem;
-  background: transparent;
+
+.capitulo-editor:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
 }
-.input-subcapitulo {
-  border: 1px solid #ddd;
-  border-radius: 4px;
+
+.capitulo-editor h4 {
+  color: var(--color-principal);
+  font-weight: 700;
+  font-size: 1.1rem;
+  border-bottom: 2px solid #035b6e15;
+  padding-bottom: 4px;
+  margin-bottom: 0.8rem;
+}
+
+/* ============================= */
+/* INPUTS Y TEXTAREAS COMUNES 
+/* ============================= */
+.input-capitulo,
+.textarea-objetivos-capitulo {
   width: 100%;
-  margin-top: 0.5rem;
-  padding: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--border-radius-base);
+  border: 1px solid var(--color-borde-input);
+  margin-bottom: 0.8rem;
   font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--color-texto-input);
+  background-color: #fff;
+  transition: var(--transition-base);
 }
+
+.input-capitulo:focus,
+.textarea-objetivos-capitulo:focus {
+  outline: none;
+  border-color: var(--color-principal);
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+.textarea-objetivos-capitulo {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.duracion-total {
+  font-size: 0.95rem;
+  color: var(--color-texto-input);
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================= */
+/* SUBCAPÍTULOS (VERSIÓN CORREGIDA FINAL)
+/* ============================= */
+
+/* Reseteo para la lista <ul> que contiene los <li> */
 .capitulo-editor ul {
   list-style-type: none;
-  padding-left: 0;
-}
-.capitulo-editor li {
-  margin-bottom: 0.5rem;
-}
-
-/* --- ESTILOS PARA LA VISTA RESUMIDA --- */
-.vista-resumida {
-  text-align: left;
-  padding: 1rem;
-}
-.vista-resumida h1 {
-  font-size: 1.8rem;
-  color: #1b5784;
-  text-align: center;
-  margin-bottom: 2rem;
-}
-.vista-resumida .seccion-resumen {
-  margin-bottom: 1.5rem;
-}
-.vista-resumida h2 {
-  font-size: 1.2rem;
-  color: #343a40;
-  border-bottom: 2px solid #e9ecef;
-  padding-bottom: 0.5rem;
-  margin-bottom: 1rem;
-}
-.vista-resumida ul {
-  list-style-type: disc;
-  padding-left: 25px;
-}
-.vista-resumida li {
-  margin-bottom: 0.5rem;
-}
-.vista-resumida .capitulo-resumido {
-  margin-bottom: 1rem;
-}
-.vista-resumida .capitulo-resumido strong {
-  font-size: 1.1rem;
-}
-
-/* --- ESTILOS PARA LOS BOTONES DE ACCIÓN --- */
-.acciones-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-  margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #eee;
-}
-.acciones-footer button {
-  padding: 10px 20px;
-  border-radius: 5px;
-  cursor: pointer;
-  border: 1px solid #ccc;
-  background-color: #f0f0f0;
-  font-weight: 500;
-}
-.btn-guardar {
-  background-color: #1b5784 !important;
-  color: white;
-  border-color: #1b5784 !important;
-}
-.regenerar-form {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  background: #f0f8ff;
-  border-radius: 8px;
-  border: 1px solid #cfe7fc;
-}
-.regenerar-form h4 {
-  margin-top: 0;
-  color: #1b5784;
-}
-.regenerar-form .form-group {
-  margin-bottom: 1rem;
-}
-
-/* --- ESTILOS PARA LA VISTA RESUMIDA EDITABLE --- */
-.vista-resumida-editable {
-  background: #fafafa;
-  padding: 1.5rem;
-  border-radius: 8px;
-  border: 1px solid #e0e0e0;
-}
-
-.input-titulo-resumido {
-  font-size: 1.6rem;
-  font-weight: bold;
-  border: none;
-  border-bottom: 2px solid #eee;
-  width: 100%;
-  margin-bottom: 1.5rem;
-  padding: 0.5rem 0;
-  background: transparent;
-  transition: border-color 0.3s;
-}
-.input-titulo-resumido:focus {
-  border-bottom-color: #1b5784;
-  outline: none;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.info-item label {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: #555;
-}
-
-.input-info {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 0.9rem;
-}
-.input-info:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-.seccion-editable {
-  margin-bottom: 1.5rem;
-}
-
-.seccion-editable h3 {
-  margin: 0 0 0.5rem 0;
-  color: #1b5784;
-  font-size: 1.1rem;
-}
-
-.textarea-resumido {
-  width: 100%;
-  min-height: 80px;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  resize: vertical;
-  font-family: inherit;
-}
-.textarea-resumido:focus {
-  border-color: #1b5784;
-  outline: none;
-}
-
-.capitulo-resumido {
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-}
-
-.input-capitulo-resumido {
-  width: 100%;
-  font-size: 1.2rem;
-  font-weight: 600;
-  padding: 0.5rem;
-  border: none;
-  border-bottom: 2px solid #eee;
-  background: transparent;
-  margin-bottom: 1rem;
-  color: #333;
-}
-.input-capitulo-resumido:focus {
-  border-bottom-color: #1b5784;
-  outline: none;
-}
-
-.subcapitulos-resumidos {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  padding: 0;
+  margin: 0;
 }
 
 .subcapitulo-item {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+  flex-wrap: nowrap;
+  /* CLAVE: Fuerza a estar en una línea */
 }
 
-.input-subcapitulo-resumido {
-  flex: 1;
-  min-width: 200px;
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  background: #f9f9f9;
+/* Base de Input/Span en Subcapítulos */
+.subcapitulo-item span,
+.subcapitulo-item input {
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--color-texto-input);
 }
-.input-subcapitulo-resumido:focus {
-  border-color: #1b5784;
+
+.subcapitulo-item input {
+  border: 1px solid var(--color-borde-input);
+  border-radius: var(--border-radius-base);
+  padding: 0.5rem 0.7rem;
+  transition: var(--transition-base);
+}
+
+.subcapitulo-item input:focus {
   outline: none;
-  background: white;
+  border-color: var(--color-principal);
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
 }
 
-.subcapitulo-tiempos {
-  display: flex;
-  gap: 0.25rem;
-  align-items: center;
+/* 1. Número de Sesión (7.1, 7.2, etc.) */
+.subcapitulo-item span {
+  font-weight: 600;
+  color: var(--color-principal);
+  flex-shrink: 0;
+  width: 45px;
 }
 
-.input-tiempo-sub, .input-sesion-sub {
+/* 2. Input de Texto del Tema */
+.subcapitulo-item input[type="text"] {
+  flex: 1;
+  /* Ocupa el espacio restante */
+  min-width: 150px;
+}
+
+/* 3. Input de Número (Genérico - se aplica a Duración) */
+.subcapitulo-item input[type="number"] {
   width: 60px;
+  /* Ancho para la Duración (ej: "12") */
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* * 4. ¡¡CORRECCIÓN DE ESPECIFICIDAD!!
+ * Esta regla ahora es MÁS específica que la anterior (input[type="number"])
+ * y SOBRESCRIBE el ancho del input de sesión.
+*/
+.subcapitulo-item input.input-sesion {
+  width: 35px;
+  /* Ancho MÍNIMO para el número de sesión ("1") */
+  padding: 0.5rem 0.2rem;
+  /* Menos padding lateral */
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* --- ESTILO PARA BOTÓN DE ELIMINAR TEMA (SOLO ÍCONO) --- */
+.subcapitulo-item .btn-eliminar-tema {
+  background: none;
+  border: none;
+  color: #444;
   padding: 0.4rem;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  border-radius: 6px;
   font-size: 0.85rem;
+  margin-left: 0.3rem;
+  transition: transform 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: normal;
+  line-height: 1;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* Oculta el texto "Eliminar" dentro del botón del subcapítulo */
+.subcapitulo-item .btn-eliminar-tema span {
+  display: none;
+}
+
+.subcapitulo-item .btn-eliminar-tema:hover {
+  transform: scale(1.25);
+  filter: none;
+  box-shadow: none;
+}
+
+.subcapitulo-item .btn-eliminar-tema:active {
+  transform: scale(1.1);
+  filter: none;
+}
+
+.subcapitulo-item .btn-eliminar-tema svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+  margin-top: 0;
+}
+
+
+/* ============================= */
+/* BOTONES (Generales)
+/* ============================= */
+.btn-base-principal {
+  border: none;
+  border-radius: var(--border-radius-base);
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition-base);
+  color: #fff;
+  font-family: inherit;
+}
+
+.btn-primario,
+.btn-secundario {
+  border: none;
+  border-radius: var(--border-radius-base);
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition-base);
+  color: #fff;
+  font-family: inherit;
+}
+
+.btn-primario {
+  background-color: var(--color-principal);
+}
+
+.btn-secundario {
+  background-color: var(--color-secundario);
+}
+
+.btn-primario:hover,
+.btn-secundario:hover {
+  filter: brightness(1.1);
+}
+
+.btn-primario:active,
+.btn-secundario:active {
+  background-color: #023f50;
+  transform: scale(0.98);
+}
+
+.btn-guardar {
+  border: none;
+  border-radius: var(--border-radius-base);
+  padding: 0.7rem 1.2rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition-base);
+  color: #fff;
+  font-family: inherit;
+  background: var(--color-principal);
+}
+
+.btn-guardar:hover {
+  filter: brightness(1.1);
+}
+
+/* === BOTONES AGREGAR / ELIMINAR (alineados visualmente) === */
+.btn-agregar-tema,
+.btn-eliminar-capitulo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: none;
+  border-radius: var(--border-radius-base);
+  padding: 0.65rem 1.4rem;
+  /* mismo padding */
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
+  color: #fff;
+  flex: 1;
   text-align: center;
 }
 
-.input-tiempo-sub:focus, .input-sesion-sub:focus {
-  border-color: #1b5784;
-  outline: none;
+/* ➕ Agregar */
+.btn-agregar-tema {
+  background: linear-gradient(90deg, #45ab9f, var(--color-principal));
+  margin-top: 0.5rem;
 }
 
-.info-grid-capitulo {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
-  padding: 0.5rem;
-  background: #f0f8ff;
-  border-radius: 4px;
-  border: 1px solid #ddd;
+/* 🗑️ Eliminar Capítulo */
+.btn-eliminar-capitulo {
+  background: linear-gradient(90deg, #c85050, #a62828);
 }
 
-.info-grid-capitulo .info-item {
+/* Efectos hover y active iguales */
+.btn-agregar-tema:hover,
+.btn-eliminar-capitulo:hover {
+  transform: scale(1.03);
+  filter: brightness(1.1);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-agregar-tema:active,
+.btn-eliminar-capitulo:active {
+  transform: scale(0.97);
+  filter: brightness(0.9);
+}
+
+/* Íconos alineados */
+.btn-agregar-tema svg,
+.btn-eliminar-capitulo svg {
+  margin-top: 1px;
+}
+
+/* ============================= */
+/* POSICIÓN Y ACCIONES 
+/* ============================= */
+.acciones-capitulo {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
 }
 
-.info-grid-capitulo .info-item label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #555;
+.btn-agregar-capitulo-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
-.input-info-small {
-  padding: 0.4rem;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  font-size: 0.85rem;
-}
-.input-info-small:focus {
-  border-color: #1b5784;
-  outline: none;
+.acciones-footer {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
 }
 
-.input-campo {
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+/* ============================= */
+/* MODAL 
+/* ============================= */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #fff;
+  border-radius: var(--border-radius-lg);
+  padding: 1.5rem;
+  width: 320px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+  font-family: inherit;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 1rem;
-  font-size: 1rem;
-}
-.input-campo:focus {
-  border-color: #1b5784;
-  outline: none;
 }
 
+.modal-body label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.modal-footer {
+  text-align: right;
+}
+
+/* ============================= */
+/* RESPONSIVIDAD 
+/* ============================= */
+@media (max-width: 768px) {
+  .acciones-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-agregar-capitulo-container {
+    justify-content: center;
+  }
+}
+
+/* ============================= */
+/* INPUT DURACIÓN TOTAL (editable por usuario)
+/* ============================= */
+.input-duracion {
+  border: 1px solid var(--color-borde-input);
+  border-radius: var(--border-radius-base);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+  width: 80px;
+  text-align: center;
+  transition: var(--transition-base);
+  color: var(--color-texto-input);
+  background-color: #fff;
+}
+
+.input-duracion:focus {
+  outline: none;
+  border-color: var(--color-principal);
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+/* 🔹 Opcional: si quieres que se vea más alineado con el texto “min” */
+.duracion-total span {
+  color: var(--color-texto-input);
+  font-weight: 500;
+}

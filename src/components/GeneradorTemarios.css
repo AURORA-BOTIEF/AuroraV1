@@ -1,24 +1,34 @@
-/* src/components/GeneradorTemarios.css */
-
-.generador-temarios-container {
+/* ---------- ESTILOS EXISTENTES (NO TOCADO) ---------- */
+.contenedor-generador {
   padding: 2rem;
-  background: #fff;
-  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.formulario-inicial {
-  padding: 1.5rem;
-  background: #f9f9f9;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  margin-bottom: 2rem;
+.card-generador {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 12px;
+  max-width: 1000px;
+  width: 100%;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+}
+
+.card-generador h2 {
+  color: #035b6e;
+  font-weight: 700;
+}
+
+.card-generador p {
+  color: #444;
+  margin-bottom: 1.5rem;
 }
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1rem;
-  margin-bottom: 1rem;
 }
 
 .form-group {
@@ -27,49 +37,443 @@
 }
 
 .form-group label {
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  font-size: 0.9rem;
-  color: #333;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
-  padding: 0.75rem;
-  font-size: 1rem;
   border: 1px solid #ccc;
-  border-radius: 4px;
+  border-radius: 6px;
+  padding: 0.5rem;
 }
 
 .form-group textarea {
-  min-height: 60px;
   resize: vertical;
+  min-height: 60px;
 }
 
-.btn-generar-principal {
-  width: 100%;
-  padding: 1rem;
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.form-group-radio {
   margin-top: 1rem;
-  font-size: 1.1rem;
-  font-weight: bold;
-  background-color: #1b5784;
+}
+
+.form-group-radio div {
+  display: flex;
+  gap: 2rem;
+}
+
+.botones {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.btn-generar {
+  background-color: #035b6e;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  font-weight: 600;
 }
-.btn-generar-principal:disabled {
-  background-color: #ccc;
+
+.btn-versiones {
+  background-color: #45ab9f;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.error {
+  color: #c54b0f;
+  margin-top: 1rem;
+}
+
+/* ---------- MODAL BASE ---------- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  max-width: 950px;
+  width: 95%;
+  overflow-y: auto;
+  max-height: 85vh;
+  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 0.5rem;
+}
+
+.modal-header h3 {
+  color: #035b6e;
+  font-weight: 700;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.close-btn,
+.refresh-btn {
+  border: none;
+  background: transparent;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.refresh-btn:hover {
+  transform: rotate(180deg);
+}
+
+.close-btn:hover {
+  color: #c54b0f;
+}
+
+/* ---------- FILTROS ---------- */
+.filtros-versiones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+
+.filtros-versiones input,
+.filtros-versiones select {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  min-width: 180px;
+  font-size: 0.9rem;
+}
+
+.filtros-versiones input:focus,
+.filtros-versiones select:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+/* ---------- TABLA ---------- */
+.tabla-versiones {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.tabla-versiones th {
+  background-color: #035b6e;
+  color: white;
+  padding: 0.7rem;
+  text-align: left;
+}
+
+.tabla-versiones td {
+  padding: 0.6rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.tabla-versiones tr:hover {
+  background-color: #f5fafa;
+}
+
+/* ---------- MENÚ DE TRES PUNTOS ---------- */
+.acciones-cell {
+  position: relative;
+}
+
+.menu-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.3rem;
+  cursor: pointer;
+  color: #035b6e;
+  font-weight: bold;
+  transition: transform 0.1s ease;
+}
+
+.menu-btn:hover {
+  transform: scale(1.1);
+  color: #197fa6;
+}
+
+.menu-opciones {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.2s ease;
+}
+
+.menu-opciones button {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+
+.menu-opciones button:hover {
+  background: #f0f8fa;
+  color: #035b6e;
+}
+
+/* ---------- RESPONSIVO ---------- */
+@media (max-width: 700px) {
+  .modal {
+    padding: 1rem;
+  }
+
+  .filtros-versiones {
+    flex-direction: column;
+  }
+
+  .tabla-versiones th, .tabla-versiones td {
+    font-size: 0.85rem;
+  }
+
+  .menu-opciones {
+    right: auto;
+    left: 0;
+  }
+}
+/* ============================= */
+/* CAMPOS NUEVOS: Sector y Enfoque */
+/* ============================= */
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 70px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #333;
+  background-color: #fff;
+  transition: all 0.2s ease;
+}
+
+/* Efecto al enfocar */
+.form-group textarea:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+}
+
+/* Apariencia deshabilitado */
+.form-group input[disabled],
+.form-group select[disabled],
+.form-group textarea[disabled] {
+  background-color: #f4f4f4;
+  color: #666;
   cursor: not-allowed;
 }
 
-.error-mensaje {
-  color: #d9534f;
-  background-color: #f2dede;
-  border: 1px solid #d9534f;
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1.5rem;
+/* Placeholder más tenue */
+.form-group textarea::placeholder {
+  color: #999;
+  font-style: italic;
+}
+
+/* Espaciado coherente entre los nuevos campos */
+.form-group label {
+  margin-top: 1rem;
+}
+
+/* Botones cuando está generando */
+.btn-generar:disabled {
+  background-color: #999;
+  cursor: not-allowed;
+}
+
+.btn-versiones:disabled {
+  background-color: #7dbbb3;
+  cursor: not-allowed;
+}
+
+/* Ajuste visual menor de los íconos de acción */
+.menu-opciones button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.menu-opciones button svg,
+.menu-opciones button::before {
+  font-size: 1rem;
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: #666;
+  display: block;
+  margin-top: 4px;
+}
+
+/* ---------- BOTONES DE ACCIÓN (Editar / Exportar) ---------- */
+.btn-accion {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  margin: 0 4px;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.btn-accion:hover {
+  transform: scale(1.2);
+}
+
+.btn-accion[title="Editar versión"] {
+  color: #035b6e;
+}
+
+.btn-accion[title="Editar versión"]:hover {
+  color: #027a96;
+}
+
+.btn-accion[title="Exportar PDF"] {
+  color: #c54b0f;
+}
+
+.btn-accion[title="Exportar PDF"]:hover {
+  color: #e06b20;
+}
+
+/* ---------- Ajuste visual dentro de la tabla ---------- */
+.tabla-versiones td {
+  vertical-align: middle;
+}
+
+.tabla-versiones th:last-child,
+.tabla-versiones td:last-child {
+  text-align: center;
+  width: 100px;
+}
+
+/* ======================================= */
+/* ⚙️ MODAL DE CARGA THOR                  */
+/* ======================================= */
+.modal-overlay-thor {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 3000;
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.modal-thor {
+  background: #ffffff;
+  padding: 2rem 2.5rem;
+  border-radius: 14px;
+  max-width: 650px;
+  width: 90%;
+  text-align: left;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.4s ease;
+}
+
+.modal-thor h2 {
+  color: #035b6e;
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.modal-thor p {
+  color: #333;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+
+.modal-thor ul {
+  margin: 1rem 0;
+  padding-left: 1.2rem;
+}
+
+.modal-thor li {
+  margin-bottom: 0.4rem;
+  color: #222;
+}
+
+.modal-thor .nota-thor {
+  margin-top: 1.5rem;
+  font-weight: 500;
+  color: #035b6e;
+  text-align: center;
+}
+
+/* 🔄 Animaciones suaves */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateY(-15px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-thor h2::before {
+  content: "⚙️";
+  display: inline-block;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

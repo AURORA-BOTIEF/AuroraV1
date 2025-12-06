@@ -1,295 +1,192 @@
 // src/components/AdminPage.jsx
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import './AdminPage.css';
+import React, { useEffect, useState } from "react";
+import { getSessionOrNull } from "../utils/session";
+import { isAdmin } from "../utils/auth";
+import "./AdminPage.css";
+import { toast } from 'react-hot-toast';
 
-const ADMIN_EMAIL = 'anette.flores@netec.com.mx';
-const API_BASE = 'https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2';
+const API_BASE =
+  "https://" +
+  "h6ysn7u0tl" +
+  ".execute-api" +
+  ".us-east-1" +
+  ".amazonaws" +
+  ".com" +
+  "/dev2";
 
-function AdminPage() {
-  // 🔒 Evitar render fuera de /admin
-  const { pathname } = useLocation();
-  if (!pathname.startsWith('/admin')) return null;
+// Wrapper de fetch con token actualizado
+// Wrapper de fetch con token estricto (solo access_token)
+async function apiFetch(url, opts = {}) {
+  // Obtener sesión sin refrescar
+  let session = await getSessionOrNull(false);
+  let token = session?.tokens?.accessToken?.jwtToken;
+
+  // Si no hay token válido, no usar id_token jamás
+  if (!token) {
+    // Forzar refresh una sola vez
+    session = await getSessionOrNull(true);
+    token = session?.tokens?.accessToken?.jwtToken;
+  }
+
+  if (!token) {
+    throw new Error("No access token available");
+  }
+
+  const makeRequest = async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(opts.headers || {}),
+      Authorization: `Bearer ${token}`,
+    };
+    return fetch(url, { ...opts, headers });
+  };
+
+  let res = await makeRequest();
+
+  // Si expira durante la llamada → refrescar una sola vez
+  if (res.status === 401) {
+    session = await getSessionOrNull(true);
+    token = session?.tokens?.accessToken?.jwtToken;
+
+    if (!token) {
+      throw new Error("Cannot refresh access token");
+    }
+
+    res = await makeRequest();
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    let body;
+    try { body = JSON.parse(txt); } catch { body = txt; }
+    const err = new Error(body?.message || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.body = body;
+    throw err;
+  }
+
+  return res.headers.get("content-type")?.includes("application/json")
+    ? res.json()
+    : res.text();
+}
+
+export default function AdminPage() {
+  const [session, setSession] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
 
   const [solicitudes, setSolicitudes] = useState([]);
-  const [email, setEmail] = useState('');
-  const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState('');
-  const [enviando, setEnviando] = useState(''); // correo en proceso
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // Filtros y “vista” de rol
-  const [filtroTexto, setFiltroTexto] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('all'); // all | pendiente | aprobado | rechazado
-  const [vistaRol, setVistaRol] = useState(
-    () => localStorage.getItem('ui_role_preview') || 'Administrador'
-  );
-
-  const token = localStorage.getItem('id_token');
-
-  // auth header
-  const authHeader = useMemo(() => {
-    if (!token) return {};
-    // En tu backend aceptas el raw token, así que lo dejamos igual
-    return { Authorization: token };
-  }, [token]);
-
-  // Decodificar token simple para email
+  // Cargar sesión una sola vez
   useEffect(() => {
-    if (!token) return;
-    try {
-      const payload = JSON.parse(atob((token.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/')));
-      setEmail(payload?.email || '');
-    } catch (e) {
-      console.error('Error al decodificar token', e);
-    }
-  }, [token]);
+    let active = true;
 
+    (async () => {
+      const s = await getSessionOrNull();
+      if (active) {
+        setSession(s);
+        setLoadingSession(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Derived
+  const email =
+    session?.tokens?.idToken?.payload?.email ??
+    session?.tokens?.accessToken?.payload?.username ??
+    "";
+
+  const puedeGestionar = isAdmin(session);
+
+  // LOAD solicitudes
   const cargarSolicitudes = async () => {
-    setCargando(true);
-    setError('');
+    setLoading(true);
+    setError("");
+
     try {
-      const res = await fetch(`${API_BASE}/obtener-solicitudes-rol`, {
-        method: 'GET',
-        headers: { ...authHeader },
+      const data = await apiFetch(`${API_BASE}/obtener-solicitudes-rol`, {
+        method: "GET",
       });
-      const data = await res.json().catch(() => ({}));
       setSolicitudes(Array.isArray(data?.solicitudes) ? data.solicitudes : []);
-    } catch (e) {
-      console.error(e);
-      setError('No se pudieron cargar las solicitudes.');
+    } catch (err) {
+      console.error("cargarSolicitudes", err);
+      const msg = err.body?.message || err.message || "Error cargando solicitudes";
+      toast.error(msg);
+      setError(msg);
     } finally {
-      setCargando(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    cargarSolicitudes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+    if (session && puedeGestionar) cargarSolicitudes();
+  }, [session, puedeGestionar]);
 
-  const puedeGestionar = email === ADMIN_EMAIL;
-
-  // helper para forzar refresh de atributos en los clientes
-  const pokeClientsToRefresh = () => {
-    try {
-      localStorage.setItem('force_attr_refresh', '1');
-    } catch {}
-  };
-
+  // Acción solicitud
   const accionSolicitud = async (correo, accion) => {
-    setEnviando(correo);
-    setError('');
     try {
-      const res = await fetch(`${API_BASE}/aprobar-rol`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader,
-        },
-        body: JSON.stringify({ correo, accion }), // 'aprobar' | 'rechazar' | 'revocar'
+      await apiFetch(`${API_BASE}/aprobar-rol`, {
+        method: "POST",
+        body: JSON.stringify({ correo, accion }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Error en la acción');
 
-      // Refrescar clientes
-      pokeClientsToRefresh();
-
-      setSolicitudes((prev) =>
-        prev.map((s) =>
-          s.correo === correo ? { ...s, estado: accion === 'aprobar' ? 'aprobado' : 'rechazado' } : s
-        )
-      );
-      alert(`✅ Acción ${accion} aplicada para ${correo}.`);
-    } catch (e) {
-      console.error(e);
-      setError(`No se pudo ${accion} la solicitud.`);
-    } finally {
-      setEnviando('');
+      cargarSolicitudes();
+    } catch (err) {
+      setError(err.body?.message || err.message || "Error en la acción");
     }
   };
 
-  const eliminarSolicitud = async (correo) => {
-    setEnviando(correo);
-    setError('');
-    try {
-      const res = await fetch(`${API_BASE}/eliminar-solicitud`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader,
-        },
-        body: JSON.stringify({ correo }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Error al eliminar');
-
-      // Forzar refresh en clientes (revierte a rol base por dominio y quita del grupo)
-      pokeClientsToRefresh();
-
-      setSolicitudes((prev) => prev.filter((s) => s.correo !== correo));
-      alert(`🗑️ Solicitud de ${correo} eliminada.`);
-    } catch (e) {
-      console.error(e);
-      setError('No se pudo eliminar la solicitud.');
-    } finally {
-      setEnviando('');
-    }
-  };
-
-  // Filtrado en memoria
-  const solicitudesFiltradas = useMemo(() => {
-    const txt = filtroTexto.trim().toLowerCase();
-    return solicitudes.filter((s) => {
-      const estado = (s.estado || 'pendiente').toLowerCase();
-      const correo = (s.correo || '').toLowerCase();
-      const pasaTexto = !txt || correo.includes(txt);
-      const pasaEstado = filtroEstado === 'all' || estado === filtroEstado;
-      return pasaTexto && pasaEstado;
-    });
-  }, [solicitudes, filtroTexto, filtroEstado]);
-
-  // Guardar "vista" de rol (solo UI / demo)
-  useEffect(() => {
-    localStorage.setItem('ui_role_preview', vistaRol);
-  }, [vistaRol]);
+  // ---- Render ----
+  if (loadingSession) return <div>Cargando sesión…</div>;
 
   return (
     <div className="pagina-admin">
       <h1>Panel de Administración</h1>
-      <p>Desde aquí puedes revisar solicitudes para otorgar el rol "creador".</p>
+      <p>Bienvenido, {email}</p>
 
-      {!puedeGestionar && (
-        <p className="solo-autorizado">
-          🚫 Solo la administradora autorizada puede aprobar/rechazar/revocar/eliminar.
-        </p>
-      )}
+      <button onClick={cargarSolicitudes} disabled={loading}>
+        {loading ? "Actualizando…" : "↻ Actualizar"}
+      </button>
 
-      {/* Filtros */}
-      <div className="filtros">
-        <input
-          type="text"
-          className="buscar-correo"
-          placeholder="Buscar por correo…"
-          value={filtroTexto}
-          onChange={(e) => setFiltroTexto(e.target.value)}
-        />
+      {error && <div className="error-box">{error}</div>}
 
-        <select
-          className="select-estado"
-          value={filtroEstado}
-          onChange={(e) => setFiltroEstado(e.target.value)}
-          title="Filtrar por estado"
-        >
-          <option value="all">Todos los estados</option>
-          <option value="pendiente">Pendiente</option>
-          <option value="aprobado">Aprobado</option>
-          <option value="rechazado">Rechazado</option>
-        </select>
-
-        <button className="btn-recargar" onClick={cargarSolicitudes} disabled={cargando}>
-          {cargando ? 'Actualizando…' : '↻ Actualizar'}
-        </button>
-      </div>
-
-      {/* Vista de rol (solo para probar UI) */}
-      <div className="rol-preview">
-        <label>Tu rol activo:&nbsp;</label>
-        <select
-          className="select-rol"
-          value={vistaRol}
-          onChange={(e) => setVistaRol(e.target.value)}
-        >
-          <option>Administrador</option>
-          <option>Creador</option>
-          <option>Participante</option>
-        </select>
-        <span className="hint">(tras cambiar, vuelve a iniciar sesión)</span>
-      </div>
-
-      {cargando ? (
-        <div className="spinner">Cargando solicitudes…</div>
-      ) : error ? (
-        <div className="error-box">{error}</div>
-      ) : solicitudesFiltradas.length === 0 ? (
-        <p>No hay solicitudes.</p>
-      ) : (
-        <div className="tabla-solicitudes">
-          <table>
-            <thead>
-              <tr>
-                <th>Correo</th>
-                <th>Estado</th>
-                {puedeGestionar && <th>Acciones</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {solicitudesFiltradas.map((s) => {
-                const estado = (s.estado || 'pendiente').toLowerCase();
-                const correo = s.correo;
-                const protegido = correo === ADMIN_EMAIL;
-
-                return (
-                  <tr key={correo}>
-                    <td>{correo}</td>
-                    <td>
-                      <span className={`badge-estado ${estado}`}>
-                        {estado.replace(/^./, (c) => c.toUpperCase())}
-                      </span>
-                    </td>
-                    {puedeGestionar && (
-                      <td className="col-acciones">
-                        {protegido ? (
-                          <span className="chip-protegido">🔒 Protegido</span>
-                        ) : (
-                          <>
-                            <button
-                              className="btn-aprobar"
-                              onClick={() => accionSolicitud(correo, 'aprobar')}
-                              disabled={enviando === correo}
-                              title="Aprobar"
-                            >
-                              {enviando === correo ? 'Aplicando…' : '✅ Aprobar'}
-                            </button>
-                            <button
-                              className="btn-rechazar"
-                              onClick={() => accionSolicitud(correo, 'rechazar')}
-                              disabled={enviando === correo}
-                              title="Rechazar"
-                            >
-                              {enviando === correo ? 'Aplicando…' : '❌ Rechazar'}
-                            </button>
-                            <button
-                              className="btn-rechazar"
-                              onClick={() => accionSolicitud(correo, 'revocar')}
-                              disabled={enviando === correo}
-                              title="Revocar rol"
-                              style={{ marginLeft: 8 }}
-                            >
-                              {enviando === correo ? 'Aplicando…' : '🗑️ Revocar'}
-                            </button>
-                            <button
-                              className="btn-rechazar"
-                              onClick={() => eliminarSolicitud(correo)}
-                              disabled={enviando === correo}
-                              title="Eliminar solicitud (DynamoDB)"
-                              style={{ marginLeft: 8 }}
-                            >
-                              {enviando === correo ? 'Eliminando…' : '🗑️ Eliminar'}
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
+        <thead>
+          <tr>
+            <th>Correo</th>
+            <th>Estado</th>
+            {puedeGestionar && <th>Acciones</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {solicitudes.map((s) => (
+            <tr key={s.correo}>
+              <td>{s.correo}</td>
+              <td>{s.estado}</td>
+              {puedeGestionar && (
+                <td>
+                  <button onClick={() => accionSolicitud(s.correo, "aprobar")}>
+                    Aprobar
+                  </button>
+                  <button
+                    onClick={() => accionSolicitud(s.correo, "rechazar")}
+                    style={{ marginLeft: 8 }}
+                  >
+                    Rechazar
+                  </button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-export default AdminPage;
 

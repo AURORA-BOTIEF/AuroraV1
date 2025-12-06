@@ -1,0 +1,358 @@
+/* ============================= */
+/* CONTENEDOR GLOBAL 
+/* ============================= */
+.seminario-editor-container {
+  padding: 2rem 3rem;
+  max-width: 1000px;
+  margin: 1rem auto;
+  background: #fff;
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-base);
+  font-family: var(--font-family-base);
+}
+
+/* === MENSAJES === */
+.msg.ok {
+  background: #e6f4ea;
+  color: #1b5e20;
+  border: 1px solid #a5d6a7;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.msg.error {
+  background: #fdecea;
+  color: #c62828;
+  border: 1px solid #f5b7b1;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+/* === CAPÍTULOS === */
+.capitulo-editor {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 1.8rem 2rem;
+  margin-bottom: 1.8rem;
+  transition: box-shadow 0.2s ease;
+  position: relative;
+}
+
+.capitulo-editor:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+
+}
+
+.capitulo-editor h4 {
+  color: #035b6e;
+  font-weight: 700;
+  margin-bottom: 0.9rem;
+  font-size: 1.15rem;
+  border-bottom: 2px solid rgba(3, 91, 110, 0.15);
+  padding-bottom: 4px;
+}
+
+/* === INPUTS Y TEXTAREAS === */
+.input-capitulo,
+.subcapitulo-item input[type="text"],
+textarea {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #cfd8dc;
+
+  font-size: 0.95rem;
+  color: #333;
+  background-color: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.input-capitulo:focus,
+.subcapitulo-item input[type="text"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 4px rgba(3, 91, 110, 0.25);
+}
+
+label {
+  display: block;
+  margin-top: 0.75rem;
+  /* más pegado para uniformidad visual */
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+  color: #035b6e;
+  font-size: 0.95rem;
+}
+
+textarea {
+  min-height: 110px;
+  /* un poco más alto para objetivos */
+  resize: vertical;
+  font-family: inherit;
+
+  margin-bottom: 1rem;
+}
+
+/* === DURACIÓN === */
+.duracion-total {
+  font-size: 0.95rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* === SUBCAPÍTULOS === */
+.subcapitulo-item {
+  display: grid;
+  grid-template-columns: 48px 1fr 90px;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+
+}
+
+.subcapitulo-item span {
+  font-weight: 600;
+  color: #035b6e;
+  text-align: right;
+}
+
+.subcapitulo-item input[type="number"] {
+  width: 100%;
+  text-align: center;
+  border: 1px solid #cfd8dc;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.subcapitulo-item input:focus {
+  outline: none;
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
+}
+
+/* === BOTONES (sin desplazamiento en hover) === */
+.btn-primario,
+.btn-secundario,
+.btn-agregar-tema,
+.btn-agregar-capitulo {
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: #fff;
+  font-family: inherit;
+}
+
+.btn-primario {
+  background-color: #035b6e;
+}
+
+.btn-secundario {
+  background-color: #197fa6;
+}
+
+.btn-primario:hover,
+.btn-secundario:hover,
+.btn-agregar-tema:hover,
+.btn-agregar-capitulo:hover {
+  filter: brightness(1.05);
+}
+
+.btn-primario:active,
+.btn-secundario:active,
+.btn-agregar-tema:active,
+.btn-agregar-capitulo:active {
+  filter: brightness(0.95);
+}
+
+/* === BOTONES AGREGAR === */
+.btn-agregar-tema,
+.btn-agregar-capitulo {
+  background: linear-gradient(90deg, #45ab9f, #035b6e);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+
+.btn-agregar-tema::before,
+.btn-agregar-capitulo::before {
+  content: "+";
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  margin-right: 0.2rem;
+}
+
+/* === DISTRIBUCIÓN DE BOTONES === */
+.acciones-footer {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.btn-agregar-capitulo-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+
+/* === MODAL === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 540px;
+  /* más ancho por defecto */
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+  font-family: inherit;
+}
+
+.modal.modal-xl {
+  width: 900px;
+}
+
+/* para el modal de versiones guardadas */
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-body label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.modal-footer {
+  text-align: right;
+}
+
+/* === RESPONSIVIDAD === */
+@media (max-width: 768px) {
+  .acciones-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-agregar-capitulo-container {
+    justify-content: center;
+  }
+
+  .modal {
+    width: min(95vw, 540px);
+  }
+
+  .modal.modal-xl {
+    width: min(95vw, 900px);
+  }
+}
+
+.btn-volver {
+  background-color: #f1f7fc;
+  color: #1a1a1a;
+  border: 1px solid #d0e2f0;
+  border-radius: 24px;
+  padding: 10px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-volver:hover {
+  background-color: #e5f0fa;
+  border-color: #a5c7e7;
+}
+
+.btn-volver:active {
+  background-color: #d6e7f7;
+}
+
+.info-general {
+  background: #f9f9f9;
+  border: 1px solid #ddd;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.info-general label {
+  display: block;
+  font-weight: 600;
+  margin-top: 0.8rem;
+}
+
+.info-general input,
+.info-general textarea {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
+
+/* === DURACIÓN DE CAPÍTULO (editable y con horas/minutos) === */
+.duracion-capitulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.duracion-capitulo label {
+  color: #035b6e;
+  font-weight: 600;
+}
+
+.duracion-capitulo input {
+  width: 70px;
+  text-align: center;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.duracion-capitulo input:focus {
+  border-color: #035b6e;
+  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
+  outline: none;
+}
+
+.duracion-horas {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #035b6e;
+}

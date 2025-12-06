@@ -1,0 +1,4016 @@
+// src/components/BookEditor.jsx
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoader';
+import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { load as loadYaml } from 'js-yaml';
+import jsPDF from 'jspdf';
+import RegenerateLab from './RegenerateLab';
+import RegenerateLesson from './RegenerateLesson';
+import './BookEditor.css';
+
+const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
+const IDENTITY_POOL_ID = import.meta.env.VITE_IDENTITY_POOL_ID || import.meta.env.VITE_AWS_IDENTITY_POOL_ID || '';
+const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
+
+function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
+    const navigate = useNavigate();
+    const [bookData, setBookData] = useState(null);
+    const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
+    const [loading, setLoading] = useState(true);
+    const [loadingImages, setLoadingImages] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
+    const [currentLabLessonIndex, setCurrentLabLessonIndex] = useState(0);
+    const [isEditing, setIsEditing] = useState(false);
+    const [versions, setVersions] = useState([]);
+    const [labGuideVersions, setLabGuideVersions] = useState([]);
+    const [sessionVersionKey, setSessionVersionKey] = useState(null);
+    const [showVersionHistory, setShowVersionHistory] = useState(false);
+    const [newVersionName, setNewVersionName] = useState('');
+    const [newLabGuideVersionName, setNewLabGuideVersionName] = useState('');
+    const [viewingVersion, setViewingVersion] = useState(null);
+    const [viewingContent, setViewingContent] = useState('');
+    const [loadingVersion, setLoadingVersion] = useState(false);
+    const editorRef = useRef(null);
+    const lastAppliedLessonRef = useRef({ index: null, content: null, isEditing: null });
+    const lastAppliedLabGuideRef = useRef({ isEditing: null, content: null });
+    const [editingHtml, setEditingHtml] = useState(null);
+    const [labGuideEditingHtml, setLabGuideEditingHtml] = useState(null);
+    const selectionRef = useRef(null);
+    const [collapsedModules, setCollapsedModules] = useState({});
+    const [labGuideData, setLabGuideData] = useState(null);
+    const [showLabGuide, setShowLabGuide] = useState(false);
+    const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
+    // PPT Generation states
+    const [showPPTModal, setShowPPTModal] = useState(false);
+    const [pptGenerating, setPptGenerating] = useState(false);
+    const [selectedPPTVersion, setSelectedPPTVersion] = useState('current');
+    const [pptStyle, setPptStyle] = useState('professional');
+    const [slidesPerLesson, setSlidesPerLesson] = useState(6);
+    const [pptModelProvider, setPptModelProvider] = useState('bedrock');
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [downloadingPDF, setDownloadingPDF] = useState(false);
+    const [showRegenerateLabModal, setShowRegenerateLabModal] = useState(false);
+    const [showRegenerateLessonModal, setShowRegenerateLessonModal] = useState(false);
+    // (Quill removed) we prefer Lexical editor; contentEditable is fallback
+
+    // Download book or lab guide as PDF with logo and footer
+    const downloadAsPDF = async () => {
+        setDownloadingPDF(true);
+        try {
+            const data = viewMode === 'book' ? bookData : labGuideData;
+
+            // Load course title and module titles from outline
+            let courseTitle = 'Curso';
+            let moduleTitles = {};
+
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                const outlinePrefix = `${projectFolder}/outline/`;
+
+                const outlineResponse = await s3.send(new ListObjectsV2Command({
+                    Bucket: bucketName,
+                    Prefix: outlinePrefix,
+                    MaxKeys: 10
+                }));
+
+                if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                    let outlineFile = outlineResponse.Contents.find(obj =>
+                        obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                    );
+
+                    if (!outlineFile) {
+                        outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                    }
+
+                    if (outlineFile) {
+                        const outlineObj = await s3.send(new GetObjectCommand({
+                            Bucket: bucketName,
+                            Key: outlineFile.Key
+                        }));
+                        const outlineContent = await outlineObj.Body.transformToString();
+
+                        let outlineData;
+                        if (outlineFile.Key.endsWith('.json')) {
+                            outlineData = JSON.parse(outlineContent);
+                        } else {
+                            outlineData = loadYaml(outlineContent);
+                        }
+
+                        // Handle nested course structure
+                        const courseData = outlineData.course || outlineData;
+                        courseTitle = courseData.course_title || courseData.title || 'Curso';
+
+                        // Extract module titles
+                        const modulesArray = courseData.modules || outlineData.modules;
+                        if (modulesArray && Array.isArray(modulesArray)) {
+                            modulesArray.forEach((module, idx) => {
+                                moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading outline:', error);
+            }
+
+            const title = viewMode === 'book' ? courseTitle : `${courseTitle} - Guía de Laboratorios`;
+
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            // Load logo from S3
+            let logoDataUrl = null;
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const logoResponse = await s3.send(new GetObjectCommand({
+                    Bucket: 'crewai-course-artifacts',
+                    Key: 'logo/LogoNetec.png'
+                }));
+
+                const logoBlob = await logoResponse.Body.transformToByteArray();
+                const logoBase64 = btoa(String.fromCharCode(...logoBlob));
+                logoDataUrl = `data:image/png;base64,${logoBase64}`;
+            } catch (error) {
+                console.error('Error loading logo:', error);
+            }
+
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 20;
+            const lineHeight = 7;
+            const maxWidth = pageWidth - 2 * margin;
+            let yPosition = margin;
+
+            // Helper function to add header with design
+            const addHeader = (pageNum) => {
+                if (pageNum === 1) return;
+                pdf.setFillColor(230, 240, 250); // Light blue instead of dark blue
+                pdf.rect(0, 0, pageWidth, 15, 'F');
+                pdf.setTextColor(0, 51, 102); // Dark blue text for contrast
+                pdf.setFontSize(10);
+                pdf.setFont('helvetica', 'bold');
+                pdf.text(courseTitle, margin, 10);
+                if (logoDataUrl) {
+                    pdf.addImage(logoDataUrl, 'PNG', pageWidth - margin - 20, 4, 20, 7.5);
+                }
+            };
+
+            // Helper function to add footer with design
+            const addFooter = (pageNum, totalPages) => {
+                pdf.setFillColor(230, 240, 250); // Light blue like header
+                pdf.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+                pdf.setFontSize(8);
+                pdf.setFont('helvetica', 'italic');
+                pdf.setTextColor(0, 51, 102); // Dark blue like header text
+                const footerText = 'Este contenido ha sido generado con IA y supervisado por Netec';
+                pdf.text(footerText, (pageWidth - pdf.getTextWidth(footerText)) / 2, pageHeight - 7);
+                pdf.setFont('helvetica', 'normal');
+                const pageText = `Página ${pageNum} de ${totalPages}`;
+                pdf.text(pageText, pageWidth - margin - pdf.getTextWidth(pageText), pageHeight - 7);
+            };
+
+            // Helper function to check if we need a new page
+            const checkNewPage = (requiredSpace = 40) => {
+                if (yPosition > pageHeight - requiredSpace) {
+                    pdf.addPage();
+                    yPosition = 20;
+                    return true;
+                }
+                return false;
+            };
+
+            // Add logo on first page
+            if (logoDataUrl) {
+                pdf.addImage(logoDataUrl, 'PNG', pageWidth - margin - 40, margin, 40, 15);
+                yPosition += 25;
+            }
+
+            // Add title
+            pdf.setFontSize(24);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setTextColor(0, 0, 0);
+
+            // Split title if too long
+            const titleLines = pdf.splitTextToSize(title, maxWidth);
+            titleLines.forEach(line => {
+                pdf.text(line, margin, yPosition);
+                yPosition += 12;
+            });
+            yPosition += 8;
+
+            // Group lessons by module
+            const moduleGroups = {};
+            data.lessons.forEach(lesson => {
+                const moduleNum = lesson.moduleNumber || 1;
+                if (!moduleGroups[moduleNum]) {
+                    moduleGroups[moduleNum] = [];
+                }
+                moduleGroups[moduleNum].push(lesson);
+            });
+
+            const sortedModuleNums = Object.keys(moduleGroups).sort((a, b) => parseInt(a) - parseInt(b));
+
+            // Process each module
+            for (const moduleNum of sortedModuleNums) {
+                const moduleLessons = moduleGroups[moduleNum];
+                checkNewPage(20);
+
+                // Module header
+                const moduleTitle = moduleTitles[parseInt(moduleNum)] || `Módulo ${moduleNum}`;
+                pdf.setFillColor(0, 51, 102); // Dark navy blue
+                pdf.rect(margin - 5, yPosition - 7, maxWidth + 10, 15, 'F');
+                pdf.setFontSize(16);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setTextColor(255, 255, 255);
+                pdf.text(`Módulo ${moduleNum}: ${moduleTitle}`, margin, yPosition);
+                yPosition += 15;
+                pdf.setTextColor(0, 0, 0);
+
+                // Process lessons within this module
+                for (let i = 0; i < moduleLessons.length; i++) {
+                    const lesson = moduleLessons[i];
+                    const lessonNumInModule = lesson.lessonNumberInModule || (i + 1);
+
+                    checkNewPage();
+
+                    // Lesson title (only the numbered title, not the "Lesson X:" prefix)
+                    pdf.setFontSize(14);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.text(`${moduleNum}.${lessonNumInModule} ${lesson.title || 'Sin título'}`, margin, yPosition);
+                    yPosition += lineHeight + 3;
+
+                    // Process lesson content with images and code blocks
+                    let content = lesson.content || '';
+
+                    // Remove the "Lesson X: Title" line - try multiple patterns
+                    // Pattern 1: Standard "Lesson 1: Title\n"
+                    content = content.replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
+                    // Pattern 2: At start with possible whitespace
+                    content = content.replace(/^\s*Lesson\s+\d+\s*:\s*[^\n]+\n*/gi, '');
+                    // Pattern 3: Just in case it's a header
+                    content = content.replace(/^#+\s*Lesson\s+\d+\s*:\s*[^\n]+\n*/gim, '');
+
+                    // Trim any leading whitespace after removal
+                    content = content.trimStart();
+
+                    // Split content by images
+                    const imageRegex = /!\[.*?\]\((data:image\/[^;]+;base64,[^\)]+)\)/g;
+                    const parts = [];
+                    let lastIndex = 0;
+                    let match;
+
+                    while ((match = imageRegex.exec(content)) !== null) {
+                        if (match.index > lastIndex) {
+                            parts.push({ type: 'text', content: content.substring(lastIndex, match.index) });
+                        }
+                        parts.push({ type: 'image', dataUrl: match[1] });
+                        lastIndex = match.index + match[0].length;
+                    }
+
+                    if (lastIndex < content.length) {
+                        parts.push({ type: 'text', content: content.substring(lastIndex) });
+                    }
+
+                    // Process each part
+                    pdf.setFontSize(10);
+                    pdf.setFont('helvetica', 'normal');
+
+                    for (const part of parts) {
+                        if (part.type === 'text') {
+                            let text = part.content;
+
+                            // Extract code blocks and tables
+                            const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+                            // Table regex: matches markdown tables (lines starting and ending with |)
+                            const tableRegex = /(?:^|\n)((?:\|[^\n]+\|\n?)+)/g;
+
+                            const textParts = [];
+                            let lastIdx = 0;
+                            let codeMatch;
+
+                            // First, extract code blocks
+                            const codeBlocks = [];
+                            while ((codeMatch = codeBlockRegex.exec(text)) !== null) {
+                                codeBlocks.push({
+                                    start: codeMatch.index,
+                                    end: codeMatch.index + codeMatch[0].length,
+                                    type: 'code',
+                                    content: codeMatch[2].trim()
+                                });
+                            }
+
+                            // Then, extract tables (but not if they're inside code blocks)
+                            const tables = [];
+                            let tableMatch;
+                            while ((tableMatch = tableRegex.exec(text)) !== null) {
+                                const tableStart = tableMatch.index + (tableMatch[0].startsWith('\n') ? 1 : 0);
+                                const tableEnd = tableStart + tableMatch[1].length;
+
+                                // Check if table is inside a code block
+                                const insideCode = codeBlocks.some(cb =>
+                                    tableStart >= cb.start && tableEnd <= cb.end
+                                );
+
+                                if (!insideCode) {
+                                    // Parse the table
+                                    const tableLines = tableMatch[1].trim().split('\n').filter(l => l.trim());
+                                    const rows = [];
+                                    let headerRow = null;
+
+                                    for (let i = 0; i < tableLines.length; i++) {
+                                        const line = tableLines[i].trim();
+                                        // Skip separator rows (|---|---|)
+                                        if (/^\|[\s\-:]+\|$/.test(line) || /^\|(\s*[-:]+\s*\|)+$/.test(line)) {
+                                            continue;
+                                        }
+
+                                        // Extract cells
+                                        const cells = line.split('|')
+                                            .slice(1, -1) // Remove empty first and last elements
+                                            .map(cell => cell.trim()
+                                                .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
+                                                .replace(/\*(.+?)\*/g, '$1')     // Remove italic
+                                                .replace(/`(.+?)`/g, '$1')       // Remove inline code
+                                            );
+
+                                        if (cells.length > 0) {
+                                            if (headerRow === null) {
+                                                headerRow = cells;
+                                            } else {
+                                                rows.push(cells);
+                                            }
+                                        }
+                                    }
+
+                                    if (headerRow && headerRow.length > 0) {
+                                        tables.push({
+                                            start: tableStart,
+                                            end: tableEnd,
+                                            type: 'table',
+                                            header: headerRow,
+                                            rows: rows
+                                        });
+                                    }
+                                }
+                            }
+
+                            // Merge code blocks and tables, sort by position
+                            const allBlocks = [...codeBlocks, ...tables].sort((a, b) => a.start - b.start);
+
+                            // Build textParts array
+                            lastIdx = 0;
+                            for (const block of allBlocks) {
+                                if (block.start > lastIdx) {
+                                    textParts.push({ type: 'text', content: text.substring(lastIdx, block.start) });
+                                }
+                                textParts.push(block);
+                                lastIdx = block.end;
+                            }
+
+                            if (lastIdx < text.length) {
+                                textParts.push({ type: 'text', content: text.substring(lastIdx) });
+                            }
+
+                            if (textParts.length === 0) {
+                                textParts.push({ type: 'text', content: text });
+                            }
+
+                            for (const textPart of textParts) {
+                                if (textPart.type === 'code') {
+                                    // Check if we need to move to new page before code block
+                                    pdf.setFont('courier', 'normal');
+                                    pdf.setFontSize(8);
+                                    pdf.setTextColor(0, 0, 0);
+
+                                    const codeLines = textPart.content.split('\n');
+                                    const boxPadding = 3;
+                                    const codeLineHeight = 4.5;
+                                    const wrappedLines = [];
+
+                                    for (const codeLine of codeLines) {
+                                        if (codeLine.length === 0) {
+                                            wrappedLines.push('');
+                                        } else {
+                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 6);
+                                            wrappedLines.push(...splitLines);
+                                        }
+                                    }
+
+                                    const totalHeight = (wrappedLines.length * codeLineHeight) + (2 * boxPadding);
+
+                                    // If code block doesn't fit, move to new page
+                                    if (yPosition + totalHeight > pageHeight - 40) {
+                                        pdf.addPage();
+                                        yPosition = 20;
+                                    }
+
+                                    pdf.setFillColor(245, 245, 245);
+                                    pdf.rect(margin - 2, yPosition - 2, maxWidth + 4, totalHeight, 'F');
+
+                                    yPosition += boxPadding;
+                                    for (const line of wrappedLines) {
+                                        pdf.text(line, margin, yPosition);
+                                        yPosition += codeLineHeight;
+                                    }
+
+                                    yPosition += boxPadding + 3;
+                                    pdf.setFont('helvetica', 'normal');
+                                    pdf.setFontSize(10);
+
+                                } else if (textPart.type === 'table') {
+                                    // Render markdown table as PDF table
+                                    const { header, rows } = textPart;
+                                    const numCols = header.length;
+
+                                    if (numCols === 0) continue;
+
+                                    // Calculate column widths based on content
+                                    const cellPadding = 3;
+                                    const cellHeight = 8;
+                                    const headerHeight = 10;
+                                    const tableWidth = maxWidth;
+
+                                    // Measure column widths based on content (proportional)
+                                    pdf.setFontSize(8);
+                                    const colWidths = [];
+                                    const minColWidth = 20;
+
+                                    // Calculate content width for each column
+                                    const contentWidths = header.map((h, colIdx) => {
+                                        let maxContentWidth = pdf.getTextWidth(h);
+                                        rows.forEach(row => {
+                                            if (row[colIdx]) {
+                                                const cellWidth = pdf.getTextWidth(row[colIdx]);
+                                                if (cellWidth > maxContentWidth) {
+                                                    maxContentWidth = cellWidth;
+                                                }
+                                            }
+                                        });
+                                        return Math.max(maxContentWidth + cellPadding * 2, minColWidth);
+                                    });
+
+                                    // Normalize widths to fit table width
+                                    const totalContentWidth = contentWidths.reduce((a, b) => a + b, 0);
+                                    const scaleFactor = tableWidth / totalContentWidth;
+
+                                    for (let i = 0; i < numCols; i++) {
+                                        colWidths.push(contentWidths[i] * scaleFactor);
+                                    }
+
+                                    // Calculate total table height
+                                    const totalTableHeight = headerHeight + (rows.length * cellHeight);
+
+                                    // Check if table fits on current page
+                                    if (yPosition + totalTableHeight > pageHeight - 40) {
+                                        pdf.addPage();
+                                        yPosition = 20;
+                                    }
+
+                                    let tableX = margin;
+                                    let tableY = yPosition;
+
+                                    // Draw header row with background
+                                    pdf.setFillColor(240, 240, 240);
+                                    pdf.rect(tableX, tableY, tableWidth, headerHeight, 'F');
+
+                                    // Draw header cells
+                                    pdf.setFont('helvetica', 'bold');
+                                    pdf.setFontSize(8);
+                                    pdf.setTextColor(0, 0, 0);
+
+                                    let cellX = tableX;
+                                    for (let i = 0; i < numCols; i++) {
+                                        // Draw cell border
+                                        pdf.setDrawColor(200, 200, 200);
+                                        pdf.rect(cellX, tableY, colWidths[i], headerHeight, 'S');
+
+                                        // Draw cell text (truncate if needed)
+                                        const cellText = header[i] || '';
+                                        const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
+                                        pdf.text(truncatedText, cellX + cellPadding, tableY + headerHeight - 3);
+
+                                        cellX += colWidths[i];
+                                    }
+
+                                    tableY += headerHeight;
+
+                                    // Draw data rows
+                                    pdf.setFont('helvetica', 'normal');
+
+                                    for (const row of rows) {
+                                        // Check if row fits on current page
+                                        if (tableY + cellHeight > pageHeight - 40) {
+                                            pdf.addPage();
+                                            tableY = 20;
+
+                                            // Redraw header on new page
+                                            pdf.setFillColor(240, 240, 240);
+                                            pdf.rect(margin, tableY, tableWidth, headerHeight, 'F');
+
+                                            pdf.setFont('helvetica', 'bold');
+                                            cellX = margin;
+                                            for (let i = 0; i < numCols; i++) {
+                                                pdf.setDrawColor(200, 200, 200);
+                                                pdf.rect(cellX, tableY, colWidths[i], headerHeight, 'S');
+                                                const cellText = header[i] || '';
+                                                const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
+                                                pdf.text(truncatedText, cellX + cellPadding, tableY + headerHeight - 3);
+                                                cellX += colWidths[i];
+                                            }
+
+                                            tableY += headerHeight;
+                                            pdf.setFont('helvetica', 'normal');
+                                        }
+
+                                        cellX = margin;
+                                        for (let i = 0; i < numCols; i++) {
+                                            // Draw cell border
+                                            pdf.setDrawColor(200, 200, 200);
+                                            pdf.rect(cellX, tableY, colWidths[i], cellHeight, 'S');
+
+                                            // Draw cell text
+                                            const cellText = row[i] || '';
+                                            const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
+                                            pdf.text(truncatedText, cellX + cellPadding, tableY + cellHeight - 2);
+
+                                            cellX += colWidths[i];
+                                        }
+
+                                        tableY += cellHeight;
+                                    }
+
+                                    yPosition = tableY + 5;
+                                    pdf.setFontSize(10);
+
+                                } else {
+                                    let cleanText = textPart.content;
+                                    cleanText = cleanText.replace(/#{1,6}\s/g, '');
+                                    cleanText = cleanText.replace(/\*\*(.+?)\*\*/g, '$1');
+                                    cleanText = cleanText.replace(/\*(.+?)\*/g, '$1');
+                                    cleanText = cleanText.replace(/\[VISUAL:.*?\]/g, '');
+                                    cleanText = cleanText.replace(/`(.+?)`/g, '$1');
+                                    cleanText = cleanText.trim();
+
+                                    if (cleanText) {
+                                        const lines = pdf.splitTextToSize(cleanText, maxWidth);
+                                        const textHeight = lines.length * lineHeight;
+
+                                        // Look ahead to see what's coming next
+                                        const currentIdx = textParts.indexOf(textPart);
+                                        const nextPart = currentIdx < textParts.length - 1 ? textParts[currentIdx + 1] : null;
+
+                                        // Detect if this is a heading/intro
+                                        // - Short text ending with colon
+                                        // - Numbered list (1., 2., etc.)  
+                                        // - Text that looks like a section header (short and starts with capital)
+                                        const looksLikeHeading = (cleanText.length < 200 && cleanText.trim().endsWith(':')) ||
+                                            /^\d+\.\s/.test(cleanText) ||
+                                            (cleanText.length < 100 && /^[A-ZÁÉÍÓÚÑ]/.test(cleanText));
+
+                                        // If this looks like a heading and next is code/image/table, keep them together
+                                        if (looksLikeHeading && nextPart && (nextPart.type === 'code' || nextPart.type === 'image' || nextPart.type === 'table')) {
+                                            // Estimate next content height more accurately
+                                            let estimatedNextHeight = 70;
+                                            if (nextPart.type === 'code') {
+                                                // Try to estimate code block height based on line count
+                                                const codeLineCount = (nextPart.content.match(/\n/g) || []).length + 1;
+                                                estimatedNextHeight = Math.min(codeLineCount * 5, 120);
+                                            } else if (nextPart.type === 'table') {
+                                                // Estimate table height based on rows
+                                                const rowCount = (nextPart.rows?.length || 0) + 1; // +1 for header
+                                                estimatedNextHeight = Math.min(rowCount * 10 + 10, 150);
+                                            } else {
+                                                estimatedNextHeight = 90; // Image estimate
+                                            }
+
+                                            // If heading + next content won't fit, move both to next page
+                                            if (yPosition + textHeight + estimatedNextHeight > pageHeight - 40) {
+                                                pdf.addPage();
+                                                yPosition = 20;
+                                            }
+                                        }
+
+                                        for (const line of lines) {
+                                            checkNewPage();
+                                            pdf.text(line, margin, yPosition);
+                                            yPosition += lineHeight;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (part.type === 'image') {
+                            try {
+                                const img = new Image();
+                                img.src = part.dataUrl;
+
+                                await new Promise((resolve, reject) => {
+                                    img.onload = () => resolve();
+                                    img.onerror = () => reject(new Error('Image load failed'));
+                                    setTimeout(() => reject(new Error('Image load timeout')), 5000);
+                                });
+
+                                const maxImgWidth = maxWidth - 10;
+                                const aspectRatio = img.height / img.width;
+                                let imgWidth = Math.min(img.width * 0.264583, maxImgWidth);
+                                let imgHeight = imgWidth * aspectRatio;
+
+                                const maxImgHeight = 180;
+                                if (imgHeight > maxImgHeight) {
+                                    imgHeight = maxImgHeight;
+                                    imgWidth = imgHeight / aspectRatio;
+                                }
+
+                                if (yPosition + imgHeight > pageHeight - 40) {
+                                    pdf.addPage();
+                                    yPosition = 20;
+                                }
+
+                                const imgFormat = part.dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+                                pdf.addImage(part.dataUrl, imgFormat, margin, yPosition, imgWidth, imgHeight);
+
+                                yPosition += imgHeight + 5;
+
+                            } catch (imgError) {
+                                console.error('Error adding image to PDF:', imgError);
+                                pdf.text('[IMAGEN NO DISPONIBLE]', margin, yPosition);
+                                yPosition += lineHeight;
+                            }
+                        }
+                    }
+
+                    yPosition += 10;
+                }
+
+                yPosition += 15;
+            }
+
+            // Add headers and footers to all pages
+            const totalPages = pdf.internal.getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {
+                pdf.setPage(i);
+                addHeader(i);
+                addFooter(i, totalPages);
+            }
+
+            // Download the PDF
+            const fileName = `${projectFolder}_${viewMode === 'book' ? 'libro' : 'lab_guide'}.pdf`;
+            pdf.save(fileName);
+
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            alert('Error al generar el PDF. Por favor, intente nuevamente.');
+        } finally {
+            setDownloadingPDF(false);
+        }
+    };
+
+    // Function to extract module number from lesson filename or title
+    const extractModuleInfo = (lesson, index) => {
+        // PRIORITY 1: Check if lesson already has moduleNumber from conversion
+        if (lesson.moduleNumber) {
+            return {
+                moduleNumber: lesson.moduleNumber,
+                lessonNumber: lesson.lessonNumberInModule || (index + 1)
+            };
+        }
+
+        // PRIORITY 2: Try to extract from filename (e.g., "lesson_01-01.md" or "module-1-lesson-2-title.md")
+        if (lesson.filename) {
+            // First try the standard pattern: digits-digits (e.g., "01-02")
+            let match = lesson.filename.match(/(\d+)-(\d+)/);
+            if (match) {
+                return {
+                    moduleNumber: parseInt(match[1]),
+                    lessonNumber: parseInt(match[2])
+                };
+            }
+
+            // Try alternative pattern: module-N-lesson-M (e.g., "module-2-lesson-1-title.md")
+            match = lesson.filename.match(/module[_-]?(\d+)[_-]?lesson[_-]?(\d+)/i);
+            if (match) {
+                return {
+                    moduleNumber: parseInt(match[1]),
+                    lessonNumber: parseInt(match[2])
+                };
+            }
+        }
+
+        // PRIORITY 3: Try to extract from title (e.g., "Module 1: Lesson 2 - Title")
+        if (lesson.title) {
+            const match = lesson.title.match(/(?:Module|Módulo)\s*(\d+)/i);
+            if (match) {
+                return {
+                    moduleNumber: parseInt(match[1]),
+                    lessonNumber: index + 1
+                };
+            }
+        }
+
+        // FALLBACK: assume 3 lessons per module if no clear structure
+        const lessonsPerModule = 3;
+        return {
+            moduleNumber: Math.floor(index / lessonsPerModule) + 1,
+            lessonNumber: (index % lessonsPerModule) + 1
+        };
+    };
+
+    // Group lessons by module
+    const groupLessonsByModule = () => {
+        const data = viewMode === 'book' ? bookData : labGuideData;
+        if (!data || !data.lessons || !Array.isArray(data.lessons)) return {};
+
+        const modules = {};
+        data.lessons.forEach((lesson, index) => {
+            const { moduleNumber } = extractModuleInfo(lesson, index);
+            if (!modules[moduleNumber]) {
+                modules[moduleNumber] = {
+                    moduleNumber,
+                    lessons: []
+                };
+            }
+            modules[moduleNumber].lessons.push({
+                ...lesson,
+                originalIndex: index
+            });
+        });
+
+        return modules;
+    };    // Toggle module collapse state
+    const toggleModule = (moduleNumber) => {
+        setCollapsedModules(prev => ({
+            ...prev,
+            [moduleNumber]: !prev[moduleNumber]
+        }));
+    };
+
+    // Toggle all modules at once
+    const toggleAllModules = () => {
+        const modules = groupLessonsByModule();
+        const moduleNumbers = Object.keys(modules);
+        const anyCollapsed = moduleNumbers.some(num => collapsedModules[num]);
+
+        const newState = {};
+        moduleNumbers.forEach(num => {
+            newState[num] = !anyCollapsed; // If any collapsed, expand all; otherwise collapse all
+        });
+        setCollapsedModules(newState);
+    };
+
+    // Render lessons grouped by module
+    const renderLessonsByModule = () => {
+        const modules = groupLessonsByModule();
+        const moduleNumbers = Object.keys(modules).sort((a, b) => parseInt(a) - parseInt(b));
+        const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+        const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+
+        return moduleNumbers.map(moduleNum => {
+            const module = modules[moduleNum];
+            const isCollapsed = collapsedModules[moduleNum];
+
+            // Get module title from first lesson's moduleTitle property, or use default
+            const firstLesson = module.lessons[0];
+            let moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum}`;
+
+            // Ensure localization
+            if (moduleTitle && typeof moduleTitle === 'string') {
+                moduleTitle = moduleTitle.replace(/\bModule\b/g, 'Módulo');
+            }
+
+            return (
+                <div key={moduleNum} className="module-section">
+                    <div
+                        className="module-header"
+                        onClick={() => toggleModule(moduleNum)}
+                    >
+                        <span className="module-toggle">{isCollapsed ? '▶' : '▼'}</span>
+                        <span className="module-title">{moduleTitle}</span>
+                        <span className="module-count">({module.lessons.length})</span>
+                    </div>
+                    {!isCollapsed && (
+                        <div className="module-lessons">
+                            {module.lessons.map((lesson) => (
+                                <div
+                                    key={lesson.originalIndex}
+                                    className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
+                                    onClick={() => setActiveIndex(lesson.originalIndex)}
+                                >
+                                    <span className="lesson-number">L{lesson.lessonNumberInModule || extractModuleInfo(lesson, lesson.originalIndex).lessonNumber}</span>
+                                    <span className="lesson-title-text">{lesson.title || `Lección ${lesson.originalIndex + 1}`}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        });
+    };
+
+    useEffect(() => {
+        if (projectFolder) {
+            loadBook();
+            loadVersions();
+            loadLabGuide();
+            loadLabGuideVersions();
+        }
+    }, [projectFolder]);
+
+    // ReactQuill removed; lexical is preferred
+
+    // Dynamically import Lexical editor wrapper (preferred editor)
+    const [LexicalEditorWrapper, setLexicalEditorWrapper] = React.useState(null);
+    const [useLexical, setUseLexical] = React.useState(false);
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const mod = await import('./LexicalEditorWrapper');
+                if (mounted) {
+                    setLexicalEditorWrapper(() => mod.default);
+                    setUseLexical(true);
+                }
+            } catch (e) {
+                console.warn('Lexical dynamic import failed, falling back to other editors:', e);
+                setUseLexical(false);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
+
+    const loadBook = async () => {
+        try {
+            setLoading(true);
+            setLoadingImages(true);
+
+            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Load book error:', errorText);
+                throw new Error(`No se pudo cargar los datos del libro: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            // Fetch outline key for regeneration feature
+            let outlineKey = null;
+            try {
+                const session = await fetchAuthSession();
+                if (session?.credentials) {
+                    const s3 = new S3Client({
+                        region: AWS_REGION,
+                        credentials: session.credentials,
+                    });
+                    const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                    const outlinePrefix = `${projectFolder}/outline/`;
+
+                    const outlineResponse = await s3.send(new ListObjectsV2Command({
+                        Bucket: bucketName,
+                        Prefix: outlinePrefix,
+                        MaxKeys: 10
+                    }));
+
+                    if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                        // Prioritize YAML over JSON
+                        let outlineFile = outlineResponse.Contents.find(obj =>
+                            obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                        );
+                        if (!outlineFile) {
+                            outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                        }
+                        if (outlineFile) {
+                            outlineKey = outlineFile.Key;
+                            console.log('Found outline key for regeneration:', outlineKey);
+                        }
+                    }
+                }
+            } catch (outlineErr) {
+                console.warn('Could not fetch outline key:', outlineErr);
+            }
+
+            console.log('=== Book Data Response ===');
+            console.log('Keys:', Object.keys(data));
+            console.log('Has bookData:', !!data.bookData);
+            console.log('Has bookContent:', !!data.bookContent);
+            console.log('Has bookJsonUrl:', !!data.bookJsonUrl);
+            console.log('Has bookMdUrl:', !!data.bookMdUrl);
+
+            if (data.bookData) {
+                console.log('bookData structure:', {
+                    keys: Object.keys(data.bookData),
+                    hasLessons: !!data.bookData.lessons,
+                    lessonsIsArray: Array.isArray(data.bookData.lessons),
+                    lessonsCount: data.bookData.lessons ? data.bookData.lessons.length : 'N/A'
+                });
+            }
+
+            let bookToSet = null;
+
+            // Helper function to convert modules structure to lessons array
+            const convertModulesToLessons = (bookData) => {
+                if (bookData.modules && Array.isArray(bookData.modules)) {
+                    console.log('Converting modules structure to lessons array...');
+                    const lessons = [];
+                    bookData.modules.forEach((module, moduleIdx) => {
+                        // Handle both 'lessons' (theory) and 'labs' (lab guides)
+                        const items = module.lessons || module.labs;
+                        if (items && Array.isArray(items)) {
+                            items.forEach((item, itemIdx) => {
+                                lessons.push({
+                                    ...item,
+                                    moduleNumber: moduleIdx + 1,
+                                    lessonNumberInModule: itemIdx + 1,
+                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                    // Ensure filename follows the pattern for module grouping
+                                    filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                });
+                            });
+                        }
+                    });
+                    console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons (or labs)`);
+                    return {
+                        ...bookData,
+                        lessons: lessons,
+                        metadata: {
+                            ...(bookData.metadata || {}),
+                            total_lessons: lessons.length,
+                            total_modules: bookData.modules.length
+                        }
+                    };
+                }
+                return bookData;
+            };
+
+            // Priority: inline bookData > inline bookContent > presigned URLs
+            if (data.bookData) {
+                console.log('Processing book data...');
+
+                // Check if we have modules structure instead of lessons
+                if (!data.bookData.lessons && data.bookData.modules) {
+                    data.bookData = convertModulesToLessons(data.bookData);
+                }
+
+                // Ensure lessons is an array
+                if (data.bookData.lessons && Array.isArray(data.bookData.lessons)) {
+                    // Set book data immediately WITHOUT waiting for images
+                    bookToSet = { ...data.bookData, outlineKey }; // Include outlineKey for regeneration
+                    setBookData(bookToSet);
+                    setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
+                    setLoading(false); // Show UI immediately
+
+                    // Load images progressively in the background
+                    console.log('Loading images progressively in background...');
+                    setLoadingImages(true);
+
+                    // Process images for current lesson first (priority)
+                    const currentLesson = bookToSet.lessons[0];
+                    if (currentLesson && currentLesson.content) {
+                        console.log('Loading images for current lesson (priority)...');
+                        currentLesson.content = await replaceS3UrlsWithDataUrls(currentLesson.content);
+                        setBookData({ ...bookToSet }); // Trigger re-render
+                    }
+
+                    // Then load remaining lessons in background
+                    setTimeout(async () => {
+                        for (let i = 1; i < bookToSet.lessons.length; i++) {
+                            const lesson = bookToSet.lessons[i];
+                            if (lesson.content) {
+                                lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                                // Update state every few lessons to show progress
+                                if (i % 5 === 0 || i === bookToSet.lessons.length - 1) {
+                                    setBookData({ ...bookToSet });
+                                }
+                            }
+                        }
+                        console.log('All images loaded');
+                        setLoadingImages(false);
+                    }, 100);
+
+                    return; // Exit early since we've set the state
+                } else {
+                    console.error('bookData.lessons is not an array or is missing:', data.bookData);
+                    throw new Error('El formato del libro no es válido: lessons no es un array');
+                }
+            } else if (data.bookContent) {
+                // Parse book content immediately without waiting for images
+                console.log('Parsing book content (images will load in background)...');
+                const parsedBook = { ...parseMarkdownToBook(data.bookContent), outlineKey };
+
+                // Set book data immediately for fast UI display
+                setBookData(parsedBook);
+                setOriginalBookData(JSON.parse(JSON.stringify(parsedBook)));
+                setLoadingImages(false);
+
+                // Load images in the background
+                console.log('Loading images from S3 in background...');
+                replaceS3UrlsWithDataUrls(data.bookContent).then(contentWithImages => {
+                    const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
+                    setBookData(parsedBookWithImages);
+                    setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
+                    console.log('Images loaded successfully');
+                }).catch(err => {
+                    console.error('Error loading images:', err);
+                });
+
+                return; // Exit early since we've set the state
+            } else if (data.bookJsonUrl) {
+                // Fetch JSON via presigned URL
+                console.log('Fetching book JSON from presigned URL...');
+                const jsonResp = await fetch(data.bookJsonUrl);
+                if (!jsonResp.ok) throw new Error('Failed to fetch book JSON from S3');
+                let fetchedJson = await jsonResp.json();
+
+                // Check if we have modules structure instead of lessons
+                if (!fetchedJson.lessons && fetchedJson.modules) {
+                    fetchedJson = convertModulesToLessons(fetchedJson);
+                }
+
+                // Ensure lessons exists and is an array
+                if (!fetchedJson.lessons || !Array.isArray(fetchedJson.lessons)) {
+                    console.error('Fetched JSON lessons is not valid:', fetchedJson);
+                    throw new Error('El formato del libro no es válido: lessons no es un array');
+                }
+                // Process images
+                for (let lesson of fetchedJson.lessons) {
+                    if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+                bookToSet = { ...fetchedJson, outlineKey };
+            } else if (data.bookMdUrl) {
+                // Fetch markdown via presigned URL and parse
+                console.log('Fetching book markdown from presigned URL...');
+                const mdResp = await fetch(data.bookMdUrl);
+                if (!mdResp.ok) throw new Error('Failed to fetch book markdown from S3');
+                const markdown = await mdResp.text();
+
+                // Parse immediately without waiting for images
+                const parsedBook = { ...parseMarkdownToBook(markdown), outlineKey };
+                setBookData(parsedBook);
+                setOriginalBookData(JSON.parse(JSON.stringify(parsedBook)));
+                setLoadingImages(false);
+
+                // Load images in background
+                console.log('Loading images from S3 in background...');
+                replaceS3UrlsWithDataUrls(markdown).then(contentWithImages => {
+                    const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
+                    setBookData(parsedBookWithImages);
+                    setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
+                    console.log('Images loaded successfully');
+                }).catch(err => {
+                    console.error('Error loading images:', err);
+                });
+
+                return; // Exit early since we've set the state
+            } else {
+                throw new Error('No hay datos del libro disponibles');
+            }
+
+            setBookData(bookToSet);
+            setOriginalBookData(JSON.parse(JSON.stringify(bookToSet))); // Deep copy for original
+            setLoadingImages(false);
+        } catch (error) {
+            console.error('Error al cargar libro:', error);
+            alert('Error al cargar libro: ' + error.message);
+            setLoadingImages(false);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadLabGuide = async () => {
+        try {
+            console.log('=== Loading Lab Guide ===');
+
+            // Get authenticated credentials from Amplify
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                console.log('No credentials available for lab guide loading');
+                return;
+            }
+
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials,
+            });
+
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+            const labGuidePrefix = `${projectFolder}/book/`;
+            const outlinePrefix = `${projectFolder}/outline/`;
+
+            // 1. Fetch Outline
+            const outlineResponse = await s3.send(new ListObjectsV2Command({
+                Bucket: bucketName,
+                Prefix: outlinePrefix,
+                MaxKeys: 10
+            }));
+
+            let outlineData = null;
+            let outlineFilename = 'none';
+
+            if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                // Prioritize YAML over JSON
+                let outlineFile = outlineResponse.Contents.find(obj =>
+                    obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                );
+
+                if (!outlineFile) {
+                    outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                }
+
+                if (outlineFile) {
+                    outlineFilename = outlineFile.Key;
+                    console.log('Loading outline from:', outlineFilename);
+
+                    const outlineObj = await s3.send(new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: outlineFile.Key
+                    }));
+                    const outlineContent = await outlineObj.Body.transformToString();
+
+                    if (outlineFile.Key.endsWith('.json')) {
+                        outlineData = JSON.parse(outlineContent);
+                    } else {
+                        outlineData = loadYaml(outlineContent);
+                    }
+                }
+            }
+
+            // 2. Fetch Lab Guide Markdown
+            const response = await s3.send(new ListObjectsV2Command({
+                Bucket: bucketName,
+                Prefix: labGuidePrefix,
+                MaxKeys: 50
+            }));
+
+            if (!response.Contents) {
+                console.log('No contents found in book folder');
+                return;
+            }
+
+            console.log('Files found in book folder:', response.Contents.map(c => c.Key));
+
+            // Look for lab guide file (_LabGuide_complete)
+            const labGuideFile = response.Contents.find(obj =>
+                obj.Key && obj.Key.includes('_LabGuide_complete')
+            );
+
+            if (!labGuideFile) {
+                console.log('No lab guide file found.');
+                return;
+            }
+
+            console.log('Found lab guide:', labGuideFile.Key);
+
+            const labGuideResponse = await s3.send(new GetObjectCommand({
+                Bucket: bucketName,
+                Key: labGuideFile.Key
+            }));
+
+            const labGuideContent = await labGuideResponse.Body.transformToString();
+
+            // 3. Parse using Outline immediately without waiting for images
+            let parsedBook;
+            if (outlineData) {
+                console.log('Parsing Lab Guide using Outline (images will load in background)...');
+                parsedBook = parseMarkdownWithOutline(labGuideContent, outlineData, { onlyLabs: true, filename: outlineFilename });
+                console.log(`Parsed ${parsedBook.lessons.length} lessons using outline.`);
+            } else {
+                console.log('Parsing Lab Guide using simple headers (fallback)...');
+                parsedBook = parseMarkdownToBook(labGuideContent);
+            }
+
+            // Set Lab Guide data immediately for fast UI display
+            setLabGuideData({
+                ...parsedBook,
+                filename: labGuideFile.Key.split('/').pop(),
+                lastModified: labGuideFile.LastModified,
+                outlineKey: outlineFilename // Store outline key for regeneration
+            });
+
+            // Load images in the background
+            console.log('Loading Lab Guide images from S3 in background...');
+            replaceS3UrlsWithDataUrls(labGuideContent).then(contentWithImages => {
+                let parsedBookWithImages;
+                if (outlineData) {
+                    parsedBookWithImages = parseMarkdownWithOutline(contentWithImages, outlineData, { onlyLabs: true, filename: outlineFilename });
+                } else {
+                    parsedBookWithImages = parseMarkdownToBook(contentWithImages);
+                }
+
+                setLabGuideData({
+                    ...parsedBookWithImages,
+                    filename: labGuideFile.Key.split('/').pop(),
+                    lastModified: labGuideFile.LastModified,
+                    outlineKey: outlineFilename // Preserve outline key when images load
+                });
+                console.log('Lab Guide images loaded successfully');
+            }).catch(err => {
+                console.error('Error loading Lab Guide images:', err);
+            });
+
+            console.log('Lab guide loaded successfully');
+        } catch (error) {
+            console.error('Error loading lab guide:', error);
+        }
+    };
+
+    const saveLabGuide = async () => {
+        if (!labGuideData) {
+            alert('No hay guía de laboratorios cargada');
+            return;
+        }
+
+        if (!newLabGuideVersionName.trim()) {
+            alert('Por favor ingresa un nombre para la versión del Lab Guide');
+            return;
+        }
+
+        try {
+            console.log('=== Saving Lab Guide Version ===');
+
+            const safeVersionName = newLabGuideVersionName.replace(/\s+/g, '_');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const versionFilename = `${labGuideData.filename.replace('.md', '')}_${safeVersionName}_${timestamp}.md`;
+
+            // Get authenticated credentials
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                throw new Error('No se encontraron credenciales autenticadas');
+            }
+
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials,
+            });
+
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Get the current content - use editing HTML if available
+            // If editing, we need to update the current lesson's content in the local copy first
+            let contentToSave = labGuideData;
+
+            if (isEditing) {
+                const currentHtml = labGuideEditingHtml || editorRef.current?.innerHTML || '';
+                // We need to convert this HTML to markdown and update the specific lesson
+                // But wait, labGuideEditingHtml is just for the current lesson.
+                // We need to update the specific lesson in the labGuideData structure.
+
+                const markdown = convertHtmlToMarkdown(currentHtml);
+                const updatedLessons = [...(labGuideData.lessons || [])];
+                if (updatedLessons[currentLabLessonIndex]) {
+                    updatedLessons[currentLabLessonIndex] = {
+                        ...updatedLessons[currentLabLessonIndex],
+                        content: markdown
+                    };
+                }
+
+                contentToSave = {
+                    ...labGuideData,
+                    lessons: updatedLessons
+                };
+            }
+
+            // Convert the entire book structure back to markdown
+            const markdown = generateMarkdownFromBook(contentToSave);
+
+            // Save as a version in lab-versions folder
+            const versionKey = `${projectFolder}/lab-versions/${versionFilename}`;
+
+            // Check if version with this name already exists
+            const existingVersion = labGuideVersions.find(v => v.name.includes(safeVersionName));
+            if (existingVersion) {
+                const override = confirm(`Ya existe una versión con el nombre "${newLabGuideVersionName}".\n\n¿Deseas sobrescribirla?`);
+                if (!override) {
+                    return;
+                }
+            }
+
+            console.log('Saving lab guide version to:', versionKey);
+
+            // Upload to S3
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: versionKey,
+                Body: markdown,
+                ContentType: 'text/markdown'
+            }));
+
+            // Also update the main lab guide file
+            const labGuideKey = `${projectFolder}/book/${labGuideData.filename}`;
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: labGuideKey,
+                Body: markdown,
+                ContentType: 'text/markdown'
+            }));
+
+            // Add to versions list
+            if (existingVersion) {
+                setLabGuideVersions(prev => prev.map(v =>
+                    v.name.includes(safeVersionName)
+                        ? { ...v, timestamp: new Date(), key: versionKey }
+                        : v
+                ));
+            } else {
+                setLabGuideVersions(prev => [{
+                    name: versionFilename.replace('.md', ''),
+                    timestamp: new Date(),
+                    key: versionKey
+                }, ...prev]);
+            }
+
+            // Update lab guide data with the current content
+            setLabGuideData(contentToSave);
+
+            setNewLabGuideVersionName('');
+            alert('¡Versión de Lab Guide guardada exitosamente!');
+            console.log('Lab guide version saved successfully');
+        } catch (error) {
+            console.error('Error saving lab guide:', error);
+            alert('Error al guardar la guía de laboratorios: ' + error.message);
+        }
+    };
+
+    const parseMarkdownToBook = (markdown) => {
+        const lines = markdown.split('\n');
+        const lessons = [];
+        let currentLesson = null;
+        let inFrontMatter = true;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            if (line.startsWith('# ') && !line.includes('Table of Contents') && !line.includes('Book Statistics')) {
+                if (currentLesson) {
+                    lessons.push(currentLesson);
+                }
+                currentLesson = {
+                    title: line.substring(2).trim(),
+                    content: '',
+                    filename: `lesson_${lessons.length + 1}.md`
+                };
+                inFrontMatter = false;
+            } else if (currentLesson && !inFrontMatter) {
+                currentLesson.content += line + '\n';
+            }
+        }
+
+        if (currentLesson) {
+            lessons.push(currentLesson);
+        }
+
+        return { lessons };
+
+
+    };
+
+    const parseMarkdownWithOutline = (markdown, outline, options = {}) => {
+        const { onlyLabs = false, filename = 'unknown' } = options;
+        const normalizedMd = markdown.replace(/\r\n/g, '\n');
+        const lines = normalizedMd.split('\n');
+
+        // 1. Extract all headers with their line numbers
+        const headers = [];
+        // Allow optional space after #
+        const headerRegex = /^(#{1,6})\s*(.+)$/;
+
+        lines.forEach((line, index) => {
+            const match = line.match(headerRegex);
+            if (match) {
+                headers.push({
+                    level: match[1].length,
+                    title: match[2].trim(),
+                    lineIndex: index,
+                    raw: line
+                });
+            }
+        });
+
+        // Debug info collector
+        const debugLog = [];
+        debugLog.push(`Outline File: ${filename}`);
+        debugLog.push(`Found ${headers.length} headers in markdown.`);
+        if (headers.length > 0) {
+            debugLog.push(`First 5 headers: ${headers.slice(0, 5).map(h => h.title).join(', ')}`);
+        }
+
+        // 2. Map outline items to headers
+        const modules = [];
+        const flatLessons = [];
+
+        // Helper to normalize strings for comparison
+        const normalize = (str) => str.toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+            .replace(/[^\w\s]/g, ' ') // Replace non-word chars with space
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // Helper to find best matching header
+        // moduleNum is optional - if provided, prioritize headers that match the module number
+        const findHeader = (title, startLine = 0, moduleNum = null) => {
+            if (!title) return null;
+            const normTitle = normalize(title);
+
+            // NEW: If moduleNum is provided, first try to find a header with matching Lab ID prefix
+            // Lab ID format: "Lab MM-00-NN: Title" where MM is the module number
+            // After normalization, dashes become spaces: "lab 05 00 01 title"
+            if (moduleNum !== null) {
+                const modulePrefix = String(moduleNum).padStart(2, '0');
+                // Pattern matches normalized format: "lab 05 00 01" (dashes become spaces after normalize)
+                const labIdPattern = new RegExp(`^lab\\s+${modulePrefix}\\s+\\d+\\s+\\d+`, 'i');
+
+                // Look for a header that matches the lab ID pattern AND contains the title
+                const labMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+                    // Check if header starts with the right lab ID pattern (e.g., "lab 05 00 01")
+                    if (labIdPattern.test(normH)) {
+                        // Check if the rest of the header contains key words from the title
+                        return normH.includes(normTitle) || normTitle.split(' ').filter(t => t.length > 3).some(word => normH.includes(word));
+                    }
+                    return false;
+                });
+                if (labMatch) {
+                    console.log(`  Found lab by module-specific ID: "${labMatch.title}" for module ${moduleNum}`);
+                    return labMatch;
+                }
+            }
+
+            // 1. Exact match (case insensitive, normalized)
+            let match = headers.find(h => h.lineIndex >= startLine && normalize(h.title) === normTitle);
+            if (match) return match;
+
+            // 2. Try "Module X" / "Módulo X" / "Capítulo X" match for modules
+            // Matches "Module 1", "Módulo 1", "Capítulo 1", "Module 01", etc.
+            const modMatch = title.match(/(?:Module|Módulo|Capitulo|Capítulo)\s+(\d+)/i);
+            if (modMatch) {
+                const modNumber = modMatch[1];
+                // Look for header containing "Module <num>" or "Modulo <num>" or "Capitulo <num>"
+                // We use word boundaries or just simple inclusion?
+                // "module 1" should match "module 1" or "module 01"
+                // Let's try simple inclusion of the number
+                match = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+                    // Check for "module <num>" or "modulo <num>" or "capitulo <num>"
+                    if (normH.includes(`module ${modNumber}`) || normH.includes(`modulo ${modNumber}`) || normH.includes(`capitulo ${modNumber}`)) return true;
+                    if (normH.includes(`module 0${modNumber}`) || normH.includes(`modulo 0${modNumber}`) || normH.includes(`capitulo 0${modNumber}`)) return true;
+                    return false;
+                });
+                if (match) return match;
+            }
+
+            // 3. Strong fuzzy match (contains) - Header contains Outline Title
+            match = headers.find(h => h.lineIndex >= startLine && normalize(h.title).includes(normTitle));
+            if (match) return match;
+
+            // 4. Reverse contains (Outline Title contains Header)
+            match = headers.find(h => normTitle.includes(normalize(h.title)));
+            if (match) return match;
+
+            // 5. Token Overlap Match (Bag of words)
+            // Handles cases like "Inter-VLAN routing..." vs "Enrutamiento Inter-VLAN..."
+            // where words are translated or reordered but key terms (Packet Tracer, Router-on-a-stick) remain.
+            // IMPORTANT: Skip "Lab X: ..." headers when moduleNum is null (searching for module headers)
+            // to prevent matching lab content headers when looking for module section headers.
+            const titleTokens = normTitle.split(' ').filter(t => t.length > 2); // Filter short words
+            if (titleTokens.length > 0) {
+                match = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+
+                    // When moduleNum is null (searching for module headers, not lab headers),
+                    // skip headers that look like lab content (e.g., "Lab 1: ...", "Lab 07-00-01: ...")
+                    // This prevents module header search from accidentally matching lab headers
+                    if (moduleNum === null && /^lab\s+\d/.test(normH)) {
+                        return false;
+                    }
+
+                    const headerTokens = normH.split(' ');
+
+                    // Count how many title tokens exist in header
+                    let matches = 0;
+                    titleTokens.forEach(token => {
+                        if (headerTokens.includes(token)) matches++;
+                    });
+
+                    // Calculate score: % of title tokens found in header
+                    const score = matches / titleTokens.length;
+
+                    // Threshold: 60% match?
+                    return score > 0.6;
+                });
+                if (match) return match;
+            }
+
+            return match;
+        };
+
+        let lastLineIndex = 0; // This variable will become obsolete but is kept for now to minimize diff
+
+        // Track which headers have already been matched to avoid duplicates
+        const usedHeaders = new Set();
+
+        // Access modules from outline.course.modules (YAML structure) or outline.modules (flat structure)
+        const modulesList = (outline.course && outline.course.modules) || outline.modules || [];
+
+        console.log('Outline modules found:', modulesList.length);
+        if (modulesList.length === 0) {
+            debugLog.push("CRITICAL: No modules found in outline object. Checked outline.course.modules and outline.modules.");
+            debugLog.push(`Outline keys: ${Object.keys(outline).join(', ')}`);
+            if (outline.course) debugLog.push(`Outline.course keys: ${Object.keys(outline.course).join(', ')}`);
+        }
+
+        // Iterate through outline modules
+        modulesList.forEach((outModule, modIdx) => {
+            const moduleObj = {
+                title: outModule.title,
+                lessons: []
+            };
+
+            debugLog.push(`Processing Module: "${outModule.title}"`);
+            debugLog.push(`  Module has ${outModule.lessons ? outModule.lessons.length : 0} lessons and ${outModule.lab_activities ? outModule.lab_activities.length : 0} direct labs in outline`);
+
+            // Collect all potential lesson items (Lessons + Lab Activities)
+            const moduleItems = [];
+
+            if (outModule.lab_activities) {
+                outModule.lab_activities.forEach(lab => {
+                    moduleItems.push({
+                        title: lab.title,
+                        type: 'lab',
+                        original: lab
+                    });
+                });
+            }
+
+            if (outModule.lessons) {
+                outModule.lessons.forEach((outLesson) => {
+                    // Add the Lesson itself (ONLY if not in onlyLabs mode)
+                    if (!onlyLabs) {
+                        moduleItems.push({
+                            title: outLesson.title,
+                            type: 'lesson',
+                            original: outLesson
+                        });
+                    }
+
+                    // Add Lab Activities nested in the lesson
+                    if (outLesson.lab_activities) {
+                        outLesson.lab_activities.forEach(lab => {
+                            moduleItems.push({
+                                title: lab.title,
+                                type: 'lab',
+                                original: lab
+                            });
+                        });
+                    }
+                });
+            }
+
+            // Now try to find headers for these items
+            // The module assignment comes from the outline, not from markdown headers
+
+            // Try to find the module header to scope the search
+            const moduleHeader = findHeader(outModule.title, lastLineIndex);
+            const moduleStartLine = moduleHeader ? moduleHeader.lineIndex : lastLineIndex;
+
+            if (moduleHeader) {
+                debugLog.push(`  Found Module Header: "${moduleHeader.title}" at line ${moduleHeader.lineIndex}`);
+            } else {
+                debugLog.push(`  ⚠ Module Header "${outModule.title}" not found in markdown. Using last known line ${lastLineIndex}`);
+            }
+
+            moduleItems.forEach((item, idx) => {
+                // Pass module number (modIdx + 1) to help match lab headers with Lab ID prefix
+                const currentModuleNum = modIdx + 1;
+
+                // 1. Try to find header within module boundaries (or after previous lesson)
+                let header = findHeader(item.title, Math.max(moduleStartLine, lastLineIndex), currentModuleNum);
+
+                // 2. Fallback: Global search if not found in expected location
+                if (!header) {
+                    const globalHeader = findHeader(item.title, 0, currentModuleNum);
+                    if (globalHeader && !usedHeaders.has(globalHeader.lineIndex)) {
+                        console.log(`  Found "${item.title}" globally at line ${globalHeader.lineIndex} (outside expected module range)`);
+                        header = globalHeader;
+                    }
+                }
+
+                if (header && !usedHeaders.has(header.lineIndex)) {
+                    usedHeaders.add(header.lineIndex);
+
+                    // Calculate lab_id if this is a lab activity
+                    let labId = null;
+                    if (item.type === 'lab' && item.original) {
+                        const labNumber = item.original.number || (idx + 1);
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                        console.log(`Calculated lab_id for "${item.title}": ${labId}`);
+                    }
+
+                    const lessonObj = {
+                        title: item.title,
+                        content: '',
+                        module_title: outModule.title,  // Module comes from outline structure
+                        moduleNumber: modIdx + 1,  // Set moduleNumber to prevent fallback logic
+                        lesson_number: flatLessons.length + 1,
+                        filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
+                        startLine: header.lineIndex,
+                        type: item.type,
+                        lab_id: labId  // NEW: Store lab_id for regeneration
+                    };
+
+                    moduleObj.lessons.push(lessonObj);
+                    flatLessons.push(lessonObj);
+
+                    const msg = `  ✓ Matched "${item.title}" -> "${header.title}" (Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`;
+                    debugLog.push(msg);
+                    console.log(msg);
+                } else {
+                    // Either header not found, or header already used by another module
+                    // In both cases, create a placeholder so the lab appears in the UI
+                    const reason = header && usedHeaders.has(header.lineIndex)
+                        ? `Header already used by another module`
+                        : `No matching header found`;
+                    const msg = `  ⚠ PLACEHOLDER for "${item.title}" (${reason})`;
+                    debugLog.push(msg);
+                    console.log(msg);
+
+                    // Calculate lab_id for placeholder too if it's a lab
+                    let labId = null;
+                    if (item.type === 'lab' && item.original) {
+                        const labNumberRaw = item.original.number;
+                        const labNumber = labNumberRaw != null ? labNumberRaw : (idx + 1);
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                    }
+
+                    // Add as placeholder so it shows in the UI for regeneration
+                    const lessonObj = {
+                        title: item.title,
+                        content: `# ${item.title}\n\n> **Error:** No se encontró el contenido para esta actividad en el archivo markdown.\n> Verifique que el título en el outline coincida con algún encabezado en el documento.\n> Título buscado: "${item.title}"`,
+                        module_title: outModule.title,
+                        moduleNumber: modIdx + 1,
+                        lesson_number: flatLessons.length + 1,
+                        filename: `module_${modIdx + 1}_item_${flatLessons.length + 1}.md`,
+                        startLine: -1, // Use -1 to indicate no line found
+                        type: item.type,
+                        lab_id: labId,
+                        isPlaceholder: true
+                    };
+
+                    moduleObj.lessons.push(lessonObj);
+                    flatLessons.push(lessonObj);
+                }
+            });
+
+            // If no items found for this module, but we have a module header,
+            // maybe we should add a placeholder or the whole module content?
+            // But for Lab Guide, usually there are items.
+
+            modules.push(moduleObj);
+        });
+
+        // 3. Extract content for each lesson
+        // Filter out placeholders for content extraction
+        const realLessons = flatLessons.filter(l => !l.isPlaceholder);
+
+        // Sort by line number to ensure correct order and content capture
+        const sortedLessons = realLessons.sort((a, b) => a.startLine - b.startLine);
+
+        sortedLessons.forEach((lesson, idx) => {
+            const nextLesson = sortedLessons[idx + 1];
+
+            // The end line is the start of the next lesson, OR the start of the next Module (if we tracked that)
+            // But simpler: just go until the next *found* lesson.
+            // This effectively merges "fragments" (unmatched headers) into the current lesson.
+            const endLine = nextLesson ? nextLesson.startLine : lines.length;
+
+            // Extract lines
+            // We start from startLine + 1 to skip the header itself (optional, but usually cleaner)
+            // Or keep the header? The BookEditor usually expects content *without* the main title if it renders it separately.
+            // But here, let's keep the header if it's part of the flow, or remove it if it duplicates the sidebar title.
+            // Let's exclude the header line.
+            const contentLines = lines.slice(lesson.startLine + 1, endLine);
+            lesson.content = contentLines.join('\n').trim();
+
+            delete lesson.startLine;
+        });
+
+        return {
+            metadata: {
+                title: '📚 Libro del Curso',
+                author: 'Aurora AI',
+                generated_at: new Date().toISOString(),
+                total_lessons: flatLessons.length,
+                total_words: flatLessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0),
+                debug_log: debugLog // Return log
+            },
+            lessons: flatLessons,
+            table_of_contents: flatLessons.map(lesson => `- ${lesson.title} `)
+        };
+    };
+
+    // Convert markdown lesson content to minimal HTML suitable for the editor
+    const formatContentForEditing = (markdown) => {
+        if (!markdown) return '';
+
+        console.log('=== formatContentForEditing START ===');
+        console.log('Input markdown length:', markdown.length);
+        console.log('First 200 chars:', markdown.substring(0, 200));
+
+        // Split into lines so we can group lists and preserve block structure
+        const lines = markdown.split('\n');
+        let out = '';
+        let inUl = false;
+        let inOl = false;
+        let inCodeBlock = false;
+        let codeBlockContent = '';
+        let codeBlockLanguage = '';
+
+        const closeLists = () => {
+            if (inUl) { out += '</ul>'; inUl = false; }
+            if (inOl) { out += '</ol>'; inOl = false; }
+        };
+
+        // Helper function to apply inline formatting (bold, italic, inline code)
+        const applyInlineFormatting = (text) => {
+            // Remove standalone triple quotes that are not part of code blocks
+            // This handles cases where ''' or """ or ``` appear in regular text
+            let result = text
+                .replace(/^'''$/g, '') // Remove lines with only '''
+                .replace(/^"""$/g, '') // Remove lines with only """
+                .replace(/^```$/g, '') // Remove lines with only ```
+                .replace(/\s'''(\s|$)/g, '$1') // Remove ''' with surrounding spaces
+                .replace(/\s"""(\s|$)/g, '$1') // Remove """ with surrounding spaces
+                .replace(/\s```(\s|$)/g, '$1'); // Remove ``` with surrounding spaces
+
+            // Apply inline code, bold, italic formatting
+            return result
+                .replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: \'Courier New\', monospace;">$1</code>')
+                .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^\*]+)\*/g, '<em>$1</em>');
+        };
+
+        for (let rawLine of lines) {
+            const line = rawLine.trimEnd();
+
+            // Check for code block fences (```, """, ''') - with or without language
+            // Match trimmed line to handle any leading/trailing whitespace
+            const trimmedLine = line.trim();
+
+            // Check for fence markers (with or without language identifier)
+            const isFence = trimmedLine.startsWith('```') || trimmedLine.startsWith('"""') || trimmedLine.startsWith("'''");
+
+            if (isFence) {
+                // Extract language if present (e.g., ```yaml -> 'yaml')
+                const langMatch = trimmedLine.match(/^(?:```|"""|''')(\w+)?/);
+
+                if (!inCodeBlock) {
+                    // Starting a code block
+                    closeLists();
+                    inCodeBlock = true;
+                    codeBlockLanguage = (langMatch && langMatch[1]) ? langMatch[1] : '';
+                    codeBlockContent = '';
+                } else {
+                    // Ending a code block
+                    inCodeBlock = false;
+                    if (codeBlockContent.trim()) {
+                        const escapedCode = codeBlockContent
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                        out += `<pre style="background: #f4f4f4; padding: 1rem; border-radius: 5px; overflow-x: auto; font-family: 'Courier New', monospace;"><code>${escapedCode}</code></pre>`;
+                    }
+                    codeBlockLanguage = '';
+                    codeBlockContent = '';
+                }
+                continue; // Skip the fence line itself
+            }
+
+            // If inside code block, accumulate content (but don't process images here)
+            if (inCodeBlock) {
+                codeBlockContent += line + '\n';
+                continue;
+            }
+
+            if (/^\s*$/.test(line)) {
+                // blank line - only close lists if not in a list context
+                // Check if next non-empty line is also a list item to keep lists open
+                out += '<br/>';
+                continue;
+            }
+
+            // Headings h1..h6 (support ###### .. #)
+            const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
+            if (hMatch) {
+                closeLists();
+                const level = Math.min(6, hMatch[1].length);
+                out += `<h${level}>${applyInlineFormatting(hMatch[2].trim())}</h${level}>`;
+                console.log(`Converted heading: "${line}" -> <h${level}>`);
+                continue;
+            }
+
+            // Blockquote
+            const bq = line.match(/^>\s?(.*)$/);
+            if (bq) {
+                closeLists();
+                out += `<blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
+                continue;
+            }
+
+            // Unordered list item (including indented ones)
+            const ul = line.match(/^(\s*)[-\*]\s+(.*)$/);
+            if (ul) {
+                const indent = ul[1].length;
+                const itemContent = ul[2].trim();
+
+                // Skip empty list items (where content is only whitespace or just triple quotes)
+                if (!itemContent || itemContent === "'''" || itemContent === '"""' || itemContent === '```') {
+                    continue;
+                }
+
+                if (!inUl) {
+                    if (inOl) out += '</ol>';
+                    inOl = false;
+                    out += '<ul>';
+                    inUl = true;
+                }
+                out += `<li>${applyInlineFormatting(itemContent)}</li>`;
+                continue;
+            }
+
+            // Ordered list item (including indented ones)
+            const ol = line.match(/^(\s*)\d+\.\s+(.*)$/);
+            if (ol) {
+                const indent = ol[1].length;
+                const itemContent = ol[2].trim();
+
+                // Skip empty list items (where content is only whitespace or just triple quotes)
+                if (!itemContent || itemContent === "'''" || itemContent === '"""' || itemContent === '```') {
+                    continue;
+                }
+
+                if (!inOl) {
+                    if (inUl) out += '</ul>';
+                    inUl = false;
+                    out += '<ol>';
+                    inOl = true;
+                }
+                out += `<li>${applyInlineFormatting(itemContent)}</li>`;
+                continue;
+            }
+
+            // If line starts with whitespace and we're in a list, it might be continuation
+            if ((inOl || inUl) && line.match(/^\s{4,}/)) {
+                // Indented content within list item - add as paragraph within last li
+                const content = line.trim();
+                if (content) {
+                    out += `<p style="margin-left: 1.5rem;">${applyInlineFormatting(content)}</p>`;
+                }
+                continue;
+            }
+
+            // Check if this line contains an image markdown (including those with long data URLs)
+            // Support both ![alt](url) and ![[VISUAL: description]](url) formats
+            // Use a more flexible pattern that handles very long base64 data URLs
+            if (line.includes('![')) {
+                console.log('🖼️ Found image line, length:', line.length);
+                console.log('First 100 chars:', line.substring(0, 100));
+
+                // Find the image markdown pattern - more robust for long URLs
+                const imgStartIdx = line.indexOf('![');
+                const imgEndBracketIdx = line.indexOf('](', imgStartIdx);
+
+                console.log('Image indices:', { imgStartIdx, imgEndBracketIdx });
+
+                if (imgStartIdx !== -1 && imgEndBracketIdx !== -1) {
+                    // Extract alt text (between ![ and ])
+                    let altStartIdx = imgStartIdx + 2;
+                    let altEndIdx = imgEndBracketIdx;
+
+                    // Handle double brackets ![[VISUAL: ...]]
+                    if (line[altStartIdx] === '[') {
+                        altStartIdx++;
+                        // Find the closing ]]
+                        const doubleCloseBracket = line.indexOf(']]', altStartIdx);
+                        if (doubleCloseBracket !== -1 && doubleCloseBracket < imgEndBracketIdx) {
+                            altEndIdx = doubleCloseBracket;
+                        }
+                    }
+
+                    const alt = line.substring(altStartIdx, altEndIdx).trim();
+
+                    // Extract URL (after ]( until the end of line or closing ))
+                    const srcStartIdx = imgEndBracketIdx + 2;
+                    let srcEndIdx = line.indexOf(')', srcStartIdx);
+
+                    // If no closing paren found, the URL extends to end of line
+                    if (srcEndIdx === -1) {
+                        srcEndIdx = line.length;
+                    }
+
+                    const src = line.substring(srcStartIdx, srcEndIdx).trim();
+
+                    console.log('Extracted alt:', alt);
+                    console.log('Extracted src length:', src.length);
+                    console.log('Src starts with:', src.substring(0, 50));
+
+                    // Only render as image if we found valid src
+                    if (src) {
+                        closeLists();
+                        console.log('✅ Rendering image with alt:', alt);
+                        out += `<p style="text-align: center;"><img alt="${alt}" src="${src}" style="max-width: 100%; height: auto; display: inline-block;" /></p>`;
+                        continue;
+                    } else {
+                        console.log('❌ No valid src found');
+                    }
+                } else {
+                    console.log('❌ Image pattern not complete (missing ]( or ))');
+                }
+            }
+
+            // Table row detection (markdown tables with | separator)
+            // Match lines like: | Header 1 | Header 2 | Header 3 |
+            // or: |----------|----------|----------|
+            const tableMatch = line.match(/^\|(.+)\|$/);
+            if (tableMatch) {
+                closeLists();
+                const cells = tableMatch[1].split('|').map(c => c.trim());
+
+                // Check if this is a separator row (|---|---|)
+                const isSeparator = cells.every(c => /^[-:]+$/.test(c));
+
+                if (isSeparator) {
+                    // Skip separator rows, they're just for markdown formatting
+                    continue;
+                }
+
+                // Check if this is likely a header row (first table row or has bold text)
+                const isHeaderRow = cells.some(c => /^\*\*/.test(c)) || !out.includes('<table');
+
+                // Start table if not already in one
+                if (!out.includes('<table') || out.lastIndexOf('</table>') > out.lastIndexOf('<table')) {
+                    out += '<table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">';
+                    if (isHeaderRow) {
+                        out += '<thead><tr>';
+                        cells.forEach(cell => {
+                            out += `<th style="border: 1px solid #ddd; padding: 0.75rem; background-color: #f4f4f4; text-align: left;">${applyInlineFormatting(cell)}</th>`;
+                        });
+                        out += '</tr></thead><tbody>';
+                    } else {
+                        out += '<tbody><tr>';
+                        cells.forEach(cell => {
+                            out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                        });
+                        out += '</tr>';
+                    }
+                } else {
+                    // Continue existing table
+                    out += '<tr>';
+                    cells.forEach(cell => {
+                        out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                    });
+                    out += '</tr>';
+                }
+                continue;
+            }
+
+            // Close table if we were in one and hit a non-table line
+            if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
+                // Check if this line is not a table row
+                if (!line.match(/^\|(.+)\|$/)) {
+                    out += '</tbody></table>';
+                }
+            }
+
+            // Apply inline formatting to regular text
+            let inline = applyInlineFormatting(line);
+
+            // If the line contains HTML-like block tags already, preserve them
+            if (/^<\/?(p|div|h\d|ul|ol|li|img|blockquote|span)/i.test(inline)) {
+                closeLists();
+                out += inline;
+            } else {
+                closeLists();
+                out += `<p>${inline}</p>`;
+            }
+        }
+
+        closeLists();
+
+        // Close any unclosed table at the end
+        if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
+            out += '</tbody></table>';
+        }
+
+        // Collapse adjacent empty paragraphs
+        out = out.replace(/<p>\s*<\/p>/g, '');
+
+        console.log('Output HTML length:', out.length);
+        console.log('First 200 chars of HTML:', out.substring(0, 200));
+        console.log('=== formatContentForEditing END ===');
+
+        return out;
+    };
+
+    const loadVersions = async () => {
+        try {
+            // Load version files from S3 under projectFolder/versions/
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) return;
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+            const prefix = `${projectFolder}/versions/`;
+
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            const items = resp.Contents || [];
+            const vers = items
+                .filter(i => i.Key && i.Key.endsWith('.json'))
+                .map(i => ({ name: i.Key.replace(prefix, ''), timestamp: i.LastModified, key: i.Key }))
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            setVersions(vers);
+        } catch (error) {
+            console.error('Error al cargar versiones:', error);
+        }
+    };
+
+    const loadLabGuideVersions = async () => {
+        try {
+            // Load lab guide version files from S3 under projectFolder/lab-versions/
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) return;
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+            const prefix = `${projectFolder}/lab-versions/`;
+
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            const items = resp.Contents || [];
+            const vers = items
+                .filter(i => i.Key && i.Key.endsWith('.md'))
+                .map(i => ({ name: i.Key.replace(prefix, '').replace('.md', ''), timestamp: i.LastModified, key: i.Key }))
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            setLabGuideVersions(vers);
+        } catch (error) {
+            console.error('Error al cargar versiones de lab guide:', error);
+        }
+    };
+
+    const deleteVersion = async (version) => {
+        if (!confirm(`¿Eliminar la versión "${version.name}"? Esta acción no se puede deshacer.`)) return;
+        try {
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Delete JSON
+            await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: version.key }));
+            // Also attempt to delete markdown snapshot (replace .json with .md)
+            try {
+                const mdKey = version.key.replace(/\.json$/i, '.md');
+                await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: mdKey }));
+            } catch (e) {
+                // ignore missing md snapshot
+            }
+
+            setVersions(prev => prev.filter(v => v.key !== version.key));
+            alert('Versión eliminada');
+        } catch (e) {
+            console.error('Failed to delete version:', e);
+            alert('Error al eliminar versión: ' + String(e));
+        }
+    };
+
+    const deleteLabGuideVersion = async (version) => {
+        if (!confirm(`¿Eliminar la versión de Lab Guide "${version.name}"? Esta acción no se puede deshacer.`)) return;
+        try {
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: version.key }));
+
+            setLabGuideVersions(prev => prev.filter(v => v.key !== version.key));
+            alert('Versión de Lab Guide eliminada');
+        } catch (e) {
+            console.error('Failed to delete lab guide version:', e);
+            alert('Error al eliminar versión: ' + String(e));
+        }
+    };
+
+    const viewVersion = async (version) => {
+        try {
+            setLoadingVersion(true);
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Load the JSON version to get all lessons
+            const resp = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: version.key }));
+            const jsonText = await resp.Body.transformToString();
+            const parsedVersion = JSON.parse(jsonText);
+
+            // Process images in all lessons for display
+            console.log('Loading images from version for viewing...');
+            for (let lesson of parsedVersion.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Load the version into the main viewer (not modal)
+            setBookData(parsedVersion);
+            setCurrentLessonIndex(0);
+            setIsEditing(false); // View mode
+            setShowVersionHistory(false); // Close version history panel
+            setViewingVersion(null); // Clear any modal state
+        } catch (e) {
+            console.error('Failed to load version content:', e);
+            alert('Error cargando la versión: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // Load a version into the editor for editing. This will NOT overwrite the original files.
+    const editVersion = async (version) => {
+        try {
+            setLoadingVersion(true);
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const resp = await s3.send(new GetObjectCommand({
+                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                Key: version.key
+            }));
+            const jsonText = await resp.Body.transformToString();
+            const parsed = JSON.parse(jsonText);
+
+            // Process images in all lessons to convert S3 URLs to blob URLs for display
+            console.log('Loading images from version for editing...');
+            for (let lesson of parsed.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Set bookData to parsed version and enter edit mode
+            setBookData(parsed);
+            setCurrentLessonIndex(0);
+            setIsEditing(true);
+            // Set editor HTML to the first lesson content formatted for editing
+            const firstHtml = formatContentForEditing(parsed.lessons?.[0]?.content || '');
+            try { editorRef.current && (editorRef.current.innerHTML = firstHtml); } catch (e) { }
+            setEditingHtml(firstHtml);
+            setShowVersionHistory(false); // Close version history panel
+            alert('Versión cargada para edición. Puedes editar todas las lecciones. Para guardar cambios, usa "Guardar Versión".');
+        } catch (e) {
+            console.error('Failed to load version for edit:', e);
+            alert('Error al cargar versión para editar: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // View original version
+    const viewOriginal = async () => {
+        try {
+            setLoadingVersion(true);
+
+            if (!originalBookData) {
+                throw new Error('No se encontró la versión original');
+            }
+
+            // Create a deep copy and process images for display
+            const originalCopy = JSON.parse(JSON.stringify(originalBookData));
+            console.log('Loading images from original version...');
+            for (let lesson of originalCopy.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Load the original into the main viewer
+            setBookData(originalCopy);
+            setCurrentLessonIndex(0);
+            setIsEditing(false); // View mode
+            setShowVersionHistory(false); // Close version history panel
+        } catch (e) {
+            console.error('Failed to load original version:', e);
+            alert('Error cargando la versión original: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // Edit original version
+    const editOriginal = async () => {
+        try {
+            setLoadingVersion(true);
+
+            if (!originalBookData) {
+                throw new Error('No se encontró la versión original');
+            }
+
+            // Create a deep copy and process images for display
+            const originalCopy = JSON.parse(JSON.stringify(originalBookData));
+            console.log('Loading images from original version for editing...');
+            for (let lesson of originalCopy.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Set bookData to original and enter edit mode
+            setBookData(originalCopy);
+            setCurrentLessonIndex(0);
+            setIsEditing(true);
+            // Set editor HTML to the first lesson content formatted for editing
+            const firstHtml = formatContentForEditing(originalCopy.lessons?.[0]?.content || '');
+            try { editorRef.current && (editorRef.current.innerHTML = firstHtml); } catch (e) { }
+            setEditingHtml(firstHtml);
+            setShowVersionHistory(false); // Close version history panel
+            alert('Versión original cargada para edición. Puedes editar todas las lecciones. Para guardar cambios, usa "Guardar Versión".');
+        } catch (e) {
+            console.error('Failed to load original for edit:', e);
+            alert('Error al cargar la versión original para editar: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // No Quill-specific paste handler; Lexical wrapper handles its own paste behavior.
+
+    const saveBook = async () => {
+        if (!bookData) return;
+
+        try {
+            setSaving(true);
+
+            if (!IDENTITY_POOL_ID) {
+                throw new Error('Cognito Identity Pool no configurado. Configure VITE_IDENTITY_POOL_ID en su archivo de entorno y recargue la aplicación.');
+            }
+
+            // If the user is still editing, convert the current editor HTML to markdown
+            // and use that to build the book JSON we upload. This ensures the most
+            // recent edits are included even if the component state hasn't flushed yet.
+            let bookToUpload = bookData;
+            if (isEditing) {
+                let html = editingHtml ?? editorRef.current?.innerHTML ?? '';
+
+                // Upload any pasted/inline images (data URLs) to S3 and replace with S3 URLs
+                try {
+                    const { replaceDataUrlsWithS3Urls } = await import('../utils/s3ImageLoader');
+                    html = await replaceDataUrlsWithS3Urls(html, projectFolder);
+                } catch (e) {
+                    console.warn('Failed to upload inline images before save:', e);
+                }
+
+                const markdown = convertHtmlToMarkdown(html);
+                const updatedLessons = [...(bookData.lessons || [])];
+                updatedLessons[currentLessonIndex] = {
+                    ...(updatedLessons[currentLessonIndex] || {}),
+                    content: markdown
+                };
+                bookToUpload = {
+                    ...bookData,
+                    lessons: updatedLessons,
+                    metadata: {
+                        ...bookData.metadata,
+                        total_words: updatedLessons.reduce((sum, lesson) => sum + (lesson.content || '').split(/\s+/).length, 0)
+                    }
+                };
+            }
+
+            const bookJson = JSON.stringify(bookToUpload);
+            // Obtain authenticated credentials from Amplify (requires user to be signed-in and Identity Pool configured)
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                throw new Error('No se encontraron credenciales autenticadas. Asegúrate de iniciar sesión y que VITE_IDENTITY_POOL_ID esté configurado.');
+            }
+
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials,
+            });
+
+            const s3Key = `${projectFolder}/book/course_book_data.json`;
+
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Use simple PutObjectCommand for faster, more reliable uploads
+            // This avoids multipart upload complexity and CRC32 checksum issues
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: s3Key,
+                Body: bookJson,
+                ContentType: 'application/json',
+            }));
+
+            // Notify backend with S3 key
+            const notifyResp = await fetch(`${API_BASE}/save-book`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectFolder: projectFolder, bookS3Key: s3Key })
+            });
+
+            if (!notifyResp.ok) {
+                const errText = await notifyResp.text();
+                throw new Error('Error al notificar guardado: ' + errText);
+            }
+
+            await notifyResp.json();
+
+            // Autosave removed: only manual "Guardar Versión" will create versions.
+
+            // Update local state to reflect what we uploaded and exit edit mode
+            setBookData(bookToUpload);
+            setIsEditing(false);
+            alert('¡Libro guardado exitosamente (subido a S3 via Cognito)!');
+        } catch (error) {
+            console.error('Error al guardar libro:', error);
+            if (error instanceof TypeError) {
+                console.error('Fetch failed. This is often caused by CORS or network issues. Ensure the API Gateway allows requests from your origin and that the endpoint is reachable.');
+            }
+            alert('Error al guardar libro: ' + error.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const generateMarkdownFromBook = (book) => {
+        try {
+            let markdown = `# ${book.metadata?.title || 'Course Book'}\n\n`;
+
+            if (book.metadata?.author) {
+                markdown += `**Author:** ${book.metadata.author}\n`;
+            }
+            if (book.metadata?.generated_at) {
+                markdown += `**Generated:** ${new Date(book.metadata.generated_at).toLocaleDateString()}\n`;
+            }
+            markdown += `\n---\n\n`;
+
+            // Table of contents (optional)
+            if (book.table_of_contents && Array.isArray(book.table_of_contents)) {
+                markdown += `# Table of Contents\n\n`;
+                book.table_of_contents.forEach(item => {
+                    markdown += `${item}\n`;
+                });
+                markdown += `\n---\n\n`;
+            }
+
+            // Lessons content
+            const lessons = book.lessons || [];
+            lessons.forEach((lesson, index) => {
+                markdown += `# Lesson ${index + 1}: ${lesson.title || 'Untitled'}\n\n`;
+                markdown += (lesson.content || '') + '\n\n';
+                markdown += `---\n\n`;
+            });
+
+            // Statistics
+            markdown += `## Book Statistics\n\n`;
+            markdown += `- **Total Lessons**: ${book.metadata?.total_lessons || lessons.length}\n`;
+            markdown += `- **Total Words**: ${book.metadata?.total_words || 0}\n`;
+            markdown += `- **Last Updated**: ${new Date().toLocaleString()}\n`;
+
+            return markdown;
+        } catch (error) {
+            console.error('Error generating markdown:', error);
+            // Return minimal markdown on error
+            return `# Course Book\n\nError generating full markdown: ${error.message}\n`;
+        }
+    };
+
+    const saveVersion = async () => {
+        if (!newVersionName.trim()) {
+            alert('Por favor ingresa un nombre para la versión');
+            return;
+        }
+
+        try {
+            const safeVersionName = newVersionName.replace(/\s+/g, '_');
+            const originalFilename = (bookData && (bookData.filename || (bookData.metadata && bookData.metadata.filename))) || 'course_book_data';
+            const baseName = originalFilename.replace(/\.[^/.]+$/, '');
+            // Include original filename in version name: originalname_versionname.json
+            const versionJsonName = `${baseName}_${safeVersionName}.json`;
+            const versionKey = `${projectFolder}/versions/${versionJsonName}`;
+
+            // Check if version with this name already exists
+            const existingVersion = versions.find(v => v.key === versionKey);
+            if (existingVersion) {
+                const override = confirm(`Ya existe una versión con el nombre "${newVersionName}".\n\n¿Deseas sobrescribirla?`);
+                if (!override) {
+                    return; // User cancelled
+                }
+            }
+
+            // Ensure the current lesson edits are saved into bookData before creating version
+            let bookToVersion = bookData;
+            if (isEditing) {
+                let html = editingHtml ?? editorRef.current?.innerHTML ?? '';
+
+                // Upload any inline images (data URLs) to S3 before saving version
+                try {
+                    const { replaceDataUrlsWithS3Urls } = await import('../utils/s3ImageLoader');
+                    html = await replaceDataUrlsWithS3Urls(html, projectFolder);
+                } catch (e) {
+                    console.error('❌ Failed to upload inline images before version save:', e);
+                    alert('Error: No se pudieron subir algunas imágenes a S3. Por favor, intenta de nuevo.');
+                    return; // Don't save version with embedded images
+                }
+
+                const markdown = convertHtmlToMarkdown(html);
+                const updatedLessons = [...(bookData.lessons || [])];
+                updatedLessons[currentLessonIndex] = {
+                    ...(updatedLessons[currentLessonIndex] || {}),
+                    content: markdown
+                };
+
+                bookToVersion = {
+                    ...bookData,
+                    lessons: updatedLessons,
+                    metadata: {
+                        ...bookData.metadata,
+                        total_words: updatedLessons.reduce((sum, lesson) => sum + (lesson.content || '').split(/\s+/).length, 0)
+                    }
+                };
+
+                // CRITICAL: Also update modules structure if it exists
+                if (bookData.modules && Array.isArray(bookData.modules)) {
+                    const updatedModules = bookData.modules.map(module => {
+                        return {
+                            ...module,
+                            lessons: (module.lessons || []).map((moduleLesson, idx) => {
+                                const matchingLesson = updatedLessons.find(l =>
+                                    l.title === moduleLesson.title ||
+                                    l.lesson_number === moduleLesson.lesson_number
+                                );
+                                return matchingLesson || moduleLesson;
+                            })
+                        };
+                    });
+                    bookToVersion.modules = updatedModules;
+                }
+            }
+
+            // CRITICAL: Replace ALL embedded images in ALL lessons with S3 URLs
+            console.log('🔍 Scanning all lessons for embedded images...');
+            try {
+                const { replaceDataUrlsWithS3Urls } = await import('../utils/s3ImageLoader');
+                const cleanedLessons = [];
+                let totalImagesFound = 0;
+                let totalImagesUploaded = 0;
+
+                for (const lesson of bookToVersion.lessons || []) {
+                    if (!lesson.content) {
+                        cleanedLessons.push(lesson);
+                        continue;
+                    }
+
+                    const beforeSize = lesson.content.length;
+                    const imageCount = (lesson.content.match(/data:image/g) || []).length;
+                    totalImagesFound += imageCount;
+
+                    if (imageCount > 0) {
+                        console.log(`📸 Found ${imageCount} embedded image(s) in lesson "${lesson.title}"`);
+                        const cleanedContent = await replaceDataUrlsWithS3Urls(lesson.content, projectFolder);
+                        const afterSize = cleanedContent.length;
+
+                        if (afterSize < beforeSize) {
+                            totalImagesUploaded += imageCount;
+                            console.log(`✅ Uploaded ${imageCount} image(s) - size reduced from ${(beforeSize / 1024).toFixed(1)}KB to ${(afterSize / 1024).toFixed(1)}KB`);
+                        }
+
+                        cleanedLessons.push({
+                            ...lesson,
+                            content: cleanedContent
+                        });
+                    } else {
+                        cleanedLessons.push(lesson);
+                    }
+                }
+
+                if (totalImagesFound > 0) {
+                    console.log(`✅ Processed ${totalImagesUploaded}/${totalImagesFound} embedded images`);
+
+                    // CRITICAL: Update BOTH lessons and modules structures
+                    bookToVersion = {
+                        ...bookToVersion,
+                        lessons: cleanedLessons
+                    };
+
+                    // If modules structure exists, update it too
+                    if (bookToVersion.modules && Array.isArray(bookToVersion.modules)) {
+                        console.log('🔄 Updating modules structure to match lessons...');
+                        const updatedModules = bookToVersion.modules.map(module => {
+                            return {
+                                ...module,
+                                lessons: (module.lessons || []).map((moduleLesson, idx) => {
+                                    // Find corresponding lesson in cleanedLessons by index or title
+                                    const matchingLesson = cleanedLessons.find(l =>
+                                        l.title === moduleLesson.title ||
+                                        l.lesson_number === moduleLesson.lesson_number
+                                    );
+                                    return matchingLesson || moduleLesson;
+                                })
+                            };
+                        });
+                        bookToVersion.modules = updatedModules;
+                        console.log('✅ Modules structure updated');
+                    }
+                } else {
+                    console.log('✅ No embedded images found - all images already on S3');
+                }
+            } catch (e) {
+                console.error('❌ Failed to clean embedded images from lessons:', e);
+                alert('Error: No se pudieron procesar las imágenes incrustadas. La versión puede ser muy grande.');
+                // Continue anyway - user chose to proceed
+            }
+
+            const versionData = {
+                ...bookToVersion,
+                version_name: newVersionName,
+                saved_at: new Date().toISOString()
+            };
+
+            // Upload version JSON to S3 using authenticated Amplify credentials
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                throw new Error('No se encontraron credenciales autenticadas. Asegúrate de iniciar sesión y que VITE_IDENTITY_POOL_ID esté configurado.');
+            }
+
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials,
+            });
+
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Use simple PutObjectCommand (will overwrite if exists)
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: versionKey,
+                Body: JSON.stringify(versionData, null, 2),
+                ContentType: 'application/json',
+            }));
+
+            // Also save a markdown snapshot for easier previewing
+            try {
+                console.log('📝 Generating markdown snapshot...');
+                const markdown = generateMarkdownFromBook(versionData);
+                const mdName = `${baseName}_${safeVersionName}.md`;
+                const mdKey = `${projectFolder}/versions/${mdName}`;
+
+                console.log(`📤 Uploading markdown to: ${mdKey}`);
+                await s3.send(new PutObjectCommand({
+                    Bucket: bucketName,
+                    Key: mdKey,
+                    Body: markdown,
+                    ContentType: 'text/markdown'
+                }));
+                console.log('✅ Markdown snapshot saved successfully');
+            } catch (e) {
+                console.error('❌ Failed to save markdown snapshot for version:', e);
+                alert('Advertencia: No se pudo guardar el archivo .md (solo se guardó el JSON)');
+            }
+
+            // Update or add version to list
+            if (existingVersion) {
+                // Update existing version timestamp
+                setVersions(prev => prev.map(v =>
+                    v.key === versionKey
+                        ? { ...v, name: newVersionName, timestamp: versionData.saved_at }
+                        : v
+                ));
+            } else {
+                // Add new version
+                setVersions(prev => [...prev, {
+                    name: newVersionName,
+                    timestamp: versionData.saved_at,
+                    key: versionKey
+                }]);
+            }
+
+            setNewVersionName('');
+            alert(existingVersion ? '¡Versión sobrescrita exitosamente!' : '¡Versión guardada exitosamente!');
+        } catch (error) {
+            console.error('Error al guardar versión:', error);
+            alert('Error al guardar versión: ' + error.message);
+        }
+    };
+
+    const updateLessonContent = (index, newContent) => {
+        const updatedLessons = [...bookData.lessons];
+        updatedLessons[index].content = newContent;
+        setBookData({
+            ...bookData,
+            lessons: updatedLessons,
+            metadata: {
+                ...bookData.metadata,
+                total_words: updatedLessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0)
+            }
+        });
+    };
+
+    // live input handler: keep editingHtml while typing
+    const handleContentChange = (e) => {
+        if (isEditing) {
+            const htmlContent = e.target.innerHTML;
+            if (viewMode === 'book') {
+                setEditingHtml(htmlContent);
+            } else {
+                setLabGuideEditingHtml(htmlContent);
+            }
+        }
+    };
+
+    // Handle paste events: upload images from clipboard (files or data URLs) and replace
+    // them with S3 URLs so saved content contains S3 links instead of inline data.
+    const handlePaste = async (e) => {
+        if (!isEditing) return;
+        try {
+            const clipboard = e.clipboardData || window.clipboardData;
+            if (!clipboard) return;
+
+            // If files are present (image files), upload them
+            const files = Array.from(clipboard.files || []).filter(f => f.type && f.type.startsWith('image/'));
+            if (files.length > 0) {
+                e.preventDefault();
+                // For immediate visual feedback, insert a local blob URL first,
+                // then upload the file and replace the src with the S3/presigned URL.
+                for (const file of files) {
+                    try {
+                        const localUrl = URL.createObjectURL(file);
+                        // Insert a wrapper so we can find and replace the img later
+                        const wrapperHtml = `<div data-local-url="${localUrl}"><img src="${localUrl}" alt="pasted-image" data-local-url="${localUrl}" /></div>`;
+                        const insertedNodes = insertHtmlAtCursor(wrapperHtml);
+                        // scroll into view the inserted element
+                        try {
+                            if (insertedNodes && insertedNodes.length > 0) {
+                                const node = insertedNodes[0];
+                                node.scrollIntoView({ block: 'nearest' });
+                            }
+                        } catch (e) { }
+
+                        // Upload in background and replace the local URL when done
+                        (async () => {
+                            try {
+                                const s3Url = await uploadImageToS3(file, projectFolder);
+                                // For private buckets, fetch the S3 object as a blob URL for display
+                                const { getBlobUrlForS3Object } = await import('../utils/s3ImageLoader');
+                                const displayUrl = await getBlobUrlForS3Object(s3Url);
+
+                                // Replace any img elements with matching data-local-url
+                                const imgs = editorRef.current?.querySelectorAll(`img[data-local-url="${localUrl}"]`) || [];
+                                imgs.forEach(img => {
+                                    try {
+                                        img.src = displayUrl;
+                                        img.setAttribute('data-s3-url', s3Url); // Store original S3 URL for saving
+                                        img.removeAttribute('data-local-url');
+                                    } catch (e) { }
+                                });
+                                // revoke local object URL
+                                try { URL.revokeObjectURL(localUrl); } catch (e) { }
+                                // sync editingHtml
+                                if (viewMode === 'book') {
+                                    setEditingHtml(editorRef.current?.innerHTML ?? '');
+                                } else {
+                                    setLabGuideEditingHtml(editorRef.current?.innerHTML ?? '');
+                                }
+                            } catch (err) {
+                                console.error('Failed to upload pasted file image:', err);
+                            }
+                        })();
+                    } catch (err) {
+                        console.error('Failed to handle pasted file image:', err);
+                    }
+                }
+                // update editingHtml after inserts
+                if (viewMode === 'book') {
+                    setEditingHtml(editorRef.current?.innerHTML ?? '');
+                } else {
+                    setLabGuideEditingHtml(editorRef.current?.innerHTML ?? '');
+                }
+                return;
+            }
+
+            // If clipboard has HTML with data URLs, detect and upload
+            const html = clipboard.getData('text/html');
+            if (html && html.includes('data:')) {
+                e.preventDefault();
+                // Replace data URLs with S3 URLs using helper
+                const updated = await replaceDataUrlsWithS3Urls(html, projectFolder);
+                // Insert updated HTML at caret
+                insertHtmlAtCursor(updated);
+                setEditingHtml(editorRef.current?.innerHTML ?? '');
+                return;
+            }
+
+            // Otherwise let default paste happen and update editingHtml shortly after
+            setTimeout(() => setEditingHtml(editorRef.current?.innerHTML ?? ''), 50);
+        } catch (e) {
+            console.error('Paste handler error:', e);
+        }
+    };
+
+    // Helper to insert HTML at the current cursor position inside the editor
+    function insertHtmlAtCursor(html) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            // fallback: append
+            if (editorRef.current) {
+                const el = document.createElement('div');
+                el.innerHTML = html;
+                while (el.firstChild) editorRef.current.appendChild(el.firstChild);
+                return null;
+            }
+            return null;
+        }
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const el = document.createElement('div');
+        el.innerHTML = html;
+        const frag = document.createDocumentFragment();
+        let node, lastNode;
+        const inserted = [];
+        while ((node = el.firstChild)) {
+            const appended = frag.appendChild(node);
+            inserted.push(appended);
+            lastNode = appended;
+        }
+        range.insertNode(frag);
+        // Move selection to after inserted content
+        if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.setEndAfter(lastNode);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+        return inserted;
+    }
+
+    // Only set the editor HTML when switching lessons, toggling edit mode, or when the
+    // underlying lesson content actually changes. Guard against undefined content to
+    // avoid runtime errors that would unmount the component (blank page).
+    // Apply innerHTML only when switching lessons or toggling edit mode.
+    useEffect(() => {
+        if (viewMode !== 'book') return; // Only run for book view
+
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        const lessonContent = bookData?.lessons?.[currentLessonIndex]?.content || '';
+        const formatted = formatContentForEditing(lessonContent);
+
+        if (isEditing) {
+            // Initialize editing HTML if not already set
+            const initial = editingHtml ?? formatted;
+            try { editor.innerHTML = initial; } catch (e) { console.error('Failed to set editor HTML:', e); }
+            setEditingHtml(initial);
+            // focus editor when entering edit mode
+            try { editor.focus(); } catch (e) { }
+        } else {
+            // Render canonical content in read-only
+            try { editor.innerHTML = formatted; } catch (e) { console.error('Failed to set editor HTML:', e); }
+            setEditingHtml(null);
+        }
+
+        lastAppliedLessonRef.current = { index: currentLessonIndex, content: formatted, isEditing };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewMode, currentLessonIndex, isEditing, bookData]);
+
+    // Similar useEffect for lab guide editing
+    useEffect(() => {
+        if (viewMode !== 'lab') return;
+
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        // Get the current lab lesson content based on index
+        const labContent = labGuideData?.lessons?.[currentLabLessonIndex]?.content || '';
+        const formatted = formatContentForEditing(labContent);
+
+        if (isEditing) {
+            // Initialize editing HTML if not already set
+            const initial = labGuideEditingHtml ?? formatted;
+            try {
+                editor.innerHTML = initial;
+            } catch (e) {
+                console.error('Failed to set lab guide editor HTML:', e);
+            }
+            setLabGuideEditingHtml(initial);
+            // focus editor when entering edit mode
+            try { editor.focus(); } catch (e) { }
+        } else {
+            // Render canonical content in read-only
+            try {
+                editor.innerHTML = formatted;
+            } catch (e) {
+                console.error('Failed to set lab guide editor HTML:', e);
+            }
+            setLabGuideEditingHtml(null);
+        }
+
+        lastAppliedLabGuideRef.current = { isEditing, content: formatted, index: currentLabLessonIndex };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewMode, currentLabLessonIndex, isEditing, labGuideData]);
+
+    // Helpers to map node -> path and back so caret can be restored after innerHTML changes
+    function getNodePath(root, node) {
+        const path = [];
+        let cur = node;
+        while (cur && cur !== root) {
+            const parent = cur.parentNode;
+            if (!parent) break;
+            const idx = Array.prototype.indexOf.call(parent.childNodes, cur);
+            path.unshift(idx);
+            cur = parent;
+        }
+        return path;
+    }
+
+    function getNodeFromPath(root, path) {
+        try {
+            let cur = root;
+            for (const idx of path) {
+                if (!cur || !cur.childNodes || cur.childNodes.length <= idx) return null;
+                cur = cur.childNodes[idx];
+            }
+            return cur;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    const convertHtmlToMarkdown = (html) => {
+        console.log('=== convertHtmlToMarkdown START ===');
+        console.log('Input HTML length:', html.length);
+        console.log('First 300 chars of input HTML:', html.substring(0, 300));
+
+        // Parse HTML and fix image S3 URLs
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const images = doc.querySelectorAll('img');
+
+        console.log('Found images:', images.length);
+        images.forEach((img, idx) => {
+            const s3Url = img.getAttribute('data-s3-url');
+            const currentSrc = img.src;
+            const alt = img.alt;
+            console.log(`Image ${idx}:`, {
+                alt: alt,
+                currentSrc: currentSrc.substring(0, 100),
+                hasDataS3Url: !!s3Url,
+                dataS3Url: s3Url || 'none'
+            });
+
+            if (s3Url) {
+                console.log(`✓ Replacing src with data-s3-url for image ${idx}: ${s3Url}`);
+                img.src = s3Url;
+                img.removeAttribute('data-s3-url');
+            } else {
+                console.warn(`⚠ Image ${idx} has NO data-s3-url attribute! Current src: ${currentSrc.substring(0, 100)}`);
+            }
+        });
+
+        // Convert DOM to Markdown recursively
+        const convertNodeToMarkdown = (node) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                return node.textContent || '';
+            }
+
+            if (node.nodeType !== Node.ELEMENT_NODE) {
+                return '';
+            }
+
+            const tag = node.tagName.toLowerCase();
+            const children = Array.from(node.childNodes).map(convertNodeToMarkdown).join('');
+
+            switch (tag) {
+                case 'h1': return `# ${children}\n\n`;
+                case 'h2': return `## ${children}\n\n`;
+                case 'h3': return `### ${children}\n\n`;
+                case 'h4': return `#### ${children}\n\n`;
+                case 'h5': return `##### ${children}\n\n`;
+                case 'h6': return `###### ${children}\n\n`;
+                case 'p': return `${children}\n\n`;
+                case 'br': return '\n';
+                case 'strong':
+                case 'b': return `**${children}**`;
+                case 'em':
+                case 'i': return `*${children}*`;
+                case 'font': {
+                    // Handle old-style font tags (color, size, etc.)
+                    const attrs = [];
+                    if (node.hasAttribute('color')) attrs.push(`color: ${node.getAttribute('color')}`);
+                    if (node.hasAttribute('size')) attrs.push(`font-size: ${node.getAttribute('size')}`);
+                    if (attrs.length > 0) {
+                        return `<span style="${attrs.join('; ')}">${children}</span>`;
+                    }
+                    return children;
+                }
+                case 'ul': {
+                    // Filter to only actual li elements and skip empty ones
+                    const items = Array.from(node.children)
+                        .filter(li => li.tagName && li.tagName.toLowerCase() === 'li')
+                        .map(li => {
+                            const content = convertNodeToMarkdown(li).trim();
+                            return content ? `- ${content}` : null;
+                        })
+                        .filter(item => item !== null);
+                    return items.length > 0 ? items.join('\n') + '\n\n' : '';
+                }
+                case 'ol': {
+                    // Filter to only actual li elements and skip empty ones
+                    const items = Array.from(node.children)
+                        .filter(li => li.tagName && li.tagName.toLowerCase() === 'li')
+                        .map((li, idx) => {
+                            const content = convertNodeToMarkdown(li).trim();
+                            return content ? `${idx + 1}. ${content}` : null;
+                        })
+                        .filter(item => item !== null);
+                    return items.length > 0 ? items.join('\n') + '\n\n' : '';
+                }
+                case 'li': {
+                    // Return trimmed content, let parent ul/ol handle formatting
+                    return children.trim();
+                }
+                case 'blockquote': return `> ${children}\n\n`;
+                // Table handling - convert HTML tables to Markdown tables
+                case 'table': {
+                    const rows = [];
+                    const thead = node.querySelector('thead');
+                    const tbody = node.querySelector('tbody') || node;
+
+                    // Process header row
+                    if (thead) {
+                        const headerRow = thead.querySelector('tr');
+                        if (headerRow) {
+                            const headerCells = Array.from(headerRow.querySelectorAll('th, td'))
+                                .map(cell => convertNodeToMarkdown(cell).trim().replace(/\|/g, '\\|'));
+                            if (headerCells.length > 0) {
+                                rows.push('| ' + headerCells.join(' | ') + ' |');
+                                rows.push('|' + headerCells.map(() => '---').join('|') + '|');
+                            }
+                        }
+                    }
+
+                    // Process body rows
+                    const bodyRows = tbody.querySelectorAll('tr');
+                    let isFirstRow = !thead; // If no thead, first row becomes header
+                    bodyRows.forEach(tr => {
+                        // Skip if this is inside thead (already processed)
+                        if (thead && thead.contains(tr)) return;
+
+                        const cells = Array.from(tr.querySelectorAll('th, td'))
+                            .map(cell => convertNodeToMarkdown(cell).trim().replace(/\|/g, '\\|'));
+                        if (cells.length > 0) {
+                            rows.push('| ' + cells.join(' | ') + ' |');
+                            // Add separator after first row if no thead
+                            if (isFirstRow) {
+                                rows.push('|' + cells.map(() => '---').join('|') + '|');
+                                isFirstRow = false;
+                            }
+                        }
+                    });
+
+                    return rows.length > 0 ? '\n' + rows.join('\n') + '\n\n' : '';
+                }
+                case 'thead':
+                case 'tbody':
+                case 'tfoot':
+                    // These are handled by the table case
+                    return '';
+                case 'tr':
+                case 'th':
+                case 'td':
+                    // These are handled by the table case, but if encountered standalone, return content
+                    return children;
+                case 'code': {
+                    // Inline code
+                    const text = children.trim();
+                    if (text && !text.includes('\n')) {
+                        return `\`${text}\``;
+                    }
+                    return text;
+                }
+                case 'pre': {
+                    // Code block - extract content from nested code tag if present
+                    const codeTag = node.querySelector('code');
+                    const codeContent = codeTag ? (codeTag.textContent || '') : (node.textContent || '');
+                    return '\n```\n' + codeContent.trim() + '\n```\n\n';
+                }
+                case 'img': {
+                    const src = node.src || '';
+                    const alt = node.alt || 'image';
+                    // Check if this is a VISUAL image (special format)
+                    if (alt.includes('VISUAL') || alt.includes('[VISUAL')) {
+                        return `![[${alt}]](${src})\n`;
+                    }
+                    return `![${alt}](${src})\n`;
+                }
+                case 'div':
+                case 'span': {
+                    // Handle inline styles for spans
+                    if (node.hasAttribute && node.hasAttribute('style')) {
+                        const style = node.getAttribute('style');
+                        // Preserve as HTML for styled text (markdown doesn't support colors/sizes)
+                        return `<span style="${style}">${children}</span>`;
+                    }
+                    return children;
+                }
+                default:
+                    return children;
+            }
+        };
+
+        const markdown = convertNodeToMarkdown(doc.body)
+            .replace(/\n{3,}/g, '\n\n')  // Collapse multiple newlines
+            .trim();
+
+        const markdownImages = markdown.match(/!\[.*?\]\(.*?\)/g) || [];
+        console.log('Output markdown length:', markdown.length);
+        console.log('Markdown images found:', markdownImages.length);
+        if (markdownImages.length > 0) {
+            console.log('Markdown images:', markdownImages);
+        }
+        console.log('First 300 chars of output markdown:', markdown.substring(0, 300));
+        console.log('=== convertHtmlToMarkdown END ===');
+
+        return markdown;
+    };
+
+    // Save editingHtml back into bookData (convert to markdown) when finalizing edit
+    const finalizeEditing = async () => {
+        console.log('=== Finalizing Edit START ===');
+        const startTime = performance.now();
+
+        const html = (viewMode === 'book' ? editingHtml : labGuideEditingHtml) ?? editorRef.current?.innerHTML ?? '';
+        console.log('HTML to convert length:', html.length);
+
+        const markdown = convertHtmlToMarkdown(html);
+        console.log('Markdown result length:', markdown.length);
+
+        if (viewMode === 'book') {
+            if (!bookData) return;
+            // Update the lesson content
+            const updatedLessons = [...bookData.lessons];
+            updatedLessons[currentLessonIndex] = {
+                ...updatedLessons[currentLessonIndex],
+                content: markdown
+            };
+
+            const updatedBookData = {
+                ...bookData,
+                lessons: updatedLessons,
+                metadata: {
+                    ...bookData.metadata,
+                    total_words: updatedLessons.reduce((sum, lesson) => sum + lesson.content.split(/\s+/).length, 0)
+                }
+            };
+
+            setBookData(updatedBookData);
+
+            // Process images in the updated markdown for display
+            const contentWithImages = await replaceS3UrlsWithDataUrls(markdown);
+            updatedLessons[currentLessonIndex].content = contentWithImages;
+            setBookData({
+                ...updatedBookData,
+                lessons: updatedLessons
+            });
+
+            setEditingHtml(null);
+        } else {
+            if (!labGuideData) return;
+            // Update the specific lesson in labGuideData
+            const updatedLessons = [...(labGuideData.lessons || [])];
+            if (updatedLessons[currentLabLessonIndex]) {
+                updatedLessons[currentLabLessonIndex] = {
+                    ...updatedLessons[currentLabLessonIndex],
+                    content: markdown
+                };
+            }
+
+            const updatedLabData = {
+                ...labGuideData,
+                lessons: updatedLessons
+            };
+
+            setLabGuideData(updatedLabData);
+
+            // Process images
+            const contentWithImages = await replaceS3UrlsWithDataUrls(markdown);
+            updatedLessons[currentLabLessonIndex].content = contentWithImages;
+            setLabGuideData({
+                ...updatedLabData,
+                lessons: updatedLessons
+            });
+
+            setLabGuideEditingHtml(null);
+        }
+
+        // Exit edit mode - the useEffect will handle re-rendering the formatted HTML
+        setIsEditing(false);
+
+        const endTime = performance.now();
+        console.log(`=== Finalizing Edit END (took ${(endTime - startTime).toFixed(2)}ms) ===`);
+    };    // Basic execCommand wrapper for toolbar actions. Modern browsers may deprecate execCommand,
+    // but it's still widely supported for simple editors. We implement small helpers for
+    // increase/decrease font by wrapping selection in span with style.
+    function execCommand(command, value = null) {
+        try {
+            if (command === 'increaseFont' || command === 'decreaseFont') {
+                // custom handling
+                const editor = editorRef.current;
+                const sel = window.getSelection();
+                if (!sel || sel.rangeCount === 0) return;
+                const range = sel.getRangeAt(0);
+                const span = document.createElement('span');
+                const currentSize = command === 'increaseFont' ? 1.2 : 0.9;
+                span.style.fontSize = (currentSize * 100) + '%';
+                span.appendChild(range.extractContents());
+                range.insertNode(span);
+                // Update editingHtml
+                setTimeout(() => setEditingHtml(editor.innerHTML), 0);
+                return;
+            }
+
+            document.execCommand(command, false, value);
+            // Update editingHtml after command
+            // Update editingHtml after command
+            const editor = editorRef.current;
+            if (editor) {
+                if (viewMode === 'book') {
+                    setEditingHtml(editor.innerHTML);
+                } else {
+                    setLabGuideEditingHtml(editor.innerHTML);
+                }
+            }
+        } catch (e) {
+            console.error('execCommand failed:', e);
+        }
+    }
+
+    // Copy format: save the inline style of the current selection's container
+    const formatClipboard = useRef(null);
+    function handleCopyFormat() {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            alert('Por favor, selecciona algún texto primero');
+            return;
+        }
+        const node = sel.anchorNode && sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode;
+        if (!node) return;
+
+        // Get computed style from the element
+        const computedStyle = window.getComputedStyle(node);
+        const styleObj = {
+            color: computedStyle.color,
+            fontSize: computedStyle.fontSize,
+            fontWeight: computedStyle.fontWeight,
+            fontStyle: computedStyle.fontStyle,
+            textAlign: computedStyle.textAlign,
+            backgroundColor: computedStyle.backgroundColor
+        };
+        formatClipboard.current = styleObj;
+
+        // Visual feedback
+        alert('✅ Formato copiado');
+    }
+
+    function handleApplyFormat() {
+        if (!formatClipboard.current) {
+            alert('⚠️ Primero debes copiar un formato');
+            return;
+        }
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            alert('Por favor, selecciona algún texto primero');
+            return;
+        }
+        const range = sel.getRangeAt(0);
+        const span = document.createElement('span');
+
+        // Apply stored format as inline styles
+        const styleObj = formatClipboard.current;
+        let styleString = '';
+        if (styleObj.color) styleString += `color: ${styleObj.color}; `;
+        if (styleObj.fontSize) styleString += `font-size: ${styleObj.fontSize}; `;
+        if (styleObj.fontWeight && styleObj.fontWeight !== 'normal' && styleObj.fontWeight !== '400') {
+            styleString += `font-weight: ${styleObj.fontWeight}; `;
+        }
+        if (styleObj.fontStyle && styleObj.fontStyle !== 'normal') {
+            styleString += `font-style: ${styleObj.fontStyle}; `;
+        }
+        if (styleObj.textAlign) styleString += `text-align: ${styleObj.textAlign}; `;
+        if (styleObj.backgroundColor && styleObj.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+            styleString += `background-color: ${styleObj.backgroundColor}; `;
+        }
+
+        if (styleString) span.setAttribute('style', styleString);
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+        const editor = editorRef.current;
+        if (editor) {
+            if (viewMode === 'book') {
+                setEditingHtml(editor.innerHTML);
+            } else {
+                setLabGuideEditingHtml(editor.innerHTML);
+            }
+        }
+
+        // Visual feedback
+        alert('✅ Formato aplicado');
+    }
+
+    // Generate PowerPoint Presentation
+    const generatePowerPoint = async () => {
+        try {
+            setPptGenerating(true);
+
+            // Get authenticated session
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) {
+                throw new Error('No se encontraron credenciales autenticadas. Por favor inicia sesión.');
+            }
+
+            // Determine which book version to use
+            let bookVersionKey = null; // Let Lambda auto-discover the book file
+
+            if (selectedPPTVersion === 'original') {
+                // User wants original book - construct the original book path
+                // Original books are typically at: project_folder/theory-book/Generated_Course_Book_data.json
+                // or project_folder/book/Generated_Course_Book_data.json
+                bookVersionKey = `${projectFolder}/${bookType}-book/Generated_Course_Book_data.json`;
+                console.log('🎯 Using original book path:', bookVersionKey);
+            } else if (selectedPPTVersion !== 'current') {
+                // User selected a specific version from the versions list
+                const version = versions.find(v => v.key === selectedPPTVersion);
+                if (version) {
+                    bookVersionKey = version.key;
+                    console.log('🎯 Using selected version:', bookVersionKey);
+                } else {
+                    throw new Error('Versión seleccionada no encontrada');
+                }
+            }
+            // For 'current', we leave bookVersionKey as null
+            // and let the Lambda discover the latest _data.json file
+
+            console.log('🎯 Generating PPT from version:', bookVersionKey || 'auto-discover latest');
+
+            // Get user email from session for notifications
+            let userEmail = null;
+            try {
+                const session = await fetchAuthSession();
+                userEmail = session?.tokens?.idToken?.payload?.email || null;
+                if (userEmail) {
+                    console.log('📧 User email for notifications:', userEmail);
+                }
+            } catch (error) {
+                console.warn('Could not extract user email:', error);
+            }
+
+            const requestBody = {
+                course_bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                project_folder: projectFolder,
+                book_version_key: bookVersionKey, // null means auto-discover
+                book_type: bookType, // 'theory' or 'lab' - tells Lambda which book to use
+                model_provider: pptModelProvider,
+                slides_per_lesson: 999, // High number to ensure all content is included
+                use_all_content: true, // Flag to generate slides for ALL content
+                presentation_style: pptStyle,
+                user_email: userEmail // For end-user notifications
+            };
+
+            console.log('📤 Request:', requestBody);
+
+            // Make API request first, THEN close modal if successful
+            const response = await fetch(`${API_BASE}/generate-infographic`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+                mode: 'cors',  // Explicitly set CORS mode
+            });
+
+            // Check response status BEFORE closing modal
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorData.message || errorMessage;
+                } catch {
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                }
+                throw new Error(`Error generando PPT: ${errorMessage}`);
+            }
+
+            const data = await response.json();
+
+            // Check for backend errors
+            if (data.error) {
+                throw new Error(`Backend error: ${data.error}`);
+            }
+
+            console.log('✅ API Response:', data);
+
+            // SUCCESS - Close modal and reset state
+            setShowPPTModal(false);
+            setPptGenerating(false);
+
+            // Show success notification based on response
+            // If we got execution_arn, it means async processing started
+            if (data.execution_arn || data.message?.includes('started') || data.message?.includes('Iniciada') || data.message?.includes('orchestration')) {
+                // Async batch orchestration started - show custom modal
+                setShowSuccessModal(true);
+            } else if (data.html_s3_key || data.html_url) {
+                // Immediate completion (single batch)
+                const htmlUrl = data.html_url || `https://crewai-course-artifacts.s3.amazonaws.com/${data.html_s3_key}`;
+                const totalSlides = data.total_slides || 'múltiples';
+
+                const successMessage = `✅ ¡Infografía Interactiva Generada!\n\n` +
+                    `📊 ${totalSlides} diapositivas creadas\n` +
+                    `✏️ Contenido 100% editable en navegador\n` +
+                    `📄 Exportable a PDF (Ctrl+P)\n` +
+                    `🎨 Estilo: ${pptStyle}\n\n` +
+                    `🔗 HTML Editable: ${htmlUrl}\n\n` +
+                    `💡 Haz clic en cualquier texto para editar\n` +
+                    `💾 Botón "Save Changes" para descargar versión editada\n` +
+                    `📄 Botón "Download PDF" para exportar a PDF\n\n` +
+                    `¿Deseas abrir la infografía editable ahora?`;
+
+                if (confirm(successMessage)) {
+                    window.open(htmlUrl, '_blank');
+                }
+            } else {
+                // Generic success
+                alert('✅ Presentación generada exitosamente\n\n' +
+                    'Revisa la sección de Presentaciones para ver el resultado.');
+            }
+
+        } catch (error) {
+            console.error('❌ Error initiating PPT generation:', error);
+
+            let userMessage = '❌ Error al generar presentación PowerPoint';
+
+            // Specific error handling for common issues
+            if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                userMessage += '\n\n🌐 Error de conexión al servidor\n\n' +
+                    'Posibles causas:\n' +
+                    '• Problema de conectividad de red\n' +
+                    '• El servidor backend no está disponible\n' +
+                    '• Problema de configuración CORS\n\n' +
+                    'Por favor, verifica tu conexión e intenta nuevamente.';
+            } else if (error.message.includes('credentials')) {
+                userMessage += '\n\nVerifica que estés autenticado correctamente.';
+            } else if (error.message.includes('HTTP 4') || error.message.includes('HTTP 5')) {
+                userMessage += '\n\nError del servidor. Por favor contacta al administrador.';
+            } else {
+                userMessage += '\n\nDetalles técnicos: ' + error.message;
+            }
+
+            alert(userMessage);
+            setPptGenerating(false);
+        }
+    };
+
+    // Defensive rendering: show loading or error if data not ready
+    if (loading) {
+        return (
+            <div className="book-editor-loading">
+                <p>Cargando libro...</p>
+                {loadingImages && <p style={{ fontSize: '0.9em', opacity: 0.7 }}>Cargando imágenes desde S3...</p>}
+            </div>
+        );
+    }
+
+    if (!bookData) {
+        return <div className="book-editor-error">No se encontraron datos del libro para este proyecto.</div>;
+    }
+
+    if (!bookData.lessons || !Array.isArray(bookData.lessons)) {
+        return <div className="book-editor-error">El libro no tiene un formato válido (lessons no es un array).</div>;
+    }
+
+    if (bookData.lessons.length === 0) {
+        return <div className="book-editor-error">Este libro no contiene lecciones.</div>;
+    }
+
+    const activeBookData = viewMode === 'book' ? bookData : labGuideData;
+    const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+    const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+    const currentLesson = activeBookData?.lessons?.[activeIndex] || { title: '', content: '' };
+
+    return (
+        <div className="book-editor">
+            {loadingImages && (
+                <div className="image-loading-indicator">
+                    🖼️ Cargando imágenes en segundo plano...
+                </div>
+            )}
+            {loadingVersion && (
+                <div className="version-loading-overlay">
+                    <div className="version-loading-content">
+                        <div className="spinner"></div>
+                        <p>Cargando versión...</p>
+                    </div>
+                </div>
+            )}
+            <div className="book-editor-header">
+                {/* Navigation icons - always visible */}
+                <div className="header-nav-icons">
+                    <button
+                        onClick={() => navigate('/generador-contenidos/book-builder')}
+                        className="nav-icon-btn"
+                        title="Volver a la lista"
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M19 12H5M12 19l-7-7 7-7" />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => navigate('/')}
+                        className="nav-icon-btn"
+                        title="Ir al inicio"
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                            <polyline points="9 22 9 12 15 12 15 22" />
+                        </svg>
+                    </button>
+                </div>
+
+                {/* Editing toolbar - only visible when editing */}
+                {isEditing && (
+                    <div className="editor-toolbar-compact">
+                        <button onClick={() => execCommand('bold')} title="Negrita"><strong>B</strong></button>
+                        <button onClick={() => execCommand('italic')} title="Cursiva"><em>I</em></button>
+                        <div className="toolbar-divider"></div>
+                        <button onClick={() => execCommand('justifyLeft')} title="Alinear izquierda">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="17" y1="10" x2="3" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="17" y1="18" x2="3" y2="18" />
+                            </svg>
+                        </button>
+                        <button onClick={() => execCommand('justifyCenter')} title="Centrar">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="18" y1="10" x2="6" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="18" y1="18" x2="6" y2="18" />
+                            </svg>
+                        </button>
+                        <button onClick={() => execCommand('justifyRight')} title="Alinear derecha">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="21" y1="10" x2="7" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="21" y1="18" x2="7" y2="18" />
+                            </svg>
+                        </button>
+                        <div className="toolbar-divider"></div>
+                        <select onChange={(e) => execCommand('foreColor', e.target.value)} title="Color de texto" className="color-select">
+                            <option value="">🎨</option>
+                            <option value="#000000">⚫</option>
+                            <option value="#d9534f">🔴</option>
+                            <option value="#5cb85c">🟢</option>
+                            <option value="#5bc0de">🔵</option>
+                            <option value="#f0ad4e">🟠</option>
+                            <option value="#9b59b6">🟣</option>
+                        </select>
+                        <button onClick={() => execCommand('increaseFont')} title="Aumentar tamaño">A+</button>
+                        <button onClick={() => execCommand('decreaseFont')} title="Disminuir tamaño">A-</button>
+                        <div className="toolbar-divider"></div>
+                        <button onClick={() => handleCopyFormat()} title="Copiar Formato">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                        </button>
+                        <button onClick={() => handleApplyFormat()} title="Aplicar Formato">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><path d="M2 2l7.586 7.586" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
+
+                {/* Main action buttons */}
+                <div className="book-editor-actions">
+                    {/* View toggle - Book/Lab */}
+                    {labGuideData && (
+                        <button
+                            className={`btn-view-toggle ${viewMode === 'lab' ? 'active' : ''}`}
+                            onClick={() => setViewMode(viewMode === 'book' ? 'lab' : 'book')}
+                            title={viewMode === 'book' ? 'Ver Guía de Laboratorios' : 'Ver Libro'}
+                        >
+                            {viewMode === 'book' ? (
+                                <>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
+                                        <polyline points="14 2 14 8 20 8" />
+                                        <path d="M12 18v-6M9 15l3 3 3-3" />
+                                    </svg>
+                                    <span className="btn-text">Lab Guide</span>
+                                </>
+                            ) : (
+                                <>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+                                    </svg>
+                                    <span className="btn-text">Libro</span>
+                                </>
+                            )}
+                        </button>
+                    )}
+
+                    {/* Download PDF */}
+                    <button
+                        className="btn-icon btn-secondary"
+                        onClick={downloadAsPDF}
+                        disabled={downloadingPDF}
+                        title={viewMode === 'book' ? 'Descargar libro como PDF' : 'Descargar guía de laboratorios como PDF'}
+                    >
+                        {downloadingPDF ? (
+                            <span className="spinner-small"></span>
+                        ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                        )}
+                        <span className="btn-text">PDF</span>
+                    </button>
+
+                    {/* Generate PPT */}
+                    <button
+                        className="btn-icon btn-secondary"
+                        onClick={() => setShowPPTModal(true)}
+                        title="Generar presentación PowerPoint"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                            <line x1="8" y1="21" x2="16" y2="21" />
+                            <line x1="12" y1="17" x2="12" y2="21" />
+                        </svg>
+                        <span className="btn-text">PPT</span>
+                    </button>
+
+                    {/* Reload button - context aware */}
+                    {viewMode === 'book' ? (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={async () => {
+                                setLoadingImages(true);
+                                await loadBook();
+                                setLoadingImages(false);
+                            }}
+                            disabled={loadingImages}
+                            title="Recargar lecciones desde S3"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={loadingImages ? 'spin' : ''}>
+                                <polyline points="23 4 23 10 17 10" />
+                                <polyline points="1 20 1 14 7 14" />
+                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                            </svg>
+                        </button>
+                    ) : (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={async () => {
+                                setLoadingImages(true);
+                                await loadLabGuide();
+                                setLoadingImages(false);
+                            }}
+                            disabled={loadingImages}
+                            title="Recargar guía de laboratorios desde S3"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={loadingImages ? 'spin' : ''}>
+                                <polyline points="23 4 23 10 17 10" />
+                                <polyline points="1 20 1 14 7 14" />
+                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                            </svg>
+                        </button>
+                    )}
+
+                    {/* Regenerate button - context aware */}
+                    {viewMode === 'book' ? (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={() => setShowRegenerateLessonModal(true)}
+                            title="Regenerar esta lección con IA"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                            </svg>
+                        </button>
+                    ) : (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={() => setShowRegenerateLabModal(true)}
+                            title="Regenerar este laboratorio con IA"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                            </svg>
+                        </button>
+                    )}
+
+                    {/* Edit button - Primary action */}
+                    <button
+                        className={`btn-icon ${isEditing ? 'btn-success' : 'btn-primary'}`}
+                        onClick={async () => {
+                            console.log('=== Edit button clicked ===', isEditing ? 'Finalizing' : 'Entering edit mode');
+                            const startTime = performance.now();
+
+                            if (isEditing) {
+                                finalizeEditing();
+                            } else {
+                                setIsEditing(true);
+                            }
+
+                            const endTime = performance.now();
+                            console.log(`Button handler took ${(endTime - startTime).toFixed(2)}ms`);
+                        }}
+                        title={isEditing ? 'Finalizar edición' : 'Editar contenido'}
+                    >
+                        {isEditing ? (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                        ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                        )}
+                        <span className="btn-text">{isEditing ? 'Listo' : 'Editar'}</span>
+                    </button>
+
+                    {/* Versions button */}
+                    <button
+                        className={`btn-icon btn-secondary ${showVersionHistory ? 'active' : ''}`}
+                        onClick={() => setShowVersionHistory(!showVersionHistory)}
+                        title="Historial de versiones"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        <span className="btn-badge">{viewMode === 'lab' ? labGuideVersions.length : versions.length + 1}</span>
+                    </button>
+
+                    {/* Close button */}
+                    <button
+                        className="btn-icon btn-close-editor"
+                        onClick={onClose}
+                        title="Cerrar editor"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            {showVersionHistory && (
+                <div className="version-history">
+                    <h3>Historial de Versiones {viewMode === 'lab' ? '- Lab Guide' : '- Libro'}</h3>
+                    {viewMode === 'book' ? (
+                        <>
+                            <div className="version-list">
+                                {/* Original version entry */}
+                                <div className="version-item version-original">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <button className="version-name" onClick={viewOriginal}>Ver</button>
+                                            <button onClick={editOriginal}>Editar</button>
+                                            <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>📄 Original</div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <div className="version-meta" style={{ fontStyle: 'italic', color: '#666' }}>Versión inicial del libro</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {/* Saved versions */}
+                                {versions.map((version, index) => (
+                                    <div key={index} className={`version-item ${version.isCurrent ? 'current' : ''}`}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <button className="version-name" onClick={() => viewVersion(version)}>Ver</button>
+                                                <button onClick={() => editVersion(version)}>Editar</button>
+                                                <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
+                                                <button onClick={() => deleteVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="save-version">
+                                <input value={newVersionName} onChange={e => setNewVersionName(e.target.value)} placeholder="Nombre de la versión" />
+                                <button onClick={saveVersion} disabled={!newVersionName.trim()}>Guardar Versión</button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="version-list">
+                                {/* Lab Guide Versions */}
+                                {labGuideVersions.length === 0 ? (
+                                    <div style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
+                                        No hay versiones guardadas del Lab Guide
+                                    </div>
+                                ) : (
+                                    labGuideVersions.map((version, index) => (
+                                        <div key={index} className="version-item">
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
+                                                    <button onClick={() => deleteLabGuideVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            <div className="save-version">
+                                <input value={newLabGuideVersionName} onChange={e => setNewLabGuideVersionName(e.target.value)} placeholder="Nombre de la versión" />
+                                <button onClick={saveLabGuide} disabled={!newLabGuideVersionName.trim()}>Guardar Versión Lab Guide</button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+            <div className="book-editor-content">
+                <div className="lesson-navigator" data-view-mode={viewMode}>
+                    <h3>{viewMode === 'book' ? 'Contenido del Libro' : 'Contenido del Lab Guide'}</h3>
+                    <div className="navigator-stats">
+                        {Object.keys(groupLessonsByModule()).length} módulos · {activeBookData?.lessons?.length || 0} lecciones
+                    </div>
+                    <div className="navigator-actions">
+                        <button
+                            className="btn-toggle-all"
+                            onClick={toggleAllModules}
+                            title={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
+                        >
+                            {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "📂 Expandir Todo" : "📁 Colapsar Todo"}
+                        </button>
+                    </div>
+                    <div className="lesson-list">
+                        {renderLessonsByModule()}
+                    </div>
+                </div>
+                <div className="lesson-editor">
+                    {isEditing && (
+                        <div className="save-version-inline">
+                            <input
+                                value={viewMode === 'book' ? newVersionName : newLabGuideVersionName}
+                                onChange={e => viewMode === 'book' ? setNewVersionName(e.target.value) : setNewLabGuideVersionName(e.target.value)}
+                                placeholder={viewMode === 'book' ? "Nombre de la versión" : "Nombre de la versión del Lab Guide"}
+                                className="version-name-input"
+                            />
+                            <button
+                                onClick={viewMode === 'book' ? saveVersion : saveLabGuide}
+                                disabled={viewMode === 'book' ? !newVersionName.trim() : !newLabGuideVersionName.trim()}
+                                className="btn-save-version"
+                                title={viewMode === 'book' ? "Guardar una nueva versión de este libro" : "Guardar una nueva versión del Lab Guide"}
+                            >
+                                {viewMode === 'book' ? "💾 Guardar Versión" : "💾 Guardar Versión Lab Guide"}
+                            </button>
+                        </div>
+                    )}
+                    <div className="lesson-header">
+                        <h3>{currentLesson.title}</h3>
+                        <div className="lesson-stats">Palabras: {currentLesson.content ? currentLesson.content.split(/\s+/).filter(Boolean).length : 0}</div>
+                    </div>
+                    <div className="book-content-container">
+                        {isEditing ? (
+                            <div
+                                ref={editorRef}
+                                className="content-editor"
+                                contentEditable={true}
+                                suppressContentEditableWarning={true}
+                                onInput={handleContentChange}
+                                onPaste={handlePaste}
+                                tabIndex={0}
+                            />
+                        ) : (
+                            <div
+                                ref={editorRef}
+                                className="content-editor"
+                                contentEditable={false}
+                                dangerouslySetInnerHTML={{ __html: formatContentForEditing(currentLesson.content) }}
+                            />
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* PowerPoint Generation Modal */}
+            {showPPTModal && (
+                <div className="ppt-modal-overlay" onClick={() => !pptGenerating && setShowPPTModal(false)}>
+                    <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="ppt-modal-header">
+                            <h2>📊 Generar Presentación del Curso</h2>
+                            <button
+                                className="ppt-modal-close"
+                                onClick={() => setShowPPTModal(false)}
+                                disabled={pptGenerating}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="ppt-modal-body">
+                            <div className="ppt-form-group">
+                                <label>Versión del Libro:</label>
+                                <select
+                                    value={selectedPPTVersion}
+                                    onChange={(e) => setSelectedPPTVersion(e.target.value)}
+                                    disabled={pptGenerating}
+                                >
+                                    <option value="current">📄 Versión Actual</option>
+                                    <option value="original">📄 Versión Original</option>
+                                    {versions.map((v, idx) => (
+                                        <option key={idx} value={v.key}>
+                                            📋 {v.name} ({new Date(v.timestamp).toLocaleDateString()})
+                                        </option>
+                                    ))}
+                                </select>
+                                <small>Selecciona qué versión del libro usar para generar las diapositivas</small>
+                            </div>
+
+                            <div className="ppt-info-box">
+                                <strong>ℹ️ Información:</strong>
+                                <ul>
+                                    <li>Se generará una presentación con TODO el contenido del libro</li>
+                                    <li>El número de diapositivas se ajustará automáticamente según el contenido</li>
+                                    <li>Las imágenes del libro se incluirán automáticamente</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="ppt-modal-footer">
+                            <button
+                                className="btn-cancel"
+                                onClick={() => setShowPPTModal(false)}
+                                disabled={pptGenerating}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className="btn-generate-ppt-submit"
+                                onClick={generatePowerPoint}
+                                disabled={pptGenerating}
+                            >
+                                {pptGenerating ? (
+                                    <>
+                                        <span className="spinner-small"></span>
+                                        Generando...
+                                    </>
+                                ) : (
+                                    '📊 Generar Presentación'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Success Confirmation Modal */}
+            {showSuccessModal && (
+                <div className="ppt-modal-overlay" onClick={() => setShowSuccessModal(false)}>
+                    <div className="ppt-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="ppt-modal-header">
+                            <h2>🚀 Generación de Presentación Iniciada</h2>
+                            <button
+                                className="ppt-modal-close"
+                                onClick={() => setShowSuccessModal(false)}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="ppt-modal-body">
+                            <div className="ppt-info-box" style={{ marginBottom: '0' }}>
+                                <p style={{ margin: '0 0 16px 0', lineHeight: '1.6' }}>
+                                    El proceso puede tardar entre 5 a 30 minutos, dependiendo de la complejidad del contenido.
+                                </p>
+                                <p style={{ margin: '0', lineHeight: '1.6' }}>
+                                    Usted recibirá la notificación a su correo cuando el proceso sea completado.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="ppt-modal-footer">
+                            <button
+                                className="btn-generate-ppt-submit"
+                                onClick={() => setShowSuccessModal(false)}
+                                style={{ width: '100%', textAlign: 'center' }}
+                            >
+                                OK
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Regenerate Lab Modal */}
+            {showRegenerateLabModal && viewMode === 'lab' && labGuideData && (
+                <RegenerateLab
+                    projectFolder={projectFolder}
+                    outlineKey={labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                    currentLabId={(() => {
+                        const currentLesson = labGuideData.lessons?.[currentLabLessonIndex];
+                        if (!currentLesson) return '';
+
+                        // Use lab_id from lesson object (calculated during parsing)
+                        if (currentLesson.lab_id) {
+                            console.log('✅ Using lab_id from lesson:', currentLesson.lab_id);
+                            return currentLesson.lab_id;
+                        }
+
+                        // Fallback (should rarely happen with new parsing logic)
+                        console.warn('⚠️ No lab_id found in lesson, falling back to calculation');
+                        const moduleInfo = extractModuleInfo(currentLesson, currentLabLessonIndex);
+                        const labId = `${String(moduleInfo.moduleNumber).padStart(2, '0')}-00-${String(moduleInfo.lessonNumber).padStart(2, '0')}`;
+                        return labId;
+                    })()}
+                    currentLabTitle={labGuideData.lessons?.[currentLabLessonIndex]?.title || ''}
+                    onClose={() => setShowRegenerateLabModal(false)}
+                    onSuccess={(response) => {
+                        console.log('Lab regeneration initiated:', response);
+                        // Optionally reload lab data here after some time
+                    }}
+                />
+            )}
+
+            {/* Regenerate Lesson Modal */}
+            {showRegenerateLessonModal && viewMode === 'book' && bookData && (() => {
+                const currentLesson = bookData.lessons?.[currentLessonIndex];
+                const moduleInfo = currentLesson ? extractModuleInfo(currentLesson, currentLessonIndex) : { moduleNumber: 1, lessonNumber: 1 };
+
+                console.log('🔍 DEBUG BookEditor RegenerateLesson calculation:', {
+                    currentLessonIndex,
+                    currentLesson: currentLesson ? {
+                        title: currentLesson.title,
+                        filename: currentLesson.filename,
+                        moduleNumber: currentLesson.moduleNumber,
+                        lessonNumberInModule: currentLesson.lessonNumberInModule,
+                        module_number: currentLesson.module_number,
+                        lesson_number: currentLesson.lesson_number
+                    } : null,
+                    extractedModuleInfo: moduleInfo
+                });
+
+                return (
+                    <RegenerateLesson
+                        projectFolder={projectFolder}
+                        outlineKey={bookData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                        currentLessonId={`${String(moduleInfo.moduleNumber).padStart(2, '0')}-${String(moduleInfo.lessonNumber).padStart(2, '0')}`}
+                        currentLessonTitle={currentLesson?.title || ''}
+                        moduleNumber={moduleInfo.moduleNumber}
+                        lessonNumber={moduleInfo.lessonNumber}
+                        onClose={() => setShowRegenerateLessonModal(false)}
+                        onSuccess={(response) => {
+                            console.log('Lesson regeneration initiated:', response);
+                        }}
+                    />
+                );
+            })()}
+        </div>
+
+    );
+}
+
+export default BookEditor;

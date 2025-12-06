@@ -30,3 +30,47 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Google Cloud Service Account Keys (NEVER COMMIT THESE!)
+gen-lang-client-*.json
+*-service-account.json
+service-account-*.json
+*.json.key
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Backend artifacts
+CG-Backend-Backup/
+*.zip
+CG-Backend/lambda/strands_hello_world/
+CG-Backend/lambda-layers/strands-layer/
+CG-Backend/lambda-layers/gemini-layer/
+CG-Backend/lambda-layers/*.zip
+
+# SAM build artifacts
+.aws-sam/
+
+# Python dependencies (deployed via Lambda layers, not committed)
+CG-Backend/lambda/lxml/
+CG-Backend/lambda/lxml-*.dist-info/
+CG-Backend/lambda/beautifulsoup4-*.dist-info/
+CG-Backend/lambda/bs4/
+CG-Backend/lambda/soupsieve/
+CG-Backend/lambda/soupsieve-*.dist-info/
+CG-Backend/lambda/typing_extensions.py
+
+# Step Functions execution history (debug artifacts)
+CG-Backend/execution_history*.json
+
+# Python virtual environments
+.venv/
+venv/
+*.pyc
+__pycache__/

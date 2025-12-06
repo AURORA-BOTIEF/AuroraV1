@@ -1,20 +1,24 @@
 // src/amplify.js
 import { Amplify } from 'aws-amplify';
-
 /**
- * Usa TUS variables actuales:
- * - VITE_COGNITO_DOMAIN (puede traer https://, se normaliza)
+ * AWS Amplify v6 Configuration
+ * Uses environment variables:
+ * - VITE_COGNITO_DOMAIN (can include https://, will be normalized)
  * - VITE_COGNITO_CLIENT_ID
- * - (opcional pero recomendado) VITE_COGNITO_USER_POOL_ID o VITE_USER_POOL_ID
- * - (opcional) VITE_AWS_REGION; si falta, se deriva del dominio
- * - VITE_REDIRECT_URI y/o VITE_REDIRECT_URI_TESTING
+ * - VITE_COGNITO_USER_POOL_ID or VITE_USER_POOL_ID
+ * - VITE_AWS_REGION (optional, derived from domain if missing)
+ * - VITE_REDIRECT_URI and/or VITE_REDIRECT_URI_TESTING
+ * - VITE_IDENTITY_POOL_ID (optional)
+ * - VITE_HTTP_API_URL (for custom HTTP API Gateway)
  */
-const domainRaw  = import.meta.env.VITE_COGNITO_DOMAIN || '';
-const clientId   = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
+const domainRaw = import.meta.env.VITE_COGNITO_DOMAIN || '';
+const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
 const userPoolId =
   import.meta.env.VITE_COGNITO_USER_POOL_ID ||
   import.meta.env.VITE_USER_POOL_ID ||
   '';
+
+const identityPoolId = import.meta.env.VITE_IDENTITY_POOL_ID || '';
 
 const derivedRegion = (() => {
   const m = String(domainRaw).match(/auth\.([a-z0-9-]+)\.amazoncognito\.com/i);
@@ -31,30 +35,71 @@ const redirectSignOut = redirectSignIn;
 const domain = String(domainRaw).replace(/^https?:\/\//, '');
 
 const missing = [];
-if (!domain)   missing.push('VITE_COGNITO_DOMAIN');
+if (!domain) missing.push('VITE_COGNITO_DOMAIN');
 if (!clientId) missing.push('VITE_COGNITO_CLIENT_ID');
 if (!userPoolId) {
-  // No rompemos, pero avisamos. Con fallback manual igual funcionará el login.
-  console.warn('[Amplify] Falta VITE_COGNITO_USER_POOL_ID (recomendado para manejar el retorno OAuth)');
+  console.warn('[Amplify] Missing VITE_COGNITO_USER_POOL_ID (recommended for OAuth handling)');
 }
 
 if (missing.length) {
-  console.error('[Amplify] Faltan variables VITE_ requeridas:', missing);
+  if (import.meta.env.DEV) {
+    console.error('[Amplify] Missing required VITE_ variables:', missing);
+  }
 } else {
-  Amplify.configure({
-    Auth: {
+  if (import.meta.env.DEV) {
+    console.log('[Amplify] Configuring with:', {
       region,
+      userPoolId: userPoolId ? '***' : '(missing)',
+      identityPoolId: identityPoolId ? '***' : '(not set)',
+      apiEndpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL ? '***' : '(default)',
+      httpApi: import.meta.env.VITE_HTTP_API_URL ? '***' : '(not set)',
+    });
+  }
+
+  // wrapper ligero para evitar pasar el objeto host sessionStorage a Amplify (evita Object.freeze error)
+const sessionStorageWrapper = (typeof window !== 'undefined' && window.sessionStorage) ? {
+  getItem: (k) => window.sessionStorage.getItem(k),
+  setItem: (k, v) => window.sessionStorage.setItem(k, v),
+  removeItem: (k) => window.sessionStorage.removeItem(k),
+  clear: () => window.sessionStorage.clear()
+} : undefined;
+
+// === ✅ AWS Amplify v6 configuration ===
+Amplify.configure({
+  Auth: {
+    Cognito: {
       userPoolId,
-      userPoolWebClientId: clientId,
-      oauth: {
-        domain,
-        scope: ['openid', 'email', 'profile'],
-        redirectSignIn,
-        redirectSignOut,
-        responseType: 'code',
+      userPoolClientId: clientId,
+      identityPoolId,
+      storage: sessionStorageWrapper, // usar wrapper para evitar Object.freeze sobre host object
+      loginWith: {
+        oauth: {
+          domain,
+          scopes: ['openid', 'email', 'profile', 'aws.cognito.signin.user.admin'],
+          redirectSignIn: [redirectSignIn],
+          redirectSignOut: [redirectSignOut],
+          responseType: 'code',
+        }
+      }
+    }
+  },
+  API: {
+    REST: {
+      CourseGeneratorAPI: {
+        endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
+        region: region
       },
-    },
-  });
+      // 👇 Nueva API registrada (HTTP API Gateway)
+      SeminariosAPI: {
+        endpoint: import.meta.env.VITE_HTTP_API_URL || "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev",
+        region: region
+      }
+    }
+  }
+}, {
+  ssr: false
+});
+
 }
 
 export function hostedUiAuthorizeUrl() {

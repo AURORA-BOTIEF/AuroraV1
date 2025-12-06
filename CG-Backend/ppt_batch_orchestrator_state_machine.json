@@ -1,0 +1,318 @@
+{
+    "Comment": "Orchestrate PowerPoint generation for all lessons in a course by batch processing",
+    "StartAt": "ValidateInput",
+    "States": {
+        "ValidateInput": {
+            "Comment": "Validate required input parameters",
+            "Type": "Pass",
+            "Next": "ExpandPptBatches"
+        },
+        "ExpandPptBatches": {
+            "Comment": "Prepare batch task array for parallel processing",
+            "Type": "Pass",
+            "Next": "ProcessPptBatchesInParallel",
+            "ResultPath": "$.ppt_batch_expansion"
+        },
+        "ProcessPptBatchesInParallel": {
+            "Comment": "Process PPT batches sequentially to avoid Bedrock throttling",
+            "Type": "Map",
+            "ItemsPath": "$.ppt_batch_tasks",
+            "MaxConcurrency": 1,
+            "Iterator": {
+                "StartAt": "GeneratePptBatch",
+                "States": {
+                    "GeneratePptBatch": {
+                        "Comment": "Generate PPT for a batch of lessons",
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${StrandsInfographicGeneratorArn}",
+                            "Payload": {
+                                "course_bucket.$": "$.course_bucket",
+                                "project_folder.$": "$.project_folder",
+                                "lesson_start.$": "$.lesson_start",
+                                "lesson_end.$": "$.lesson_end",
+                                "max_lessons_per_batch.$": "$.max_lessons_per_batch",
+                                "model_provider.$": "$.model_provider",
+                                "batch_index.$": "$.batch_index",
+                                "book_version_key.$": "$.book_version_key",
+                                "book_type.$": "$.book_type"
+                            }
+                        },
+                        "ResultPath": "$.ppt_generation_result",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "Lambda.ServiceException",
+                                    "Lambda.AWSLambdaException",
+                                    "Lambda.SdkClientException"
+                                ],
+                                "IntervalSeconds": 5,
+                                "MaxAttempts": 2,
+                                "BackoffRate": 2.0
+                            }
+                        ],
+                        "Catch": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "Next": "NotifyFailureBatch",
+                                "ResultPath": "$.error"
+                            }
+                        ],
+                        "TimeoutSeconds": 900,
+                        "Next": "CheckPptGenerationStatus"
+                    },
+                    "CheckPptGenerationStatus": {
+                        "Comment": "Check if PPT generation completed or returned partial",
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "And": [
+                                    {
+                                        "Variable": "$.ppt_generation_result.Payload.body",
+                                        "IsPresent": true
+                                    },
+                                    {
+                                        "Variable": "$.ppt_generation_result.Payload.statusCode",
+                                        "NumericEquals": 200
+                                    }
+                                ],
+                                "Next": "PptBatchComplete"
+                            },
+                            {
+                                "And": [
+                                    {
+                                        "Variable": "$.ppt_generation_result.Payload.statusCode",
+                                        "NumericEquals": 202
+                                    }
+                                ],
+                                "Comment": "Partial PPT returned due to timeout",
+                                "Next": "PptBatchComplete"
+                            }
+                        ],
+                        "Default": "NotifyFailureBatch"
+                    },
+                    "PptBatchComplete": {
+                        "Comment": "PPT batch processing complete",
+                        "Type": "Pass",
+                        "End": true,
+                        "ResultPath": "$",
+                        "OutputPath": "$"
+                    },
+                    "NotifyFailureBatch": {
+                        "Comment": "PPT batch failed - this will be caught by Map Catch block",
+                        "Type": "Fail",
+                        "Error": "PptBatchGenerationFailed",
+                        "Cause": "PPT batch generation failed - check CloudWatch logs for details"
+                    }
+                }
+            },
+            "ResultPath": "$.all_ppt_batch_results",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "NotifyFailure",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "Next": "AggregateResults"
+        },
+        "AggregateResults": {
+            "Comment": "Aggregate results from all PPT batches",
+            "Type": "Pass",
+            "Next": "CheckIfAutoComplete",
+            "Parameters": {
+                "total_batches.$": "$.total_batches",
+                "total_lessons.$": "$.total_lessons",
+                "course_bucket.$": "$.course_bucket",
+                "project_folder.$": "$.project_folder",
+                "ppt_batch_results.$": "$.all_ppt_batch_results[*].ppt_generation_result.Payload",
+                "auto_combine.$": "$.auto_combine",
+                "user_email.$": "$.user_email"
+            },
+            "ResultPath": "$"
+        },
+        "CheckIfAutoComplete": {
+            "Comment": "Check if auto_combine is enabled to merge all PPTs",
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.auto_combine",
+                    "BooleanEquals": true,
+                    "Next": "InvokePptMerger"
+                }
+            ],
+            "Default": "NotifySuccess"
+        },
+        "InvokePptMerger": {
+            "Comment": "Merge all PPT batch results into a single HTML presentation",
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "${StrandsPptMergerArn}",
+                "Payload": {
+                    "course_bucket.$": "$.course_bucket",
+                    "project_folder.$": "$.project_folder",
+                    "ppt_batch_results.$": "$.ppt_batch_results",
+                    "action": "merge_to_html"
+                }
+            },
+            "ResultPath": "$.ppt_merger_result",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 5,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "NotifyFailure",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "TimeoutSeconds": 600,
+            "Next": "ParseMergerResult"
+        },
+        "ParseMergerResult": {
+            "Comment": "Parse the merger's body JSON string into an object",
+            "Type": "Pass",
+            "Parameters": {
+                "ppt_batch_results.$": "$.ppt_batch_results",
+                "course_bucket.$": "$.course_bucket",
+                "auto_combine.$": "$.auto_combine",
+                "project_folder.$": "$.project_folder",
+                "total_lessons.$": "$.total_lessons",
+                "total_batches.$": "$.total_batches",
+                "ppt_merger_result.$": "States.StringToJson($.ppt_merger_result.Payload.body)"
+            },
+            "Next": "PrepareFinalizePpt"
+        },
+        "PrepareFinalizePpt": {
+            "Comment": "Prepare parameters for final PPT generation using merged HTML (no optimization step)",
+            "Type": "Pass",
+            "Parameters": {
+                "html_s3_key.$": "$.ppt_merger_result.html_s3_key",
+                "course_bucket.$": "$.course_bucket",
+                "project_folder.$": "$.project_folder"
+            },
+            "Next": "FinalizePpt"
+        },
+        "FinalizePpt": {
+            "Comment": "Convert optimized (or original) HTML to final PowerPoint",
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "${StrandsPptMergerArn}",
+                "Payload": {
+                    "course_bucket.$": "$.course_bucket",
+                    "project_folder.$": "$.project_folder",
+                    "action": "convert_to_ppt",
+                    "html_s3_key.$": "$.html_s3_key"
+                }
+            },
+            "ResultPath": "$.final_ppt_result",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 5,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "NotifyFailure",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "TimeoutSeconds": 600,
+            "Next": "NotifySuccess"
+        },
+        "NotifySuccess": {
+            "Comment": "Send success notification",
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
+                "Payload": {
+                    "execution_arn.$": "$$.Execution.Id",
+                    "input.$": "$",
+                    "project_folder.$": "$.project_folder",
+                    "status": "success"
+                }
+            },
+            "ResultPath": "$.notification_result",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 5,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Next": "PptOrchestrationComplete"
+        },
+        "NotifyFailure": {
+            "Comment": "Send failure notification",
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
+                "Payload": {
+                    "execution_arn.$": "$$.Execution.Id",
+                    "input.$": "$",
+                    "project_folder.$": "$.project_folder",
+                    "status": "failed"
+                }
+            },
+            "ResultPath": "$.notification_result",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 5,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Next": "FailWorkflow"
+        },
+        "PptOrchestrationComplete": {
+            "Comment": "PPT orchestration completed successfully",
+            "Type": "Succeed"
+        },
+        "FailWorkflow": {
+            "Comment": "PPT generation failed",
+            "Type": "Fail",
+            "Error": "PptGenerationFailed",
+            "Cause": "PPT generation workflow failed - notification sent"
+        }
+    }
+}

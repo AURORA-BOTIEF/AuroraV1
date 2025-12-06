@@ -1,0 +1,14 @@
+# Strands Agents SDK and dependencies
+strands-agents
+
+# Additional dependencies for content generation
+pyyaml
+boto3
+botocore
+
+# OpenAI support for Strands Agents
+openai
+
+# JWT token decoding for user authentication
+PyJWT
+
