@@ -282,6 +282,25 @@
     color: white;
 }
 
+/* Labs button highlight - blue like editor button */
+.btn-view-toggle.btn-labs-highlight {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    border-color: #2563eb;
+    color: white;
+}
+
+.btn-view-toggle.btn-labs-highlight:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    border-color: #1d4ed8;
+    color: white;
+}
+
+.btn-view-toggle.btn-labs-highlight.active {
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    border-color: #f59e0b;
+    color: white;
+}
+
 /* Close Button */
 .btn-close-editor {
     background: transparent;

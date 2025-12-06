@@ -14,7 +14,7 @@ const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 const IDENTITY_POOL_ID = import.meta.env.VITE_IDENTITY_POOL_ID || import.meta.env.VITE_AWS_IDENTITY_POOL_ID || '';
 const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
-function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
+function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = false }) {
     const navigate = useNavigate();
     const [bookData, setBookData] = useState(null);
     const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
@@ -54,6 +54,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
     const [downloadingPDF, setDownloadingPDF] = useState(false);
     const [showRegenerateLabModal, setShowRegenerateLabModal] = useState(false);
     const [showRegenerateLessonModal, setShowRegenerateLessonModal] = useState(false);
+    const [logoUrl, setLogoUrl] = useState(null);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Download book or lab guide as PDF with logo and footer
@@ -851,6 +852,31 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             }
         })();
         return () => { mounted = false; };
+    }, []);
+
+    // Load logo from S3
+    useEffect(() => {
+        const loadLogo = async () => {
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const logoResponse = await s3.send(new GetObjectCommand({
+                    Bucket: 'crewai-course-artifacts',
+                    Key: 'logo/LogoNetec.png'
+                }));
+
+                const logoBlob = await logoResponse.Body.transformToByteArray();
+                const logoBase64 = btoa(String.fromCharCode(...logoBlob));
+                setLogoUrl(`data:image/png;base64,${logoBase64}`);
+            } catch (error) {
+                console.error('Error loading logo:', error);
+            }
+        };
+        loadLogo();
     }, []);
 
     const loadBook = async () => {
@@ -2790,6 +2816,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         const lessonContent = bookData?.lessons?.[currentLessonIndex]?.content || '';
         const formatted = formatContentForEditing(lessonContent);
 
+        // Reset scroll position when switching lessons
+        const prevIndex = lastAppliedLessonRef.current?.index;
+        if (prevIndex !== currentLessonIndex) {
+            editor.scrollTop = 0;
+        }
+
         if (isEditing) {
             // Initialize editing HTML if not already set
             const initial = editingHtml ?? formatted;
@@ -2817,6 +2849,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         // Get the current lab lesson content based on index
         const labContent = labGuideData?.lessons?.[currentLabLessonIndex]?.content || '';
         const formatted = formatContentForEditing(labContent);
+
+        // Reset scroll position when switching lab activities
+        const prevIndex = lastAppliedLabGuideRef.current?.index;
+        if (prevIndex !== currentLabLessonIndex) {
+            editor.scrollTop = 0;
+        }
 
         if (isEditing) {
             // Initialize editing HTML if not already set
@@ -3448,27 +3486,36 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 </div>
             )}
             <div className="book-editor-header">
-                {/* Navigation icons - always visible */}
-                <div className="header-nav-icons">
-                    <button
-                        onClick={() => navigate('/generador-contenidos/book-builder')}
-                        className="nav-icon-btn"
-                        title="Volver a la lista"
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M19 12H5M12 19l-7-7 7-7" />
-                        </svg>
-                    </button>
-                    <button
-                        onClick={() => navigate('/')}
-                        className="nav-icon-btn"
-                        title="Ir al inicio"
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                            <polyline points="9 22 9 12 15 12 15 22" />
-                        </svg>
-                    </button>
+                {/* Logo and Navigation - grouped together on the left */}
+                <div className="header-left-section" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {logoUrl && (
+                        <div className="header-logo">
+                            <img src={logoUrl} alt="Logo" style={{ height: '45px' }} />
+                        </div>
+                    )}
+
+                    {/* Navigation icons - context aware for viewOnly mode */}
+                    <div className="header-nav-icons" style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => viewOnly ? onClose() : navigate('/')}
+                            className="nav-icon-btn"
+                            title={viewOnly ? "Volver a Mis Cursos" : "Ir al inicio"}
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                                <polyline points="9 22 9 12 15 12 15 22" />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={() => viewOnly ? onClose() : navigate('/generador-contenidos/book-builder')}
+                            className="nav-icon-btn"
+                            title={viewOnly ? "Volver a Mis Cursos" : "Volver a la lista"}
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M19 12H5M12 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Editing toolbar - only visible when editing */}
@@ -3523,8 +3570,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     {/* View toggle - Book/Lab */}
                     {labGuideData && (
                         <button
-                            className={`btn-view-toggle ${viewMode === 'lab' ? 'active' : ''}`}
-                            onClick={() => setViewMode(viewMode === 'book' ? 'lab' : 'book')}
+                            className={`btn-view-toggle btn-labs-highlight ${viewMode === 'lab' ? 'active' : ''}`}
+                            onClick={() => {
+                                // Reset scroll position when switching views
+                                if (editorRef.current) {
+                                    editorRef.current.scrollTop = 0;
+                                }
+                                setViewMode(viewMode === 'book' ? 'lab' : 'book');
+                            }}
                             title={viewMode === 'book' ? 'Ver Guía de Laboratorios' : 'Ver Libro'}
                         >
                             {viewMode === 'book' ? (
@@ -3534,7 +3587,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                         <polyline points="14 2 14 8 20 8" />
                                         <path d="M12 18v-6M9 15l3 3 3-3" />
                                     </svg>
-                                    <span className="btn-text">Lab Guide</span>
+                                    <span className="btn-text">Labs</span>
                                 </>
                             ) : (
                                 <>
@@ -3567,19 +3620,21 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         <span className="btn-text">PDF</span>
                     </button>
 
-                    {/* Generate PPT */}
-                    <button
-                        className="btn-icon btn-secondary"
-                        onClick={() => setShowPPTModal(true)}
-                        title="Generar presentación PowerPoint"
-                    >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                            <line x1="8" y1="21" x2="16" y2="21" />
-                            <line x1="12" y1="17" x2="12" y2="21" />
-                        </svg>
-                        <span className="btn-text">PPT</span>
-                    </button>
+                    {/* Generate PPT - Hidden in viewOnly mode */}
+                    {!viewOnly && (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={() => setShowPPTModal(true)}
+                            title="Generar presentación PowerPoint"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                                <line x1="8" y1="21" x2="16" y2="21" />
+                                <line x1="12" y1="17" x2="12" y2="21" />
+                            </svg>
+                            <span className="btn-text">PPT</span>
+                        </button>
+                    )}
 
                     {/* Reload button - context aware */}
                     {viewMode === 'book' ? (
@@ -3618,8 +3673,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         </button>
                     )}
 
-                    {/* Regenerate button - context aware */}
-                    {viewMode === 'book' ? (
+                    {/* Regenerate button - context aware - Hidden in viewOnly mode */}
+                    {!viewOnly && (viewMode === 'book' ? (
                         <button
                             className="btn-icon btn-secondary"
                             onClick={() => setShowRegenerateLessonModal(true)}
@@ -3639,51 +3694,55 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
                             </svg>
                         </button>
+                    ))}
+
+                    {/* Edit button - Primary action - Hidden in viewOnly mode */}
+                    {!viewOnly && (
+                        <button
+                            className={`btn-icon ${isEditing ? 'btn-success' : 'btn-primary'}`}
+                            onClick={async () => {
+                                console.log('=== Edit button clicked ===', isEditing ? 'Finalizing' : 'Entering edit mode');
+                                const startTime = performance.now();
+
+                                if (isEditing) {
+                                    finalizeEditing();
+                                } else {
+                                    setIsEditing(true);
+                                }
+
+                                const endTime = performance.now();
+                                console.log(`Button handler took ${(endTime - startTime).toFixed(2)}ms`);
+                            }}
+                            title={isEditing ? 'Finalizar edición' : 'Editar contenido'}
+                        >
+                            {isEditing ? (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                            ) : (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                            )}
+                            <span className="btn-text">{isEditing ? 'Listo' : 'Editar'}</span>
+                        </button>
                     )}
 
-                    {/* Edit button - Primary action */}
-                    <button
-                        className={`btn-icon ${isEditing ? 'btn-success' : 'btn-primary'}`}
-                        onClick={async () => {
-                            console.log('=== Edit button clicked ===', isEditing ? 'Finalizing' : 'Entering edit mode');
-                            const startTime = performance.now();
-
-                            if (isEditing) {
-                                finalizeEditing();
-                            } else {
-                                setIsEditing(true);
-                            }
-
-                            const endTime = performance.now();
-                            console.log(`Button handler took ${(endTime - startTime).toFixed(2)}ms`);
-                        }}
-                        title={isEditing ? 'Finalizar edición' : 'Editar contenido'}
-                    >
-                        {isEditing ? (
+                    {/* Versions button - hidden for students */}
+                    {!viewOnly && (
+                        <button
+                            className={`btn-icon btn-secondary ${showVersionHistory ? 'active' : ''}`}
+                            onClick={() => setShowVersionHistory(!showVersionHistory)}
+                            title="Historial de versiones"
+                        >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <polyline points="20 6 9 17 4 12" />
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
                             </svg>
-                        ) : (
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                        )}
-                        <span className="btn-text">{isEditing ? 'Listo' : 'Editar'}</span>
-                    </button>
-
-                    {/* Versions button */}
-                    <button
-                        className={`btn-icon btn-secondary ${showVersionHistory ? 'active' : ''}`}
-                        onClick={() => setShowVersionHistory(!showVersionHistory)}
-                        title="Historial de versiones"
-                    >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                        </svg>
-                        <span className="btn-badge">{viewMode === 'lab' ? labGuideVersions.length : versions.length + 1}</span>
-                    </button>
+                            <span className="btn-badge">{viewMode === 'lab' ? labGuideVersions.length : versions.length + 1}</span>
+                        </button>
+                    )}
 
                     {/* Close button */}
                     <button
@@ -3709,7 +3768,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                             <button className="version-name" onClick={viewOriginal}>Ver</button>
-                                            <button onClick={editOriginal}>Editar</button>
+                                            {!viewOnly && <button onClick={editOriginal}>Editar</button>}
                                             <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>📄 Original</div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -3723,21 +3782,23 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                                 <button className="version-name" onClick={() => viewVersion(version)}>Ver</button>
-                                                <button onClick={() => editVersion(version)}>Editar</button>
+                                                {!viewOnly && <button onClick={() => editVersion(version)}>Editar</button>}
                                                 <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                                 <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
-                                                <button onClick={() => deleteVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
+                                                {!viewOnly && <button onClick={() => deleteVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>}
                                             </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                            <div className="save-version">
-                                <input value={newVersionName} onChange={e => setNewVersionName(e.target.value)} placeholder="Nombre de la versión" />
-                                <button onClick={saveVersion} disabled={!newVersionName.trim()}>Guardar Versión</button>
-                            </div>
+                            {!viewOnly && (
+                                <div className="save-version">
+                                    <input value={newVersionName} onChange={e => setNewVersionName(e.target.value)} placeholder="Nombre de la versión" />
+                                    <button onClick={saveVersion} disabled={!newVersionName.trim()}>Guardar Versión</button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <>
@@ -3811,7 +3872,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                     )}
                     <div className="lesson-header">
                         <h3>{currentLesson.title}</h3>
-                        <div className="lesson-stats">Palabras: {currentLesson.content ? currentLesson.content.split(/\s+/).filter(Boolean).length : 0}</div>
+                        {!viewOnly && <div className="lesson-stats">Palabras: {currentLesson.content ? currentLesson.content.split(/\s+/).filter(Boolean).length : 0}</div>}
                     </div>
                     <div className="book-content-container">
                         {isEditing ? (

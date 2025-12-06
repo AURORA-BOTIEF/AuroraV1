@@ -107,8 +107,8 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
     
     bloom_mult = bloom_multipliers.get(lesson_bloom, 1.1)
     
-    # Base calculation: 15 words per minute (concise content that teacher expands)
-    base_words = lesson_duration * 15
+    # Base calculation: 45 words per minute for deep, academic content (approx 200-250 words per 5 min topic)
+    base_words = lesson_duration * 45
     base_words = int(base_words * bloom_mult)
     
     # Add for topics and labs
@@ -118,7 +118,7 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
     total_words = base_words + (topics_count * 80) + (labs_count * 120)
     
     # Bounds
-    return max(500, min(3000, total_words))
+    return max(1000, min(5000, total_words))
 
 
 def build_course_context(course_data: dict) -> str:
@@ -186,10 +186,26 @@ def generate_batch_single_call(
         target_words = calculate_target_words(lesson, module_data)
         
         topics_list = lesson.get('topics', [])
-        topics_str = "\n".join([f"      - {topic}" for topic in topics_list])
+        topics_formatted = []
+        for t in topics_list:
+            if isinstance(t, dict):
+                t_title = t.get('title', 'Untitled')
+                t_dur = t.get('duration_minutes', 0)
+                topics_formatted.append(f"      - {t_title} (Duration: {t_dur} min)")
+            else:
+                topics_formatted.append(f"      - {str(t)}")
+        topics_str = "\n".join(topics_formatted)
         
         lab_activities = lesson.get('lab_activities', [])
-        labs_str = "\n".join([f"      - {lab}" for lab in lab_activities])
+        labs_formatted = []
+        for l in lab_activities:
+            if isinstance(l, dict):
+                l_title = l.get('title', 'Untitled')
+                l_dur = l.get('duration_minutes', 0)
+                labs_formatted.append(f"      - {l_title} (Duration: {l_dur} min)")
+            else:
+                labs_formatted.append(f"      - {str(l)}")
+        labs_str = "\n".join(labs_formatted)
         
         spec = f"""
     Lesson {i + 1}: {lesson.get('title', 'Untitled')}
@@ -234,6 +250,14 @@ REQUIREMENTS:
 4. Include all specified topics and activities (if provided)
 5. Use Markdown formatting with proper headings, lists, code blocks
 6. Meet the target word count for each lesson
+7. **ACADEMIC DEPTH & STRUCTURE**:
+   - This is an **ACADEMIC COURSE** for professionals. Do not generate surface-level summaries.
+   - For each topic, strictly adhere to the **Duration** provided. A 15-minute topic requires significantly more depth than a 5-minute one.
+   - **Structure for every main topic**:
+     * **Concept/Theory**: Explain *what* it is and *why* it matters appropriately for the bloom level.
+     * **Deep Dive**: Go into technical details, architecture, or mechanics.
+     * **Example/Context**: Provide a concrete, real-world example or scenario.
+   - Use professional, authoritative, yet accessible language.
 8. Maintain technical accuracy and professional tone
 9. Include practical examples where appropriate
 10. **TABLES**: For tabular data (comparisons, specifications, feature lists, etc.), use **Markdown table syntax** directly in the content.
