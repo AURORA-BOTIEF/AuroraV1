@@ -234,7 +234,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
 
                 // Module header
                 const moduleTitle = moduleTitles[parseInt(moduleNum)] || `Módulo ${moduleNum}`;
-                pdf.setFillColor(0, 102, 204);
+                pdf.setFillColor(0, 51, 102); // Dark navy blue
                 pdf.rect(margin - 5, yPosition - 7, maxWidth + 10, 15, 'F');
                 pdf.setFontSize(16);
                 pdf.setFont('helvetica', 'bold');
@@ -296,18 +296,92 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                         if (part.type === 'text') {
                             let text = part.content;
 
-                            // Extract code blocks
+                            // Extract code blocks and tables
                             const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+                            // Table regex: matches markdown tables (lines starting and ending with |)
+                            const tableRegex = /(?:^|\n)((?:\|[^\n]+\|\n?)+)/g;
+
                             const textParts = [];
                             let lastIdx = 0;
                             let codeMatch;
 
+                            // First, extract code blocks
+                            const codeBlocks = [];
                             while ((codeMatch = codeBlockRegex.exec(text)) !== null) {
-                                if (codeMatch.index > lastIdx) {
-                                    textParts.push({ type: 'text', content: text.substring(lastIdx, codeMatch.index) });
+                                codeBlocks.push({
+                                    start: codeMatch.index,
+                                    end: codeMatch.index + codeMatch[0].length,
+                                    type: 'code',
+                                    content: codeMatch[2].trim()
+                                });
+                            }
+
+                            // Then, extract tables (but not if they're inside code blocks)
+                            const tables = [];
+                            let tableMatch;
+                            while ((tableMatch = tableRegex.exec(text)) !== null) {
+                                const tableStart = tableMatch.index + (tableMatch[0].startsWith('\n') ? 1 : 0);
+                                const tableEnd = tableStart + tableMatch[1].length;
+
+                                // Check if table is inside a code block
+                                const insideCode = codeBlocks.some(cb =>
+                                    tableStart >= cb.start && tableEnd <= cb.end
+                                );
+
+                                if (!insideCode) {
+                                    // Parse the table
+                                    const tableLines = tableMatch[1].trim().split('\n').filter(l => l.trim());
+                                    const rows = [];
+                                    let headerRow = null;
+
+                                    for (let i = 0; i < tableLines.length; i++) {
+                                        const line = tableLines[i].trim();
+                                        // Skip separator rows (|---|---|)
+                                        if (/^\|[\s\-:]+\|$/.test(line) || /^\|(\s*[-:]+\s*\|)+$/.test(line)) {
+                                            continue;
+                                        }
+
+                                        // Extract cells
+                                        const cells = line.split('|')
+                                            .slice(1, -1) // Remove empty first and last elements
+                                            .map(cell => cell.trim()
+                                                .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
+                                                .replace(/\*(.+?)\*/g, '$1')     // Remove italic
+                                                .replace(/`(.+?)`/g, '$1')       // Remove inline code
+                                            );
+
+                                        if (cells.length > 0) {
+                                            if (headerRow === null) {
+                                                headerRow = cells;
+                                            } else {
+                                                rows.push(cells);
+                                            }
+                                        }
+                                    }
+
+                                    if (headerRow && headerRow.length > 0) {
+                                        tables.push({
+                                            start: tableStart,
+                                            end: tableEnd,
+                                            type: 'table',
+                                            header: headerRow,
+                                            rows: rows
+                                        });
+                                    }
                                 }
-                                textParts.push({ type: 'code', content: codeMatch[2].trim() });
-                                lastIdx = codeMatch.index + codeMatch[0].length;
+                            }
+
+                            // Merge code blocks and tables, sort by position
+                            const allBlocks = [...codeBlocks, ...tables].sort((a, b) => a.start - b.start);
+
+                            // Build textParts array
+                            lastIdx = 0;
+                            for (const block of allBlocks) {
+                                if (block.start > lastIdx) {
+                                    textParts.push({ type: 'text', content: text.substring(lastIdx, block.start) });
+                                }
+                                textParts.push(block);
+                                lastIdx = block.end;
                             }
 
                             if (lastIdx < text.length) {
@@ -360,6 +434,131 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                     pdf.setFont('helvetica', 'normal');
                                     pdf.setFontSize(10);
 
+                                } else if (textPart.type === 'table') {
+                                    // Render markdown table as PDF table
+                                    const { header, rows } = textPart;
+                                    const numCols = header.length;
+
+                                    if (numCols === 0) continue;
+
+                                    // Calculate column widths based on content
+                                    const cellPadding = 3;
+                                    const cellHeight = 8;
+                                    const headerHeight = 10;
+                                    const tableWidth = maxWidth;
+
+                                    // Measure column widths based on content (proportional)
+                                    pdf.setFontSize(8);
+                                    const colWidths = [];
+                                    const minColWidth = 20;
+
+                                    // Calculate content width for each column
+                                    const contentWidths = header.map((h, colIdx) => {
+                                        let maxContentWidth = pdf.getTextWidth(h);
+                                        rows.forEach(row => {
+                                            if (row[colIdx]) {
+                                                const cellWidth = pdf.getTextWidth(row[colIdx]);
+                                                if (cellWidth > maxContentWidth) {
+                                                    maxContentWidth = cellWidth;
+                                                }
+                                            }
+                                        });
+                                        return Math.max(maxContentWidth + cellPadding * 2, minColWidth);
+                                    });
+
+                                    // Normalize widths to fit table width
+                                    const totalContentWidth = contentWidths.reduce((a, b) => a + b, 0);
+                                    const scaleFactor = tableWidth / totalContentWidth;
+
+                                    for (let i = 0; i < numCols; i++) {
+                                        colWidths.push(contentWidths[i] * scaleFactor);
+                                    }
+
+                                    // Calculate total table height
+                                    const totalTableHeight = headerHeight + (rows.length * cellHeight);
+
+                                    // Check if table fits on current page
+                                    if (yPosition + totalTableHeight > pageHeight - 40) {
+                                        pdf.addPage();
+                                        yPosition = 20;
+                                    }
+
+                                    let tableX = margin;
+                                    let tableY = yPosition;
+
+                                    // Draw header row with background
+                                    pdf.setFillColor(240, 240, 240);
+                                    pdf.rect(tableX, tableY, tableWidth, headerHeight, 'F');
+
+                                    // Draw header cells
+                                    pdf.setFont('helvetica', 'bold');
+                                    pdf.setFontSize(8);
+                                    pdf.setTextColor(0, 0, 0);
+
+                                    let cellX = tableX;
+                                    for (let i = 0; i < numCols; i++) {
+                                        // Draw cell border
+                                        pdf.setDrawColor(200, 200, 200);
+                                        pdf.rect(cellX, tableY, colWidths[i], headerHeight, 'S');
+
+                                        // Draw cell text (truncate if needed)
+                                        const cellText = header[i] || '';
+                                        const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
+                                        pdf.text(truncatedText, cellX + cellPadding, tableY + headerHeight - 3);
+
+                                        cellX += colWidths[i];
+                                    }
+
+                                    tableY += headerHeight;
+
+                                    // Draw data rows
+                                    pdf.setFont('helvetica', 'normal');
+
+                                    for (const row of rows) {
+                                        // Check if row fits on current page
+                                        if (tableY + cellHeight > pageHeight - 40) {
+                                            pdf.addPage();
+                                            tableY = 20;
+
+                                            // Redraw header on new page
+                                            pdf.setFillColor(240, 240, 240);
+                                            pdf.rect(margin, tableY, tableWidth, headerHeight, 'F');
+
+                                            pdf.setFont('helvetica', 'bold');
+                                            cellX = margin;
+                                            for (let i = 0; i < numCols; i++) {
+                                                pdf.setDrawColor(200, 200, 200);
+                                                pdf.rect(cellX, tableY, colWidths[i], headerHeight, 'S');
+                                                const cellText = header[i] || '';
+                                                const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
+                                                pdf.text(truncatedText, cellX + cellPadding, tableY + headerHeight - 3);
+                                                cellX += colWidths[i];
+                                            }
+
+                                            tableY += headerHeight;
+                                            pdf.setFont('helvetica', 'normal');
+                                        }
+
+                                        cellX = margin;
+                                        for (let i = 0; i < numCols; i++) {
+                                            // Draw cell border
+                                            pdf.setDrawColor(200, 200, 200);
+                                            pdf.rect(cellX, tableY, colWidths[i], cellHeight, 'S');
+
+                                            // Draw cell text
+                                            const cellText = row[i] || '';
+                                            const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
+                                            pdf.text(truncatedText, cellX + cellPadding, tableY + cellHeight - 2);
+
+                                            cellX += colWidths[i];
+                                        }
+
+                                        tableY += cellHeight;
+                                    }
+
+                                    yPosition = tableY + 5;
+                                    pdf.setFontSize(10);
+
                                 } else {
                                     let cleanText = textPart.content;
                                     cleanText = cleanText.replace(/#{1,6}\s/g, '');
@@ -385,14 +584,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                                             /^\d+\.\s/.test(cleanText) ||
                                             (cleanText.length < 100 && /^[A-ZÁÉÍÓÚÑ]/.test(cleanText));
 
-                                        // If this looks like a heading and next is code/image, keep them together
-                                        if (looksLikeHeading && nextPart && (nextPart.type === 'code' || nextPart.type === 'image')) {
+                                        // If this looks like a heading and next is code/image/table, keep them together
+                                        if (looksLikeHeading && nextPart && (nextPart.type === 'code' || nextPart.type === 'image' || nextPart.type === 'table')) {
                                             // Estimate next content height more accurately
                                             let estimatedNextHeight = 70;
                                             if (nextPart.type === 'code') {
                                                 // Try to estimate code block height based on line count
                                                 const codeLineCount = (nextPart.content.match(/\n/g) || []).length + 1;
                                                 estimatedNextHeight = Math.min(codeLineCount * 5, 120);
+                                            } else if (nextPart.type === 'table') {
+                                                // Estimate table height based on rows
+                                                const rowCount = (nextPart.rows?.length || 0) + 1; // +1 for header
+                                                estimatedNextHeight = Math.min(rowCount * 10 + 10, 150);
                                             } else {
                                                 estimatedNextHeight = 90; // Image estimate
                                             }
@@ -2611,31 +2814,21 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
         const editor = editorRef.current;
         if (!editor) return;
 
-        const labContent = labGuideData?.content || '';
+        // Get the current lab lesson content based on index
+        const labContent = labGuideData?.lessons?.[currentLabLessonIndex]?.content || '';
         const formatted = formatContentForEditing(labContent);
 
-        // Check if we need to update (avoid unnecessary re-renders)
-        const lastApplied = lastAppliedLabGuideRef.current;
-        if (lastApplied.isEditing === isEditing && lastApplied.content === formatted) {
-            return; // No change needed
-        }
-
         if (isEditing) {
-            // Only set HTML if we're transitioning to edit mode or content changed
-            if (lastApplied.isEditing !== isEditing) {
-                // Transitioning to edit mode
-                const initial = labGuideEditingHtml ?? formatted;
-                try {
-                    editor.innerHTML = initial;
-                } catch (e) {
-                    console.error('Failed to set lab guide editor HTML:', e);
-                }
-                setLabGuideEditingHtml(initial);
-                // Only focus on initial transition to edit mode
-                setTimeout(() => {
-                    try { editor.focus(); } catch (e) { }
-                }, 0);
+            // Initialize editing HTML if not already set
+            const initial = labGuideEditingHtml ?? formatted;
+            try {
+                editor.innerHTML = initial;
+            } catch (e) {
+                console.error('Failed to set lab guide editor HTML:', e);
             }
+            setLabGuideEditingHtml(initial);
+            // focus editor when entering edit mode
+            try { editor.focus(); } catch (e) { }
         } else {
             // Render canonical content in read-only
             try {
@@ -2646,9 +2839,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
             setLabGuideEditingHtml(null);
         }
 
-        lastAppliedLabGuideRef.current = { isEditing, content: formatted };
+        lastAppliedLabGuideRef.current = { isEditing, content: formatted, index: currentLabLessonIndex };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [viewMode, isEditing, labGuideData]);
+    }, [viewMode, currentLabLessonIndex, isEditing, labGuideData]);
 
     // Helpers to map node -> path and back so caret can be restored after innerHTML changes
     function getNodePath(root, node) {
@@ -3255,138 +3448,207 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                 </div>
             )}
             <div className="book-editor-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '15px' }}>
+                {/* Navigation icons - always visible */}
+                <div className="header-nav-icons">
                     <button
                         onClick={() => navigate('/generador-contenidos/book-builder')}
                         className="nav-icon-btn"
                         title="Volver a la lista"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem' }}
                     >
-                        ⬅️
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M19 12H5M12 19l-7-7 7-7" />
+                        </svg>
                     </button>
                     <button
                         onClick={() => navigate('/')}
                         className="nav-icon-btn"
                         title="Ir al inicio"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem' }}
                     >
-                        🏠
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                            <polyline points="9 22 9 12 15 12 15 22" />
+                        </svg>
                     </button>
                 </div>
-                <div className="editor-toolbar-compact">
-                    <button onClick={() => execCommand('bold')} title="Negrita"><strong>B</strong></button>
-                    <button onClick={() => execCommand('italic')} title="Cursiva"><em>I</em></button>
-                    <button onClick={() => execCommand('justifyLeft')} title="Alinear izquierda">
-                        <span style={{ display: 'inline-block', fontSize: '14px' }}>
-                            &#x2190;&#x2261;
-                        </span>
-                    </button>
-                    <button onClick={() => execCommand('justifyCenter')} title="Centrar">
-                        <span style={{ display: 'inline-block', fontSize: '14px' }}>
-                            &#x2261;
-                        </span>
-                    </button>
-                    <button onClick={() => execCommand('justifyRight')} title="Alinear derecha">
-                        <span style={{ display: 'inline-block', fontSize: '14px' }}>
-                            &#x2261;&#x2192;
-                        </span>
-                    </button>
-                    {/* Color options dropdown */}
-                    <select onChange={(e) => execCommand('foreColor', e.target.value)} title="Color de texto" style={{ padding: '0.4rem', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>
-                        <option value="">🎨 Color</option>
-                        <option value="#000000">⚫ Negro</option>
-                        <option value="#d9534f">🔴 Rojo</option>
-                        <option value="#5cb85c">🟢 Verde</option>
-                        <option value="#5bc0de">🔵 Azul</option>
-                        <option value="#f0ad4e">🟠 Naranja</option>
-                        <option value="#9b59b6">🟣 Morado</option>
-                        <option value="#e91e63">💗 Rosa</option>
-                        <option value="#3498db">🔷 Azul claro</option>
-                    </select>
-                    <button onClick={() => execCommand('increaseFont')} title="Aumentar tamaño">A+</button>
-                    <button onClick={() => execCommand('decreaseFont')} title="Disminuir tamaño">A-</button>
-                    <button onClick={() => handleCopyFormat()} title="Copiar Formato">📋</button>
-                    <button onClick={() => handleApplyFormat()} title="Aplicar Formato">🖌️</button>
-                </div>
+
+                {/* Editing toolbar - only visible when editing */}
+                {isEditing && (
+                    <div className="editor-toolbar-compact">
+                        <button onClick={() => execCommand('bold')} title="Negrita"><strong>B</strong></button>
+                        <button onClick={() => execCommand('italic')} title="Cursiva"><em>I</em></button>
+                        <div className="toolbar-divider"></div>
+                        <button onClick={() => execCommand('justifyLeft')} title="Alinear izquierda">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="17" y1="10" x2="3" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="17" y1="18" x2="3" y2="18" />
+                            </svg>
+                        </button>
+                        <button onClick={() => execCommand('justifyCenter')} title="Centrar">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="18" y1="10" x2="6" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="18" y1="18" x2="6" y2="18" />
+                            </svg>
+                        </button>
+                        <button onClick={() => execCommand('justifyRight')} title="Alinear derecha">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="21" y1="10" x2="7" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="21" y1="18" x2="7" y2="18" />
+                            </svg>
+                        </button>
+                        <div className="toolbar-divider"></div>
+                        <select onChange={(e) => execCommand('foreColor', e.target.value)} title="Color de texto" className="color-select">
+                            <option value="">🎨</option>
+                            <option value="#000000">⚫</option>
+                            <option value="#d9534f">🔴</option>
+                            <option value="#5cb85c">🟢</option>
+                            <option value="#5bc0de">🔵</option>
+                            <option value="#f0ad4e">🟠</option>
+                            <option value="#9b59b6">🟣</option>
+                        </select>
+                        <button onClick={() => execCommand('increaseFont')} title="Aumentar tamaño">A+</button>
+                        <button onClick={() => execCommand('decreaseFont')} title="Disminuir tamaño">A-</button>
+                        <div className="toolbar-divider"></div>
+                        <button onClick={() => handleCopyFormat()} title="Copiar Formato">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                        </button>
+                        <button onClick={() => handleApplyFormat()} title="Aplicar Formato">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><path d="M2 2l7.586 7.586" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
+
+                {/* Main action buttons */}
                 <div className="book-editor-actions">
+                    {/* View toggle - Book/Lab */}
                     {labGuideData && (
                         <button
-                            className={viewMode === 'lab' ? 'btn-active' : ''}
+                            className={`btn-view-toggle ${viewMode === 'lab' ? 'active' : ''}`}
                             onClick={() => setViewMode(viewMode === 'book' ? 'lab' : 'book')}
                             title={viewMode === 'book' ? 'Ver Guía de Laboratorios' : 'Ver Libro'}
                         >
-                            {viewMode === 'book' ? '🧪 Lab Guide' : '📚 Libro'}
+                            {viewMode === 'book' ? (
+                                <>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
+                                        <polyline points="14 2 14 8 20 8" />
+                                        <path d="M12 18v-6M9 15l3 3 3-3" />
+                                    </svg>
+                                    <span className="btn-text">Lab Guide</span>
+                                </>
+                            ) : (
+                                <>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+                                    </svg>
+                                    <span className="btn-text">Libro</span>
+                                </>
+                            )}
                         </button>
                     )}
+
+                    {/* Download PDF */}
                     <button
-                        className="btn-download-pdf"
+                        className="btn-icon btn-secondary"
                         onClick={downloadAsPDF}
                         disabled={downloadingPDF}
                         title={viewMode === 'book' ? 'Descargar libro como PDF' : 'Descargar guía de laboratorios como PDF'}
                     >
-                        {downloadingPDF ? '⏳ Generando...' : '📄 Descargar PDF'}
+                        {downloadingPDF ? (
+                            <span className="spinner-small"></span>
+                        ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                        )}
+                        <span className="btn-text">PDF</span>
                     </button>
+
+                    {/* Generate PPT */}
                     <button
-                        className="btn-generate-ppt"
+                        className="btn-icon btn-secondary"
                         onClick={() => setShowPPTModal(true)}
                         title="Generar presentación PowerPoint"
                     >
-                        📊 Generar PPT
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                            <line x1="8" y1="21" x2="16" y2="21" />
+                            <line x1="12" y1="17" x2="12" y2="21" />
+                        </svg>
+                        <span className="btn-text">PPT</span>
                     </button>
-                    {viewMode === 'book' && (
-                        <>
-                            <button
-                                className="btn-refresh-labs"
-                                onClick={async () => {
-                                    setLoadingImages(true);
-                                    await loadBook();
-                                    setLoadingImages(false);
-                                }}
-                                disabled={loadingImages}
-                                title="Recargar lecciones desde S3"
-                            >
-                                {loadingImages ? '⏳ Recargando...' : '🔄 Recargar Lecciones'}
-                            </button>
-                            <button
-                                className="btn-regenerate-lesson"
-                                onClick={() => setShowRegenerateLessonModal(true)}
-                                title="Regenerar esta lección con nuevos requisitos"
-                            >
-                                📖 Regenerar Lección
-                            </button>
-                        </>
+
+                    {/* Reload button - context aware */}
+                    {viewMode === 'book' ? (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={async () => {
+                                setLoadingImages(true);
+                                await loadBook();
+                                setLoadingImages(false);
+                            }}
+                            disabled={loadingImages}
+                            title="Recargar lecciones desde S3"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={loadingImages ? 'spin' : ''}>
+                                <polyline points="23 4 23 10 17 10" />
+                                <polyline points="1 20 1 14 7 14" />
+                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                            </svg>
+                        </button>
+                    ) : (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={async () => {
+                                setLoadingImages(true);
+                                await loadLabGuide();
+                                setLoadingImages(false);
+                            }}
+                            disabled={loadingImages}
+                            title="Recargar guía de laboratorios desde S3"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={loadingImages ? 'spin' : ''}>
+                                <polyline points="23 4 23 10 17 10" />
+                                <polyline points="1 20 1 14 7 14" />
+                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                            </svg>
+                        </button>
                     )}
-                    {viewMode === 'lab' && (
-                        <>
-                            <button
-                                className="btn-refresh-labs"
-                                onClick={async () => {
-                                    setLoadingImages(true);
-                                    await loadLabGuide();
-                                    setLoadingImages(false);
-                                }}
-                                disabled={loadingImages}
-                                title="Recargar guía de laboratorios desde S3"
-                            >
-                                {loadingImages ? '⏳ Recargando...' : '🔄 Recargar Labs'}
-                            </button>
-                            <button
-                                className="btn-regenerate-lab"
-                                onClick={() => setShowRegenerateLabModal(true)}
-                                title="Regenerar este laboratorio con nuevos requisitos"
-                            >
-                                🔄 Regenerar Laboratorio
-                            </button>
-                        </>
+
+                    {/* Regenerate button - context aware */}
+                    {viewMode === 'book' ? (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={() => setShowRegenerateLessonModal(true)}
+                            title="Regenerar esta lección con IA"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                            </svg>
+                        </button>
+                    ) : (
+                        <button
+                            className="btn-icon btn-secondary"
+                            onClick={() => setShowRegenerateLabModal(true)}
+                            title="Regenerar este laboratorio con IA"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                            </svg>
+                        </button>
                     )}
+
+                    {/* Edit button - Primary action */}
                     <button
-                        className={isEditing ? 'btn-editing' : 'btn-edit'}
+                        className={`btn-icon ${isEditing ? 'btn-success' : 'btn-primary'}`}
                         onClick={async () => {
                             console.log('=== Edit button clicked ===', isEditing ? 'Finalizing' : 'Entering edit mode');
                             const startTime = performance.now();
 
                             if (isEditing) {
-                                // Just finalize editing - versions are saved separately
                                 finalizeEditing();
                             } else {
                                 setIsEditing(true);
@@ -3395,14 +3657,45 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose }) {
                             const endTime = performance.now();
                             console.log(`Button handler took ${(endTime - startTime).toFixed(2)}ms`);
                         }}
+                        title={isEditing ? 'Finalizar edición' : 'Editar contenido'}
                     >
-                        {isEditing ? '✓ Finalizar Edición' : '✏️ Editar'}
+                        {isEditing ? (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                        ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                        )}
+                        <span className="btn-text">{isEditing ? 'Listo' : 'Editar'}</span>
                     </button>
-                    {/* Save button intentionally removed: use "Guardar Versión" to create versions */}
-                    <button onClick={() => setShowVersionHistory(!showVersionHistory)}>
-                        📋 Versiones ({viewMode === 'lab' ? labGuideVersions.length : versions.length + 1})
+
+                    {/* Versions button */}
+                    <button
+                        className={`btn-icon btn-secondary ${showVersionHistory ? 'active' : ''}`}
+                        onClick={() => setShowVersionHistory(!showVersionHistory)}
+                        title="Historial de versiones"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        <span className="btn-badge">{viewMode === 'lab' ? labGuideVersions.length : versions.length + 1}</span>
                     </button>
-                    <button onClick={onClose} className="btn-close">✕ Cerrar</button>
+
+                    {/* Close button */}
+                    <button
+                        className="btn-icon btn-close-editor"
+                        onClick={onClose}
+                        title="Cerrar editor"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
                 </div>
             </div>
             {showVersionHistory && (

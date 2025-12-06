@@ -231,6 +231,7 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
 {{
   "visuals": [
     {{
+      "id": "01-01-0001",
       "lesson_id": "01-01",
       "description": "original description",
       "type": "diagram|artistic_image",
@@ -240,13 +241,16 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
   ]
 }}
 
+CRITICAL: The "id" field MUST be copied EXACTLY from the input (e.g., "02-01-0005"). Do NOT modify or regenerate IDs.
+
 ⚠️ FINAL CHECKLIST - VERIFY BEFORE RESPONDING:
-1. ✓ Is the enhanced_prompt 100% in English? (MANDATORY)
-2. ✓ Are ALL labels, titles, and annotations in English?
-3. ✓ Did you translate any Spanish/other language text to English?
-4. ✓ Are technical terms spelled correctly?
-5. ✓ Did you include specific color codes?
-6. ✓ Did you specify text placement and typography?
+1. ✓ Is the "id" field copied EXACTLY from input? (CRITICAL - DO NOT CHANGE IDs)
+2. ✓ Is the enhanced_prompt 100% in English? (MANDATORY)
+3. ✓ Are ALL labels, titles, and annotations in English?
+4. ✓ Did you translate any Spanish/other language text to English?
+5. ✓ Are technical terms spelled correctly?
+6. ✓ Did you include specific color codes?
+7. ✓ Did you specify text placement and typography?
 
 If ANY text in enhanced_prompt is not in English, FIX IT before responding."""
 
@@ -361,27 +365,38 @@ def lambda_handler(event: Dict[str, Any], context):
         generated_prompts = []
         request_id = context.aws_request_id if hasattr(context, 'aws_request_id') else 'unknown'
         
-        # Create lookup by lesson_id + description to match enhanced visuals back to originals
-        original_lookup = {}
+        # Create lookup by ID for fallback matching
+        original_lookup_by_id = {orig['id']: orig for orig in all_visuals}
+        # Also create lookup by lesson_id + description as secondary fallback
+        original_lookup_by_desc = {}
         for orig in all_visuals:
             key = f"{orig['lesson_id']}::{orig['description']}"
-            original_lookup[key] = orig
+            original_lookup_by_desc[key] = orig
         
-        print(f"📝 Matching enhanced visuals back to originals with IDs...")
+        print(f"📝 Processing enhanced visuals with IDs...")
         
         for idx, enhanced in enumerate(enhanced_visuals, start=1):
-            # Match back to original using lesson_id + description
-            lookup_key = f"{enhanced.get('lesson_id', '')}::{enhanced.get('description', '')}"
-            original_visual = original_lookup.get(lookup_key)
+            # PREFERRED: Use the ID directly from the enhanced visual (LLM should preserve it)
+            enhanced_id = enhanced.get('id')
             
-            if original_visual:
-                # Use the ID from the original visual tag (MM-LL-XXXX from Content Generator)
-                prompt_id = original_visual['id']
-                print(f"  ✓ Matched: {prompt_id}")
+            if enhanced_id and enhanced_id in original_lookup_by_id:
+                # Best case: ID was preserved by LLM
+                prompt_id = enhanced_id
+                original_visual = original_lookup_by_id[enhanced_id]
+                print(f"  ✓ ID preserved: {prompt_id}")
             else:
-                # Fallback (shouldn't happen if LLM preserves descriptions)
-                print(f"  ⚠️  No match found for: {lookup_key[:50]}... using fallback")
-                prompt_id = f"{enhanced.get('lesson_id', '00-00')}-{idx:04d}"
+                # Fallback 1: Try matching by lesson_id + description
+                lookup_key = f"{enhanced.get('lesson_id', '')}::{enhanced.get('description', '')}"
+                original_visual = original_lookup_by_desc.get(lookup_key)
+                
+                if original_visual:
+                    prompt_id = original_visual['id']
+                    print(f"  ⚠️  ID not preserved, matched by description: {prompt_id}")
+                else:
+                    # Fallback 2: Generate a new ID (last resort)
+                    print(f"  ❌ No match found for: {enhanced.get('id', 'unknown')} - using fallback")
+                    prompt_id = f"{enhanced.get('lesson_id', '00-00')}-{idx:04d}"
+                    original_visual = None
             
             description = original_visual.get('description', enhanced.get('description', '')) if original_visual else enhanced.get('description', '')
             visual_type = enhanced.get('type', 'diagram')
