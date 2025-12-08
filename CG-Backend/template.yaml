@@ -1073,6 +1073,7 @@ Resources:
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
                 - !GetAtt StrandsNotification.Arn
+                - !GetAtt ContentValidator.Arn
 
   PptBatchOrchestratorStateMachine:
     Type: AWS::Serverless::StateMachine

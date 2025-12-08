@@ -248,74 +248,73 @@ LESSONS TO GENERATE:
 MANDATORY LESSON STRUCTURE SCHEMA (FOLLOW EXACTLY)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Each lesson MUST follow this EXACT structure with proper heading hierarchy:
+Each lesson MUST follow this EXACT structure with proper heading hierarchy.
+
+**IMPORTANT: ALL SECTION TITLES MUST BE IN THE SAME LANGUAGE AS THE COURSE OUTLINE.**
+If the course is in Spanish, use Spanish titles (e.g., "Objetivos de Aprendizaje", "Introducción", "Resumen").
+If the course is in English, use English titles.
+Match the language of the course content throughout.
 
 ```
-# Lesson {module_number}.N: [Lesson Title]
+# Lección {module_number}.N: [Título de la Lección]  (or "Lesson" if course is in English)
 
-## Learning Objectives
+## Objetivos de Aprendizaje  (or "Learning Objectives" if English)
 
-By the end of this lesson, you will be able to:
+Al finalizar esta lección, serás capaz de:  (or "By the end of this lesson, you will be able to:" if English)
 
-- [Bloom verb] + [measurable outcome 1]
-- [Bloom verb] + [measurable outcome 2]
-- [Bloom verb] + [measurable outcome 3]
+- [Verbo Bloom] + [resultado medible 1]
+- [Verbo Bloom] + [resultado medible 2]
+- [Verbo Bloom] + [resultado medible 3]
 
-## Introduction
+## Introducción  (or "Introduction" if English)
 
 [2-3 paragraphs introducing the lesson topic]
 [Explain the importance and relevance]
 [Preview what will be covered]
 
-## [Topic 1 Title]
+## [Título del Tema 1]  (Topic titles in course language)
 
-### Concept Overview
+### Visión General del Concepto  (or "Concept Overview" if English)
 
 [Explain WHAT the concept is]
 [Explain WHY it matters in context]
 
-### Technical Details
+### Detalles Técnicos  (or "Technical Details" if English)
 
 [Deep dive into mechanics, architecture, or theory]
 [Include specific details appropriate for the Bloom level]
 
-### Practical Application
+### Aplicación Práctica  (or "Practical Application" if English)
 
 [Real-world example or scenario]
 [Code example if applicable]
 
 [VISUAL: MM-LL-XXXX - Description of diagram/image if needed]
 
-## [Topic 2 Title]
+## [Título del Tema 2]
 
-### Concept Overview
+### Visión General del Concepto
 [Same structure as Topic 1]
 
-### Technical Details
+### Detalles Técnicos
 [Continue pattern]
 
-### Practical Application
+### Aplicación Práctica
 [Continue pattern]
 
-## Summary
+## Resumen  (or "Summary" if English)
 
-### Key Takeaways
+### Puntos Clave  (or "Key Takeaways" if English)
 
 - [Main point 1 from the lesson]
 - [Main point 2 from the lesson]
 - [Main point 3 from the lesson]
 
-### What's Next
+### Próximos Pasos  (or "What's Next" if English)
 
 [Brief preview of how this connects to upcoming lessons]
 
-## Review Questions
-
-1. [Question testing understanding of key concept 1]
-2. [Question testing understanding of key concept 2]
-3. [Question requiring application of learned material]
-
-## Additional Resources
+## Recursos Adicionales  (or "Additional Resources" if English)
 
 - [Resource 1 with description]
 - [Resource 2 with description]
@@ -332,11 +331,14 @@ CRITICAL FORMATTING RULES
 - H4 (####): Details within H3 (if needed)
 - NEVER skip heading levels (H1 → H3 is INVALID, must be H1 → H2 → H3)
 
-**REQUIRED SECTIONS (MUST INCLUDE):**
-1. Learning Objectives (H2) - 3-5 bullet points with Bloom verbs
-2. Introduction (H2) - 2-3 paragraphs
+**REQUIRED SECTIONS (MUST INCLUDE - USE COURSE LANGUAGE FOR TITLES):**
+1. Learning Objectives / Objetivos de Aprendizaje (H2) - 3-5 bullet points with Bloom verbs
+2. Introduction / Introducción (H2) - 2-3 paragraphs
 3. At least ONE topic section (H2) with subsections (H3)
-4. Summary (H2) with Key Takeaways (H3)
+4. Summary / Resumen (H2) with Key Takeaways / Puntos Clave (H3)
+5. Additional Resources / Recursos Adicionales (H2) - optional
+
+**DO NOT INCLUDE Review Questions section - this will be handled separately.**
 
 **BLOOM'S TAXONOMY VERBS (USE BASED ON LESSON LEVEL):**
 - Remember: Define, List, Identify, Name, Recall

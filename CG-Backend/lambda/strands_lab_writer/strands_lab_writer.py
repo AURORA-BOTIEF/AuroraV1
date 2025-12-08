@@ -139,8 +139,10 @@ def generate_lab_guide(
     
     lab_id = lab_plan['lab_id']
     lab_title = lab_plan['lab_title']
+    target_language = master_context.get('target_language', 'English')
     
     print(f"  🔨 Generating lab guide: [{lab_id}] {lab_title}")
+    print(f"  🌐 Language: {target_language}")
     
     # Build context from master plan
     hw_requirements = master_context.get('hardware_requirements', [])
@@ -158,6 +160,28 @@ def generate_lab_guide(
     # Build prompt with standardized schema
     prompt = f"""
 You are creating a professional, detailed laboratory guide for technical training.
+
+LANGUAGE REQUIREMENT:
+**ALL CONTENT MUST BE WRITTEN IN: {target_language}**
+
+- ALL section titles MUST be in {target_language}
+- ALL instructions, explanations, and descriptions MUST be in {target_language}
+- Code commands can remain in their original language (usually English)
+- Technical terms may remain in English where appropriate
+
+If {target_language} is Spanish, use these section titles:
+- "Metadatos" instead of "Metadata"
+- "Descripción General" instead of "Overview"
+- "Objetivos de Aprendizaje" instead of "Learning Objectives"
+- "Prerrequisitos" instead of "Prerequisites"
+- "Entorno de Laboratorio" instead of "Lab Environment"
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
+- "Paso N:" instead of "Step N:"
+- "Validación y Pruebas" instead of "Validation & Testing"
+- "Solución de Problemas" instead of "Troubleshooting"
+- "Limpieza" instead of "Cleanup"
+- "Resumen" instead of "Summary"
+- "Recursos Adicionales" instead of "Additional Resources"
 
 LAB INFORMATION:
 - Lab ID: {lab_id}
@@ -556,10 +580,24 @@ You are an expert technical instructor creating detailed, professional laborator
 LANGUAGE REQUIREMENT:
 **GENERATE ALL LAB CONTENT IN: {master_context.get('target_language', 'English')}**
 
-- All headings, instructions, explanations must be in {master_context.get('target_language', 'English')}
-- Use proper {master_context.get('target_language', 'English')} terminology and idioms
-- Command outputs can remain in their original language (usually English)
-- Code comments should be in {master_context.get('target_language', 'English')} where appropriate
+- ALL section titles MUST be in {master_context.get('target_language', 'English')}
+- ALL instructions, explanations, descriptions must be in {master_context.get('target_language', 'English')}
+- Code commands can remain in their original language (usually English)
+- Technical terms may remain in English where appropriate
+
+If generating in Spanish, use these section titles:
+- "Metadatos" instead of "Metadata"
+- "Descripción General" instead of "Overview"
+- "Objetivos de Aprendizaje" instead of "Learning Objectives"
+- "Prerrequisitos" instead of "Prerequisites"
+- "Entorno de Laboratorio" instead of "Lab Environment"
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
+- "Paso N:" instead of "Step N:"
+- "Validación y Pruebas" instead of "Validation & Testing"
+- "Solución de Problemas" instead of "Troubleshooting"
+- "Limpieza" instead of "Cleanup"
+- "Resumen" instead of "Summary"
+- "Recursos Adicionales" instead of "Additional Resources"
 
 MASTER CONTEXT:
 Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}

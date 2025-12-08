@@ -13,17 +13,21 @@ lesson:
     h1:
       required: true
       count: 1
-      pattern: "^# Lesson \\d+\\.\\d+: .+"
-      description: "Single H1 with format: # Lesson M.L: Title"
+      pattern: "^# (Lesson|Lección) \\d+\\.\\d+: .+"
+      description: "Single H1 with format: # Lesson M.L: Title (or Lección in Spanish)"
     
     h2:
       required: true
       min_count: 4
-      required_sections:
+      required_sections_en:
         - "Learning Objectives"
         - "Introduction"
         - "Summary"
-      description: "At least 4 H2 sections including required ones"
+      required_sections_es:
+        - "Objetivos de Aprendizaje"
+        - "Introducción"
+        - "Resumen"
+      description: "At least 4 H2 sections including required ones (in course language)"
     
     h3:
       required: false
@@ -38,18 +42,20 @@ lesson:
     skip_levels_allowed: false
     description: "Heading levels must not skip (H1 -> H3 is invalid)"
 
-  # Required sections with validation
+  # Required sections with validation (supports English and Spanish)
   required_sections:
-    - name: "Learning Objectives"
+    - name_en: "Learning Objectives"
+      name_es: "Objetivos de Aprendizaje"
       heading_level: 2
       content_rules:
         - type: "list"
           min_items: 3
           max_items: 5
-          item_pattern: "^- (Define|List|Identify|Name|Recall|Recognize|Describe|Explain|Summarize|Interpret|Classify|Implement|Execute|Use|Demonstrate|Solve|Compare|Differentiate|Examine|Investigate|Distinguish|Assess|Critique|Judge|Justify|Recommend|Design|Develop|Construct|Produce|Compose)"
+          item_pattern: "^- (Define|List|Identify|Name|Recall|Recognize|Describe|Explain|Summarize|Interpret|Classify|Implement|Execute|Use|Demonstrate|Solve|Compare|Differentiate|Examine|Investigate|Distinguish|Assess|Critique|Judge|Justify|Recommend|Design|Develop|Construct|Produce|Compose|Definir|Listar|Identificar|Nombrar|Recordar|Reconocer|Describir|Explicar|Resumir|Interpretar|Clasificar|Implementar|Ejecutar|Usar|Demostrar|Resolver|Comparar|Diferenciar|Examinar|Investigar|Distinguir|Evaluar|Criticar|Juzgar|Justificar|Recomendar|Diseñar|Desarrollar|Construir|Producir|Componer)"
           description: "3-5 bullet points starting with Bloom verbs"
     
-    - name: "Introduction"
+    - name_en: "Introduction"
+      name_es: "Introducción"
       heading_level: 2
       content_rules:
         - type: "paragraph"
@@ -57,23 +63,35 @@ lesson:
           max_paragraphs: 4
           description: "2-4 paragraphs of introduction"
     
-    - name: "Summary"
+    - name_en: "Summary"
+      name_es: "Resumen"
       heading_level: 2
-      subsections:
+      subsections_en:
         - "Key Takeaways"
+      subsections_es:
+        - "Puntos Clave"
       description: "Summary section with Key Takeaways"
 
-  # Topic sections structure
+  # NOTE: Review Questions section has been removed - quizzes handled separately
+
+  # Topic sections structure (titles in course language)
   topic_sections:
     min_count: 1
     structure:
-      required_subsections:
+      required_subsections_en:
         - "Concept Overview"
         - "Technical Details"
-      optional_subsections:
+      required_subsections_es:
+        - "Visión General del Concepto"
+        - "Detalles Técnicos"
+      optional_subsections_en:
         - "Practical Application"
         - "Best Practices"
         - "Common Pitfalls"
+      optional_subsections_es:
+        - "Aplicación Práctica"
+        - "Mejores Prácticas"
+        - "Errores Comunes"
 
   # Visual tag validation
   visual_tags:

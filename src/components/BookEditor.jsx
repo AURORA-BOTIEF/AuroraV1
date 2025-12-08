@@ -3163,8 +3163,24 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     const items = Array.from(node.children)
                         .filter(li => li.tagName && li.tagName.toLowerCase() === 'li')
                         .map(li => {
-                            const content = convertNodeToMarkdown(li).trim();
-                            return content ? `- ${content}` : null;
+                            let content = convertNodeToMarkdown(li).trim();
+                            if (!content) return null;
+
+                            // Restore indentation from margin-left style
+                            // We use 1.5rem per level in formatContentForEditing
+                            // And 2 spaces per level in markdown parsing
+                            let spaces = '';
+                            if (li.style && li.style.marginLeft) {
+                                const match = li.style.marginLeft.match(/([\d.]+)rem/);
+                                if (match) {
+                                    const level = Math.round(parseFloat(match[1]) / 1.5);
+                                    if (level > 0) {
+                                        spaces = '  '.repeat(level);
+                                    }
+                                }
+                            }
+
+                            return `${spaces}- ${content}`;
                         })
                         .filter(item => item !== null);
                     return items.length > 0 ? items.join('\n') + '\n\n' : '';
@@ -3174,8 +3190,22 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     const items = Array.from(node.children)
                         .filter(li => li.tagName && li.tagName.toLowerCase() === 'li')
                         .map((li, idx) => {
-                            const content = convertNodeToMarkdown(li).trim();
-                            return content ? `${idx + 1}. ${content}` : null;
+                            let content = convertNodeToMarkdown(li).trim();
+                            if (!content) return null;
+
+                            // Restore indentation from margin-left
+                            let spaces = '';
+                            if (li.style && li.style.marginLeft) {
+                                const match = li.style.marginLeft.match(/([\d.]+)rem/);
+                                if (match) {
+                                    const level = Math.round(parseFloat(match[1]) / 1.5);
+                                    if (level > 0) {
+                                        spaces = '  '.repeat(level);
+                                    }
+                                }
+                            }
+
+                            return `${spaces}${idx + 1}. ${content}`;
                         })
                         .filter(item => item !== null);
                     return items.length > 0 ? items.join('\n') + '\n\n' : '';
@@ -3258,7 +3288,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     }
                     return `![${alt}](${src})\n`;
                 }
-                case 'div':
+                case 'button':
+                    // Buttons should not appear in markdown output (e.g., copy buttons)
+                    return '';
+                case 'div': {
+                    // Special handling for code-block-wrapper - only process the pre, skip button
+                    if (node.classList && node.classList.contains('code-block-wrapper')) {
+                        const preElement = node.querySelector('pre');
+                        if (preElement) {
+                            return convertNodeToMarkdown(preElement);
+                        }
+                        return '';
+                    }
+                    return children;
+                }
                 case 'span': {
                     // Handle inline styles for spans
                     if (node.hasAttribute && node.hasAttribute('style')) {

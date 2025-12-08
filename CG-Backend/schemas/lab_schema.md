@@ -5,6 +5,32 @@
 This document defines the **mandatory structure** for all generated lab guides.
 All AI models (Bedrock Claude, OpenAI GPT, etc.) MUST follow this exact hierarchy.
 
+**IMPORTANT: All section titles MUST match the course language (Spanish/English/etc.)**
+
+---
+
+## Language-Specific Section Titles
+
+| English | Spanish |
+|---------|---------|
+| Metadata | Metadatos |
+| Overview | Descripción General |
+| Learning Objectives | Objetivos de Aprendizaje |
+| Prerequisites | Prerrequisitos |
+| Required Knowledge | Conocimientos Requeridos |
+| Required Access | Acceso Requerido |
+| Lab Environment | Entorno de Laboratorio |
+| Hardware Requirements | Requisitos de Hardware |
+| Software Requirements | Requisitos de Software |
+| Initial Setup | Configuración Inicial |
+| Step-by-Step Instructions | Instrucciones Paso a Paso |
+| Step N: | Paso N: |
+| Validation & Testing | Validación y Pruebas |
+| Troubleshooting | Solución de Problemas |
+| Cleanup | Limpieza |
+| Summary | Resumen |
+| Additional Resources | Recursos Adicionales |
+
 ---
 
 ## Heading Hierarchy Rules

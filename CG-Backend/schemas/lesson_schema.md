@@ -22,36 +22,39 @@ All AI models (Bedrock Claude, OpenAI GPT, etc.) MUST follow this exact hierarch
 
 ## Standard Lesson Structure
 
+**IMPORTANT: ALL section titles MUST be in the same language as the course.**
+The examples below show Spanish titles. If the course is in English, use English equivalents.
+
 ```markdown
-# Lesson {M}.{L}: {Lesson Title}
+# Lección {M}.{L}: {Título de la Lección}  <!-- Or "Lesson" if course is in English -->
 
-## Learning Objectives
+## Objetivos de Aprendizaje  <!-- Or "Learning Objectives" -->
 
-By the end of this lesson, you will be able to:
+Al finalizar esta lección, serás capaz de:  <!-- Or "By the end of this lesson, you will be able to:" -->
 
-- {Bloom verb} + {measurable outcome 1}
-- {Bloom verb} + {measurable outcome 2}
-- {Bloom verb} + {measurable outcome 3}
+- {Verbo Bloom} + {resultado medible 1}
+- {Verbo Bloom} + {resultado medible 2}
+- {Verbo Bloom} + {resultado medible 3}
 
-## Introduction
+## Introducción  <!-- Or "Introduction" -->
 
 {2-3 paragraphs introducing the lesson topic}
 {Explain the importance and relevance}
 {Preview what will be covered}
 
-## {Topic 1: Main Topic Title}
+## {Tema 1: Título del Tema Principal}  <!-- Topic title in course language -->
 
-### Concept Overview
+### Visión General del Concepto  <!-- Or "Concept Overview" -->
 
 {Explain WHAT the concept is}
 {Explain WHY it matters in context}
 
-### Technical Details
+### Detalles Técnicos  <!-- Or "Technical Details" -->
 
 {Deep dive into the mechanics, architecture, or theory}
 {Include specific details appropriate for the Bloom level}
 
-### Practical Application
+### Aplicación Práctica  <!-- Or "Practical Application" -->
 
 {Real-world example or scenario}
 {Code example if applicable}
@@ -62,65 +65,66 @@ By the end of this lesson, you will be able to:
 
 [VISUAL: MM-LL-XXXX - Clear description of diagram/image needed]
 
-## {Topic 2: Next Topic Title}
+## {Tema 2: Siguiente Título del Tema}
 
-### Concept Overview
+### Visión General del Concepto
 
 {Same structure as Topic 1}
 
-### Technical Details
+### Detalles Técnicos
 
 {Continue pattern}
 
-### Practical Application
+### Aplicación Práctica
 
 {Continue pattern}
 
-## {Topic N: Additional Topics as Needed}
+## {Tema N: Temas Adicionales según sea necesario}
 
 {Follow same H2 > H3 structure}
 
-## Summary
+## Resumen  <!-- Or "Summary" -->
 
-### Key Takeaways
+### Puntos Clave  <!-- Or "Key Takeaways" -->
 
 - {Main point 1 from the lesson}
 - {Main point 2 from the lesson}
 - {Main point 3 from the lesson}
 
-### What's Next
+### Próximos Pasos  <!-- Or "What's Next" -->
 
 {Brief preview of how this connects to upcoming lessons}
 
-## Review Questions
-
-1. {Question testing understanding of key concept 1}
-2. {Question testing understanding of key concept 2}
-3. {Question requiring application of learned material}
-
-## Additional Resources
+## Recursos Adicionales  <!-- Or "Additional Resources" -->
 
 - [{Resource 1 title}]({URL or reference})
 - [{Resource 2 title}]({URL or reference})
 - [{Resource 3 title}]({URL or reference})
 ```
 
+**NOTE: Do NOT include a "Review Questions" section. Quizzes will be handled separately.**
+
 ---
 
 ## Required Sections Checklist
 
-| Section | H Level | Required | Description |
-|---------|---------|----------|-------------|
-| Lesson Title | H1 | ✅ | Format: `# Lesson M.L: Title` |
-| Learning Objectives | H2 | ✅ | 3-5 measurable objectives with Bloom verbs |
-| Introduction | H2 | ✅ | Context and importance |
-| Topic Sections | H2 | ✅ | At least one topic section |
-| Concept Overview | H3 | ✅ | Under each topic |
-| Technical Details | H3 | ✅ | Under each topic |
-| Practical Application | H3 | Recommended | Examples and use cases |
-| Summary | H2 | ✅ | Key takeaways |
-| Review Questions | H2 | Recommended | 2-3 comprehension questions |
-| Additional Resources | H2 | Optional | Links and references |
+**All section titles must match the course language (Spanish/English/etc.)**
+
+| Section | H Level | Required | Spanish Title | English Title |
+|---------|---------|----------|---------------|---------------|
+| Lesson Title | H1 | ✅ | `# Lección M.L: Título` | `# Lesson M.L: Title` |
+| Learning Objectives | H2 | ✅ | `## Objetivos de Aprendizaje` | `## Learning Objectives` |
+| Introduction | H2 | ✅ | `## Introducción` | `## Introduction` |
+| Topic Sections | H2 | ✅ | `## [Título del Tema]` | `## [Topic Title]` |
+| Concept Overview | H3 | ✅ | `### Visión General del Concepto` | `### Concept Overview` |
+| Technical Details | H3 | ✅ | `### Detalles Técnicos` | `### Technical Details` |
+| Practical Application | H3 | Recommended | `### Aplicación Práctica` | `### Practical Application` |
+| Summary | H2 | ✅ | `## Resumen` | `## Summary` |
+| Key Takeaways | H3 | ✅ | `### Puntos Clave` | `### Key Takeaways` |
+| What's Next | H3 | Recommended | `### Próximos Pasos` | `### What's Next` |
+| Additional Resources | H2 | Optional | `## Recursos Adicionales` | `## Additional Resources` |
+
+**⚠️ DO NOT include Review Questions section - quizzes are handled separately.**
 
 ---
 

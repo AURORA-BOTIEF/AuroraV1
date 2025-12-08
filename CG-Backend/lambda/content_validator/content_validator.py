@@ -77,8 +77,8 @@ class ContentValidator:
     H4_PATTERN = re.compile(r'^#### (.+)$', re.MULTILINE)
     ALL_HEADINGS_PATTERN = re.compile(r'^(#{1,6}) (.+)$', re.MULTILINE)
     
-    # Lesson patterns
-    LESSON_TITLE_PATTERN = re.compile(r'^# Lesson (\d+)\.(\d+): (.+)$', re.MULTILINE)
+    # Lesson patterns - supports English and Spanish
+    LESSON_TITLE_PATTERN = re.compile(r'^# (Lesson|Lección) (\d+)\.(\d+): (.+)$', re.MULTILINE)
     
     # Lab patterns
     LAB_TITLE_PATTERN = re.compile(r'^# Lab (\d{2})-(\d{2})-(\d{2}): (.+)$', re.MULTILINE)
@@ -100,35 +100,54 @@ class ContentValidator:
     # Table pattern
     TABLE_PATTERN = re.compile(r'\|.+\|.*\n\|[-:]+\|', re.MULTILINE)
     
-    # Required lesson sections
-    LESSON_REQUIRED_SECTIONS = [
+    # Required lesson sections (English and Spanish variants)
+    LESSON_REQUIRED_SECTIONS_EN = [
         "Learning Objectives",
         "Introduction",
         "Summary"
     ]
     
-    # Required lab sections
-    LAB_REQUIRED_SECTIONS = [
-        "Metadata",
-        "Overview",
-        "Learning Objectives",
-        "Prerequisites",
-        "Lab Environment",
-        "Step-by-Step Instructions",
-        "Validation & Testing",
-        "Troubleshooting",
-        "Cleanup",
-        "Summary"
+    LESSON_REQUIRED_SECTIONS_ES = [
+        "Objetivos de Aprendizaje",
+        "Introducción",
+        "Resumen"
     ]
     
-    # Bloom verbs for validation
+    # Combined for validation (will match either language)
+    LESSON_REQUIRED_SECTIONS = [
+        ("Learning Objectives", "Objetivos de Aprendizaje"),
+        ("Introduction", "Introducción"),
+        ("Summary", "Resumen")
+    ]
+    
+    # Required lab sections (English and Spanish variants)
+    LAB_REQUIRED_SECTIONS = [
+        ("Metadata", "Metadatos"),
+        ("Overview", "Descripción General"),
+        ("Learning Objectives", "Objetivos de Aprendizaje"),
+        ("Prerequisites", "Prerrequisitos"),
+        ("Lab Environment", "Entorno de Laboratorio"),
+        ("Step-by-Step Instructions", "Instrucciones Paso a Paso"),
+        ("Validation & Testing", "Validación y Pruebas"),
+        ("Troubleshooting", "Solución de Problemas"),
+        ("Cleanup", "Limpieza"),
+        ("Summary", "Resumen")
+    ]
+    
+    # Bloom verbs for validation (English and Spanish)
     BLOOM_VERBS = {
-        'remember': ['define', 'list', 'identify', 'name', 'recall', 'recognize', 'state', 'describe'],
-        'understand': ['describe', 'explain', 'summarize', 'interpret', 'classify', 'discuss', 'paraphrase'],
-        'apply': ['implement', 'execute', 'use', 'demonstrate', 'solve', 'apply', 'practice', 'operate'],
-        'analyze': ['compare', 'differentiate', 'examine', 'investigate', 'distinguish', 'analyze', 'organize'],
-        'evaluate': ['assess', 'critique', 'judge', 'justify', 'recommend', 'evaluate', 'defend', 'argue'],
-        'create': ['design', 'develop', 'construct', 'produce', 'compose', 'create', 'build', 'generate']
+        'remember': ['define', 'list', 'identify', 'name', 'recall', 'recognize', 'state', 'describe',
+                     'definir', 'listar', 'identificar', 'nombrar', 'recordar', 'reconocer', 'describir'],
+        'understand': ['describe', 'explain', 'summarize', 'interpret', 'classify', 'discuss', 'paraphrase',
+                       'describir', 'explicar', 'resumir', 'interpretar', 'clasificar', 'discutir'],
+        'apply': ['implement', 'execute', 'use', 'demonstrate', 'solve', 'apply', 'practice', 'operate',
+                  'implementar', 'ejecutar', 'usar', 'demostrar', 'resolver', 'aplicar', 'practicar', 'operar'],
+        'analyze': ['compare', 'differentiate', 'examine', 'investigate', 'distinguish', 'analyze', 'organize',
+                    'comparar', 'diferenciar', 'examinar', 'investigar', 'distinguir', 'analizar', 'organizar'],
+        'evaluate': ['assess', 'critique', 'judge', 'justify', 'recommend', 'evaluate', 'defend', 'argue',
+                     'evaluar', 'criticar', 'juzgar', 'justificar', 'recomendar', 'defender', 'argumentar'],
+        'create': ['design', 'develop', 'construct', 'produce', 'compose', 'create', 'build', 'generate',
+                   'diseñar', 'desarrollar', 'construir', 'producir', 'componer', 'crear', 'generar']
     }
     
     def __init__(self):
@@ -214,24 +233,41 @@ class ContentValidator:
                     f"H1 heading format doesn't match expected pattern"
                 )
     
-    def validate_required_sections(self, content: str, required_sections: List[str]) -> None:
-        """Validate all required H2 sections exist."""
+    def validate_required_sections(self, content: str, required_sections) -> None:
+        """Validate all required H2 sections exist.
+        
+        Args:
+            content: The markdown content to validate
+            required_sections: Can be a list of strings or list of tuples (en, es)
+        """
         h2_sections = [title.strip() for _, level, title in self._get_all_headings(content) if level == 2]
+        h2_sections_lower = [h2.lower() for h2 in h2_sections]
         
         for section in required_sections:
-            # Check for exact match or close match
+            # Handle both tuple format (en, es) and string format
+            if isinstance(section, tuple):
+                section_variants = section  # (English, Spanish)
+            else:
+                section_variants = (section,)  # Single language
+            
+            # Check if any variant is found
             found = False
-            for h2 in h2_sections:
-                if section.lower() in h2.lower() or h2.lower() in section.lower():
-                    found = True
+            for variant in section_variants:
+                for h2 in h2_sections:
+                    if variant.lower() in h2.lower() or h2.lower() in variant.lower():
+                        found = True
+                        break
+                if found:
                     break
             
             if not found:
+                section_name = section_variants[0] if isinstance(section, tuple) else section
+                alt_name = f" / {section_variants[1]}" if isinstance(section, tuple) and len(section_variants) > 1 else ""
                 self._add_result(
                     "required_section",
                     ValidationSeverity.ERROR,
-                    f"Required section missing: '{section}'",
-                    suggestion=f"Add '## {section}' section"
+                    f"Required section missing: '{section_name}'{alt_name}",
+                    suggestion=f"Add '## {section_name}' section (or equivalent in course language)"
                 )
     
     def validate_visual_tags(self, content: str) -> None:
