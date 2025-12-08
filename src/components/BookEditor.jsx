@@ -881,21 +881,17 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
     useEffect(() => {
         if (projectFolder) {
-            // Load originals first, then load versions and auto-load latest if exists
+            // OPTIMIZED: Check for versions FIRST, only load original if no versions
             const initializeContent = async () => {
-                // Load and store original book data
-                await loadBook();
-                await loadLabGuide();
-
-                // Load versions and auto-load latest if exists
-                console.log('🔍 Loading book versions for project:', projectFolder);
+                // Check for book versions first (fast ListObjects call)
+                console.log('🔍 Checking for book versions for project:', projectFolder);
                 const bookVersions = await loadVersions();
                 console.log('📦 Book versions found:', bookVersions.length, bookVersions.map(v => v.name));
+
+                let bookVersionLoaded = false;
                 if (bookVersions.length > 0) {
-                    console.log('📚 Found book versions, loading latest:', bookVersions[0].name);
-                    // Mark immediately to prevent async overwrites while loading
-                    versionLoadedRef.current = true;
-                    // Load the latest version into book view
+                    console.log('📚 Found book versions, loading latest directly:', bookVersions[0].name);
+                    versionLoadedRef.current = true; // Mark immediately to prevent async overwrites
                     try {
                         const session = await fetchAuthSession();
                         if (session && session.credentials) {
@@ -907,24 +903,39 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             const jsonText = await resp.Body.transformToString();
                             const parsed = JSON.parse(jsonText);
                             // Process images
+                            setLoading(true);
                             for (let lesson of parsed.lessons || []) {
                                 if (lesson.content) {
                                     lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
                                 }
                             }
                             setBookData(parsed);
-                            versionLoadedRef.current = true; // Mark that version was loaded
-                            console.log('✅ Auto-loaded latest book version');
+                            setLoading(false);
+                            bookVersionLoaded = true;
+                            console.log('✅ Loaded latest book version directly (skipped original loading)');
                         }
                     } catch (e) {
-                        console.warn('Could not auto-load latest book version:', e);
+                        console.warn('Could not load latest book version, falling back to original:', e);
+                        versionLoadedRef.current = false;
                     }
                 }
 
+                // Only load original book if no version was loaded
+                if (!bookVersionLoaded) {
+                    console.log('📖 Loading original book (no versions found or version failed)');
+                    await loadBook();
+                } else {
+                    // Still need to store original for "View Original" feature, but do it in background
+                    loadBook().then(() => {
+                        console.log('📖 Original book loaded in background for "View Original" feature');
+                    }).catch(e => console.warn('Background original load failed:', e));
+                }
+
+                // Check for lab guide versions
                 const labVersions = await loadLabGuideVersions();
+                let labVersionLoaded = false;
                 if (labVersions.length > 0) {
                     console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
-                    // Load the latest lab version
                     try {
                         const session = await fetchAuthSession();
                         if (session && session.credentials) {
@@ -947,11 +958,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 }
                             }
                             setLabGuideData(parsed);
-                            console.log('✅ Auto-loaded latest lab guide version');
+                            labVersionLoaded = true;
+                            console.log('✅ Loaded latest lab guide version');
                         }
                     } catch (e) {
-                        console.warn('Could not auto-load latest lab version:', e);
+                        console.warn('Could not load latest lab version:', e);
                     }
+                }
+
+                // Only load original lab guide if no version was loaded
+                if (!labVersionLoaded) {
+                    await loadLabGuide();
+                } else {
+                    // Background load for "View Original" feature
+                    loadLabGuide().catch(e => console.warn('Background lab guide load failed:', e));
                 }
             };
 
