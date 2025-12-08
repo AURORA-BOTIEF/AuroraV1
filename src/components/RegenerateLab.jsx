@@ -17,8 +17,9 @@ import './RegenerateLab.css';
  * - currentLabTitle: string - Current lab title for display
  * - onClose: function - Callback to close the modal
  * - onSuccess: function - Callback on successful regeneration start
+ * - onBeforeRegenerate: function - Async callback called before regeneration to auto-save version
  */
-function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitle, onClose, onSuccess }) {
+function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitle, onClose, onSuccess, onBeforeRegenerate }) {
     const [labRequirements, setLabRequirements] = useState('');
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [error, setError] = useState(null);
@@ -42,6 +43,18 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
         try {
             setError(null);
             setIsRegenerating(true);
+
+            // Auto-save current version before regeneration
+            if (onBeforeRegenerate) {
+                try {
+                    console.log('💾 Auto-saving version before regeneration...');
+                    await onBeforeRegenerate();
+                    console.log('✅ Version auto-saved successfully');
+                } catch (saveError) {
+                    console.error('⚠️ Failed to auto-save version:', saveError);
+                    // Continue with regeneration even if save fails
+                }
+            }
 
             // Get module number
             const moduleNumber = getModuleNumber();

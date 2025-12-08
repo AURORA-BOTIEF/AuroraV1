@@ -269,7 +269,22 @@ REQUIREMENTS:
      | Feature 1 | Details | Advantage |
      | Feature 2 | Details | Advantage |
    - Tables are rendered natively and are more accessible than images
-11. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-XXXX - description]
+11. **CODE AND CLI CONTENT**: For code, commands, and configuration examples, use markdown code blocks.
+   - DO NOT create VISUAL tags for:
+     * Code snippets (Python, Java, JavaScript, YAML, JSON, XML, HTML, CSS, Go, Rust, C, C++, etc.)
+     * CLI/terminal commands (Linux, Cisco IOS, PowerShell, bash, Windows CMD, etc.)
+     * Configuration files (Kubernetes manifests, Docker Compose, Terraform, Ansible, etc.)
+     * Console/terminal output or command results
+   - Use proper markdown code blocks with language specification:
+     ```yaml
+     apiVersion: v1
+     kind: ConfigMap
+     ```
+     ```bash
+     $ kubectl apply -f config.yaml
+     ```
+   - Code blocks render natively and are more accurate than generated images
+12. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-XXXX - description]
    - Format: [VISUAL: MM-LL-XXXX - description] where:
      * MM = Module number (2 digits, zero-padded) - USE {module_number:02d}
      * LL = Lesson number within module (2 digits, zero-padded)

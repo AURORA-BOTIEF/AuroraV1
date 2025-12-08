@@ -19,6 +19,7 @@ import './RegenerateLesson.css';
  * - lessonNumber: number - Lesson number within the module
  * - onClose: function - Callback to close the modal
  * - onSuccess: function - Callback on successful regeneration start
+ * - onBeforeRegenerate: function - Async callback for auto-saving version before regeneration
  */
 function RegenerateLesson({
     projectFolder,
@@ -28,7 +29,8 @@ function RegenerateLesson({
     moduleNumber,
     lessonNumber,
     onClose,
-    onSuccess
+    onSuccess,
+    onBeforeRegenerate
 }) {
     const [lessonRequirements, setLessonRequirements] = useState('');
     const [isRegenerating, setIsRegenerating] = useState(false);
@@ -43,6 +45,18 @@ function RegenerateLesson({
         try {
             setError(null);
             setIsRegenerating(true);
+
+            // Auto-save current version before regeneration
+            if (onBeforeRegenerate) {
+                try {
+                    console.log('💾 Auto-saving book version before regeneration...');
+                    await onBeforeRegenerate();
+                    console.log('✅ Book version auto-saved successfully');
+                } catch (saveError) {
+                    console.error('⚠️ Failed to auto-save version:', saveError);
+                    // Continue with regeneration even if save fails
+                }
+            }
 
             if (!moduleNumber) {
                 throw new Error('No se pudo determinar el número de módulo para esta lección');

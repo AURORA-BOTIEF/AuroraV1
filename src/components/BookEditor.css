@@ -1492,3 +1492,101 @@
     cursor: not-allowed;
     transform: none;
 }
+
+/* Prism.js Code Block Overrides - VS Code Dark Theme */
+.code-block-prism {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+    padding: 1.5rem !important;
+    padding-top: 2.25rem !important;
+    font-family: 'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', 'Courier New', monospace !important;
+    font-size: 0.875rem !important;
+    line-height: 1.7 !important;
+    tab-size: 4 !important;
+}
+
+.code-block-prism code {
+    font-family: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    background: none !important;
+    padding: 0 !important;
+}
+
+/* Ensure tokens inherit the Prism theme colors */
+.code-block-prism .token {
+    background: none !important;
+}
+
+/* Enhanced token colors for VS Code Dark+ theme */
+.code-block-prism .token.comment,
+.code-block-prism .token.prolog,
+.code-block-prism .token.doctype,
+.code-block-prism .token.cdata {
+    color: #6A9955 !important;
+}
+
+.code-block-prism .token.punctuation {
+    color: #D4D4D4 !important;
+}
+
+.code-block-prism .token.property,
+.code-block-prism .token.tag,
+.code-block-prism .token.boolean,
+.code-block-prism .token.number,
+.code-block-prism .token.constant,
+.code-block-prism .token.symbol {
+    color: #B5CEA8 !important;
+}
+
+.code-block-prism .token.selector,
+.code-block-prism .token.attr-name,
+.code-block-prism .token.string,
+.code-block-prism .token.char,
+.code-block-prism .token.builtin {
+    color: #CE9178 !important;
+}
+
+.code-block-prism .token.operator,
+.code-block-prism .token.entity,
+.code-block-prism .token.url {
+    color: #D4D4D4 !important;
+}
+
+.code-block-prism .token.atrule,
+.code-block-prism .token.attr-value,
+.code-block-prism .token.keyword {
+    color: #C586C0 !important;
+}
+
+.code-block-prism .token.function,
+.code-block-prism .token.class-name {
+    color: #DCDCAA !important;
+}
+
+.code-block-prism .token.regex,
+.code-block-prism .token.important,
+.code-block-prism .token.variable {
+    color: #9CDCFE !important;
+}
+
+/* Code Copy Button */
+.code-copy-btn {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #ccc;
+    transition: all 0.2s;
+    z-index: 10;
+}
+
+.code-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.4);
+    color: #fff;
+}

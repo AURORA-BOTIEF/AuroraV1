@@ -10,6 +10,19 @@ import RegenerateLab from './RegenerateLab';
 import RegenerateLesson from './RegenerateLesson';
 import './BookEditor.css';
 
+// Prism.js for syntax highlighting
+import Prism from 'prismjs';
+import 'prismjs/themes/prism-tomorrow.css'; // VS Code-like dark theme
+// Language support
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-yaml';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-docker';
+
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 const IDENTITY_POOL_ID = import.meta.env.VITE_IDENTITY_POOL_ID || import.meta.env.VITE_AWS_IDENTITY_POOL_ID || '';
 const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
@@ -55,7 +68,48 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [showRegenerateLabModal, setShowRegenerateLabModal] = useState(false);
     const [showRegenerateLessonModal, setShowRegenerateLessonModal] = useState(false);
     const [logoUrl, setLogoUrl] = useState(null);
+    // Custom modal state for app-styled dialogs
+    const [modalConfig, setModalConfig] = useState({
+        isOpen: false,
+        type: 'alert',
+        title: '',
+        message: '',
+        onConfirm: null,
+        onCancel: null
+    });
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
+
+    // Helper function to show alert modal
+    const showModal = (message, title = 'Aviso') => {
+        setModalConfig({
+            isOpen: true,
+            type: 'alert',
+            title,
+            message,
+            onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false })),
+            onCancel: null
+        });
+    };
+
+    // Helper function to show confirmation modal (returns Promise)
+    const showConfirmModal = (message, title = 'Confirmar') => {
+        return new Promise((resolve) => {
+            setModalConfig({
+                isOpen: true,
+                type: 'confirm',
+                title,
+                message,
+                onConfirm: () => {
+                    setModalConfig(prev => ({ ...prev, isOpen: false }));
+                    resolve(true);
+                },
+                onCancel: () => {
+                    setModalConfig(prev => ({ ...prev, isOpen: false }));
+                    resolve(false);
+                }
+            });
+        });
+    };
 
     // Download book or lab guide as PDF with logo and footer
     const downloadAsPDF = async () => {
@@ -825,10 +879,76 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
     useEffect(() => {
         if (projectFolder) {
-            loadBook();
-            loadVersions();
-            loadLabGuide();
-            loadLabGuideVersions();
+            // Load originals first, then load versions and auto-load latest if exists
+            const initializeContent = async () => {
+                // Load and store original book data
+                await loadBook();
+                await loadLabGuide();
+
+                // Load versions and auto-load latest if exists
+                const bookVersions = await loadVersions();
+                if (bookVersions.length > 0) {
+                    console.log('📚 Found book versions, loading latest:', bookVersions[0].name);
+                    // Load the latest version into book view
+                    try {
+                        const session = await fetchAuthSession();
+                        if (session && session.credentials) {
+                            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                            const resp = await s3.send(new GetObjectCommand({
+                                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                                Key: bookVersions[0].key
+                            }));
+                            const jsonText = await resp.Body.transformToString();
+                            const parsed = JSON.parse(jsonText);
+                            // Process images
+                            for (let lesson of parsed.lessons || []) {
+                                if (lesson.content) {
+                                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                                }
+                            }
+                            setBookData(parsed);
+                            console.log('✅ Auto-loaded latest book version');
+                        }
+                    } catch (e) {
+                        console.warn('Could not auto-load latest book version:', e);
+                    }
+                }
+
+                const labVersions = await loadLabGuideVersions();
+                if (labVersions.length > 0) {
+                    console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
+                    // Load the latest lab version
+                    try {
+                        const session = await fetchAuthSession();
+                        if (session && session.credentials) {
+                            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                            const resp = await s3.send(new GetObjectCommand({
+                                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                                Key: labVersions[0].key
+                            }));
+                            const text = await resp.Body.transformToString();
+                            let parsed;
+                            if (labVersions[0].isJson || labVersions[0].key.endsWith('.json')) {
+                                parsed = JSON.parse(text);
+                            } else {
+                                parsed = parseMarkdownToBook(text);
+                            }
+                            // Process images
+                            for (let lesson of parsed.lessons || []) {
+                                if (lesson.content) {
+                                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                                }
+                            }
+                            setLabGuideData(parsed);
+                            console.log('✅ Auto-loaded latest lab guide version');
+                        }
+                    } catch (e) {
+                        console.warn('Could not auto-load latest lab version:', e);
+                    }
+                }
+            };
+
+            initializeContent();
         }
     }, [projectFolder]);
 
@@ -1322,10 +1442,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // Save as a version in lab-versions folder
             const versionKey = `${projectFolder}/lab-versions/${versionFilename}`;
 
-            // Check if version with this name already exists
             const existingVersion = labGuideVersions.find(v => v.name.includes(safeVersionName));
             if (existingVersion) {
-                const override = confirm(`Ya existe una versión con el nombre "${newLabGuideVersionName}".\n\n¿Deseas sobrescribirla?`);
+                const override = await showConfirmModal(`Ya existe una versión con el nombre "${newLabGuideVersionName}".\n\n¿Deseas sobrescribirla?`, 'Confirmar sobrescritura');
                 if (!override) {
                     return;
                 }
@@ -1369,11 +1488,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             setLabGuideData(contentToSave);
 
             setNewLabGuideVersionName('');
-            alert('¡Versión de Lab Guide guardada exitosamente!');
+            showModal('¡Versión de Lab Guide guardada exitosamente!', 'Éxito');
             console.log('Lab guide version saved successfully');
         } catch (error) {
             console.error('Error saving lab guide:', error);
-            alert('Error al guardar la guía de laboratorios: ' + error.message);
+            showModal('Error al guardar la guía de laboratorios: ' + error.message, 'Error');
         }
     };
 
@@ -1821,11 +1940,35 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     // Ending a code block
                     inCodeBlock = false;
                     if (codeBlockContent.trim()) {
-                        const escapedCode = codeBlockContent
-                            .replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;');
-                        out += `<pre style="background: #f4f4f4; padding: 1rem; border-radius: 5px; overflow-x: auto; font-family: 'Courier New', monospace;"><code>${escapedCode}</code></pre>`;
+                        // Map common language aliases
+                        const langMap = {
+                            'sh': 'bash', 'shell': 'bash', 'zsh': 'bash',
+                            'yml': 'yaml', 'py': 'python', 'js': 'javascript',
+                            'ts': 'typescript', 'dockerfile': 'docker'
+                        };
+                        const lang = langMap[codeBlockLanguage.toLowerCase()] || codeBlockLanguage.toLowerCase() || 'bash';
+
+                        // Use Prism.js to highlight the code
+                        let highlightedCode;
+                        try {
+                            const grammar = Prism.languages[lang] || Prism.languages.bash;
+                            highlightedCode = Prism.highlight(codeBlockContent.trimEnd(), grammar, lang);
+                        } catch (e) {
+                            // Fallback to escaped plain text
+                            highlightedCode = codeBlockContent
+                                .replace(/&/g, '&amp;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;');
+                        }
+
+                        // Generate unique ID for copy functionality
+                        const codeId = `code-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+                        // Create code block with Prism styling and copy button
+                        out += `<div class="code-block-wrapper" style="position: relative; margin: 1rem 0;">
+                            <button class="code-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('${codeId}').textContent).then(() => { this.textContent = '✓ Copiado'; setTimeout(() => this.textContent = '📋 Copiar', 2000); })" style="position: absolute; top: 6px; right: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.85rem; color: #ccc;">📋 Copiar</button>
+                            <pre class="code-block-prism language-${lang}" style="background: #1e1e1e; color: #d4d4d4; padding: 1rem; padding-top: 2rem; border-radius: 8px; overflow-x: auto; font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; font-size: 0.875rem; line-height: 1.6; margin: 0;"><code id="${codeId}" class="language-${lang}">${highlightedCode}</code></pre>
+                        </div>`;
                     }
                     codeBlockLanguage = '';
                     codeBlockContent = '';
@@ -1991,30 +2134,35 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     continue;
                 }
 
-                // Check if this is likely a header row (first table row or has bold text)
-                const isHeaderRow = cells.some(c => /^\*\*/.test(c)) || !out.includes('<table');
+                // Check if we're starting a new table (no table yet, or all previous tables are closed)
+                const isStartingNewTable = !out.includes('<table') || out.lastIndexOf('</table>') > out.lastIndexOf('<table');
+
+                // The first row of any new table is treated as a header row
+                const isHeaderRow = isStartingNewTable || cells.some(c => /^\*\*/.test(c));
 
                 // Start table if not already in one
-                if (!out.includes('<table') || out.lastIndexOf('</table>') > out.lastIndexOf('<table')) {
-                    out += '<table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">';
+                if (isStartingNewTable) {
+                    out += `<table class="content-table" style="width: 100%; border-collapse: collapse; margin: 1.5rem 0; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
                     if (isHeaderRow) {
                         out += '<thead><tr>';
                         cells.forEach(cell => {
-                            out += `<th style="border: 1px solid #ddd; padding: 0.75rem; background-color: #f4f4f4; text-align: left;">${applyInlineFormatting(cell)}</th>`;
+                            out += `<th style="border: 1px solid #e0e0e0; padding: 12px 16px; background: linear-gradient(135deg, #1b5784, #2980b9); color: white; text-align: left; font-weight: 600; font-size: 0.9rem;">${applyInlineFormatting(cell)}</th>`;
                         });
                         out += '</tr></thead><tbody>';
                     } else {
-                        out += '<tbody><tr>';
+                        out += '<tbody><tr style="background: #ffffff;">';
                         cells.forEach(cell => {
-                            out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                            out += `<td style="border: 1px solid #e0e0e0; padding: 12px 16px;">${applyInlineFormatting(cell)}</td>`;
                         });
                         out += '</tr>';
                     }
                 } else {
-                    // Continue existing table
-                    out += '<tr>';
+                    // Continue existing table - alternate row colors
+                    const rowCount = (out.match(/<tr/g) || []).length;
+                    const bgColor = rowCount % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                    out += `<tr style="background: ${bgColor}; transition: background 0.2s;">`;
                     cells.forEach(cell => {
-                        out += `<td style="border: 1px solid #ddd; padding: 0.75rem;">${applyInlineFormatting(cell)}</td>`;
+                        out += `<td style="border: 1px solid #e0e0e0; padding: 12px 16px;">${applyInlineFormatting(cell)}</td>`;
                     });
                     out += '</tr>';
                 }
@@ -2063,7 +2211,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         try {
             // Load version files from S3 under projectFolder/versions/
             const session = await fetchAuthSession();
-            if (!session || !session.credentials) return;
+            if (!session || !session.credentials) return [];
             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
             const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const prefix = `${projectFolder}/versions/`;
@@ -2076,8 +2224,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
             setVersions(vers);
+            return vers; // Return versions for auto-load
         } catch (error) {
             console.error('Error al cargar versiones:', error);
+            return [];
         }
     };
 
@@ -2085,7 +2235,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         try {
             // Load lab guide version files from S3 under projectFolder/lab-versions/
             const session = await fetchAuthSession();
-            if (!session || !session.credentials) return;
+            if (!session || !session.credentials) return [];
             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
             const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const prefix = `${projectFolder}/lab-versions/`;
@@ -2093,18 +2243,21 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
             const items = resp.Contents || [];
             const vers = items
-                .filter(i => i.Key && i.Key.endsWith('.md'))
-                .map(i => ({ name: i.Key.replace(prefix, '').replace('.md', ''), timestamp: i.LastModified, key: i.Key }))
+                .filter(i => i.Key && (i.Key.endsWith('.md') || i.Key.endsWith('.json')))
+                .map(i => ({ name: i.Key.replace(prefix, '').replace(/\.(md|json)$/, ''), timestamp: i.LastModified, key: i.Key, isJson: i.Key.endsWith('.json') }))
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
             setLabGuideVersions(vers);
+            return vers; // Return versions for auto-load
         } catch (error) {
             console.error('Error al cargar versiones de lab guide:', error);
+            return [];
         }
     };
 
     const deleteVersion = async (version) => {
-        if (!confirm(`¿Eliminar la versión "${version.name}"? Esta acción no se puede deshacer.`)) return;
+        const confirmed = await showConfirmModal(`¿Eliminar la versión "${version.name}"? Esta acción no se puede deshacer.`, 'Confirmar eliminación');
+        if (!confirmed) return;
         try {
             const session = await fetchAuthSession();
             if (!session || !session.credentials) throw new Error('No credentials');
@@ -2123,15 +2276,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             setVersions(prev => prev.filter(v => v.key !== version.key));
-            alert('Versión eliminada');
+            showModal('Versión eliminada', 'Éxito');
         } catch (e) {
             console.error('Failed to delete version:', e);
-            alert('Error al eliminar versión: ' + String(e));
+            showModal('Error al eliminar versión: ' + String(e), 'Error');
         }
     };
 
     const deleteLabGuideVersion = async (version) => {
-        if (!confirm(`¿Eliminar la versión de Lab Guide "${version.name}"? Esta acción no se puede deshacer.`)) return;
+        const confirmed = await showConfirmModal(`¿Eliminar la versión de Lab Guide "${version.name}"? Esta acción no se puede deshacer.`, 'Confirmar eliminación');
+        if (!confirmed) return;
         try {
             const session = await fetchAuthSession();
             if (!session || !session.credentials) throw new Error('No credentials');
@@ -2142,10 +2296,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: version.key }));
 
             setLabGuideVersions(prev => prev.filter(v => v.key !== version.key));
-            alert('Versión de Lab Guide eliminada');
+            showModal('Versión de Lab Guide eliminada', 'Éxito');
         } catch (e) {
             console.error('Failed to delete lab guide version:', e);
-            alert('Error al eliminar versión: ' + String(e));
+            showModal('Error al eliminar versión: ' + String(e), 'Error');
         }
     };
 
@@ -2449,10 +2603,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const versionJsonName = `${baseName}_${safeVersionName}.json`;
             const versionKey = `${projectFolder}/versions/${versionJsonName}`;
 
-            // Check if version with this name already exists
             const existingVersion = versions.find(v => v.key === versionKey);
             if (existingVersion) {
-                const override = confirm(`Ya existe una versión con el nombre "${newVersionName}".\n\n¿Deseas sobrescribirla?`);
+                const override = await showConfirmModal(`Ya existe una versión con el nombre "${newVersionName}".\n\n¿Deseas sobrescribirla?`, 'Confirmar sobrescritura');
                 if (!override) {
                     return; // User cancelled
                 }
@@ -2646,10 +2799,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             setNewVersionName('');
-            alert(existingVersion ? '¡Versión sobrescrita exitosamente!' : '¡Versión guardada exitosamente!');
+            showModal(existingVersion ? '¡Versión sobrescrita exitosamente!' : '¡Versión guardada exitosamente!', 'Éxito');
         } catch (error) {
             console.error('Error al guardar versión:', error);
-            alert('Error al guardar versión: ' + error.message);
+            showModal('Error al guardar versión: ' + error.message, 'Error');
         }
     };
 
@@ -4069,6 +4222,36 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     />
                 );
             })()}
+
+            {/* Custom App Modal for Alerts/Confirmations */}
+            {modalConfig.isOpen && (
+                <div className="app-modal-overlay" onClick={() => modalConfig.type === 'alert' ? modalConfig.onConfirm?.() : modalConfig.onCancel?.()}>
+                    <div className="app-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="app-modal-header">
+                            <h3>{modalConfig.title}</h3>
+                        </div>
+                        <div className="app-modal-body">
+                            <p>{modalConfig.message}</p>
+                        </div>
+                        <div className="app-modal-footer">
+                            {modalConfig.type === 'confirm' && (
+                                <button
+                                    className="app-modal-btn app-modal-btn-cancel"
+                                    onClick={modalConfig.onCancel}
+                                >
+                                    Cancelar
+                                </button>
+                            )}
+                            <button
+                                className="app-modal-btn app-modal-btn-confirm"
+                                onClick={modalConfig.onConfirm}
+                            >
+                                {modalConfig.type === 'confirm' ? 'Aceptar' : 'OK'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
 
     );

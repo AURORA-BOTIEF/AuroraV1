@@ -440,3 +440,113 @@ body:has(#barraLateral.sidebar--colapsado) #contenidoPrincipal {
     transform: rotate(360deg);
   }
 }
+
+/* ===================== Custom App Modal (Alert/Confirm) ===================== */
+.app-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.app-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  min-width: 320px;
+  max-width: 480px;
+  overflow: hidden;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.app-modal-header {
+  background: linear-gradient(135deg, #1b5784, #2980b9);
+  color: white;
+  padding: 16px 24px;
+}
+
+.app-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.app-modal-body {
+  padding: 24px;
+  color: #333;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.app-modal-body p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.app-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  background: #f8f9fa;
+  border-top: 1px solid #e9ecef;
+}
+
+.app-modal-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.app-modal-btn-cancel {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.app-modal-btn-cancel:hover {
+  background: #dee2e6;
+}
+
+.app-modal-btn-confirm {
+  background: linear-gradient(135deg, #1b5784, #2980b9);
+  color: white;
+}
+
+.app-modal-btn-confirm:hover {
+  background: linear-gradient(135deg, #164769, #2472a4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(27, 87, 132, 0.4);
+}
