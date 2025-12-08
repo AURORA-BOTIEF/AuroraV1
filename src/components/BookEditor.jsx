@@ -49,6 +49,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const editorRef = useRef(null);
     const lastAppliedLessonRef = useRef({ index: null, content: null, isEditing: null });
     const lastAppliedLabGuideRef = useRef({ isEditing: null, content: null });
+    // Track if a saved version was loaded to prevent async overwrites
+    const versionLoadedRef = useRef(false);
     const [editingHtml, setEditingHtml] = useState(null);
     const [labGuideEditingHtml, setLabGuideEditingHtml] = useState(null);
     const selectionRef = useRef(null);
@@ -907,6 +909,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 }
                             }
                             setBookData(parsed);
+                            versionLoadedRef.current = true; // Mark that version was loaded
                             console.log('✅ Auto-loaded latest book version');
                         }
                     } catch (e) {
@@ -1134,7 +1137,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (currentLesson && currentLesson.content) {
                         console.log('Loading images for current lesson (priority)...');
                         currentLesson.content = await replaceS3UrlsWithDataUrls(currentLesson.content);
-                        setBookData({ ...bookToSet }); // Trigger re-render
+                        // Only update if no version was loaded yet
+                        if (!versionLoadedRef.current) {
+                            setBookData({ ...bookToSet }); // Trigger re-render
+                        }
                     }
 
                     // Then load remaining lessons in background
@@ -1144,7 +1150,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             if (lesson.content) {
                                 lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
                                 // Update state every few lessons to show progress
-                                if (i % 5 === 0 || i === bookToSet.lessons.length - 1) {
+                                // But skip if a version was already loaded
+                                if (!versionLoadedRef.current && (i % 5 === 0 || i === bookToSet.lessons.length - 1)) {
                                     setBookData({ ...bookToSet });
                                 }
                             }
@@ -1171,6 +1178,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Load images in the background
                 console.log('Loading images from S3 in background...');
                 replaceS3UrlsWithDataUrls(data.bookContent).then(contentWithImages => {
+                    // Skip if a version was already loaded
+                    if (versionLoadedRef.current) {
+                        console.log('Skipping image update - version already loaded');
+                        return;
+                    }
                     const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
                     setBookData(parsedBookWithImages);
                     setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
@@ -1218,6 +1230,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Load images in background
                 console.log('Loading images from S3 in background...');
                 replaceS3UrlsWithDataUrls(markdown).then(contentWithImages => {
+                    // Skip if a version was already loaded
+                    if (versionLoadedRef.current) {
+                        console.log('Skipping image update - version already loaded');
+                        return;
+                    }
                     const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
                     setBookData(parsedBookWithImages);
                     setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
