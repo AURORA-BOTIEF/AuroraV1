@@ -57,6 +57,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [collapsedModules, setCollapsedModules] = useState({});
     const [labGuideData, setLabGuideData] = useState(null);
     const [originalLabGuideData, setOriginalLabGuideData] = useState(null); // Store original for "Original" version
+    const [originalLabGuideMarkdown, setOriginalLabGuideMarkdown] = useState(null); // Store raw markdown for structure preservation
     const [showLabGuide, setShowLabGuide] = useState(false);
     const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
     // PPT Generation states
@@ -1410,6 +1411,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             };
             setLabGuideData(labGuideToSet);
             setOriginalLabGuideData(JSON.parse(JSON.stringify(labGuideToSet))); // Store original for "View Original" feature
+            setOriginalLabGuideMarkdown(labGuideContent); // Store raw markdown for structure preservation on save
 
             // Load images in the background
             console.log('Loading Lab Guide images from S3 in background...');
@@ -1494,11 +1496,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 };
             }
 
-            // Convert the entire lab guide structure back to markdown with proper lab format
-            const markdown = generateLabGuideMarkdown(contentToSave);
+            // Save as JSON to preserve structure exactly (each lesson's content contains its markdown)
+            // This avoids regenerating and losing the original structure
+            const jsonContent = JSON.stringify(contentToSave, null, 2);
 
-            // Save as a version in lab-versions folder
-            const versionKey = `${projectFolder}/lab-versions/${versionFilename}`;
+            // Save as a version in lab-versions folder (as JSON)
+            const versionFilenameJson = versionFilename.replace('.md', '.json');
+            const versionKey = `${projectFolder}/lab-versions/${versionFilenameJson}`;
 
             const existingVersion = labGuideVersions.find(v => v.name.includes(safeVersionName));
             if (existingVersion) {
@@ -1514,8 +1518,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             await s3.send(new PutObjectCommand({
                 Bucket: bucketName,
                 Key: versionKey,
-                Body: markdown,
-                ContentType: 'text/markdown'
+                Body: jsonContent,
+                ContentType: 'application/json'
             }));
 
             // NOTE: Original lab guide file is intentionally NOT modified.
@@ -1530,9 +1534,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 ));
             } else {
                 setLabGuideVersions(prev => [{
-                    name: versionFilename.replace('.md', ''),
+                    name: versionFilenameJson.replace('.json', ''),
                     timestamp: new Date(),
-                    key: versionKey
+                    key: versionKey,
+                    isJson: true
                 }, ...prev]);
             }
 
