@@ -888,7 +888,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 await loadLabGuide();
 
                 // Load versions and auto-load latest if exists
+                console.log('🔍 Loading book versions for project:', projectFolder);
                 const bookVersions = await loadVersions();
+                console.log('📦 Book versions found:', bookVersions.length, bookVersions.map(v => v.name));
                 if (bookVersions.length > 0) {
                     console.log('📚 Found book versions, loading latest:', bookVersions[0].name);
                     // Mark immediately to prevent async overwrites while loading
