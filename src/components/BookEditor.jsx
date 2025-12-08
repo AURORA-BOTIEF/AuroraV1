@@ -56,6 +56,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const selectionRef = useRef(null);
     const [collapsedModules, setCollapsedModules] = useState({});
     const [labGuideData, setLabGuideData] = useState(null);
+    const [originalLabGuideData, setOriginalLabGuideData] = useState(null); // Store original for "Original" version
     const [showLabGuide, setShowLabGuide] = useState(false);
     const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
     // PPT Generation states
@@ -1401,12 +1402,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             // Set Lab Guide data immediately for fast UI display
-            setLabGuideData({
+            const labGuideToSet = {
                 ...parsedBook,
                 filename: labGuideFile.Key.split('/').pop(),
                 lastModified: labGuideFile.LastModified,
                 outlineKey: outlineFilename // Store outline key for regeneration
-            });
+            };
+            setLabGuideData(labGuideToSet);
+            setOriginalLabGuideData(JSON.parse(JSON.stringify(labGuideToSet))); // Store original for "View Original" feature
 
             // Load images in the background
             console.log('Loading Lab Guide images from S3 in background...');
@@ -2521,6 +2524,164 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         } catch (e) {
             console.error('Failed to load original for edit:', e);
             alert('Error al cargar la versión original para editar: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // ========== LAB GUIDE VERSION MANAGEMENT ==========
+
+    // View a lab guide version (read-only)
+    const viewLabGuideVersion = async (version) => {
+        try {
+            setLoadingVersion(true);
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+
+            // Load the version file
+            const resp = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: version.key }));
+            const text = await resp.Body.transformToString();
+
+            let parsed;
+            if (version.isJson || version.key.endsWith('.json')) {
+                parsed = JSON.parse(text);
+            } else {
+                parsed = parseMarkdownToBook(text);
+            }
+
+            // Process images in all lessons for display
+            console.log('Loading images from lab guide version for viewing...');
+            for (let lesson of parsed.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Load the version into the lab guide viewer
+            setLabGuideData(parsed);
+            setCurrentLabLessonIndex(0);
+            setIsEditing(false); // View mode
+            setShowVersionHistory(false); // Close version history panel
+        } catch (e) {
+            console.error('Failed to load lab guide version content:', e);
+            alert('Error cargando la versión del Lab Guide: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // Edit a lab guide version
+    const editLabGuideVersion = async (version) => {
+        try {
+            setLoadingVersion(true);
+            const session = await fetchAuthSession();
+            if (!session || !session.credentials) throw new Error('No credentials');
+            const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+            const resp = await s3.send(new GetObjectCommand({
+                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                Key: version.key
+            }));
+            const text = await resp.Body.transformToString();
+
+            let parsed;
+            if (version.isJson || version.key.endsWith('.json')) {
+                parsed = JSON.parse(text);
+            } else {
+                parsed = parseMarkdownToBook(text);
+            }
+
+            // Process images in all lessons
+            console.log('Loading images from lab guide version for editing...');
+            for (let lesson of parsed.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Set labGuideData to parsed version and enter edit mode
+            setLabGuideData(parsed);
+            setCurrentLabLessonIndex(0);
+            setIsEditing(true);
+            // Set editor HTML to the first lesson content formatted for editing
+            const firstHtml = formatContentForEditing(parsed.lessons?.[0]?.content || '');
+            try { editorRef.current && (editorRef.current.innerHTML = firstHtml); } catch (e) { }
+            setLabGuideEditingHtml(firstHtml);
+            setShowVersionHistory(false); // Close version history panel
+            alert('Versión del Lab Guide cargada para edición. Para guardar cambios, usa "Guardar Versión Lab Guide".');
+        } catch (e) {
+            console.error('Failed to load lab guide version for edit:', e);
+            alert('Error al cargar versión del Lab Guide para editar: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // View original lab guide
+    const viewOriginalLabGuide = async () => {
+        try {
+            setLoadingVersion(true);
+
+            if (!originalLabGuideData) {
+                throw new Error('No se encontró la versión original del Lab Guide');
+            }
+
+            // Create a deep copy and process images for display
+            const originalCopy = JSON.parse(JSON.stringify(originalLabGuideData));
+            console.log('Loading images from original lab guide version...');
+            for (let lesson of originalCopy.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Load the original into the lab guide viewer
+            setLabGuideData(originalCopy);
+            setCurrentLabLessonIndex(0);
+            setIsEditing(false); // View mode
+            setShowVersionHistory(false); // Close version history panel
+        } catch (e) {
+            console.error('Failed to load original lab guide version:', e);
+            alert('Error cargando la versión original del Lab Guide: ' + String(e));
+        } finally {
+            setLoadingVersion(false);
+        }
+    };
+
+    // Edit original lab guide
+    const editOriginalLabGuide = async () => {
+        try {
+            setLoadingVersion(true);
+
+            if (!originalLabGuideData) {
+                throw new Error('No se encontró la versión original del Lab Guide');
+            }
+
+            // Create a deep copy and process images for display
+            const originalCopy = JSON.parse(JSON.stringify(originalLabGuideData));
+            console.log('Loading images from original lab guide for editing...');
+            for (let lesson of originalCopy.lessons || []) {
+                if (lesson.content) {
+                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                }
+            }
+
+            // Set labGuideData to original and enter edit mode
+            setLabGuideData(originalCopy);
+            setCurrentLabLessonIndex(0);
+            setIsEditing(true);
+            // Set editor HTML to the first lesson content formatted for editing
+            const firstHtml = formatContentForEditing(originalCopy.lessons?.[0]?.content || '');
+            try { editorRef.current && (editorRef.current.innerHTML = firstHtml); } catch (e) { }
+            setLabGuideEditingHtml(firstHtml);
+            setShowVersionHistory(false); // Close version history panel
+            alert('Versión original del Lab Guide cargada para edición. Para guardar cambios, usa "Guardar Versión Lab Guide".');
+        } catch (e) {
+            console.error('Failed to load original lab guide for edit:', e);
+            alert('Error al cargar la versión original del Lab Guide para editar: ' + String(e));
         } finally {
             setLoadingVersion(false);
         }
@@ -4078,31 +4239,42 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     ) : (
                         <>
                             <div className="version-list">
-                                {/* Lab Guide Versions */}
-                                {labGuideVersions.length === 0 ? (
-                                    <div style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
-                                        No hay versiones guardadas del Lab Guide
+                                {/* Original lab guide version entry */}
+                                <div className="version-item version-original">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <button className="version-name" onClick={viewOriginalLabGuide}>Ver</button>
+                                            {!viewOnly && <button onClick={editOriginalLabGuide}>Editar</button>}
+                                            <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>📄 Original</div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <div className="version-meta" style={{ fontStyle: 'italic', color: '#666' }}>Versión inicial del Lab Guide</div>
+                                        </div>
                                     </div>
-                                ) : (
-                                    labGuideVersions.map((version, index) => (
-                                        <div key={index} className="version-item">
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                    <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
-                                                </div>
-                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                    <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
-                                                    <button onClick={() => deleteLabGuideVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>
-                                                </div>
+                                </div>
+                                {/* Saved lab guide versions */}
+                                {labGuideVersions.map((version, index) => (
+                                    <div key={index} className="version-item">
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <button className="version-name" onClick={() => viewLabGuideVersion(version)}>Ver</button>
+                                                {!viewOnly && <button onClick={() => editLabGuideVersion(version)}>Editar</button>}
+                                                <div style={{ marginLeft: '0.5rem' }}>{version.name}</div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                <div className="version-meta">{version.timestamp ? new Date(version.timestamp).toLocaleString('es-ES') : ''}</div>
+                                                {!viewOnly && <button onClick={() => deleteLabGuideVersion(version)} title="Eliminar versión" style={{ color: '#c0392b' }}>Eliminar</button>}
                                             </div>
                                         </div>
-                                    ))
-                                )}
+                                    </div>
+                                ))}
                             </div>
-                            <div className="save-version">
-                                <input value={newLabGuideVersionName} onChange={e => setNewLabGuideVersionName(e.target.value)} placeholder="Nombre de la versión" />
-                                <button onClick={saveLabGuide} disabled={!newLabGuideVersionName.trim()}>Guardar Versión Lab Guide</button>
-                            </div>
+                            {!viewOnly && (
+                                <div className="save-version">
+                                    <input value={newLabGuideVersionName} onChange={e => setNewLabGuideVersionName(e.target.value)} placeholder="Nombre de la versión" />
+                                    <button onClick={saveLabGuide} disabled={!newLabGuideVersionName.trim()}>Guardar Versión Lab Guide</button>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
