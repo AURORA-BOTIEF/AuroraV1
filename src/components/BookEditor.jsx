@@ -891,6 +891,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 const bookVersions = await loadVersions();
                 if (bookVersions.length > 0) {
                     console.log('📚 Found book versions, loading latest:', bookVersions[0].name);
+                    // Mark immediately to prevent async overwrites while loading
+                    versionLoadedRef.current = true;
                     // Load the latest version into book view
                     try {
                         const session = await fetchAuthSession();

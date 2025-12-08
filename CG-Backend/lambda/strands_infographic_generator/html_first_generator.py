@@ -1412,6 +1412,61 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             background: #eef4fa;
         }}
         
+        /* Code blocks - dark theme for professional appearance */
+        .code-block {{
+            background: #1e1e1e;
+            border-radius: 8px;
+            margin: 15px 0;
+            overflow: hidden;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+        }}
+        
+        .code-block-header {{
+            background: #2d2d2d;
+            padding: 8px 16px;
+            font-size: 12pt;
+            color: #9cdcfe;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        
+        .code-block-language {{
+            background: {colors['accent']};
+            color: {colors['primary']};
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10pt;
+            font-weight: 600;
+            text-transform: uppercase;
+        }}
+        
+        .code-block pre {{
+            margin: 0;
+            padding: 16px 20px;
+            overflow-x: auto;
+            max-height: 320px;
+            overflow-y: auto;
+        }}
+        
+        .code-block code {{
+            font-family: inherit;
+            font-size: 14pt;
+            line-height: 1.5;
+            color: #d4d4d4;
+            white-space: pre;
+            display: block;
+        }}
+        
+        /* Syntax highlighting colors (VS Code dark theme inspired) */
+        .code-block .keyword {{ color: #569cd6; }}
+        .code-block .string {{ color: #ce9178; }}
+        .code-block .number {{ color: #b5cea8; }}
+        .code-block .comment {{ color: #6a9955; font-style: italic; }}
+        .code-block .function {{ color: #dcdcaa; }}
+        .code-block .class {{ color: #4ec9b0; }}
+        
         /* Images */
         .slide-image {{
             max-width: 100%;
@@ -1883,6 +1938,33 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append('      </tbody>')
                     
                     html_parts.append('    </table>')
+                
+                elif block_type == 'code':
+                    # Render code block with syntax highlighting
+                    import html as html_module
+                    
+                    heading = block.get('heading', '')
+                    language = block.get('language', 'text').lower()
+                    code = block.get('code', '')
+                    
+                    # Escape HTML special characters in code
+                    escaped_code = html_module.escape(code)
+                    
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    
+                    html_parts.append('    <div class="code-block">')
+                    
+                    # Add header with language badge
+                    if language and language != 'text':
+                        html_parts.append(f'      <div class="code-block-header">')
+                        html_parts.append(f'        <span class="code-block-language">{language}</span>')
+                        html_parts.append(f'      </div>')
+                    
+                    html_parts.append('      <pre>')
+                    html_parts.append(f'        <code>{escaped_code}</code>')
+                    html_parts.append('      </pre>')
+                    html_parts.append('    </div>')
             
             html_parts.append('  </div>')
         
