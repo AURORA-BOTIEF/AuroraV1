@@ -986,8 +986,49 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 if (!labVersionLoaded) {
                     await loadLabGuide();
                 } else {
-                    // Background load for "View Original" feature
-                    loadLabGuide().catch(e => console.warn('Background lab guide load failed:', e));
+                    // Load original in background for "View Original" feature
+                    // Important: Only set originalLabGuideData, do NOT touch labGuideData
+                    (async () => {
+                        try {
+                            console.log('🔬 Loading original lab guide in background for "View Original" feature...');
+                            const session = await fetchAuthSession();
+                            if (session && session.credentials) {
+                                const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                                const labGuidePrefix = `${projectFolder}/book/`;
+
+                                const response = await s3.send(new ListObjectsV2Command({
+                                    Bucket: bucketName,
+                                    Prefix: labGuidePrefix,
+                                    MaxKeys: 50
+                                }));
+
+                                const labGuideFile = response.Contents?.find(obj =>
+                                    obj.Key && obj.Key.includes('_LabGuide_complete')
+                                );
+
+                                if (labGuideFile) {
+                                    const labGuideResponse = await s3.send(new GetObjectCommand({
+                                        Bucket: bucketName,
+                                        Key: labGuideFile.Key
+                                    }));
+                                    const labGuideContent = await labGuideResponse.Body.transformToString();
+                                    const parsedBook = parseMarkdownToBook(labGuideContent);
+
+                                    // Only set originalLabGuideData, not labGuideData
+                                    setOriginalLabGuideData({
+                                        ...parsedBook,
+                                        filename: labGuideFile.Key.split('/').pop(),
+                                        lastModified: labGuideFile.LastModified
+                                    });
+                                    setOriginalLabGuideMarkdown(labGuideContent);
+                                    console.log('🔬 Original lab guide stored for "View Original" (did not overwrite current content)');
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Background lab guide load failed:', e);
+                        }
+                    })();
                 }
             };
 
