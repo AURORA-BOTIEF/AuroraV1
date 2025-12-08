@@ -1983,9 +1983,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             if (/^\s*$/.test(line)) {
-                // blank line - only close lists if not in a list context
-                // Check if next non-empty line is also a list item to keep lists open
-                out += '<br/>';
+                // blank line - close any open lists but don't add <br> for each blank line
+                // Multiple blank lines in markdown are just paragraph separators, not additional line breaks
+                closeLists();
                 continue;
             }
 
@@ -2003,12 +2003,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const bq = line.match(/^>\s?(.*)$/);
             if (bq) {
                 closeLists();
-                out += `<blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
+                out += `blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
                 continue;
             }
 
+            // Preprocess line to expand tabs to spaces (1 tab = 4 spaces) for consistent indentation
+            const expandedLine = line.replace(/\t/g, '    ');
+
             // Unordered list item (including indented ones)
-            const ul = line.match(/^(\s*)[-\*]\s+(.*)$/);
+            const ul = expandedLine.match(/^(\s*)[-\*]\s+(.*)$/);
             if (ul) {
                 const indent = ul[1].length;
                 const itemContent = ul[2].trim();
@@ -2018,18 +2021,36 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     continue;
                 }
 
+                // Calculate nesting level based on indentation (treat 2 spaces as one level)
+                // Be lenient: 2-3 spaces = level 1, 4-5 spaces = level 2, etc.
+                const level = Math.floor(indent / 2);
+
+                // Style based on nesting level
+                // All list items are black (#333) as per user request
+                // We only vary the bullet style for hierarchy
+                let listStyleType;
+                if (level === 0) listStyleType = 'disc';
+                else if (level === 1) listStyleType = 'circle';
+                else if (level === 2) listStyleType = 'square';
+                else listStyleType = 'disc';
+
+                const style = 'font-weight: 400; color: #333; font-size: 1rem;';
+
+                // Calculate left margin based on level
+                const marginLeft = level * 1.5;
+
                 if (!inUl) {
                     if (inOl) out += '</ol>';
                     inOl = false;
-                    out += '<ul>';
+                    out += '<ul style="margin: 0.5rem 0; padding-left: 1.5rem;">';
                     inUl = true;
                 }
-                out += `<li>${applyInlineFormatting(itemContent)}</li>`;
+                out += `<li style="margin-left: ${marginLeft}rem; margin-bottom: 0.25rem; list-style-type: ${listStyleType}; ${style}">${applyInlineFormatting(itemContent)}</li>`;
                 continue;
             }
 
             // Ordered list item (including indented ones)
-            const ol = line.match(/^(\s*)\d+\.\s+(.*)$/);
+            const ol = expandedLine.match(/^(\s*)\d+\.\s+(.*)$/);
             if (ol) {
                 const indent = ol[1].length;
                 const itemContent = ol[2].trim();
@@ -2039,13 +2060,21 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     continue;
                 }
 
+                // Calculate nesting level based on indentation
+                const level = Math.floor(indent / 2);
+
+                // All list items are black
+                const style = 'font-weight: 400; color: #333; font-size: 1rem;';
+
+                const marginLeft = level * 1.5;
+
                 if (!inOl) {
                     if (inUl) out += '</ul>';
                     inUl = false;
-                    out += '<ol>';
+                    out += '<ol style="margin: 0.5rem 0; padding-left: 1.5rem;">';
                     inOl = true;
                 }
-                out += `<li>${applyInlineFormatting(itemContent)}</li>`;
+                out += `<li style="margin-left: ${marginLeft}rem; margin-bottom: 0.25rem; ${style}">${applyInlineFormatting(itemContent)}</li>`;
                 continue;
             }
 
@@ -2054,7 +2083,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Indented content within list item - add as paragraph within last li
                 const content = line.trim();
                 if (content) {
-                    out += `<p style="margin-left: 1.5rem;">${applyInlineFormatting(content)}</p>`;
+                    out += `<p style="margin-left: 1.5rem; color: #555;">${applyInlineFormatting(content)}</p>`;
                 }
                 continue;
             }
@@ -2121,7 +2150,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // Table row detection (markdown tables with | separator)
             // Match lines like: | Header 1 | Header 2 | Header 3 |
             // or: |----------|----------|----------|
-            const tableMatch = line.match(/^\|(.+)\|$/);
+            // Allow optional leading/trailing whitespace
+            const tableMatch = line.trim().match(/^\|(.+)\|$/);
             if (tableMatch) {
                 closeLists();
                 const cells = tableMatch[1].split('|').map(c => c.trim());

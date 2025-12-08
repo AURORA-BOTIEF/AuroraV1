@@ -230,7 +230,7 @@ ADDITIONAL REQUIREMENTS (USER-SPECIFIED):
 Please incorporate these additional requirements into the lesson content.
 """
     
-    # Build the prompt
+    # Build the prompt with standardized schema
     prompt = f"""You are an expert technical educator creating lesson content for a professional course.
 
 {course_context}
@@ -243,63 +243,148 @@ Description: {module_description}
 LESSONS TO GENERATE:
 {lessons_specification}
 {additional_requirements_section}
-REQUIREMENTS:
-1. Generate EXACTLY {num_lessons} complete lesson(s)
-2. Each lesson must be comprehensive, detailed, and ready to teach
-3. Each lesson MUST start with a clear heading: # Lesson N: [Title]
-4. Include all specified topics and activities (if provided)
-5. Use Markdown formatting with proper headings, lists, code blocks
-6. Meet the target word count for each lesson
-7. **ACADEMIC DEPTH & STRUCTURE**:
-   - This is an **ACADEMIC COURSE** for professionals. Do not generate surface-level summaries.
-   - For each topic, strictly adhere to the **Duration** provided. A 15-minute topic requires significantly more depth than a 5-minute one.
-   - **Structure for every main topic**:
-     * **Concept/Theory**: Explain *what* it is and *why* it matters appropriately for the bloom level.
-     * **Deep Dive**: Go into technical details, architecture, or mechanics.
-     * **Example/Context**: Provide a concrete, real-world example or scenario.
-   - Use professional, authoritative, yet accessible language.
-8. Maintain technical accuracy and professional tone
-9. Include practical examples where appropriate
-10. **TABLES**: For tabular data (comparisons, specifications, feature lists, etc.), use **Markdown table syntax** directly in the content.
-   - DO NOT create visual tags for tables
-   - Use proper Markdown table formatting with headers and alignment
-   - Example:
-     | Feature | Description | Benefit |
-     |---------|-------------|---------|
-     | Feature 1 | Details | Advantage |
-     | Feature 2 | Details | Advantage |
-   - Tables are rendered natively and are more accessible than images
-11. **CODE AND CLI CONTENT**: For code, commands, and configuration examples, use markdown code blocks.
-   - DO NOT create VISUAL tags for:
-     * Code snippets (Python, Java, JavaScript, YAML, JSON, XML, HTML, CSS, Go, Rust, C, C++, etc.)
-     * CLI/terminal commands (Linux, Cisco IOS, PowerShell, bash, Windows CMD, etc.)
-     * Configuration files (Kubernetes manifests, Docker Compose, Terraform, Ansible, etc.)
-     * Console/terminal output or command results
-   - Use proper markdown code blocks with language specification:
-     ```yaml
-     apiVersion: v1
-     kind: ConfigMap
-     ```
-     ```bash
-     $ kubectl apply -f config.yaml
-     ```
-   - Code blocks render natively and are more accurate than generated images
-12. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-XXXX - description]
-   - Format: [VISUAL: MM-LL-XXXX - description] where:
-     * MM = Module number (2 digits, zero-padded) - USE {module_number:02d}
-     * LL = Lesson number within module (2 digits, zero-padded)
-     * XXXX = GLOBAL image counter across ENTIRE course (4 digits, zero-padded)
-       - START at {starting_visual_number:04d} for these lessons
-       - INCREMENT sequentially: {starting_visual_number:04d}, {(starting_visual_number+1):04d}, {(starting_visual_number+2):04d}, etc.
-       - NEVER RESET - this counter continues across all modules and lessons
-     * description = Clear, detailed description for image generation (10-20 words)
-   - Place inline where the image should appear (on its own line for best results)
-   - Examples for this batch (starting at {starting_visual_number:04d}):
-     * [VISUAL: {module_number:02d}-01-{starting_visual_number:04d} - Diagram showing the MVC architecture flow with models, views, and controllers]
-     * [VISUAL: {module_number:02d}-01-{(starting_visual_number+1):04d} - Screenshot of the IDE debugger panel with breakpoints and variable inspection]
-     * [VISUAL: {module_number:02d}-02-{(starting_visual_number+2):04d} - Flowchart of the authentication process from login to session creation]
 
-OUTPUT FORMAT:
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY LESSON STRUCTURE SCHEMA (FOLLOW EXACTLY)
+═══════════════════════════════════════════════════════════════════════════════
+
+Each lesson MUST follow this EXACT structure with proper heading hierarchy:
+
+```
+# Lesson {module_number}.N: [Lesson Title]
+
+## Learning Objectives
+
+By the end of this lesson, you will be able to:
+
+- [Bloom verb] + [measurable outcome 1]
+- [Bloom verb] + [measurable outcome 2]
+- [Bloom verb] + [measurable outcome 3]
+
+## Introduction
+
+[2-3 paragraphs introducing the lesson topic]
+[Explain the importance and relevance]
+[Preview what will be covered]
+
+## [Topic 1 Title]
+
+### Concept Overview
+
+[Explain WHAT the concept is]
+[Explain WHY it matters in context]
+
+### Technical Details
+
+[Deep dive into mechanics, architecture, or theory]
+[Include specific details appropriate for the Bloom level]
+
+### Practical Application
+
+[Real-world example or scenario]
+[Code example if applicable]
+
+[VISUAL: MM-LL-XXXX - Description of diagram/image if needed]
+
+## [Topic 2 Title]
+
+### Concept Overview
+[Same structure as Topic 1]
+
+### Technical Details
+[Continue pattern]
+
+### Practical Application
+[Continue pattern]
+
+## Summary
+
+### Key Takeaways
+
+- [Main point 1 from the lesson]
+- [Main point 2 from the lesson]
+- [Main point 3 from the lesson]
+
+### What's Next
+
+[Brief preview of how this connects to upcoming lessons]
+
+## Review Questions
+
+1. [Question testing understanding of key concept 1]
+2. [Question testing understanding of key concept 2]
+3. [Question requiring application of learned material]
+
+## Additional Resources
+
+- [Resource 1 with description]
+- [Resource 2 with description]
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**HEADING HIERARCHY (MANDATORY):**
+- H1 (#): ONLY for lesson title - ONE per lesson
+- H2 (##): Major sections (Learning Objectives, Introduction, Topics, Summary, etc.)
+- H3 (###): Subsections within H2 (Concept Overview, Technical Details, etc.)
+- H4 (####): Details within H3 (if needed)
+- NEVER skip heading levels (H1 → H3 is INVALID, must be H1 → H2 → H3)
+
+**REQUIRED SECTIONS (MUST INCLUDE):**
+1. Learning Objectives (H2) - 3-5 bullet points with Bloom verbs
+2. Introduction (H2) - 2-3 paragraphs
+3. At least ONE topic section (H2) with subsections (H3)
+4. Summary (H2) with Key Takeaways (H3)
+
+**BLOOM'S TAXONOMY VERBS (USE BASED ON LESSON LEVEL):**
+- Remember: Define, List, Identify, Name, Recall
+- Understand: Describe, Explain, Summarize, Interpret
+- Apply: Implement, Execute, Use, Demonstrate, Solve
+- Analyze: Compare, Differentiate, Examine, Investigate
+- Evaluate: Assess, Critique, Judge, Justify, Recommend
+- Create: Design, Develop, Construct, Produce, Compose
+
+**TABLES (USE NATIVE MARKDOWN):**
+- DO NOT create visual tags for tables
+- Use proper Markdown table formatting:
+  | Column 1 | Column 2 | Column 3 |
+  |----------|----------|----------|
+  | Data 1   | Data 2   | Data 3   |
+
+**CODE BLOCKS (ALWAYS SPECIFY LANGUAGE):**
+- DO NOT create VISUAL tags for code, commands, or config files
+- Use proper markdown code blocks:
+  ```python
+  def example():
+      return "Hello"
+  ```
+  ```bash
+  kubectl apply -f config.yaml
+  ```
+- Supported: python, javascript, java, bash, yaml, json, xml, terraform, etc.
+
+**VISUAL TAGS (FOR DIAGRAMS/IMAGES ONLY):**
+- Format: [VISUAL: MM-LL-XXXX - description]
+- MM = Module number (2 digits): {module_number:02d}
+- LL = Lesson number (2 digits, zero-padded)
+- XXXX = Global counter starting at {starting_visual_number:04d}
+- Description: 10-20 words describing the visual
+- Examples:
+  [VISUAL: {module_number:02d}-01-{starting_visual_number:04d} - Architecture diagram showing client-server communication flow]
+  [VISUAL: {module_number:02d}-02-{(starting_visual_number+1):04d} - Flowchart of the authentication process]
+
+**ACADEMIC DEPTH:**
+- This is an ACADEMIC COURSE for professionals
+- Each topic MUST follow the structure: Concept Overview → Technical Details → Practical Application
+- Match content depth to the Bloom level specified
+- Target word count for each lesson as specified
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
 Generate the lessons separated by this exact delimiter:
 ═══════════════════════════════════════════════════════════════════════
 

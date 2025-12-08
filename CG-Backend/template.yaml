@@ -132,6 +132,36 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  ContentValidator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ContentValidator
+      Description: Validate generated lesson and lab content against Aurora schemas
+      Runtime: python3.12
+      Handler: content_validator.lambda_handler
+      CodeUri: ./lambda/content_validator/
+      Timeout: 120
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          SCHEMA_BUCKET: crewai-course-artifacts
+          SCHEMA_PREFIX: schemas
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
   
   BatchExpander:
     Type: AWS::Serverless::Function

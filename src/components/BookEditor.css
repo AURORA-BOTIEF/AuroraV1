@@ -762,15 +762,27 @@
     outline: 2px solid rgba(0, 123, 255, 0.15);
 }
 
-.content-editor h1,
-.content-editor h2,
-.content-editor h3,
+.content-editor h1 {
+    color: #1b5784;
+    /* Blue */
+    border-bottom: 2px solid #e0e0e0;
+    padding-bottom: 0.5rem;
+}
+
+.content-editor h2 {
+    color: #27ae60;
+    /* Green */
+}
+
+.content-editor h3 {
+    color: #8e44ad;
+    /* Purple */
+}
+
 .content-editor h4,
 .content-editor h5,
 .content-editor h6 {
-    margin-top: 1.5rem;
-    margin-bottom: 0.5rem;
-    color: #333;
+    color: #2c3e50;
 }
 
 .content-editor p {
