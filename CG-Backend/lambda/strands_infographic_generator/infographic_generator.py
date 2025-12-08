@@ -1083,12 +1083,16 @@ OUTPUT FORMAT (JSON):
                 lang = code_block.get('language', 'text')
                 lines = code_block.get('lines', 0)
                 title = code_block.get('title', 'N/A')
-                code_preview = code_block.get('code', '')[:200]  # First 200 chars as preview
+                # Include FULL code for AI to copy exactly
+                full_code = code_block.get('code', '')
                 code_info_lines.append(f"  CODE BLOCK {idx}:")
                 code_info_lines.append(f"    Language: {lang}")
                 code_info_lines.append(f"    Lines: {lines}")
                 code_info_lines.append(f"    Title (if found): {title}")
-                code_info_lines.append(f"    Preview: {code_preview}{'...' if len(code_block.get('code', '')) > 200 else ''}")
+                code_info_lines.append(f"    Full Code:")
+                code_info_lines.append(f"```{lang}")
+                code_info_lines.append(full_code)
+                code_info_lines.append("```")
             code_info_str = '\n'.join(code_info_lines)
         else:
             code_info_str = "  (none)"
@@ -1113,10 +1117,6 @@ CODE BLOCKS FOUND IN CONTENT ({len(available_code_blocks)}):
 IMPORTANT: When referencing images, use the alt text (the text in quotes above). 
 For example: set image_reference to "pasted-image" or "01-01-0001" to use those images.
 
-IMPORTANT: When including code blocks, use type 'code' with 'language' and 'code' fields.
-Copy the EXACT code from the lesson content - do NOT modify or truncate it.
-Add a 'heading' field to explain what the code demonstrates.
-
 REQUIREMENTS:
 {content_coverage_instruction}
 - **STRICT BULLET LIMITS** (slides have height limits!):
@@ -1137,6 +1137,13 @@ REQUIREMENTS:
   * Tables provide critical structured information - do NOT skip or convert to bullets!
   * Each table should have its own dedicated slide with appropriate title
   * Format: {{"type": "table", "heading": "Table Title", "headers": [...], "rows": [...]}}
+- **MANDATORY - INCLUDE ALL CODE BLOCKS**: You MUST create code content blocks for EACH code block listed above!
+  * Use type: 'code' with 'language' and 'code' fields
+  * Copy the EXACT code from CODE BLOCKS FOUND above - do NOT modify or truncate!
+  * Code blocks are essential for technical lessons - they show practical examples
+  * Each significant code block should have its own slide with explanatory title
+  * Format: {{"type": "code", "heading": "Example Title", "language": "python", "code": "def example():\\n    return 'Hello'"}}
+  * Add 2-3 bullet points BEFORE the code to explain what it demonstrates
 - **COMPREHENSIVE**: Cover all major topics (create more slides if needed)
 - **LAST SLIDE**: Lesson summary with 6-8 key takeaways
 - **LANGUAGE**: Use the same language as the lesson content (Spanish/English)

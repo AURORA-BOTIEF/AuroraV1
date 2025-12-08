@@ -925,10 +925,24 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     console.log('📖 Loading original book (no versions found or version failed)');
                     await loadBook();
                 } else {
-                    // Still need to store original for "View Original" feature, but do it in background
-                    loadBook().then(() => {
-                        console.log('📖 Original book loaded in background for "View Original" feature');
-                    }).catch(e => console.warn('Background original load failed:', e));
+                    // Load original in background for "View Original" feature
+                    // Important: Only set originalBookData, do NOT touch bookData
+                    (async () => {
+                        try {
+                            console.log('📖 Loading original book in background for "View Original" feature...');
+                            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`);
+                            if (response.ok) {
+                                const data = await response.json();
+                                if (data.bookData) {
+                                    // Only set originalBookData, not bookData
+                                    setOriginalBookData(JSON.parse(JSON.stringify(data.bookData)));
+                                    console.log('📖 Original book stored for "View Original" (did not overwrite current content)');
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Background original load failed:', e);
+                        }
+                    })();
                 }
 
                 // Check for lab guide versions

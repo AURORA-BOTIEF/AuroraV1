@@ -29,10 +29,64 @@ import logging
 import re
 import boto3
 import time
+import html as html_module
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 
 logger = logging.getLogger("aurora.infographic_generator")
+
+
+def highlight_code_with_pygments(code: str, language: str) -> str:
+    """
+    Apply syntax highlighting to code using Pygments.
+    Returns HTML with inline styles matching VS Code's Tomorrow Night theme.
+    Falls back to escaped plain text if Pygments fails.
+    """
+    try:
+        from pygments import highlight
+        from pygments.lexers import get_lexer_by_name, TextLexer
+        from pygments.formatters import HtmlFormatter
+        
+        # Map common language names to Pygments lexer names
+        language_map = {
+            'js': 'javascript',
+            'ts': 'typescript',
+            'py': 'python',
+            'rb': 'ruby',
+            'sh': 'bash',
+            'shell': 'bash',
+            'yml': 'yaml',
+            'dockerfile': 'docker',
+            'tf': 'terraform',
+            'hcl': 'terraform',
+        }
+        
+        lang = language_map.get(language.lower(), language.lower())
+        
+        try:
+            lexer = get_lexer_by_name(lang, stripall=True)
+        except Exception:
+            lexer = TextLexer()
+        
+        # Use inline styles for compatibility (no external CSS needed)
+        # Colors match prism-tomorrow.css / VS Code Dark+ theme
+        formatter = HtmlFormatter(
+            nowrap=True,
+            noclasses=True,
+            style='monokai'  # Close to Tomorrow Night / VS Code dark
+        )
+        
+        highlighted = highlight(code, lexer, formatter)
+        return f'<pre><code>{highlighted}</code></pre>'
+        
+    except ImportError:
+        logger.warning("Pygments not available, falling back to plain text")
+        escaped = html_module.escape(code)
+        return f'<pre><code>{escaped}</code></pre>'
+    except Exception as e:
+        logger.error(f"Pygments error: {e}, falling back to plain text")
+        escaped = html_module.escape(code)
+        return f'<pre><code>{escaped}</code></pre>'
 
 
 def extract_tables_from_content(content: str) -> List[Dict]:
@@ -1442,30 +1496,31 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             text-transform: uppercase;
         }}
         
-        .code-block pre {{
-            margin: 0;
+        .code-content {{
             padding: 16px 20px;
             overflow-x: auto;
             max-height: 320px;
             overflow-y: auto;
         }}
         
-        .code-block code {{
-            font-family: inherit;
-            font-size: 14pt;
+        .code-content pre {{
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }}
+        
+        .code-content code {{
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            font-size: 13pt;
             line-height: 1.5;
-            color: #d4d4d4;
             white-space: pre;
             display: block;
         }}
         
-        /* Syntax highlighting colors (VS Code dark theme inspired) */
-        .code-block .keyword {{ color: #569cd6; }}
-        .code-block .string {{ color: #ce9178; }}
-        .code-block .number {{ color: #b5cea8; }}
-        .code-block .comment {{ color: #6a9955; font-style: italic; }}
-        .code-block .function {{ color: #dcdcaa; }}
-        .code-block .class {{ color: #4ec9b0; }}
+        /* Pygments uses inline styles, but we ensure base text color */
+        .code-content code span {{
+            font-family: inherit;
+        }}
         
         /* Images */
         .slide-image {{
@@ -1940,15 +1995,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     html_parts.append('    </table>')
                 
                 elif block_type == 'code':
-                    # Render code block with syntax highlighting
-                    import html as html_module
-                    
+                    # Render code block with Pygments syntax highlighting (VS Code-like)
                     heading = block.get('heading', '')
                     language = block.get('language', 'text').lower()
                     code = block.get('code', '')
                     
-                    # Escape HTML special characters in code
-                    escaped_code = html_module.escape(code)
+                    # Use Pygments for syntax highlighting
+                    highlighted_code = highlight_code_with_pygments(code, language)
                     
                     if heading:
                         html_parts.append(f'    <div class="content-heading">{heading}</div>')
@@ -1961,9 +2014,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'        <span class="code-block-language">{language}</span>')
                         html_parts.append(f'      </div>')
                     
-                    html_parts.append('      <pre>')
-                    html_parts.append(f'        <code>{escaped_code}</code>')
-                    html_parts.append('      </pre>')
+                    html_parts.append('      <div class="code-content">')
+                    html_parts.append(f'        {highlighted_code}')
+                    html_parts.append('      </div>')
                     html_parts.append('    </div>')
             
             html_parts.append('  </div>')
