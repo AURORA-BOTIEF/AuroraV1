@@ -1507,7 +1507,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             console.log('Saving lab guide version to:', versionKey);
 
-            // Upload to S3
+            // Upload to S3 (version file only - do NOT modify original)
             await s3.send(new PutObjectCommand({
                 Bucket: bucketName,
                 Key: versionKey,
@@ -1515,14 +1515,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 ContentType: 'text/markdown'
             }));
 
-            // Also update the main lab guide file
-            const labGuideKey = `${projectFolder}/book/${labGuideData.filename}`;
-            await s3.send(new PutObjectCommand({
-                Bucket: bucketName,
-                Key: labGuideKey,
-                Body: markdown,
-                ContentType: 'text/markdown'
-            }));
+            // NOTE: Original lab guide file is intentionally NOT modified.
+            // Versions are stored separately to preserve the original content.
 
             // Add to versions list
             if (existingVersion) {
