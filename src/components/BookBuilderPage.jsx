@@ -190,7 +190,7 @@ function BookBuilderPage() {
                                                 className="btn-primary"
                                                 onClick={() => openBookEditor(project, 'theory')}
                                             >
-                                                📚 Ver/Editar Libro
+                                                📚 Acceder
                                             </button>
                                             {project.hasLabGuide && (
                                                 <button
@@ -198,7 +198,7 @@ function BookBuilderPage() {
                                                     onClick={() => openBookEditor(project, 'lab')}
                                                     style={{ marginLeft: '10px' }}
                                                 >
-                                                    🧪 Guía de Labs
+                                                    🧪 Lab Guide
                                                 </button>
                                             )}
                                         </>
