@@ -221,26 +221,30 @@ function BookBuilderPage() {
 
                     {/* Pagination Controls */}
                     {totalPages > 1 && (
-                        <div className="pagination-controls">
-                            <button
-                                onClick={() => handlePageChange(currentPage - 1)}
-                                disabled={currentPage === 1}
-                                className="pagination-btn"
-                            >
-                                &laquo; Anterior
-                            </button>
+                        <div className="pagination-wrapper">
+                            <div className="pagination-controls">
+                                <button
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="pagination-btn"
+                                >
+                                    ← Anterior
+                                </button>
 
-                            <span className="pagination-status">
-                                Página {currentPage} de {totalPages}
-                            </span>
+                                <div className="pagination-center">
+                                    <span className="pagination-status">
+                                        Página {currentPage} de {totalPages}
+                                    </span>
+                                </div>
 
-                            <button
-                                onClick={() => handlePageChange(currentPage + 1)}
-                                disabled={currentPage === totalPages}
-                                className="pagination-btn"
-                            >
-                                Siguiente &raquo;
-                            </button>
+                                <button
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                    className="pagination-btn"
+                                >
+                                    Siguiente →
+                                </button>
+                            </div>
                         </div>
                     )}
                 </>

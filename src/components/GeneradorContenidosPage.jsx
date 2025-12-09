@@ -95,10 +95,15 @@ function GeneradorContenidosPage() {
 
         </div>
       ) : (
-        // Si no se muestra el menú, mostramos el botón de regresar
-        <button onClick={handleRegresar} className="btn-regresar-menu">
-          &larr; Volver al menú de contenidos
-        </button>
+        // Si no se muestra el menú, mostramos los botones de navegación con iconos
+        <div className="nav-buttons-container">
+          <button onClick={() => navigate('/')} className="nav-icon-btn" title="Inicio">
+            🏠
+          </button>
+          <button onClick={handleRegresar} className="nav-icon-btn" title="Menú de contenidos">
+            ←
+          </button>
+        </div>
       )}
 
       <div className="contenido-generador">
