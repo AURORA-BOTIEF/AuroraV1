@@ -119,16 +119,16 @@
 }
 
 .btn-primary {
-    background: #007bff !important;
+    background: #1b5784 !important;
     color: white !important;
-    border: 2px solid #007bff !important;
+    border: none !important;
+    border-radius: 8px;
 }
 
 .btn-primary:hover {
-    background: #0056b3 !important;
-    border-color: #0056b3 !important;
+    background: #14405f !important;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+    box-shadow: 0 4px 12px rgba(27, 87, 132, 0.3);
 }
 
 .btn-secondary {
@@ -310,10 +310,10 @@
 
 .pagination-btn {
     padding: 0.75rem 1.5rem;
-    border: 2px solid #007bff;
+    border: 2px solid #1b5784;
     border-radius: 8px;
     background: white;
-    color: #007bff;
+    color: #1b5784;
     font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
@@ -322,10 +322,10 @@
 }
 
 .pagination-btn:hover:not(:disabled) {
-    background: #007bff;
+    background: #1b5784;
     color: white;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+    box-shadow: 0 4px 12px rgba(27, 87, 132, 0.3);
 }
 
 .pagination-btn:disabled {
