@@ -81,6 +81,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         onConfirm: null,
         onCancel: null
     });
+    // Loading progress tracking
+    const [loadingStage, setLoadingStage] = useState(''); // 'versions', 'content', 'images'
+    const [loadingProgress, setLoadingProgress] = useState(0); // 0-100
+    const [totalImagesToLoad, setTotalImagesToLoad] = useState(0);
+    const [imagesLoaded, setImagesLoaded] = useState(0);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Helper function to show alert modal
@@ -883,9 +888,91 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
     useEffect(() => {
         if (projectFolder) {
+            // Helper: Load images progressively with first lesson priority
+            const loadImagesProgressively = async (lessons, setDataFn, dataType = 'book') => {
+                if (!lessons || lessons.length === 0) return;
+
+                // Count total images to load (matches HTTPS S3 URLs)
+                const countImages = (content) => {
+                    if (!content) return 0;
+                    // Match: ![alt](https://bucket.s3.amazonaws.com/path)
+                    const matches = content.match(/!\[+[^\]]*\]+\(https:\/\/[^\/]+\.s3\.amazonaws\.com\/[^)]+\)/g);
+                    return matches ? matches.length : 0;
+                };
+
+                let totalImages = 0;
+                lessons.forEach(lesson => {
+                    totalImages += countImages(lesson.content);
+                });
+
+                if (totalImages === 0) {
+                    console.log(`📷 No S3 images to load for ${dataType}`);
+                    return;
+                }
+
+                setTotalImagesToLoad(prev => prev + totalImages);
+                setLoadingStage('images');
+                setLoadingImages(true);
+                console.log(`📷 Loading ${totalImages} images progressively for ${dataType}...`);
+
+                let loadedCount = 0;
+
+                // PRIORITY: Load first lesson images first (currently visible)
+                if (lessons[0]?.content) {
+                    try {
+                        const firstLessonImgCount = countImages(lessons[0].content);
+                        const updatedContent = await replaceS3UrlsWithDataUrls(lessons[0].content);
+                        lessons[0].content = updatedContent;
+                        loadedCount += firstLessonImgCount;
+                        setImagesLoaded(firstLessonImgCount);
+                        setLoadingProgress(Math.round((loadedCount / totalImages) * 100));
+                        // Update state to show first lesson with images
+                        setDataFn(prev => {
+                            const updated = { ...prev };
+                            updated.lessons = [...lessons];
+                            return updated;
+                        });
+                        console.log(`✅ First lesson images loaded for ${dataType}`);
+                    } catch (e) {
+                        console.warn(`Error loading first lesson images:`, e);
+                    }
+                }
+
+                // IMPORTANT: Return here so the caller can setLoading(false)
+                // Then continue loading remaining lessons in background (non-blocking)
+                (async () => {
+                    for (let i = 1; i < lessons.length; i++) {
+                        if (lessons[i]?.content) {
+                            try {
+                                const imgCount = countImages(lessons[i].content);
+                                if (imgCount > 0) {
+                                    lessons[i].content = await replaceS3UrlsWithDataUrls(lessons[i].content);
+                                    loadedCount += imgCount;
+                                    setImagesLoaded(prev => prev + imgCount);
+                                    setLoadingProgress(Math.round((loadedCount / totalImages) * 100));
+                                    // Update state after each lesson
+                                    setDataFn(prev => {
+                                        const updated = { ...prev };
+                                        updated.lessons = [...lessons];
+                                        return updated;
+                                    });
+                                }
+                            } catch (e) {
+                                console.warn(`Error loading images for lesson ${i}:`, e);
+                            }
+                        }
+                    }
+
+                    setLoadingImages(false);
+                    setLoadingStage('');
+                    console.log(`✅ All ${dataType} images loaded`);
+                })();
+            };
+
             // OPTIMIZED: Check for versions FIRST, only load original if no versions
             const initializeContent = async () => {
                 // Check for book versions first (fast ListObjects call)
+                setLoadingStage('versions');
                 console.log('🔍 Checking for book versions for project:', projectFolder);
                 const bookVersions = await loadVersions();
                 console.log('📦 Book versions found:', bookVersions.length, bookVersions.map(v => v.name));
@@ -895,6 +982,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     console.log('📚 Found book versions, loading latest directly:', bookVersions[0].name);
                     versionLoadedRef.current = true; // Mark immediately to prevent async overwrites
                     try {
+                        setLoadingStage('content');
                         const session = await fetchAuthSession();
                         if (session && session.credentials) {
                             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
@@ -904,17 +992,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             }));
                             const jsonText = await resp.Body.transformToString();
                             const parsed = JSON.parse(jsonText);
-                            // Process images
-                            setLoading(true);
-                            for (let lesson of parsed.lessons || []) {
-                                if (lesson.content) {
-                                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
-                                }
-                            }
+
+                            // Set book data but KEEP loading=true until first lesson images are ready
                             setBookData(parsed);
-                            setLoading(false);
                             bookVersionLoaded = true;
-                            console.log('✅ Loaded latest book version directly (skipped original loading)');
+                            console.log('✅ Book content loaded (loading first lesson images before showing...)');
+
+                            // Load images progressively - setLoading(false) happens after first lesson
+                            await loadImagesProgressively(parsed.lessons, setBookData, 'book');
+                            setLoading(false); // Now ready to show!
                         }
                     } catch (e) {
                         console.warn('Could not load latest book version, falling back to original:', e);
@@ -967,15 +1053,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             } else {
                                 parsed = parseMarkdownToBook(text);
                             }
-                            // Process images
-                            for (let lesson of parsed.lessons || []) {
-                                if (lesson.content) {
-                                    lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
-                                }
-                            }
+
+                            // OPTIMIZED: Show content IMMEDIATELY (no images yet)
                             setLabGuideData(parsed);
                             labVersionLoaded = true;
-                            console.log('✅ Loaded latest lab guide version');
+                            console.log('✅ Lab guide content loaded (images loading in background)');
+
+                            // Load images progressively in background
+                            loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
                         }
                     } catch (e) {
                         console.warn('Could not load latest lab version:', e);
@@ -4052,8 +4137,26 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     if (loading) {
         return (
             <div className="book-editor-loading">
-                <p>Cargando libro...</p>
-                {loadingImages && <p style={{ fontSize: '0.9em', opacity: 0.7 }}>Cargando imágenes desde S3...</p>}
+                <div className="loading-spinner" />
+                <p>
+                    {loadingStage === 'versions' ? 'Verificando versiones...' :
+                        loadingStage === 'content' ? 'Cargando contenido...' :
+                            loadingStage === 'images' ? `Cargando imágenes (${loadingProgress}%)...` :
+                                'Cargando libro...'}
+                </p>
+                {loadingStage === 'images' && totalImagesToLoad > 0 && (
+                    <div className="loading-progress-container">
+                        <div className="loading-progress-bar">
+                            <div
+                                className="loading-progress-fill"
+                                style={{ width: `${loadingProgress}%` }}
+                            />
+                        </div>
+                        <span className="loading-progress-text">
+                            {imagesLoaded} / {totalImagesToLoad} imágenes
+                        </span>
+                    </div>
+                )}
             </div>
         );
     }

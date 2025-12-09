@@ -14,22 +14,40 @@ function BookBuilderPage() {
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
-    const [limit] = useState(10);
+    const [limit] = useState(6);
     const [totalCount, setTotalCount] = useState(0);
+    const [isSearching, setIsSearching] = useState(false);
 
+    // Load projects when page or search changes (with debounce for search)
     useEffect(() => {
-        loadProjects(currentPage);
-    }, [currentPage]);
+        const debounceTimer = setTimeout(() => {
+            loadProjects(currentPage, searchTerm);
+        }, searchTerm ? 300 : 0);
 
-    const loadProjects = async (page = 1) => {
+        return () => clearTimeout(debounceTimer);
+    }, [currentPage, searchTerm]);
+
+    // Reset to page 1 when search changes
+    useEffect(() => {
+        if (searchTerm) {
+            setCurrentPage(1);
+        }
+    }, [searchTerm]);
+
+    const loadProjects = async (page = 1, search = '') => {
         try {
             setLoading(true);
+            if (search) setIsSearching(true);
 
-            const response = await fetch(`${API_BASE}/list-projects?page=${page}&limit=${limit}`, {
+            // Build URL with search parameter for backend filtering
+            let url = `${API_BASE}/list-projects?page=${page}&limit=${limit}`;
+            if (search) {
+                url += `&search=${encodeURIComponent(search)}`;
+            }
+
+            const response = await fetch(url, {
                 method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
+                headers: { 'Content-Type': 'application/json' }
             });
 
             if (!response.ok) {
@@ -47,6 +65,7 @@ function BookBuilderPage() {
             alert('Error loading projects: ' + error.message);
         } finally {
             setLoading(false);
+            setIsSearching(false);
         }
     };
 
@@ -88,12 +107,8 @@ function BookBuilderPage() {
 
 
 
-    // Filter locally for search within the current page
-    // Note: For full dataset search, backend would need search support
-    const filteredProjects = projects.filter(project =>
-        project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        project.folder.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Projects are now filtered server-side, just use the results directly
+    const filteredProjects = projects;
 
     const handlePageChange = (newPage) => {
         if (newPage >= 1 && newPage <= totalPages) {
@@ -113,19 +128,42 @@ function BookBuilderPage() {
             <div className="search-section">
                 <input
                     type="text"
-                    placeholder="Buscar proyectos en esta página..."
+                    placeholder="Buscar en todos los proyectos..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="search-input"
                 />
                 <div className="pagination-info">
-                    Total: {totalCount} proyectos
+                    {searchTerm ? `Resultados: ${totalCount}` : `Total: ${totalCount} proyectos`}
                 </div>
             </div>
 
-            {loading ? (
-                <div className="loading">Cargando proyectos...</div>
-            ) : (
+            {loading && (
+                <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                    <p style={{ color: '#666', marginBottom: '0.5rem' }}>
+                        {isSearching ? 'Buscando...' : 'Cargando proyectos...'}
+                    </p>
+                    <div style={{
+                        width: '100%',
+                        maxWidth: '300px',
+                        margin: '0 auto',
+                        height: '6px',
+                        background: '#e0e0e0',
+                        borderRadius: '3px',
+                        overflow: 'hidden'
+                    }}>
+                        <div style={{
+                            height: '100%',
+                            width: '30%',
+                            background: 'linear-gradient(90deg, #007bff, #00c6ff)',
+                            borderRadius: '3px',
+                            animation: 'loading-progress 1.5s ease-in-out infinite'
+                        }} />
+                    </div>
+                </div>
+            )}
+
+            {!loading && (
                 <>
                     <div className="projects-grid">
                         {filteredProjects.map((project) => (
