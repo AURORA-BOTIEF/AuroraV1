@@ -1487,13 +1487,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* Content area - CRITICAL HEIGHT LIMITS */
         .slide-content {{
-            padding: 30px 50px 80px 50px; /* Extra bottom padding to avoid logo overlap */
-            max-height: 480px; /* Without subtitle - reduced for footer margin */
-            overflow: hidden;
+            padding: 30px 50px 60px 50px; /* Bottom padding for logo clearance */
+            max-height: 520px; /* Without subtitle */
+            overflow: visible; /* Allow content to be visible - slides should be designed to fit */
         }}
         
         .slide-content.with-subtitle {{
-            max-height: 420px; /* With subtitle - reduced for footer margin */
+            max-height: 460px; /* With subtitle */
         }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
@@ -1985,24 +1985,42 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         '    </style>',
         '''    <script>
         // Code block zoom functionality
-        function openCodeModal(codeId) {
-            const codeBlock = document.getElementById(codeId);
-            const modal = document.getElementById('codeModal');
-            const modalBody = document.getElementById('codeModalBody');
-            const modalLang = document.getElementById('codeModalLang');
+        function openCodeModal(codeId, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
             
-            if (codeBlock && modal) {
-                const codeContent = codeBlock.querySelector('.code-content').innerHTML;
-                const langBadge = codeBlock.querySelector('.code-block-language');
-                modalBody.innerHTML = codeContent;
-                modalLang.textContent = langBadge ? langBadge.textContent : 'CODE';
+            var codeBlock = document.getElementById(codeId);
+            var modal = document.getElementById('codeModal');
+            var modalBody = document.getElementById('codeModalBody');
+            var modalLang = document.getElementById('codeModalLang');
+            
+            if (codeBlock && modal && modalBody) {
+                var codeContent = codeBlock.querySelector('.code-content');
+                var langBadge = codeBlock.querySelector('.code-block-language');
+                
+                if (codeContent) {
+                    modalBody.innerHTML = codeContent.innerHTML;
+                }
+                if (langBadge) {
+                    modalLang.textContent = langBadge.textContent;
+                } else {
+                    modalLang.textContent = 'CODE';
+                }
+                modal.style.display = 'flex';
                 modal.classList.add('active');
             }
         }
         
-        function closeCodeModal() {
-            const modal = document.getElementById('codeModal');
+        function closeCodeModal(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            var modal = document.getElementById('codeModal');
             if (modal) {
+                modal.style.display = 'none';
                 modal.classList.remove('active');
             }
         }
@@ -2014,9 +2032,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             }
         });
         
-        // Close on click outside
+        // Close on click outside modal content
         document.addEventListener('click', function(e) {
-            const modal = document.getElementById('codeModal');
+            var modal = document.getElementById('codeModal');
             if (e.target === modal) {
                 closeCodeModal();
             }
@@ -2291,7 +2309,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'        <span class="code-block-language">{language}</span>')
                     else:
                         html_parts.append(f'        <span class="code-block-language">CODE</span>')
-                    html_parts.append(f'        <button class="code-zoom-btn" onclick="openCodeModal(\'{code_block_id}\')" title="View fullscreen">🔍 Zoom</button>')
+                    html_parts.append(f'        <button class="code-zoom-btn" onclick="openCodeModal(\'{code_block_id}\', event)" title="View fullscreen">🔍 Zoom</button>')
                     html_parts.append(f'      </div>')
                     
                     html_parts.append('      <div class="code-content">')

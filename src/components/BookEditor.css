@@ -62,6 +62,20 @@
     animation: spin 1s linear infinite;
 }
 
+@keyframes saving-progress {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scaleX(1);
+    }
+
+    50% {
+        opacity: 0.7;
+        transform: scaleX(0.95);
+    }
+}
+
 .book-editor-header {
     display: flex;
     justify-content: space-between;

@@ -86,6 +86,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [loadingProgress, setLoadingProgress] = useState(0); // 0-100
     const [totalImagesToLoad, setTotalImagesToLoad] = useState(0);
     const [imagesLoaded, setImagesLoaded] = useState(0);
+    // Saving state
+    const [isSaving, setIsSaving] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Helper function to show alert modal
@@ -1578,6 +1580,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         }
 
         try {
+            setIsSaving(true);
             console.log('=== Saving Lab Guide Version ===');
 
             const safeVersionName = newLabGuideVersionName.replace(/\s+/g, '_');
@@ -1676,6 +1679,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         } catch (error) {
             console.error('Error saving lab guide:', error);
             showModal('Error al guardar la guía de laboratorios: ' + error.message, 'Error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -3090,6 +3095,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         }
 
         try {
+            setIsSaving(true);
             const safeVersionName = newVersionName.replace(/\s+/g, '_');
             const originalFilename = (bookData && (bookData.filename || (bookData.metadata && bookData.metadata.filename))) || 'course_book_data';
             const baseName = originalFilename.replace(/\.[^/.]+$/, '');
@@ -3297,6 +3303,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         } catch (error) {
             console.error('Error al guardar versión:', error);
             showModal('Error al guardar versión: ' + error.message, 'Error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -3407,8 +3415,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 return;
             }
 
-            // Otherwise let default paste happen and update editingHtml shortly after
-            setTimeout(() => setEditingHtml(editorRef.current?.innerHTML ?? ''), 50);
+            // For all other pastes (text, formatted HTML without data URLs), 
+            // paste as PLAIN TEXT to avoid unwanted formatting
+            e.preventDefault();
+            const plainText = clipboard.getData('text/plain');
+            if (plainText) {
+                // Insert plain text at cursor position
+                document.execCommand('insertText', false, plainText);
+                // Update editing state
+                if (viewMode === 'book') {
+                    setEditingHtml(editorRef.current?.innerHTML ?? '');
+                } else {
+                    setLabGuideEditingHtml(editorRef.current?.innerHTML ?? '');
+                }
+            }
         } catch (e) {
             console.error('Paste handler error:', e);
         }
@@ -4190,6 +4210,28 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     <div className="version-loading-content">
                         <div className="spinner"></div>
                         <p>Cargando versión...</p>
+                    </div>
+                </div>
+            )}
+            {isSaving && (
+                <div className="version-loading-overlay">
+                    <div className="version-loading-content">
+                        <p style={{ marginBottom: '1rem', fontWeight: 500 }}>Guardando...</p>
+                        <div style={{
+                            width: '200px',
+                            height: '6px',
+                            background: '#e0e0e0',
+                            borderRadius: '3px',
+                            overflow: 'hidden'
+                        }}>
+                            <div style={{
+                                height: '100%',
+                                width: '100%',
+                                background: 'linear-gradient(90deg, #4CAF50, #8BC34A)',
+                                borderRadius: '3px',
+                                animation: 'saving-progress 1.5s ease-in-out infinite'
+                            }} />
+                        </div>
                     </div>
                 </div>
             )}

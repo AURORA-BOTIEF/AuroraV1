@@ -1362,8 +1362,9 @@ def lambda_handler(event, context):
         # Auto-discover book version if not provided
         if not book_version_key:
             logger.info("🔎 No book_version_key provided, starting auto-discovery...")
-            # Try multiple possible book folder structures
+            # Try multiple possible book folder structures (in priority order)
             possible_folders = [
+                f"{project_folder}/versions/",          # Versioned books (newest first)
                 f"{project_folder}/{book_type}-book/",  # New structure
                 f"{project_folder}/book/",              # Legacy structure
                 f"{project_folder}/"                     # Root folder
@@ -1380,11 +1381,14 @@ def lambda_handler(event, context):
                         Delimiter='/'
                     )
                     
-                    # Find book files (book_version_*.json or Generated_Course_Book_data.json)
+                    # Find book files (various naming patterns)
+                    # Store both Key and LastModified for sorting
                     folder_files = [
-                        obj['Key'] for obj in response.get('Contents', [])
+                        {'Key': obj['Key'], 'LastModified': obj.get('LastModified')}
+                        for obj in response.get('Contents', [])
                         if obj['Key'].endswith('.json') and (
                             'book_version' in obj['Key'] or 
+                            'course_book_data' in obj['Key'] or  # Versioned books
                             'Generated_Course_Book_data' in obj['Key'] or
                             'Book_data' in obj['Key']
                         )
@@ -1393,6 +1397,8 @@ def lambda_handler(event, context):
                     if folder_files:
                         book_files = folder_files
                         logger.info(f"✅ Found {len(book_files)} book file(s) in {book_folder}")
+                        for bf in book_files:
+                            logger.info(f"   📄 {bf['Key']} (modified: {bf.get('LastModified', 'unknown')})")
                         break
                         
                 except Exception as e:
@@ -1402,10 +1408,10 @@ def lambda_handler(event, context):
             if not book_files:
                 raise ValueError(f"No book found. Searched in: {', '.join(possible_folders)}")
             
-            # Sort by timestamp (newest first) and pick the first one
-            book_files.sort(reverse=True)
-            book_version_key = book_files[0]
-            logger.info(f"✅ Auto-discovered: {book_version_key}")
+            # Sort by LastModified timestamp (newest first) if available, otherwise by key name
+            book_files.sort(key=lambda x: x.get('LastModified', x.get('Key', '')), reverse=True)
+            book_version_key = book_files[0].get('Key', book_files[0]) if isinstance(book_files[0], dict) else book_files[0]
+            logger.info(f"✅ Auto-discovered (newest): {book_version_key}")
         else:
             logger.info(f"✅ Using provided book_version_key: {book_version_key}")
         
