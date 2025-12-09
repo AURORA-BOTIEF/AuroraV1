@@ -550,8 +550,75 @@
     font-size: 0.625rem;
 }
 
-/* Loading & Error */
-.loading-spinner,
+/* Loading Overlay - Centered with Progress Bar */
+.editor-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(255, 255, 255, 0.98);
+    z-index: 100000;
+}
+
+.editor-loading-container {
+    text-align: center;
+    padding: 3rem;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 51, 102, 0.15);
+    min-width: 320px;
+}
+
+.editor-loading-container h1 {
+    font-size: 2rem;
+    color: #003366;
+    margin-bottom: 0.5rem;
+}
+
+.editor-loading-container p {
+    font-size: 1.1rem;
+    color: #666;
+    margin-bottom: 1.5rem;
+}
+
+.editor-loading-bar-wrapper {
+    width: 100%;
+    height: 8px;
+    background-color: #e0e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.editor-loading-bar {
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(90deg, #4682B4, #003366, #4682B4);
+    background-size: 200% 100%;
+    border-radius: 4px;
+    animation: editorLoadingSlide 1.5s ease-in-out infinite;
+}
+
+@keyframes editorLoadingSlide {
+    0% {
+        transform: translateX(-100%);
+        background-position: 0% 0%;
+    }
+
+    50% {
+        background-position: 100% 0%;
+    }
+
+    100% {
+        transform: translateX(250%);
+        background-position: 0% 0%;
+    }
+}
+
+/* Error message styling */
 .error-message {
     display: flex;
     flex-direction: column;
@@ -559,26 +626,6 @@
     align-items: center;
     height: 100%;
     text-align: center;
-}
-
-.spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #4682B4;
-    border-radius: 50%;
-    width: 50px;
-    height: 50px;
-    animation: spin 1s linear infinite;
-    margin-bottom: 1rem;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
 }
 
 .error-message button {

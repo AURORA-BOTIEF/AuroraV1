@@ -606,10 +606,13 @@ function InfographicViewer() {
 
     if (loading) {
         return (
-            <div className="viewer-container">
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+            <div className="viewer-loading-overlay">
+                <div className="viewer-loading-container">
+                    <h1>🖼️ Presentación</h1>
                     <p>Cargando presentación...</p>
+                    <div className="viewer-loading-bar-wrapper">
+                        <div className="viewer-loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );
@@ -725,9 +728,11 @@ function InfographicViewer() {
                             }}
                         />
                     ) : (
-                        <div className="loading-spinner">
-                            <div className="spinner"></div>
-                            <p>Cargando presentación...</p>
+                        <div className="viewer-inline-loading">
+                            <p>Cargando contenido...</p>
+                            <div className="viewer-loading-bar-wrapper">
+                                <div className="viewer-loading-bar"></div>
+                            </div>
                         </div>
                     )}
                 </div>

@@ -80,13 +80,13 @@ function PresentacionesPage() {
 
     if (loading && infographics.length === 0) {
         return (
-            <div className="presentaciones-container">
-                <div className="presentaciones-header">
+            <div className="presentaciones-loading-overlay">
+                <div className="presentaciones-loading-container">
                     <h1>📊 Presentaciones</h1>
                     <p>Cargando presentaciones...</p>
-                </div>
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+                    <div className="loading-bar-wrapper">
+                        <div className="loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );

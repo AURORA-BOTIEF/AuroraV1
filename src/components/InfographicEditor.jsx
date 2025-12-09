@@ -325,10 +325,13 @@ function InfographicEditor() {
 
     if (loading) {
         return (
-            <div className="editor-container">
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+            <div className="editor-loading-overlay">
+                <div className="editor-loading-container">
+                    <h1>✏️ Editor</h1>
                     <p>Cargando editor...</p>
+                    <div className="editor-loading-bar-wrapper">
+                        <div className="editor-loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );
