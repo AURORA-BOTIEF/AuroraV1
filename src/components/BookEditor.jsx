@@ -1323,7 +1323,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     (async () => {
                         try {
                             console.log('📖 Loading original book in background for "View Original" feature...');
-                            const response = await fetch(`${API_BASE} /load-book/${projectFolder}?bookType = ${bookType} `);
+                            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`);
                             if (response.ok) {
                                 const data = await response.json();
                                 if (data.bookData) {
@@ -1385,7 +1385,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             if (session && session.credentials) {
                                 const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
                                 const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                                const labGuidePrefix = `${projectFolder} /book/`;
+                                const labGuidePrefix = `${projectFolder}/book/`;
 
                                 const response = await s3.send(new ListObjectsV2Command({
                                     Bucket: bucketName,
@@ -1478,7 +1478,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             setLoading(true);
             setLoadingImages(true);
 
-            const response = await fetch(`${API_BASE} /load-book/${projectFolder}?bookType = ${bookType} `, {
+            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1503,7 +1503,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         credentials: session.credentials,
                     });
                     const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                    const outlinePrefix = `${projectFolder} /outline/`;
+                    const outlinePrefix = `${projectFolder}/outline/`;
 
                     const outlineResponse = await s3.send(new ListObjectsV2Command({
                         Bucket: bucketName,
@@ -1748,8 +1748,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             });
 
             const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-            const labGuidePrefix = `${projectFolder} /book/`;
-            const outlinePrefix = `${projectFolder} /outline/`;
+            const labGuidePrefix = `${projectFolder}/book/`;
+            const outlinePrefix = `${projectFolder}/outline/`;
 
             // 1. Fetch Outline
             const outlineResponse = await s3.send(new ListObjectsV2Command({
@@ -1934,7 +1934,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // Save as a version in lab-versions folder (as JSON)
             const versionFilenameJson = versionFilename.replace('.md', '.json');
-            const versionKey = `${projectFolder} /lab-versions/${versionFilenameJson} `;
+            const versionKey = `${projectFolder}/lab-versions/${versionFilenameJson}`;
 
             const existingVersion = labGuideVersions.find(v => v.name.includes(safeVersionName));
             if (existingVersion) {
