@@ -667,8 +667,14 @@ class HTMLFirstGenerator:
         2. Each section designed to fit within slide limits
         3. Builder validates in real-time
         4. Guaranteed fit because AI knows the constraints
+        
+        Returns:
+            List of slides for THIS lesson only (not accumulated from previous lessons)
         """
         from strands import Agent
+        
+        # Track starting index to return only NEW slides for this lesson
+        starting_slide_count = len(self.builder.slides)
         
         lesson_title = lesson.get('title', f'Lesson {lesson_idx}')
         lesson_content = lesson.get('content', '')
@@ -1030,7 +1036,9 @@ Create sections intelligently - combine related points up to the calculated MAX,
             slides_created += 1
         
         logger.info(f"✅ Created {slides_created} slides for lesson {lesson_idx} (ZERO overflow guaranteed)")
-        return self.builder.get_slides()
+        # Return only NEW slides created for THIS lesson (not accumulated from previous lessons)
+        all_slides = self.builder.get_slides()
+        return all_slides[starting_slide_count:]
 
 
 def generate_complete_course(
@@ -1470,6 +1478,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             background: linear-gradient(135deg, {colors['primary']}, {colors['secondary']});
             color: white;
             min-height: 120px;
+            position: relative;
+            z-index: 10; /* Ensure header stays above content */
         }}
         
         .slide-title {{
@@ -1487,13 +1497,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* Content area - CRITICAL HEIGHT LIMITS */
         .slide-content {{
-            padding: 30px 50px 60px 50px; /* Bottom padding for logo clearance */
-            max-height: 520px; /* Without subtitle */
-            overflow: visible; /* Allow content to be visible - slides should be designed to fit */
+            padding: 30px 50px 70px 50px; /* Bottom padding for logo clearance */
+            max-height: 530px; /* Without subtitle - header is 120px, logo area is 70px, total 720px */
+            overflow: hidden; /* Clip content that doesn't fit */
+            position: relative;
         }}
         
         .slide-content.with-subtitle {{
-            max-height: 460px; /* With subtitle */
+            max-height: 480px; /* With subtitle */
         }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
@@ -1598,10 +1609,11 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .code-block {{
             background: #1e1e1e;
             border-radius: 8px;
-            margin: 15px 0 25px 0; /* Extra bottom margin to avoid logo overlap */
+            margin: 10px 0 80px 0; /* Large bottom margin to clear footer/logo */
             overflow: hidden;
             font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
             position: relative;
+            max-height: 220px; /* Strictly limited to prevent footer overlap */
         }}
         
         .code-block-header {{
@@ -1626,17 +1638,22 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
         
         .code-zoom-btn {{
-            background: #3d3d3d;
+            background: #f5a623;
             border: none;
-            color: #9cdcfe;
-            padding: 4px 8px;
+            color: #1e1e1e;
+            padding: 6px 12px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 14pt;
+            font-size: 12pt;
+            font-weight: 600;
             transition: background 0.2s;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 4px;
+            position: relative;
+            z-index: 200;
+            pointer-events: auto;
+            text-decoration: none;
         }}
         
         .code-zoom-btn:hover {{
@@ -1644,9 +1661,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
         
         .code-content {{
-            padding: 16px 20px;
+            padding: 12px 16px;
             overflow-x: auto;
-            max-height: 260px; /* Reduced to avoid logo overlap */
+            max-height: 160px; /* Strictly limited to prevent footer overlap */
             overflow-y: auto;
         }}
         
@@ -1750,7 +1767,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         /* Images */
         .slide-image {{
             max-width: 100%;
-            max-height: 400px;
+            max-height: 350px; /* Reduced to fit in split layouts */
             display: block;
             margin: 20px auto;
             object-fit: contain;
@@ -1816,7 +1833,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         .image-layout.image-full .slide-image {{
             max-width: 100%;
-            max-height: 650px;
+            max-height: 450px; /* Reduced to fit within content area */
             width: auto;
             height: auto;
             object-fit: contain;
@@ -1985,35 +2002,45 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         '    </style>',
         '''    <script>
         // Code block zoom functionality
-        function openCodeModal(codeId, event) {
+        window.openCodeModal = function(codeId, event) {
             if (event) {
                 event.preventDefault();
                 event.stopPropagation();
             }
+            console.log('openCodeModal called with:', codeId);
             
             var codeBlock = document.getElementById(codeId);
             var modal = document.getElementById('codeModal');
             var modalBody = document.getElementById('codeModalBody');
             var modalLang = document.getElementById('codeModalLang');
             
-            if (codeBlock && modal && modalBody) {
-                var codeContent = codeBlock.querySelector('.code-content');
-                var langBadge = codeBlock.querySelector('.code-block-language');
-                
-                if (codeContent) {
-                    modalBody.innerHTML = codeContent.innerHTML;
-                }
-                if (langBadge) {
-                    modalLang.textContent = langBadge.textContent;
-                } else {
-                    modalLang.textContent = 'CODE';
-                }
-                modal.style.display = 'flex';
-                modal.classList.add('active');
+            if (!codeBlock) {
+                console.error('Code block not found: ' + codeId);
+                return false;
             }
-        }
+            if (!modal) {
+                console.error('Modal not found');
+                return false;
+            }
+            
+            var codeContent = codeBlock.querySelector('.code-content');
+            var langBadge = codeBlock.querySelector('.code-block-language');
+            
+            if (codeContent && modalBody) {
+                modalBody.innerHTML = codeContent.innerHTML;
+            }
+            if (langBadge && modalLang) {
+                modalLang.textContent = langBadge.textContent;
+            }
+            
+            modal.style.display = 'flex';
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+            
+            return false;
+        };
         
-        function closeCodeModal(event) {
+        window.closeCodeModal = function(event) {
             if (event) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -2022,8 +2049,44 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             if (modal) {
                 modal.style.display = 'none';
                 modal.classList.remove('active');
+                document.body.style.overflow = '';
             }
-        }
+            return false;
+        };
+        
+        // Initialize zoom buttons after DOM loads
+        document.addEventListener('DOMContentLoaded', function() {
+            var zoomButtons = document.querySelectorAll('.code-zoom-btn');
+            zoomButtons.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Try data attribute first, then find parent code-block
+                    var codeBlockId = btn.getAttribute('data-code-id') || (btn.closest('.code-block') ? btn.closest('.code-block').id : null);
+                    console.log('Zoom button clicked, codeBlockId:', codeBlockId);
+                    if (codeBlockId) {
+                        openCodeModal(codeBlockId, e);
+                    }
+                    return false;
+                });
+            });
+            console.log('Initialized ' + zoomButtons.length + ' zoom buttons');
+        });
+        
+        // Also handle clicks via event delegation for dynamically added content
+        document.body.addEventListener('click', function(e) {
+            if (e.target.classList.contains('code-zoom-btn') || e.target.closest('.code-zoom-btn')) {
+                e.preventDefault();
+                e.stopPropagation();
+                var btn = e.target.classList.contains('code-zoom-btn') ? e.target : e.target.closest('.code-zoom-btn');
+                var codeBlockId = btn.getAttribute('data-code-id') || (btn.closest('.code-block') ? btn.closest('.code-block').id : null);
+                console.log('Delegated click, codeBlockId:', codeBlockId);
+                if (codeBlockId) {
+                    openCodeModal(codeBlockId, e);
+                }
+                return false;
+            }
+        });
         
         // Close on Escape key
         document.addEventListener('keydown', function(e) {
@@ -2309,7 +2372,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'        <span class="code-block-language">{language}</span>')
                     else:
                         html_parts.append(f'        <span class="code-block-language">CODE</span>')
-                    html_parts.append(f'        <button class="code-zoom-btn" onclick="openCodeModal(\'{code_block_id}\', event)" title="View fullscreen">🔍 Zoom</button>')
+                    html_parts.append(f'        <a href="javascript:void(0)" class="code-zoom-btn" data-code-id="{code_block_id}" title="View fullscreen">🔍 Zoom</a>')
                     html_parts.append(f'      </div>')
                     
                     html_parts.append('      <div class="code-content">')

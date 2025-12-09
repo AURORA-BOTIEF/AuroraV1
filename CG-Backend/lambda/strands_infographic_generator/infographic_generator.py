@@ -1363,9 +1363,10 @@ def lambda_handler(event, context):
         if not book_version_key:
             logger.info("🔎 No book_version_key provided, starting auto-discovery...")
             # Try multiple possible book folder structures (in priority order)
+            # Note: versions/ folder has the latest edited versions, prioritize it
             possible_folders = [
-                f"{project_folder}/versions/",          # Versioned books (newest first)
-                f"{project_folder}/{book_type}-book/",  # New structure
+                f"{project_folder}/versions/",          # Latest edited versions (highest priority)
+                f"{project_folder}/{book_type}-book/",  # New structure (theory-book/, lab-book/)
                 f"{project_folder}/book/",              # Legacy structure
                 f"{project_folder}/"                     # Root folder
             ]
@@ -1471,7 +1472,7 @@ def lambda_handler(event, context):
             
             # Check if partial (timeout occurred)
             if structure.get('completion_status') == 'partial':
-                logger.info("⚠️ Partial structure returned due to timeout")
+                logger.info("⚠️ Partial structure returned (intermediate batch, not final)")
                 
                 # Save partial structure to S3 (shared file for incremental builds)
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
@@ -1482,24 +1483,52 @@ def lambda_handler(event, context):
                         existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
                         existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
                         
-                        # Append new slides
-                        existing_structure['slides'].extend(structure['slides'])
-                        existing_structure['total_slides'] = len(existing_structure['slides'])
-                        existing_structure['lessons_processed'] += structure['lessons_processed']
-                        existing_structure['last_batch_index'] = batch_index
+                        # CRITICAL: Check if existing structure is from a COMPLETED previous execution
+                        existing_exec_id = existing_structure.get('execution_id', '')
+                        existing_last_batch = existing_structure.get('last_batch_index', -1)
                         
-                        # Merge image mappings
-                        existing_mapping = existing_structure.get('image_url_mapping', {})
-                        new_mapping = structure.get('image_url_mapping', {})
-                        existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                        # If last_batch_index is higher than current-1, this is stale data from previous execution
+                        # Or if completion_status was 'complete', the old execution finished
+                        is_stale_data = (
+                            existing_structure.get('completion_status') == 'complete' or
+                            existing_last_batch >= batch_index
+                        )
                         
-                        structure = existing_structure
-                        logger.info(f"✅ Merged with existing structure (total: {structure['total_slides']} slides)")
+                        if is_stale_data:
+                            logger.warning(f"⚠️ Stale data detected! existing_last_batch={existing_last_batch}, current batch_index={batch_index}")
+                            logger.warning(f"⚠️ Previous execution_id={existing_exec_id}, completion_status={existing_structure.get('completion_status')}")
+                            logger.warning("⚠️ This is a NEW execution - starting fresh, not merging with old data")
+                            import uuid
+                            structure['execution_id'] = str(uuid.uuid4())[:8]
+                            structure['last_batch_index'] = batch_index
+                        else:
+                            # Same execution - safe to merge
+                            # Inherit the execution_id from the existing structure
+                            structure['execution_id'] = existing_exec_id
+                            
+                            existing_structure['slides'].extend(structure['slides'])
+                            existing_structure['total_slides'] = len(existing_structure['slides'])
+                            existing_structure['lessons_processed'] += structure['lessons_processed']
+                            existing_structure['last_batch_index'] = batch_index
+                            
+                            # Merge image mappings
+                            existing_mapping = existing_structure.get('image_url_mapping', {})
+                            new_mapping = structure.get('image_url_mapping', {})
+                            existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                            
+                            structure = existing_structure
+                            logger.info(f"✅ Merged with existing structure (total: {structure['total_slides']} slides)")
                     except Exception as e:
                         logger.warning(f"⚠️ Could not merge with existing structure: {e}")
+                        import uuid
+                        structure['execution_id'] = str(uuid.uuid4())[:8]
                         structure['last_batch_index'] = batch_index
                 else:
+                    # Batch 0 - initialize fresh structure with new execution_id
+                    import uuid
+                    structure['execution_id'] = str(uuid.uuid4())[:8]
                     structure['last_batch_index'] = batch_index
+                    logger.info(f"🆔 New execution started: {structure['execution_id']}")
                 
                 # Save updated structure
                 s3_client.put_object(
@@ -1538,23 +1567,48 @@ def lambda_handler(event, context):
                     existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
                     existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
                     
-                    # Append new slides
-                    previous_count = len(existing_structure.get('slides', []))
-                    existing_structure['slides'].extend(structure['slides'])
-                    existing_structure['total_slides'] = len(existing_structure['slides'])
-                    existing_structure['lessons_processed'] = existing_structure.get('lessons_processed', 0) + structure['lessons_processed']
-                    existing_structure['last_batch_index'] = batch_index
-                    existing_structure['completion_status'] = structure['completion_status']
+                    # CRITICAL: Check if existing structure is from a COMPLETED previous execution
+                    existing_exec_id = existing_structure.get('execution_id', '')
+                    existing_last_batch = existing_structure.get('last_batch_index', -1)
                     
-                    # Merge image mappings
-                    existing_mapping = existing_structure.get('image_url_mapping', {})
-                    new_mapping = structure.get('image_url_mapping', {})
-                    existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                    # If last_batch_index is higher than current-1, this is stale data from previous execution
+                    # Or if completion_status was 'complete', the old execution finished
+                    is_stale_data = (
+                        existing_structure.get('completion_status') == 'complete' or
+                        existing_last_batch >= batch_index
+                    )
                     
-                    structure = existing_structure
-                    logger.info(f"✅ Merged batch {batch_index}: {previous_count} + {len(structure['slides']) - previous_count} = {structure['total_slides']} slides")
+                    if is_stale_data:
+                        logger.warning(f"⚠️ Stale data detected in complete batch! existing_last_batch={existing_last_batch}, current batch_index={batch_index}")
+                        logger.warning(f"⚠️ Previous execution_id={existing_exec_id}, completion_status={existing_structure.get('completion_status')}")
+                        logger.warning("⚠️ This is a NEW execution - starting fresh, not merging with old data")
+                        import uuid
+                        structure['execution_id'] = str(uuid.uuid4())[:8]
+                        structure['last_batch_index'] = batch_index
+                        previous_count = 0  # No merge, so previous count is 0
+                    else:
+                        # Same execution - safe to merge
+                        # Inherit the execution_id from the existing structure
+                        structure['execution_id'] = existing_exec_id
+                        
+                        previous_count = len(existing_structure.get('slides', []))
+                        existing_structure['slides'].extend(structure['slides'])
+                        existing_structure['total_slides'] = len(existing_structure['slides'])
+                        existing_structure['lessons_processed'] = existing_structure.get('lessons_processed', 0) + structure['lessons_processed']
+                        existing_structure['last_batch_index'] = batch_index
+                        existing_structure['completion_status'] = structure['completion_status']
+                        
+                        # Merge image mappings
+                        existing_mapping = existing_structure.get('image_url_mapping', {})
+                        new_mapping = structure.get('image_url_mapping', {})
+                        existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                        
+                        structure = existing_structure
+                        logger.info(f"✅ Merged batch {batch_index}: {previous_count} + {len(structure['slides']) - previous_count} = {structure['total_slides']} slides")
                 except Exception as e:
                     logger.warning(f"⚠️ Could not merge with existing structure: {e}")
+                    import uuid
+                    structure['execution_id'] = str(uuid.uuid4())[:8]
                     structure['last_batch_index'] = batch_index
                 
                 # Save updated structure
@@ -1593,9 +1647,14 @@ def lambda_handler(event, context):
                     html_key = None
                     html_url = None
             else:
-                # First batch - initialize structure
+                # First batch - initialize structure with new execution_id
+                import uuid
+                execution_id = body.get('execution_id') or str(uuid.uuid4())[:8]
+                
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
                 structure['last_batch_index'] = 0
+                structure['execution_id'] = execution_id
+                logger.info(f"🆔 New execution started (complete batch 0): {execution_id}")
                 
                 s3_client.put_object(
                     Bucket=course_bucket,

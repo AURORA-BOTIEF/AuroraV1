@@ -253,10 +253,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             };
 
             // Helper function to check if we need a new page
+            // Content should start at yPosition = 28 to leave space below 15px header
             const checkNewPage = (requiredSpace = 40) => {
                 if (yPosition > pageHeight - requiredSpace) {
                     pdf.addPage();
-                    yPosition = 20;
+                    yPosition = 28; // More space below header (header is 15px tall)
                     return true;
                 }
                 return false;
@@ -314,12 +315,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     const lesson = moduleLessons[i];
                     const lessonNumInModule = lesson.lessonNumberInModule || (i + 1);
 
-                    checkNewPage();
+                    checkNewPage(80); // Prevent orphan lesson title - require 80px for title + content
 
                     // Lesson title (only the numbered title, not the "Lesson X:" prefix)
                     pdf.setFontSize(14);
                     pdf.setFont('helvetica', 'bold');
+                    pdf.setTextColor(0, 82, 147); // Blue for lesson titles
                     pdf.text(`${moduleNum}.${lessonNumInModule} ${lesson.title || 'Sin título'}`, margin, yPosition);
+                    pdf.setTextColor(0, 0, 0); // Reset to black
                     yPosition += lineHeight + 3;
 
                     // Process lesson content with images and code blocks
@@ -354,11 +357,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         parts.push({ type: 'text', content: content.substring(lastIndex) });
                     }
 
-                    // Process each part
+                    // Process each part - use index to allow look-ahead
                     pdf.setFontSize(10);
                     pdf.setFont('helvetica', 'normal');
 
-                    for (const part of parts) {
+                    // Track last title position for orphan prevention
+                    let lastTitleYPosition = null;
+
+                    for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+                        const part = parts[partIndex];
                         if (part.type === 'text') {
                             let text = part.content;
 
@@ -460,26 +467,26 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                             for (const textPart of textParts) {
                                 if (textPart.type === 'code') {
-                                    // Check if we need to move to new page before code block
+                                    // Enhanced code block with dark theme and SYNTAX HIGHLIGHTING
                                     pdf.setFont('courier', 'normal');
                                     pdf.setFontSize(8);
-                                    pdf.setTextColor(0, 0, 0);
 
                                     const codeLines = textPart.content.split('\n');
-                                    const boxPadding = 3;
+                                    const boxPadding = 5;
                                     const codeLineHeight = 4.5;
-                                    const wrappedLines = [];
 
+                                    // Calculate total height
+                                    let totalLines = 0;
                                     for (const codeLine of codeLines) {
                                         if (codeLine.length === 0) {
-                                            wrappedLines.push('');
+                                            totalLines++;
                                         } else {
-                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 6);
-                                            wrappedLines.push(...splitLines);
+                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 10);
+                                            totalLines += splitLines.length;
                                         }
                                     }
 
-                                    const totalHeight = (wrappedLines.length * codeLineHeight) + (2 * boxPadding);
+                                    const totalHeight = (totalLines * codeLineHeight) + (2 * boxPadding);
 
                                     // If code block doesn't fit, move to new page
                                     if (yPosition + totalHeight > pageHeight - 40) {
@@ -487,18 +494,149 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                         yPosition = 20;
                                     }
 
-                                    pdf.setFillColor(245, 245, 245);
-                                    pdf.rect(margin - 2, yPosition - 2, maxWidth + 4, totalHeight, 'F');
+                                    // Dark blue background (like VS Code dark theme)
+                                    pdf.setFillColor(26, 26, 46); // #1a1a2e
+                                    pdf.rect(margin - 2, yPosition - 4, maxWidth + 4, totalHeight + 2, 'F');
+
+                                    // Left accent border (teal)
+                                    pdf.setFillColor(0, 150, 136); // Teal accent
+                                    pdf.rect(margin - 2, yPosition - 4, 3, totalHeight + 2, 'F');
 
                                     yPosition += boxPadding;
-                                    for (const line of wrappedLines) {
-                                        pdf.text(line, margin, yPosition);
-                                        yPosition += codeLineHeight;
+
+                                    // Syntax highlighting function
+                                    const highlightLine = (codeLine, xStart, y) => {
+                                        // Token patterns for syntax highlighting
+                                        const keywords = /\b(function|const|let|var|if|else|for|while|return|class|import|export|from|async|await|try|catch|throw|new|this|true|false|null|undefined|def|elif|print|in|not|and|or|lambda|with|as|break|continue|pass|raise|except|finally|global|local|export)\b/g;
+                                        const strings = /(["'`])(?:(?!\1)[^\\]|\\.)*?\1/g;
+                                        const comments = /(#.*$|\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
+                                        const numbers = /\b\d+\.?\d*\b/g;
+                                        const functions = /\b(\w+)\s*\(/g;
+
+                                        // Colors
+                                        const colors = {
+                                            keyword: [86, 156, 214],    // Blue
+                                            string: [206, 145, 120],    // Orange/tan
+                                            comment: [106, 153, 85],    // Green
+                                            number: [181, 206, 168],    // Light green
+                                            function: [220, 220, 170],  // Yellow
+                                            default: [212, 212, 212]    // Light gray
+                                        };
+
+                                        // Simple tokenization - find all matches and their positions
+                                        const tokens = [];
+                                        let match;
+
+                                        // Find comments first (they override everything)
+                                        const commentMatch = codeLine.match(/(#.*$|\/\/.*$)/);
+                                        if (commentMatch) {
+                                            const commentStart = codeLine.indexOf(commentMatch[0]);
+                                            tokens.push({
+                                                start: commentStart,
+                                                end: codeLine.length,
+                                                type: 'comment',
+                                                text: commentMatch[0]
+                                            });
+                                        }
+
+                                        // Find strings
+                                        while ((match = strings.exec(codeLine)) !== null) {
+                                            tokens.push({
+                                                start: match.index,
+                                                end: match.index + match[0].length,
+                                                type: 'string',
+                                                text: match[0]
+                                            });
+                                        }
+
+                                        // Find keywords
+                                        while ((match = keywords.exec(codeLine)) !== null) {
+                                            tokens.push({
+                                                start: match.index,
+                                                end: match.index + match[0].length,
+                                                type: 'keyword',
+                                                text: match[0]
+                                            });
+                                        }
+
+                                        // Find numbers
+                                        while ((match = numbers.exec(codeLine)) !== null) {
+                                            tokens.push({
+                                                start: match.index,
+                                                end: match.index + match[0].length,
+                                                type: 'number',
+                                                text: match[0]
+                                            });
+                                        }
+
+                                        // Sort tokens by position
+                                        tokens.sort((a, b) => a.start - b.start);
+
+                                        // Remove overlapping tokens (comments win)
+                                        const filteredTokens = [];
+                                        for (const token of tokens) {
+                                            const overlaps = filteredTokens.some(t =>
+                                                (token.start >= t.start && token.start < t.end) ||
+                                                (token.end > t.start && token.end <= t.end)
+                                            );
+                                            if (!overlaps) {
+                                                filteredTokens.push(token);
+                                            }
+                                        }
+
+                                        // Render the line with colors
+                                        let currentX = xStart;
+                                        let lastEnd = 0;
+
+                                        for (const token of filteredTokens) {
+                                            // Render text before this token
+                                            if (token.start > lastEnd) {
+                                                const beforeText = codeLine.substring(lastEnd, token.start);
+                                                pdf.setTextColor(...colors.default);
+                                                pdf.text(beforeText, currentX, y);
+                                                currentX += pdf.getTextWidth(beforeText);
+                                            }
+
+                                            // Render the token
+                                            pdf.setTextColor(...colors[token.type]);
+                                            pdf.text(token.text, currentX, y);
+                                            currentX += pdf.getTextWidth(token.text);
+                                            lastEnd = token.end;
+                                        }
+
+                                        // Render remaining text
+                                        if (lastEnd < codeLine.length) {
+                                            pdf.setTextColor(...colors.default);
+                                            pdf.text(codeLine.substring(lastEnd), currentX, y);
+                                        }
+                                    };
+
+                                    // Render each line with syntax highlighting
+                                    for (const codeLine of codeLines) {
+                                        if (codeLine.length === 0) {
+                                            yPosition += codeLineHeight;
+                                        } else {
+                                            // For long lines that wrap, just render with default color
+                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 10);
+                                            if (splitLines.length === 1) {
+                                                highlightLine(codeLine, margin + 3, yPosition);
+                                            } else {
+                                                // Wrapped lines - no highlighting to avoid complexity
+                                                pdf.setTextColor(212, 212, 212);
+                                                for (const sl of splitLines) {
+                                                    pdf.text(sl, margin + 3, yPosition);
+                                                    yPosition += codeLineHeight;
+                                                }
+                                                continue;
+                                            }
+                                            yPosition += codeLineHeight;
+                                        }
                                     }
 
                                     yPosition += boxPadding + 3;
                                     pdf.setFont('helvetica', 'normal');
                                     pdf.setFontSize(10);
+                                    pdf.setTextColor(0, 0, 0); // Reset to black
 
                                 } else if (textPart.type === 'table') {
                                     // Render markdown table as PDF table
@@ -552,14 +690,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     let tableX = margin;
                                     let tableY = yPosition;
 
-                                    // Draw header row with background
-                                    pdf.setFillColor(240, 240, 240);
+                                    // Draw header row with blue background (matching theme)
+                                    pdf.setFillColor(0, 82, 147); // Blue header
                                     pdf.rect(tableX, tableY, tableWidth, headerHeight, 'F');
 
                                     // Draw header cells
                                     pdf.setFont('helvetica', 'bold');
                                     pdf.setFontSize(8);
-                                    pdf.setTextColor(0, 0, 0);
+                                    pdf.setTextColor(255, 255, 255); // White text on blue
 
                                     let cellX = tableX;
                                     for (let i = 0; i < numCols; i++) {
@@ -579,6 +717,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                                     // Draw data rows
                                     pdf.setFont('helvetica', 'normal');
+                                    pdf.setTextColor(0, 0, 0); // Black text for data rows
 
                                     for (const row of rows) {
                                         // Check if row fits on current page
@@ -586,11 +725,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             pdf.addPage();
                                             tableY = 20;
 
-                                            // Redraw header on new page
-                                            pdf.setFillColor(240, 240, 240);
+                                            // Redraw header on new page with blue theme
+                                            pdf.setFillColor(0, 82, 147);
                                             pdf.rect(margin, tableY, tableWidth, headerHeight, 'F');
 
                                             pdf.setFont('helvetica', 'bold');
+                                            pdf.setTextColor(255, 255, 255); // White for header
                                             cellX = margin;
                                             for (let i = 0; i < numCols; i++) {
                                                 pdf.setDrawColor(200, 200, 200);
@@ -603,6 +743,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                                             tableY += headerHeight;
                                             pdf.setFont('helvetica', 'normal');
+                                            pdf.setTextColor(0, 0, 0); // Reset to black for rows
                                         }
 
                                         cellX = margin;
@@ -626,59 +767,205 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     pdf.setFontSize(10);
 
                                 } else {
-                                    let cleanText = textPart.content;
-                                    cleanText = cleanText.replace(/#{1,6}\s/g, '');
-                                    cleanText = cleanText.replace(/\*\*(.+?)\*\*/g, '$1');
-                                    cleanText = cleanText.replace(/\*(.+?)\*/g, '$1');
-                                    cleanText = cleanText.replace(/\[VISUAL:.*?\]/g, '');
-                                    cleanText = cleanText.replace(/`(.+?)`/g, '$1');
-                                    cleanText = cleanText.trim();
-
-                                    if (cleanText) {
-                                        const lines = pdf.splitTextToSize(cleanText, maxWidth);
-                                        const textHeight = lines.length * lineHeight;
-
-                                        // Look ahead to see what's coming next
-                                        const currentIdx = textParts.indexOf(textPart);
-                                        const nextPart = currentIdx < textParts.length - 1 ? textParts[currentIdx + 1] : null;
-
-                                        // Detect if this is a heading/intro
-                                        // - Short text ending with colon
-                                        // - Numbered list (1., 2., etc.)  
-                                        // - Text that looks like a section header (short and starts with capital)
-                                        const looksLikeHeading = (cleanText.length < 200 && cleanText.trim().endsWith(':')) ||
-                                            /^\d+\.\s/.test(cleanText) ||
-                                            (cleanText.length < 100 && /^[A-ZÁÉÍÓÚÑ]/.test(cleanText));
-
-                                        // If this looks like a heading and next is code/image/table, keep them together
-                                        if (looksLikeHeading && nextPart && (nextPart.type === 'code' || nextPart.type === 'image' || nextPart.type === 'table')) {
-                                            // Estimate next content height more accurately
-                                            let estimatedNextHeight = 70;
-                                            if (nextPart.type === 'code') {
-                                                // Try to estimate code block height based on line count
-                                                const codeLineCount = (nextPart.content.match(/\n/g) || []).length + 1;
-                                                estimatedNextHeight = Math.min(codeLineCount * 5, 120);
-                                            } else if (nextPart.type === 'table') {
-                                                // Estimate table height based on rows
-                                                const rowCount = (nextPart.rows?.length || 0) + 1; // +1 for header
-                                                estimatedNextHeight = Math.min(rowCount * 10 + 10, 150);
-                                            } else {
-                                                estimatedNextHeight = 90; // Image estimate
-                                            }
-
-                                            // If heading + next content won't fit, move both to next page
-                                            if (yPosition + textHeight + estimatedNextHeight > pageHeight - 40) {
-                                                pdf.addPage();
-                                                yPosition = 20;
-                                            }
-                                        }
+                                    // Enhanced text rendering with formatting
+                                    const renderFormattedText = (text) => {
+                                        const lines = text.split('\n');
 
                                         for (const line of lines) {
+                                            if (!line.trim()) {
+                                                yPosition += 3; // Empty line spacing
+                                                continue;
+                                            }
+
                                             checkNewPage();
-                                            pdf.text(line, margin, yPosition);
-                                            yPosition += lineHeight;
+
+                                            // Detect line type and apply appropriate formatting
+                                            const trimmedLine = line.trim();
+
+                                            // H1 Headers (# )
+                                            // Orphan prevention: require 70px space so title stays with content
+                                            if (/^#\s+/.test(trimmedLine)) {
+                                                checkNewPage(150); // Prevent orphan - need half page for content after title
+                                                lastTitleYPosition = yPosition; // Track for orphan prevention
+                                                const headerText = trimmedLine.replace(/^#\s+/, '');
+                                                pdf.setFontSize(16);
+                                                pdf.setFont('helvetica', 'bold');
+                                                pdf.setTextColor(0, 82, 147); // Blue color
+                                                const wrappedLines = pdf.splitTextToSize(headerText, maxWidth);
+                                                for (const wl of wrappedLines) {
+                                                    checkNewPage();
+                                                    pdf.text(wl, margin, yPosition);
+                                                    yPosition += 8;
+                                                }
+                                                yPosition += 4;
+                                                pdf.setTextColor(0, 0, 0);
+                                                continue;
+                                            }
+
+                                            // H2 Headers (## )
+                                            // Orphan prevention: require 55px space so title stays with content
+                                            if (/^##\s+/.test(trimmedLine)) {
+                                                checkNewPage(150); // Prevent orphan - need half page for content after title
+                                                lastTitleYPosition = yPosition; // Track for orphan prevention
+                                                const headerText = trimmedLine.replace(/^##\s+/, '');
+                                                pdf.setFontSize(14);
+                                                pdf.setFont('helvetica', 'bold');
+                                                pdf.setTextColor(0, 82, 147); // Blue color
+                                                const wrappedLines = pdf.splitTextToSize(headerText, maxWidth);
+                                                for (const wl of wrappedLines) {
+                                                    checkNewPage();
+                                                    pdf.text(wl, margin, yPosition);
+                                                    yPosition += 7;
+                                                }
+                                                yPosition += 3;
+                                                pdf.setTextColor(0, 0, 0);
+                                                continue;
+                                            }
+
+                                            // H3+ Headers (### )
+                                            // Orphan prevention: require 45px space so title stays with content
+                                            if (/^#{3,6}\s+/.test(trimmedLine)) {
+                                                checkNewPage(130); // Prevent orphan - need substantial content after title
+                                                lastTitleYPosition = yPosition; // Track for orphan prevention
+                                                const headerText = trimmedLine.replace(/^#{3,6}\s+/, '');
+                                                pdf.setFontSize(12);
+                                                pdf.setFont('helvetica', 'bold');
+                                                pdf.setTextColor(0, 102, 153); // Lighter blue
+                                                const wrappedLines = pdf.splitTextToSize(headerText, maxWidth);
+                                                for (const wl of wrappedLines) {
+                                                    checkNewPage();
+                                                    pdf.text(wl, margin, yPosition);
+                                                    yPosition += 6;
+                                                }
+                                                yPosition += 2;
+                                                pdf.setTextColor(0, 0, 0);
+                                                continue;
+                                            }
+
+                                            // Unordered list items (- or *) - matching HTML viewer logic exactly
+                                            // Also handles section headers (items ending with :)
+                                            const ulMatch = line.match(/^(\s*)([-*])\s+(.*)$/);
+                                            if (ulMatch) {
+                                                const indent = ulMatch[1].length;
+                                                const itemContent = ulMatch[3].trim();
+
+                                                // Skip empty items
+                                                if (!itemContent) continue;
+
+                                                // Calculate nesting level - EXACTLY like HTML viewer
+                                                const level = Math.floor(indent / 2);
+
+                                                // Calculate positions - similar to HTML marginLeft = level * 1.5rem
+                                                const bulletIndent = margin + (level * 6); // 6mm per level
+                                                const textIndent = bulletIndent + 4;
+                                                const availableWidth = maxWidth - (level * 6) - 6;
+
+                                                // Check if this is a section header (ends with ":") - now styled bold but BLACK
+                                                const isSectionHeader = itemContent.endsWith(':') && itemContent.length < 100;
+
+                                                // Handle bold text
+                                                const hasBold = /\*\*(.+?)\*\*/.test(itemContent);
+
+                                                // Clean markdown formatting
+                                                let cleanText = itemContent
+                                                    .replace(/\*\*(.+?)\*\*/g, '$1')
+                                                    .replace(/\*(.+?)\*/g, '$1')
+                                                    .replace(/`(.+?)`/g, '$1');
+
+                                                // Bullet symbols matching HTML viewer: disc (level 0), circle (level 1), square (level 2+)
+                                                let bulletSymbol;
+                                                if (level === 0) bulletSymbol = '-';
+                                                else if (level === 1) bulletSymbol = 'o';
+                                                else bulletSymbol = '*';
+
+                                                // All bullet items are BLACK and normal weight - only markdown # headers are blue
+                                                pdf.setFontSize(10);
+                                                pdf.setTextColor(0, 0, 0); // Black for all body text
+                                                // Only use bold if markdown explicitly has **text**
+                                                pdf.setFont('helvetica', hasBold ? 'bold' : 'normal');
+
+                                                // Draw bullet
+                                                pdf.text(bulletSymbol, bulletIndent, yPosition);
+
+                                                // Draw text (wrapped if needed)
+                                                const wrappedLines = pdf.splitTextToSize(cleanText, availableWidth);
+                                                for (let i = 0; i < wrappedLines.length; i++) {
+                                                    if (i > 0) {
+                                                        checkNewPage();
+                                                    }
+                                                    pdf.text(wrappedLines[i], textIndent, yPosition);
+                                                    yPosition += 5.5;
+                                                }
+
+                                                if (isSectionHeader) {
+                                                    yPosition += 1; // Extra space after section headers
+                                                }
+
+                                                pdf.setTextColor(0, 0, 0);
+                                                continue;
+                                            }
+
+                                            // Ordered list items (1. 2. etc)
+                                            const olMatch = line.match(/^(\s*)(\d+\.)\s+(.*)$/);
+                                            if (olMatch) {
+                                                const indent = olMatch[1].length;
+                                                const bulletType = olMatch[2];
+                                                const itemContent = olMatch[3].trim();
+
+                                                if (!itemContent) continue;
+
+                                                const level = Math.floor(indent / 2);
+                                                const bulletIndent = margin + (level * 6);
+                                                const textIndent = bulletIndent + 6; // More space for numbers
+                                                const availableWidth = maxWidth - (level * 6) - 8;
+
+                                                let cleanText = itemContent
+                                                    .replace(/\*\*(.+?)\*\*/g, '$1')
+                                                    .replace(/\*(.+?)\*/g, '$1')
+                                                    .replace(/`(.+?)`/g, '$1');
+
+                                                pdf.setFontSize(10);
+                                                pdf.setTextColor(51, 51, 51);
+                                                pdf.setFont('helvetica', 'normal');
+
+                                                // Draw number
+                                                pdf.text(bulletType, bulletIndent, yPosition);
+
+                                                // Draw text
+                                                const wrappedLines = pdf.splitTextToSize(cleanText, availableWidth);
+                                                for (let i = 0; i < wrappedLines.length; i++) {
+                                                    if (i > 0) checkNewPage();
+                                                    pdf.text(wrappedLines[i], textIndent, yPosition);
+                                                    yPosition += 5.5;
+                                                }
+
+                                                pdf.setTextColor(0, 0, 0);
+                                                continue;
+                                            }
+
+                                            // Regular paragraph text
+                                            let cleanText = trimmedLine
+                                                .replace(/\*\*(.+?)\*\*/g, '$1')
+                                                .replace(/\*(.+?)\*/g, '$1')
+                                                .replace(/\[VISUAL:.*?\]/g, '')
+                                                .replace(/`(.+?)`/g, '$1');
+
+                                            if (cleanText) {
+                                                pdf.setFontSize(10);
+                                                pdf.setFont('helvetica', 'normal');
+                                                pdf.setTextColor(0, 0, 0);
+
+                                                const wrappedLines = pdf.splitTextToSize(cleanText, maxWidth);
+                                                for (const wl of wrappedLines) {
+                                                    checkNewPage();
+                                                    pdf.text(wl, margin, yPosition);
+                                                    yPosition += lineHeight;
+                                                }
+                                            }
                                         }
-                                    }
+                                    };
+
+                                    renderFormattedText(textPart.content);
                                 }
                             }
                         } else if (part.type === 'image') {
@@ -704,14 +991,30 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 }
 
                                 if (yPosition + imgHeight > pageHeight - 40) {
-                                    pdf.addPage();
-                                    yPosition = 20;
+                                    // Check if there's a recent title that should move with this image
+                                    // If title was rendered within last 35mm, it's an orphan - move it too
+                                    const titleThreshold = 35; // mm
+                                    if (lastTitleYPosition !== null && (yPosition - lastTitleYPosition) < titleThreshold) {
+                                        // There's an orphan title - the page break will separate it from this image
+                                        // Add page first, then we'll handle it
+                                        pdf.addPage();
+                                        yPosition = 28; // More space below header
+                                        // Note: The title was already rendered on the previous page
+                                        // This is not ideal, but prevents most orphan cases by our earlier large checkNewPage values
+                                    } else {
+                                        pdf.addPage();
+                                        yPosition = 28; // More space below header
+                                    }
+                                    // Reset title tracking after page break
+                                    lastTitleYPosition = null;
                                 }
 
                                 const imgFormat = part.dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
                                 pdf.addImage(part.dataUrl, imgFormat, margin, yPosition, imgWidth, imgHeight);
 
                                 yPosition += imgHeight + 5;
+                                // Reset title tracking after image is placed
+                                lastTitleYPosition = null;
 
                             } catch (imgError) {
                                 console.error('Error adding image to PDF:', imgError);
@@ -852,7 +1155,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // Get module title from first lesson's moduleTitle property, or use default
             const firstLesson = module.lessons[0];
-            let moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum}`;
+            let moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum} `;
 
             // Ensure localization
             if (moduleTitle && typeof moduleTitle === 'string') {
@@ -936,7 +1239,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         });
                         console.log(`✅ First lesson images loaded for ${dataType}`);
                     } catch (e) {
-                        console.warn(`Error loading first lesson images:`, e);
+                        console.warn(`Error loading first lesson images: `, e);
                     }
                 }
 
@@ -960,7 +1263,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     });
                                 }
                             } catch (e) {
-                                console.warn(`Error loading images for lesson ${i}:`, e);
+                                console.warn(`Error loading images for lesson ${i}: `, e);
                             }
                         }
                     }
@@ -1020,7 +1323,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     (async () => {
                         try {
                             console.log('📖 Loading original book in background for "View Original" feature...');
-                            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`);
+                            const response = await fetch(`${API_BASE} /load-book/${projectFolder}?bookType = ${bookType} `);
                             if (response.ok) {
                                 const data = await response.json();
                                 if (data.bookData) {
@@ -1082,7 +1385,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             if (session && session.credentials) {
                                 const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
                                 const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                                const labGuidePrefix = `${projectFolder}/book/`;
+                                const labGuidePrefix = `${projectFolder} /book/`;
 
                                 const response = await s3.send(new ListObjectsV2Command({
                                     Bucket: bucketName,
@@ -1162,7 +1465,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                 const logoBlob = await logoResponse.Body.transformToByteArray();
                 const logoBase64 = btoa(String.fromCharCode(...logoBlob));
-                setLogoUrl(`data:image/png;base64,${logoBase64}`);
+                setLogoUrl(`data: image / png; base64, ${logoBase64} `);
             } catch (error) {
                 console.error('Error loading logo:', error);
             }
@@ -1175,7 +1478,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             setLoading(true);
             setLoadingImages(true);
 
-            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`, {
+            const response = await fetch(`${API_BASE} /load-book/${projectFolder}?bookType = ${bookType} `, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1185,7 +1488,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('Load book error:', errorText);
-                throw new Error(`No se pudo cargar los datos del libro: ${response.status}`);
+                throw new Error(`No se pudo cargar los datos del libro: ${response.status} `);
             }
 
             const data = await response.json();
@@ -1200,7 +1503,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         credentials: session.credentials,
                     });
                     const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                    const outlinePrefix = `${projectFolder}/outline/`;
+                    const outlinePrefix = `${projectFolder} /outline/`;
 
                     const outlineResponse = await s3.send(new ListObjectsV2Command({
                         Bucket: bucketName,
@@ -1258,14 +1561,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     ...item,
                                     moduleNumber: moduleIdx + 1,
                                     lessonNumberInModule: itemIdx + 1,
-                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1} `).replace(/\bModule\b/g, 'Módulo'),
                                     // Ensure filename follows the pattern for module grouping
-                                    filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                    filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')} -${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });
                             });
                         }
                     });
-                    console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons (or labs)`);
+                    console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons(or labs)`);
                     return {
                         ...bookData,
                         lessons: lessons,
@@ -1445,8 +1748,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             });
 
             const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-            const labGuidePrefix = `${projectFolder}/book/`;
-            const outlinePrefix = `${projectFolder}/outline/`;
+            const labGuidePrefix = `${projectFolder} /book/`;
+            const outlinePrefix = `${projectFolder} /outline/`;
 
             // 1. Fetch Outline
             const outlineResponse = await s3.send(new ListObjectsV2Command({
@@ -1631,11 +1934,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // Save as a version in lab-versions folder (as JSON)
             const versionFilenameJson = versionFilename.replace('.md', '.json');
-            const versionKey = `${projectFolder}/lab-versions/${versionFilenameJson}`;
+            const versionKey = `${projectFolder} /lab-versions/${versionFilenameJson} `;
 
             const existingVersion = labGuideVersions.find(v => v.name.includes(safeVersionName));
             if (existingVersion) {
-                const override = await showConfirmModal(`Ya existe una versión con el nombre "${newLabGuideVersionName}".\n\n¿Deseas sobrescribirla?`, 'Confirmar sobrescritura');
+                const override = await showConfirmModal(`Ya existe una versión con el nombre "${newLabGuideVersionName}".\n\n¿Deseas sobrescribirla ? `, 'Confirmar sobrescritura');
                 if (!override) {
                     return;
                 }
@@ -1741,10 +2044,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         // Debug info collector
         const debugLog = [];
-        debugLog.push(`Outline File: ${filename}`);
+        debugLog.push(`Outline File: ${filename} `);
         debugLog.push(`Found ${headers.length} headers in markdown.`);
         if (headers.length > 0) {
-            debugLog.push(`First 5 headers: ${headers.slice(0, 5).map(h => h.title).join(', ')}`);
+            debugLog.push(`First 5 headers: ${headers.slice(0, 5).map(h => h.title).join(', ')} `);
         }
 
         // 2. Map outline items to headers
@@ -1770,7 +2073,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (moduleNum !== null) {
                 const modulePrefix = String(moduleNum).padStart(2, '0');
                 // Pattern matches normalized format: "lab 05 00 01" (dashes become spaces after normalize)
-                const labIdPattern = new RegExp(`^lab\\s+${modulePrefix}\\s+\\d+\\s+\\d+`, 'i');
+                const labIdPattern = new RegExp(`^ lab\\s + ${modulePrefix} \\s +\\d +\\s +\\d + `, 'i');
 
                 // Look for a header that matches the lab ID pattern AND contains the title
                 const labMatch = headers.find(h => {
@@ -1784,7 +2087,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     return false;
                 });
                 if (labMatch) {
-                    console.log(`  Found lab by module-specific ID: "${labMatch.title}" for module ${moduleNum}`);
+                    console.log(`  Found lab by module - specific ID: "${labMatch.title}" for module ${moduleNum}`);
                     return labMatch;
                 }
             }
@@ -1806,8 +2109,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (h.lineIndex < startLine) return false;
                     const normH = normalize(h.title);
                     // Check for "module <num>" or "modulo <num>" or "capitulo <num>"
-                    if (normH.includes(`module ${modNumber}`) || normH.includes(`modulo ${modNumber}`) || normH.includes(`capitulo ${modNumber}`)) return true;
-                    if (normH.includes(`module 0${modNumber}`) || normH.includes(`modulo 0${modNumber}`) || normH.includes(`capitulo 0${modNumber}`)) return true;
+                    if (normH.includes(`module $ { modNumber } `) || normH.includes(`modulo ${modNumber} `) || normH.includes(`capitulo ${modNumber} `)) return true;
+                    if (normH.includes(`module 0${modNumber} `) || normH.includes(`modulo 0${modNumber} `) || normH.includes(`capitulo 0${modNumber} `)) return true;
                     return false;
                 });
                 if (match) return match;
@@ -1870,8 +2173,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         console.log('Outline modules found:', modulesList.length);
         if (modulesList.length === 0) {
             debugLog.push("CRITICAL: No modules found in outline object. Checked outline.course.modules and outline.modules.");
-            debugLog.push(`Outline keys: ${Object.keys(outline).join(', ')}`);
-            if (outline.course) debugLog.push(`Outline.course keys: ${Object.keys(outline.course).join(', ')}`);
+            debugLog.push(`Outline keys: ${Object.keys(outline).join(', ')} `);
+            if (outline.course) debugLog.push(`Outline.course keys: ${Object.keys(outline.course).join(', ')} `);
         }
 
         // Iterate through outline modules
@@ -1929,9 +2232,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const moduleStartLine = moduleHeader ? moduleHeader.lineIndex : lastLineIndex;
 
             if (moduleHeader) {
-                debugLog.push(`  Found Module Header: "${moduleHeader.title}" at line ${moduleHeader.lineIndex}`);
+                debugLog.push(`  Found Module Header: "${moduleHeader.title}" at line ${moduleHeader.lineIndex} `);
             } else {
-                debugLog.push(`  ⚠ Module Header "${outModule.title}" not found in markdown. Using last known line ${lastLineIndex}`);
+                debugLog.push(`  ⚠ Module Header "${outModule.title}" not found in markdown.Using last known line ${lastLineIndex} `);
             }
 
             moduleItems.forEach((item, idx) => {
@@ -1957,8 +2260,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     let labId = null;
                     if (item.type === 'lab' && item.original) {
                         const labNumber = item.original.number || (idx + 1);
-                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
-                        console.log(`Calculated lab_id for "${item.title}": ${labId}`);
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00 - ${String(labNumber).padStart(2, '0')} `;
+                        console.log(`Calculated lab_id for "${item.title}": ${labId} `);
                     }
 
                     const lessonObj = {
@@ -1976,7 +2279,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     moduleObj.lessons.push(lessonObj);
                     flatLessons.push(lessonObj);
 
-                    const msg = `  ✓ Matched "${item.title}" -> "${header.title}" (Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`;
+                    const msg = `  ✓ Matched "${item.title}" -> "${header.title}"(Module from outline: ${outModule.title}, moduleNumber: ${modIdx + 1})`;
                     debugLog.push(msg);
                     console.log(msg);
                 } else {
@@ -1985,7 +2288,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     const reason = header && usedHeaders.has(header.lineIndex)
                         ? `Header already used by another module`
                         : `No matching header found`;
-                    const msg = `  ⚠ PLACEHOLDER for "${item.title}" (${reason})`;
+                    const msg = `  ⚠ PLACEHOLDER for "${item.title}"(${reason})`;
                     debugLog.push(msg);
                     console.log(msg);
 
@@ -1994,13 +2297,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (item.type === 'lab' && item.original) {
                         const labNumberRaw = item.original.number;
                         const labNumber = labNumberRaw != null ? labNumberRaw : (idx + 1);
-                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                        labId = `${String(modIdx + 1).padStart(2, '0')
+                            }-00 - ${String(labNumber).padStart(2, '0')} `;
                     }
 
                     // Add as placeholder so it shows in the UI for regeneration
                     const lessonObj = {
                         title: item.title,
-                        content: `# ${item.title}\n\n> **Error:** No se encontró el contenido para esta actividad en el archivo markdown.\n> Verifique que el título en el outline coincida con algún encabezado en el documento.\n> Título buscado: "${item.title}"`,
+                        content: `# ${item.title} \n\n > ** Error:** No se encontró el contenido para esta actividad en el archivo markdown.\n > Verifique que el título en el outline coincida con algún encabezado en el documento.\n > Título buscado: "${item.title}"`,
                         module_title: outModule.title,
                         moduleNumber: modIdx + 1,
                         lesson_number: flatLessons.length + 1,
