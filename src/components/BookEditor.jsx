@@ -1954,7 +1954,34 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // But here, let's keep the header if it's part of the flow, or remove it if it duplicates the sidebar title.
             // Let's exclude the header line.
             const contentLines = lines.slice(lesson.startLine + 1, endLine);
-            lesson.content = contentLines.join('\n').trim();
+            let content = contentLines.join('\n').trim();
+
+            // Clean up trailing content that shouldn't be part of this lesson:
+            // - "# Module X Labs" or "## Module X Labs" headers and everything after
+            // - "# Lab N:" or "## Lab N:" headers and everything after  
+            // - Trailing separators like "---"
+            // These can bleed in when the next section's header wasn't matched
+
+            // Find the first occurrence of a Module header pattern and remove from there to end
+            const moduleHeaderMatch = content.match(/(?:^|\n)(#{1,6}\s*Module\s+\d+\s*Labs?)/im);
+            if (moduleHeaderMatch && moduleHeaderMatch.index !== undefined) {
+                const cutPoint = moduleHeaderMatch.index;
+                content = content.substring(0, cutPoint);
+            }
+
+            // Find trailing Lab headers (## Lab N: ...) and remove from there
+            const labHeaderMatch = content.match(/(?:^|\n)(#{1,6}\s*Lab\s+\d+\s*:\s*[^\n]+)/im);
+            if (labHeaderMatch && labHeaderMatch.index !== undefined) {
+                // Only cut if it's near the end (in last 30% of content) to avoid cutting legitimate internal references
+                if (labHeaderMatch.index > content.length * 0.7) {
+                    content = content.substring(0, labHeaderMatch.index);
+                }
+            }
+
+            // Remove trailing separators and whitespace
+            content = content.replace(/\n*---\s*$/g, '').trim();
+
+            lesson.content = content.trim();
 
             delete lesson.startLine;
         });
@@ -1981,18 +2008,48 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         console.log('Input markdown length:', markdown.length);
         console.log('First 200 chars:', markdown.substring(0, 200));
 
+        // Pre-processing: Remove trailing Module/Lab headers that shouldn't be displayed
+        // These can bleed in from saved versions or incorrect content boundaries
+        let processedMarkdown = markdown;
+
+        // Find and remove "# Module X Labs" headers and everything after
+        const moduleMatch = processedMarkdown.match(/(?:^|\n)(#{1,6}\s*Module\s+\d+\s*Labs?)/im);
+        if (moduleMatch && moduleMatch.index !== undefined) {
+            console.log('Stripping trailing Module header at position:', moduleMatch.index);
+            processedMarkdown = processedMarkdown.substring(0, moduleMatch.index);
+        }
+
+        // Find and remove trailing "## Lab N: Title" headers (if in last 30% of content)
+        const labMatch = processedMarkdown.match(/(?:^|\n)(#{1,6}\s*Lab\s+\d+\s*:\s*[^\n]+)/im);
+        if (labMatch && labMatch.index !== undefined && labMatch.index > processedMarkdown.length * 0.7) {
+            console.log('Stripping trailing Lab header at position:', labMatch.index);
+            processedMarkdown = processedMarkdown.substring(0, labMatch.index);
+        }
+
+        // Remove trailing separators
+        processedMarkdown = processedMarkdown.replace(/\n*---\s*$/g, '').trim();
+
         // Split into lines so we can group lists and preserve block structure
-        const lines = markdown.split('\n');
+        const lines = processedMarkdown.split('\n');
         let out = '';
         let inUl = false;
         let inOl = false;
         let inCodeBlock = false;
         let codeBlockContent = '';
         let codeBlockLanguage = '';
+        let inTable = false; // Track if we're inside a table
 
         const closeLists = () => {
             if (inUl) { out += '</ul>'; inUl = false; }
             if (inOl) { out += '</ol>'; inOl = false; }
+        };
+
+        // Helper to close any open table
+        const closeTable = () => {
+            if (inTable) {
+                out += '</tbody></table>';
+                inTable = false;
+            }
         };
 
         // Helper function to apply inline formatting (bold, italic, inline code)
@@ -2007,11 +2064,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 .replace(/\s"""(\s|$)/g, '$1') // Remove """ with surrounding spaces
                 .replace(/\s```(\s|$)/g, '$1'); // Remove ``` with surrounding spaces
 
-            // Apply inline code, bold, italic formatting
+            // Apply inline code, bold, italic, and link formatting
             return result
                 .replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: \'Courier New\', monospace;">$1</code>')
                 .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*([^\*]+)\*/g, '<em>$1</em>');
+                .replace(/\*([^\*]+)\*/g, '<em>$1</em>')
+                // Markdown links: [text](url) - convert to anchor tags
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #2563eb; text-decoration: underline;">$1</a>');
         };
 
         for (let rawLine of lines) {
@@ -2090,6 +2149,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // Headings h1..h6 (support ###### .. #)
             const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
             if (hMatch) {
+                closeTable(); // Close any open table before heading
                 closeLists();
                 const level = Math.min(6, hMatch[1].length);
                 out += `<h${level}>${applyInlineFormatting(hMatch[2].trim())}</h${level}>`;
@@ -2100,8 +2160,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // Blockquote
             const bq = line.match(/^>\s?(.*)$/);
             if (bq) {
+                closeTable(); // Close any open table before blockquote
                 closeLists();
-                out += `blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
+                out += `<blockquote>${applyInlineFormatting(bq[1])}</blockquote>`;
                 continue;
             }
 
@@ -2262,14 +2323,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     continue;
                 }
 
-                // Check if we're starting a new table (no table yet, or all previous tables are closed)
-                const isStartingNewTable = !out.includes('<table') || out.lastIndexOf('</table>') > out.lastIndexOf('<table');
+                // Check if we're starting a new table
+                const isStartingNewTable = !inTable;
 
                 // The first row of any new table is treated as a header row
                 const isHeaderRow = isStartingNewTable || cells.some(c => /^\*\*/.test(c));
 
                 // Start table if not already in one
                 if (isStartingNewTable) {
+                    inTable = true; // Mark that we're now inside a table
                     out += `<table class="content-table" style="width: 100%; border-collapse: collapse; margin: 1.5rem 0; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
                     if (isHeaderRow) {
                         out += '<thead><tr>';
@@ -2298,11 +2360,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             // Close table if we were in one and hit a non-table line
-            if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
-                // Check if this line is not a table row
-                if (!line.match(/^\|(.+)\|$/)) {
-                    out += '</tbody></table>';
-                }
+            if (inTable) {
+                closeTable();
             }
 
             // Apply inline formatting to regular text
@@ -2319,11 +2378,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         }
 
         closeLists();
-
-        // Close any unclosed table at the end
-        if (out.includes('<table') && out.lastIndexOf('<table') > out.lastIndexOf('</table>')) {
-            out += '</tbody></table>';
-        }
+        closeTable(); // Close any unclosed table at the end
 
         // Collapse adjacent empty paragraphs
         out = out.replace(/<p>\s*<\/p>/g, '');
