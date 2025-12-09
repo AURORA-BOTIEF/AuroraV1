@@ -1207,12 +1207,14 @@ Resources:
 
   GetStudentCoursesFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: pip
     Properties:
       FunctionName: GetStudentCoursesFunction
       Description: Get courses assigned to a student
       Runtime: python3.12
-      Handler: assignments/get_student_courses.lambda_handler
-      CodeUri: lambda/
+      Handler: get_student_courses.lambda_handler
+      CodeUri: lambda/assignments/
       Timeout: 30
       MemorySize: 256
       Environment:

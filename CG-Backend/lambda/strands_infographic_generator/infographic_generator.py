@@ -1029,8 +1029,12 @@ OUTPUT FORMAT (JSON):
         logger.info(f"📊 Found {len(available_tables)} tables in lesson content")
         
         # Extract code blocks from content
-        available_code_blocks = extract_code_from_content(lesson_content)
-        logger.info(f"💻 Found {len(available_code_blocks)} code blocks in lesson content")
+        try:
+            available_code_blocks = extract_code_from_content(lesson_content)
+            logger.info(f"💻 Found {len(available_code_blocks)} code blocks in lesson content")
+        except Exception as e:
+            logger.error(f"❌ Error extracting code blocks: {e}")
+            available_code_blocks = []
         
         # Generate slides for this lesson
         # Determine if we should use all content (no limit on slides)
