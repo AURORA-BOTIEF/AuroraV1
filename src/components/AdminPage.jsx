@@ -1,7 +1,6 @@
 // src/components/AdminPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { getSessionOrNull } from "../utils/session";
-import { isAdmin } from "../utils/auth";
 import "./AdminPage.css";
 import { toast } from 'react-hot-toast';
 
@@ -78,6 +77,14 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // pestaña activa: 'usuarios' | 'solicitudes'
+  const [tab, setTab] = useState("solicitudes");
+
+  // listado de usuarios (filtrados por backend)
+  const [usuarios, setUsuarios] = useState([]);
+  const [loadingUsuarios, setLoadingUsuarios] = useState(false);
+  const [filtroUsuarios, setFiltroUsuarios] = useState(""); // texto de búsqueda
+
   // Cargar sesión una sola vez
   useEffect(() => {
     let active = true;
@@ -101,7 +108,13 @@ export default function AdminPage() {
     session?.tokens?.accessToken?.payload?.username ??
     "";
 
-  const puedeGestionar = isAdmin(session);
+  const grupos =
+  session?.tokens?.idToken?.payload?.["cognito:groups"] ||
+  session?.tokens?.accessToken?.payload?.["cognito:groups"] ||
+  [];
+
+  const puedeGestionar = Array.isArray(grupos) && grupos.includes("Administrador");
+
 
   // LOAD solicitudes
   const cargarSolicitudes = async () => {
@@ -123,8 +136,33 @@ export default function AdminPage() {
     }
   };
 
+  // LOAD usuarios (filtrados por email / dominio desde backend)
+  const cargarUsuarios = async () => {
+    if (!puedeGestionar) return;
+    setLoadingUsuarios(true);
+    setError("");
+
+    try {
+      const qs = filtroUsuarios ? `?filtro=${encodeURIComponent(filtroUsuarios)}` : "";
+      const data = await apiFetch(`${API_BASE}/usuarios${qs}`, { method: "GET" });
+
+      // se espera un array de objetos: { correo, rol, tieneSolicitudCreador, dominio }
+      setUsuarios(Array.isArray(data?.usuarios) ? data.usuarios : []);
+    } catch (err) {
+      console.error("cargarUsuarios", err);
+      const msg = err.body?.message || err.message || "Error cargando usuarios";
+      toast.error(msg);
+      setError(msg);
+    } finally {
+      setLoadingUsuarios(false);
+    }
+  };
+
   useEffect(() => {
-    if (session && puedeGestionar) cargarSolicitudes();
+    if (session && puedeGestionar) {
+      cargarSolicitudes();
+      // opcional: no cargar usuarios hasta que se abra la pestaña
+    }
   }, [session, puedeGestionar]);
 
   // Acción solicitud
@@ -141,50 +179,182 @@ export default function AdminPage() {
     }
   };
 
+  // Acciones sobre usuarios (cambiar rol / crear solicitud)
+  const accionUsuario = async (correo, accion) => {
+    // accion: 'solicitar-creador' | 'cancelar-solicitud' | 'dar-admin' | 'quitar-admin' | 'revocar-creador'
+    try {
+      await apiFetch(`${API_BASE}/usuarios/accion`, {
+        method: "POST",
+        body: JSON.stringify({ correo, accion }),
+      });
+      toast.success("Acción aplicada");
+      // refrescar listas
+      cargarUsuarios();
+      cargarSolicitudes();
+    } catch (err) {
+      const msg = err.body?.message || err.message || "Error en acción de usuario";
+      toast.error(msg);
+      setError(msg);
+    }
+  };
+
+  const usuariosFiltrados = useMemo(() => {
+    const txt = filtroUsuarios.toLowerCase().trim();
+    if (!txt) return usuarios;
+    return usuarios.filter((u) =>
+      (u.correo || "").toLowerCase().includes(txt) ||
+      (u.dominio || "").toLowerCase().includes(txt)
+    );
+  }, [usuarios, filtroUsuarios]);
+
   // ---- Render ----
   if (loadingSession) return <div>Cargando sesión…</div>;
+  if (!puedeGestionar) return <div>🚫 No autorizado</div>;
+
 
   return (
     <div className="pagina-admin">
       <h1>Panel de Administración</h1>
       <p>Bienvenido, {email}</p>
 
-      <button onClick={cargarSolicitudes} disabled={loading}>
-        {loading ? "Actualizando…" : "↻ Actualizar"}
-      </button>
+      <div className="admin-tabs">
+        <button
+          className={tab === "usuarios" ? "tab active" : "tab"}
+          onClick={() => {
+            setTab("usuarios");
+            cargarUsuarios();
+          }}
+        >
+          Usuarios registrados
+        </button>
+        <button
+          className={tab === "solicitudes" ? "tab active" : "tab"}
+          onClick={() => setTab("solicitudes")}
+        >
+          Solicitudes de rol
+        </button>
+      </div>
+
 
       {error && <div className="error-box">{error}</div>}
 
-      <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
-        <thead>
-          <tr>
-            <th>Correo</th>
-            <th>Estado</th>
-            {puedeGestionar && <th>Acciones</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {solicitudes.map((s) => (
-            <tr key={s.correo}>
-              <td>{s.correo}</td>
-              <td>{s.estado}</td>
-              {puedeGestionar && (
-                <td>
-                  <button onClick={() => accionSolicitud(s.correo, "aprobar")}>
-                    Aprobar
-                  </button>
-                  <button
-                    onClick={() => accionSolicitud(s.correo, "rechazar")}
-                    style={{ marginLeft: 8 }}
-                  >
-                    Rechazar
-                  </button>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {tab === "usuarios" ? (
+        <>
+          {/* Filtros usuarios */}
+          <div className="filtros-usuarios">
+            <input
+              type="text"
+              placeholder="Buscar por correo o dominio…"
+              value={filtroUsuarios}
+              onChange={(e) => setFiltroUsuarios(e.target.value)}
+            />
+            <button onClick={cargarUsuarios} disabled={loadingUsuarios}>
+              {loadingUsuarios ? "Buscando…" : "🔍 Buscar"}
+            </button>
+          </div>
+
+          <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
+            <thead>
+              <tr>
+                <th>Correo</th>
+                <th>Rol</th>
+                <th>Solicitud creador</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usuariosFiltrados.map((u) => (
+                <tr key={u.correo}>
+                  <td>{u.correo}</td>
+                  <td>{u.rol}</td>
+                  <td>{u.tieneSolicitudCreador ? "Sí" : "No"}</td>
+                  <td>
+                    {/* Aquí decides qué botones mostrar según rol */}
+                    {u.rol === "Participante" && (
+                      <>
+                        {!u.tieneSolicitudCreador && (
+                          <button onClick={() => accionUsuario(u.correo, "solicitar-creador")}>
+                            Solicitar rol creador
+                          </button>
+                        )}
+                        <button onClick={() => accionUsuario(u.correo, "dar-admin")} style={{ marginLeft: 8 }}>
+                          Dar admin
+                        </button>
+                      </>
+                    )}
+
+                    {u.rol === "Creador" && (
+                      <>
+                        <button onClick={() => accionUsuario(u.correo, "revocar-creador")}>
+                          Revocar creador
+                        </button>
+                        <button onClick={() => accionUsuario(u.correo, "dar-admin")} style={{ marginLeft: 8 }}>
+                          Dar admin
+                        </button>
+                      </>
+                    )}
+
+                    {u.rol === "Administrador" && (
+                      <button onClick={() => accionUsuario(u.correo, "quitar-admin")}>
+                        Quitar admin
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <>
+          {/* pestaña Solicitudes (tu lógica actual, apenas ajustada) */}
+          <button onClick={cargarSolicitudes} disabled={loading}>
+            {loading ? "Actualizando…" : "↻ Actualizar"}
+          </button>
+
+          <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
+            <thead>
+              <tr>
+                <th>Correo</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {solicitudes.map((s) => (
+                <tr key={s.correo}>
+                  <td>{s.correo}</td>
+                  <td>{s.estado}</td>
+                  <td>
+                    <button onClick={() => accionSolicitud(s.correo, "aprobar")}>
+                      Aprobar
+                    </button>
+                    <button
+                      onClick={() => accionSolicitud(s.correo, "rechazar")}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      onClick={() => accionSolicitud(s.correo, "revocar")}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Revocar
+                    </button>
+                    <button
+                      onClick={() => accionSolicitud(s.correo, "eliminar")}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
     </div>
   );
 }
