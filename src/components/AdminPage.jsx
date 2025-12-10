@@ -6,7 +6,7 @@ import { toast } from 'react-hot-toast';
 
 const API_BASE =
   "https://" +
-  "h6ysn7u0tl" +
+  "bnq58d43dh" +
   ".execute-api" +
   ".us-east-1" +
   ".amazonaws" +
