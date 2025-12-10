@@ -175,6 +175,9 @@ def process_visual_batch(visuals: List[Dict[str, Any]], model_provider: str = "b
     Classifies each as diagram/artistic_image and creates enhanced prompts.
     Modern LLMs can handle dozens of visuals in one call.
     
+    CRITICAL: All prompts MUST be generated 100% in English for optimal
+    image generation quality (Gemini produces fewer text errors in English).
+    
     Args:
         visuals: List of visual tags from multiple lessons
         model_provider: "bedrock" or "openai"
@@ -189,25 +192,31 @@ def process_visual_batch(visuals: List[Dict[str, Any]], model_provider: str = "b
     # Build the unified prompt for classification + enhancement
     prompt = f"""You are an expert visual prompt engineer specializing in creating detailed, precise image generation prompts.
 
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL output MUST be 100% in ENGLISH. This is mandatory for optimal image generation quality.
+The image generation model (Google Gemini) produces significantly fewer text rendering errors when prompts are in English.
+
 You will receive a list of visual descriptions extracted from technical course lessons. For each visual:
 
 1. **Classify the type**:
    - "diagram": flowcharts, architecture diagrams, technical diagrams, charts, graphs, sequences
    - "artistic_image": scenes, photos, illustrations, metaphors, artistic representations
 
-2. **Translate to English** (CRITICAL - for optimal image generation):
-   - ALL enhanced prompts MUST be in English for optimal image generation
-   - **IMPORTANT**: Translate ALL text that will appear IN the diagram/image:
+2. **MANDATORY: Write everything in English** (CRITICAL - NON-NEGOTIABLE):
+   - The enhanced_prompt field MUST be 100% in English
+   - ALL text that will appear IN the diagram/image MUST be in English:
+     * Node labels: "Base de datos" → "Database"
      * Button labels: "Comprar ahora" → "Buy now"
      * Annotations: "Anillo de enfoque visible" → "Visible focus ring"
      * Titles: "Accesibilidad: enfoque visible" → "Accessibility: visible focus"
-     * Error messages, warnings, tooltips - everything must be English
-   - Translate Spanish/other languages to clear, technical English
-   - Preserve technical accuracy
+     * Error messages, warnings, tooltips - EVERYTHING must be English
+     * Technical terms: "Servidor" → "Server", "Cliente" → "Client"
+   - If the original description is in Spanish or another language, translate it completely
+   - Preserve technical accuracy while translating
    - Example: "Diagrama del ciclo HTTP con solicitud y respuesta" → 
      "Diagram of HTTP request-response cycle showing client, server, request, and response"
 
-3. **Create an enhanced prompt** with:
+3. **Create an enhanced prompt** (IN ENGLISH) with:
    - **Exact text with correct spelling**: List every label, title, annotation IN ENGLISH
    - **Typography**: Font style, weight, size, case
    - **Layout**: Position, spacing, alignment
@@ -222,20 +231,28 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
 {{
   "visuals": [
     {{
+      "id": "01-01-0001",
       "lesson_id": "01-01",
       "description": "original description",
       "type": "diagram|artistic_image",
-      "enhanced_prompt": "Detailed, comprehensive prompt with exact specifications..."
+      "enhanced_prompt": "Detailed, comprehensive prompt IN ENGLISH with exact specifications..."
     }},
     ...
   ]
 }}
 
-CRITICAL: 
-- Preserve correct spelling of all technical terms
-- Be specific about text placement and typography
-- Include color codes
-- Verify spelling of technical terms at the end of each prompt"""
+CRITICAL: The "id" field MUST be copied EXACTLY from the input (e.g., "02-01-0005"). Do NOT modify or regenerate IDs.
+
+⚠️ FINAL CHECKLIST - VERIFY BEFORE RESPONDING:
+1. ✓ Is the "id" field copied EXACTLY from input? (CRITICAL - DO NOT CHANGE IDs)
+2. ✓ Is the enhanced_prompt 100% in English? (MANDATORY)
+3. ✓ Are ALL labels, titles, and annotations in English?
+4. ✓ Did you translate any Spanish/other language text to English?
+5. ✓ Are technical terms spelled correctly?
+6. ✓ Did you include specific color codes?
+7. ✓ Did you specify text placement and typography?
+
+If ANY text in enhanced_prompt is not in English, FIX IT before responding."""
 
     print(f"🤖 Calling {model_provider.upper()} with {len(visuals)} visual tags...")
     
@@ -348,38 +365,51 @@ def lambda_handler(event: Dict[str, Any], context):
         generated_prompts = []
         request_id = context.aws_request_id if hasattr(context, 'aws_request_id') else 'unknown'
         
-        # Create lookup by lesson_id + description to match enhanced visuals back to originals
-        original_lookup = {}
+        # Create lookup by ID for fallback matching
+        original_lookup_by_id = {orig['id']: orig for orig in all_visuals}
+        # Also create lookup by lesson_id + description as secondary fallback
+        original_lookup_by_desc = {}
         for orig in all_visuals:
             key = f"{orig['lesson_id']}::{orig['description']}"
-            original_lookup[key] = orig
+            original_lookup_by_desc[key] = orig
         
-        print(f"📝 Matching enhanced visuals back to originals with IDs...")
+        print(f"📝 Processing enhanced visuals with IDs...")
         
         for idx, enhanced in enumerate(enhanced_visuals, start=1):
-            # Match back to original using lesson_id + description
-            lookup_key = f"{enhanced.get('lesson_id', '')}::{enhanced.get('description', '')}"
-            original_visual = original_lookup.get(lookup_key)
+            # PREFERRED: Use the ID directly from the enhanced visual (LLM should preserve it)
+            enhanced_id = enhanced.get('id')
             
-            if original_visual:
-                # Use the ID from the original visual tag (MM-LL-XXXX from Content Generator)
-                prompt_id = original_visual['id']
-                print(f"  ✓ Matched: {prompt_id}")
+            if enhanced_id and enhanced_id in original_lookup_by_id:
+                # Best case: ID was preserved by LLM
+                prompt_id = enhanced_id
+                original_visual = original_lookup_by_id[enhanced_id]
+                print(f"  ✓ ID preserved: {prompt_id}")
             else:
-                # Fallback (shouldn't happen if LLM preserves descriptions)
-                print(f"  ⚠️  No match found for: {lookup_key[:50]}... using fallback")
-                prompt_id = f"{enhanced.get('lesson_id', '00-00')}-{idx:04d}"
+                # Fallback 1: Try matching by lesson_id + description
+                lookup_key = f"{enhanced.get('lesson_id', '')}::{enhanced.get('description', '')}"
+                original_visual = original_lookup_by_desc.get(lookup_key)
+                
+                if original_visual:
+                    prompt_id = original_visual['id']
+                    print(f"  ⚠️  ID not preserved, matched by description: {prompt_id}")
+                else:
+                    # Fallback 2: Generate a new ID (last resort)
+                    print(f"  ❌ No match found for: {enhanced.get('id', 'unknown')} - using fallback")
+                    prompt_id = f"{enhanced.get('lesson_id', '00-00')}-{idx:04d}"
+                    original_visual = None
             
             description = original_visual.get('description', enhanced.get('description', '')) if original_visual else enhanced.get('description', '')
             visual_type = enhanced.get('type', 'diagram')
             enhanced_prompt = enhanced.get('enhanced_prompt', description)
+            # Get lesson_id safely - handle case where original_visual is None
+            lesson_id = original_visual.get('lesson_id', '00-00') if original_visual else enhanced.get('lesson_id', '00-00')
             
             filename = create_unique_filename(description, prefix=prompt_id)
             
             # Create prompt JSON
             prompt_data = {
                 "id": prompt_id,
-                "lesson_id": original_visual.get('lesson_id', '00-00'),
+                "lesson_id": lesson_id,
                 "description": description,
                 "visual_type": visual_type,
                 "enhanced_prompt": enhanced_prompt,

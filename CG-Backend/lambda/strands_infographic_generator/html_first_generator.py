@@ -29,10 +29,64 @@ import logging
 import re
 import boto3
 import time
+import html as html_module
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 
 logger = logging.getLogger("aurora.infographic_generator")
+
+
+def highlight_code_with_pygments(code: str, language: str) -> str:
+    """
+    Apply syntax highlighting to code using Pygments.
+    Returns HTML with inline styles matching VS Code's Tomorrow Night theme.
+    Falls back to escaped plain text if Pygments fails.
+    """
+    try:
+        from pygments import highlight
+        from pygments.lexers import get_lexer_by_name, TextLexer
+        from pygments.formatters import HtmlFormatter
+        
+        # Map common language names to Pygments lexer names
+        language_map = {
+            'js': 'javascript',
+            'ts': 'typescript',
+            'py': 'python',
+            'rb': 'ruby',
+            'sh': 'bash',
+            'shell': 'bash',
+            'yml': 'yaml',
+            'dockerfile': 'docker',
+            'tf': 'terraform',
+            'hcl': 'terraform',
+        }
+        
+        lang = language_map.get(language.lower(), language.lower())
+        
+        try:
+            lexer = get_lexer_by_name(lang, stripall=True)
+        except Exception:
+            lexer = TextLexer()
+        
+        # Use inline styles for compatibility (no external CSS needed)
+        # Colors match prism-tomorrow.css / VS Code Dark+ theme
+        formatter = HtmlFormatter(
+            nowrap=True,
+            noclasses=True,
+            style='monokai'  # Close to Tomorrow Night / VS Code dark
+        )
+        
+        highlighted = highlight(code, lexer, formatter)
+        return f'<pre><code>{highlighted}</code></pre>'
+        
+    except ImportError:
+        logger.warning("Pygments not available, falling back to plain text")
+        escaped = html_module.escape(code)
+        return f'<pre><code>{escaped}</code></pre>'
+    except Exception as e:
+        logger.error(f"Pygments error: {e}, falling back to plain text")
+        escaped = html_module.escape(code)
+        return f'<pre><code>{escaped}</code></pre>'
 
 
 def extract_tables_from_content(content: str) -> List[Dict]:
@@ -82,6 +136,58 @@ def extract_tables_from_content(content: str) -> List[Dict]:
         i += 1
     
     return tables
+
+
+def extract_code_from_content(content: str) -> List[Dict]:
+    """
+    Extract code blocks from lesson content.
+    Returns list of dicts with 'language', 'code', and optional 'title' for each code block.
+    
+    Supports markdown fenced code blocks:
+    ```python
+    def hello():
+        print("Hello!")
+    ```
+    """
+    code_blocks = []
+    
+    # Pattern to match fenced code blocks with optional language
+    pattern = r'```(\w+)?\s*\n(.*?)```'
+    
+    matches = re.finditer(pattern, content, re.DOTALL)
+    
+    for match in matches:
+        language = match.group(1) or 'text'
+        code = match.group(2).rstrip()
+        
+        # Try to find a title in the preceding lines
+        start_pos = match.start()
+        preceding_content = content[:start_pos].split('\n')[-3:]
+        
+        title = None
+        for line in reversed(preceding_content):
+            line = line.strip()
+            if line.startswith('##'):
+                title = line.lstrip('#').strip()
+                break
+            if line.startswith('**') and line.endswith('**'):
+                title = line.strip('*').strip()
+                break
+        
+        # Skip very short code snippets (not worth a slide)
+        if len(code.strip()) < 20:
+            continue
+            
+        code_blocks.append({
+            'language': language.lower(),
+            'code': code,
+            'title': title,
+            'lines': len(code.split('\n'))
+        })
+    
+    logger.info(f"📝 Extracted {len(code_blocks)} code blocks from content")
+    
+    return code_blocks
 
 
 class HTMLSlideBuilder:
@@ -561,8 +667,14 @@ class HTMLFirstGenerator:
         2. Each section designed to fit within slide limits
         3. Builder validates in real-time
         4. Guaranteed fit because AI knows the constraints
+        
+        Returns:
+            List of slides for THIS lesson only (not accumulated from previous lessons)
         """
         from strands import Agent
+        
+        # Track starting index to return only NEW slides for this lesson
+        starting_slide_count = len(self.builder.slides)
         
         lesson_title = lesson.get('title', f'Lesson {lesson_idx}')
         lesson_content = lesson.get('content', '')
@@ -646,6 +758,10 @@ For each slide, calculate available space and fit content accordingly:
             "table": {{  // OPTIONAL: Include when content has tabular data
                 "headers": ["Col1", "Col2", "Col3"],
                 "rows": [["R1C1", "R1C2", "R1C3"], ["R2C1", "R2C2", "R2C3"]]
+            }},
+            "code": {{  // OPTIONAL: Include ONLY for KEY code snippets
+                "language": "bash",  // python, javascript, bash, etc.
+                "code": "echo 'Hello World'"  // The actual code - preserve formatting!
             }}
         }}
     ]
@@ -658,12 +774,22 @@ For each slide, calculate available space and fit content accordingly:
 - Create dedicated slides for tables with appropriate titles
 - Do NOT convert tables to bullet points - preserve the tabular structure!
 
+💻 CODE BLOCK HANDLING (BE SELECTIVE - LIMIT SLIDES):
+- Include ONLY the 2-3 MOST IMPORTANT code blocks per lesson topic
+- Prioritize: working examples, critical syntax, key commands
+- SKIP: trivial variations, repetitive examples, simple one-liners that can be described in bullets
+- Code blocks are ~180px height - calculate space accordingly
+- Use the EXACT code from CODE BLOCKS FOUND section - do NOT modify or truncate!
+- Include 1-2 bullets before the code to explain what it demonstrates
+- GOAL: Keep total slides reasonable - summarize concepts, don't show every code example!
+
 🎯 YOUR MISSION:
 1. For each topic, CALCULATE max bullets: (460 or 520) - extras ÷ 50
 2. If topic has ≤ max bullets: Create ONE section with all bullets
 3. If topic has > max bullets: Split intelligently (e.g., 15 bullets, max 10 → two slides: 10 + 5)
 4. AVOID premature splitting: 5 bullets fitting in 10-bullet space = ONE slide, not multiple!
 5. INCLUDE ALL TABLES from TABLES FOUND section - do NOT skip them!
+6. BE SELECTIVE with code blocks - only include the most instructive examples!
 """,
             tools=[]
         )
@@ -707,6 +833,49 @@ TABLES FOUND IN CONTENT ({len(tables)}):
 Use the EXACT headers and rows provided. Do NOT convert tables to bullets!
 """
         
+        # Extract code blocks from content
+        code_blocks = extract_code_from_content(lesson_content)
+        logger.info(f"💻 Found {len(code_blocks)} code blocks in lesson content")
+        
+        # Build code blocks info for prompt
+        code_info = ""
+        if code_blocks:
+            code_info_lines = [""]
+            for idx, block in enumerate(code_blocks, 1):
+                lang = block.get('language', 'text')
+                lines = block.get('lines', 0)
+                title = block.get('title', 'N/A')
+                code = block.get('code', '')
+                code_info_lines.append(f"CODE BLOCK {idx}:")
+                code_info_lines.append(f"  Language: {lang}")
+                code_info_lines.append(f"  Lines: {lines}")
+                code_info_lines.append(f"  Title: {title}")
+                code_info_lines.append(f"  Code:")
+                code_info_lines.append(f"```{lang}")
+                code_info_lines.append(code)
+                code_info_lines.append("```")
+                code_info_lines.append("")
+            code_info = "\n".join(code_info_lines)
+        
+        # Build code section for prompt - limit to max 5 most important code blocks per lesson
+        code_prompt_section = ""
+        if code_blocks:
+            # Prioritize longer, more complete code blocks (they're usually more instructive)
+            sorted_blocks = sorted(code_blocks, key=lambda x: x.get('lines', 0), reverse=True)
+            top_blocks = sorted_blocks[:5]  # Max 5 code blocks per lesson
+            
+            code_prompt_section = f"""
+CODE BLOCKS FOUND IN CONTENT ({len(code_blocks)} total, showing TOP {len(top_blocks)}):
+{code_info}
+⚠️ BE SELECTIVE: Include only 2-3 MOST IMPORTANT code examples per lesson!
+- Choose blocks that demonstrate KEY concepts
+- Skip trivial variations or repetitive examples
+- Prioritize working examples over fragments
+- Use type: 'code' with 'language' and 'code' fields
+- Code blocks ~180px height - calculate space accordingly
+- GOAL: Keep slides concise - one good example is better than many similar ones!
+"""
+        
         # Ask AI to structure content with HEIGHT AWARENESS
         prompt = f"""
 Create slide sections for this lesson using DYNAMIC SPACE CALCULATION.
@@ -718,7 +887,7 @@ CONTENT:
 
 AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
 {image_info}
-{tables_prompt_section}
+{tables_prompt_section}{code_prompt_section}
 ⚠️ CRITICAL IMAGE INSTRUCTIONS:
 - Use the EXACT image ID from the list above (e.g., "06-01-0001", "04-01-0003")
 - DO NOT create descriptive names like "diagram" or "flow chart"
@@ -727,7 +896,7 @@ AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
 
 CRITICAL SPACE CALCULATION:
 - Available: 460px (with subtitle) or 520px (without)
-- Subtract extras: heading (-65px), image (-400px), callout (-75px), table (-200px approx)
+- Subtract extras: heading (-65px), image (-400px), callout (-75px), table (-200px approx), code (-180px approx)
 - Formula: remaining_space ÷ 50px = MAX bullets per slide
 - **ONLY split if bullets > MAX**
 - Example: Topic has 6 bullets, MAX is 10 → Use ONE slide with 6 bullets (don't split!)
@@ -735,6 +904,7 @@ CRITICAL SPACE CALCULATION:
 
 Create sections intelligently - combine related points up to the calculated MAX, split only when necessary.
 {"Include ALL tables from TABLES FOUND section as table objects in your output!" if tables else ""}
+{"Be SELECTIVE with code: include only 2-3 KEY examples that best demonstrate the concepts!" if code_blocks else ""}
 """
         
         logger.info(f"🤖 AI Web Designer generating content sections...")
@@ -793,8 +963,9 @@ Create sections intelligently - combine related points up to the calculated MAX,
             image_ref = section.get('image_reference', '')
             callout = section.get('callout', '')
             table_data = section.get('table', None)
+            code_data = section.get('code', None)
             
-            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets, layout: {layout}, has_table: {table_data is not None})")
+            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets, layout: {layout}, has_table: {table_data is not None}, has_code: {code_data is not None})")
             
             # Start slide with AI-specified layout
             self.builder.start_slide(title, subtitle=subtitle, layout=layout)
@@ -838,6 +1009,23 @@ Create sections intelligently - combine related points up to the calculated MAX,
                     table_height = 50 + (len(rows) * 35)  # ~50px header, ~35px per row
                     self.builder.current_height += table_height + self.builder.SPACING
             
+            # Add code block if present
+            if code_data:
+                code_lang = code_data.get('language', 'text')
+                code_content = code_data.get('code', '')
+                if code_content:
+                    logger.info(f"  💻 Adding code block ({code_lang}, {len(code_content.splitlines())} lines)")
+                    self.builder.current_slide['content_blocks'].append({
+                        'type': 'code',
+                        'heading': '',
+                        'language': code_lang,
+                        'code': code_content
+                    })
+                    # Estimate code height (~180px for typical code block)
+                    code_lines = len(code_content.splitlines())
+                    code_height = max(180, code_lines * 22 + 40)  # ~22px per line + padding
+                    self.builder.current_height += code_height + self.builder.SPACING
+            
             # Add callout if present
             if callout:
                 if not self.builder.add_callout(callout):
@@ -848,7 +1036,9 @@ Create sections intelligently - combine related points up to the calculated MAX,
             slides_created += 1
         
         logger.info(f"✅ Created {slides_created} slides for lesson {lesson_idx} (ZERO overflow guaranteed)")
-        return self.builder.get_slides()
+        # Return only NEW slides created for THIS lesson (not accumulated from previous lessons)
+        all_slides = self.builder.get_slides()
+        return all_slides[starting_slide_count:]
 
 
 def generate_complete_course(
@@ -1288,6 +1478,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             background: linear-gradient(135deg, {colors['primary']}, {colors['secondary']});
             color: white;
             min-height: 120px;
+            position: relative;
+            z-index: 10; /* Ensure header stays above content */
         }}
         
         .slide-title {{
@@ -1305,13 +1497,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* Content area - CRITICAL HEIGHT LIMITS */
         .slide-content {{
-            padding: 30px 50px;
-            max-height: 520px; /* Without subtitle */
-            overflow: hidden;
+            padding: 30px 50px 70px 50px; /* Bottom padding for logo clearance */
+            max-height: 530px; /* Without subtitle - header is 120px, logo area is 70px, total 720px */
+            overflow: hidden; /* Clip content that doesn't fit */
+            position: relative;
         }}
         
         .slide-content.with-subtitle {{
-            max-height: 460px; /* With subtitle */
+            max-height: 480px; /* With subtitle */
         }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
@@ -1412,10 +1605,169 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             background: #eef4fa;
         }}
         
+        /* Code blocks - dark theme for professional appearance */
+        .code-block {{
+            background: #1e1e1e;
+            border-radius: 8px;
+            margin: 10px 0 80px 0; /* Large bottom margin to clear footer/logo */
+            overflow: hidden;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            position: relative;
+            max-height: 220px; /* Strictly limited to prevent footer overlap */
+        }}
+        
+        .code-block-header {{
+            background: #2d2d2d;
+            padding: 8px 16px;
+            font-size: 12pt;
+            color: #9cdcfe;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        
+        .code-block-language {{
+            background: {colors['accent']};
+            color: {colors['primary']};
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10pt;
+            font-weight: 600;
+            text-transform: uppercase;
+        }}
+        
+        .code-zoom-btn {{
+            background: #f5a623;
+            border: none;
+            color: #1e1e1e;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12pt;
+            font-weight: 600;
+            transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            position: relative;
+            z-index: 200;
+            pointer-events: auto;
+            text-decoration: none;
+        }}
+        
+        .code-zoom-btn:hover {{
+            background: #4d4d4d;
+        }}
+        
+        .code-content {{
+            padding: 12px 16px;
+            overflow-x: auto;
+            max-height: 160px; /* Strictly limited to prevent footer overlap */
+            overflow-y: auto;
+        }}
+        
+        .code-content pre {{
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }}
+        
+        .code-content code {{
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            font-size: 13pt;
+            line-height: 1.5;
+            white-space: pre;
+            display: block;
+            color: #f8f8f2; /* Light text for dark background - prevents invisible black text */
+        }}
+        
+        /* Pygments uses inline styles, but we ensure base text color */
+        .code-content code span {{
+            font-family: inherit;
+        }}
+        
+        /* Override any black text from Pygments to ensure visibility */
+        .code-content code span[style*="color: #000"],
+        .code-content code span[style*="color:#000"],
+        .code-content code span[style*="color: black"],
+        .code-content code span[style*="color:black"] {{
+            color: #f8f8f2 !important;
+        }}
+        
+        /* Code fullscreen modal */
+        .code-modal {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+        }}
+        
+        .code-modal.active {{
+            display: flex;
+        }}
+        
+        .code-modal-content {{
+            background: #1e1e1e;
+            border-radius: 12px;
+            max-width: 95%;
+            max-height: 90%;
+            overflow: auto;
+            position: relative;
+        }}
+        
+        .code-modal-header {{
+            background: #2d2d2d;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }}
+        
+        .code-modal-close {{
+            background: #e74c3c;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14pt;
+            font-weight: 600;
+        }}
+        
+        .code-modal-close:hover {{
+            background: #c0392b;
+        }}
+        
+        .code-modal-body {{
+            padding: 20px 30px;
+        }}
+        
+        .code-modal-body pre {{
+            margin: 0;
+        }}
+        
+        .code-modal-body code {{
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            font-size: 16pt;
+            line-height: 1.6;
+            color: #f8f8f2;
+        }}
+        
         /* Images */
         .slide-image {{
             max-width: 100%;
-            max-height: 400px;
+            max-height: 350px; /* Reduced to fit in split layouts */
             display: block;
             margin: 20px auto;
             object-fit: contain;
@@ -1481,7 +1833,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         .image-layout.image-full .slide-image {{
             max-width: 100%;
-            max-height: 650px;
+            max-height: 450px; /* Reduced to fit within content area */
             width: auto;
             height: auto;
             object-fit: contain;
@@ -1648,8 +2000,121 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
         ''',
         '    </style>',
+        '''    <script>
+        // Code block zoom functionality
+        window.openCodeModal = function(codeId, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            console.log('openCodeModal called with:', codeId);
+            
+            var codeBlock = document.getElementById(codeId);
+            var modal = document.getElementById('codeModal');
+            var modalBody = document.getElementById('codeModalBody');
+            var modalLang = document.getElementById('codeModalLang');
+            
+            if (!codeBlock) {
+                console.error('Code block not found: ' + codeId);
+                return false;
+            }
+            if (!modal) {
+                console.error('Modal not found');
+                return false;
+            }
+            
+            var codeContent = codeBlock.querySelector('.code-content');
+            var langBadge = codeBlock.querySelector('.code-block-language');
+            
+            if (codeContent && modalBody) {
+                modalBody.innerHTML = codeContent.innerHTML;
+            }
+            if (langBadge && modalLang) {
+                modalLang.textContent = langBadge.textContent;
+            }
+            
+            modal.style.display = 'flex';
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+            
+            return false;
+        };
+        
+        window.closeCodeModal = function(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            var modal = document.getElementById('codeModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+            return false;
+        };
+        
+        // Initialize zoom buttons after DOM loads
+        document.addEventListener('DOMContentLoaded', function() {
+            var zoomButtons = document.querySelectorAll('.code-zoom-btn');
+            zoomButtons.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Try data attribute first, then find parent code-block
+                    var codeBlockId = btn.getAttribute('data-code-id') || (btn.closest('.code-block') ? btn.closest('.code-block').id : null);
+                    console.log('Zoom button clicked, codeBlockId:', codeBlockId);
+                    if (codeBlockId) {
+                        openCodeModal(codeBlockId, e);
+                    }
+                    return false;
+                });
+            });
+            console.log('Initialized ' + zoomButtons.length + ' zoom buttons');
+        });
+        
+        // Also handle clicks via event delegation for dynamically added content
+        document.body.addEventListener('click', function(e) {
+            if (e.target.classList.contains('code-zoom-btn') || e.target.closest('.code-zoom-btn')) {
+                e.preventDefault();
+                e.stopPropagation();
+                var btn = e.target.classList.contains('code-zoom-btn') ? e.target : e.target.closest('.code-zoom-btn');
+                var codeBlockId = btn.getAttribute('data-code-id') || (btn.closest('.code-block') ? btn.closest('.code-block').id : null);
+                console.log('Delegated click, codeBlockId:', codeBlockId);
+                if (codeBlockId) {
+                    openCodeModal(codeBlockId, e);
+                }
+                return false;
+            }
+        });
+        
+        // Close on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeCodeModal();
+            }
+        });
+        
+        // Close on click outside modal content
+        document.addEventListener('click', function(e) {
+            var modal = document.getElementById('codeModal');
+            if (e.target === modal) {
+                closeCodeModal();
+            }
+        });
+        </script>''',
         '</head>',
         '<body>',
+        '''    <!-- Code fullscreen modal -->
+    <div id="codeModal" class="code-modal">
+        <div class="code-modal-content">
+            <div class="code-modal-header">
+                <span id="codeModalLang" class="code-block-language">CODE</span>
+                <button class="code-modal-close" onclick="closeCodeModal()">✕ Close</button>
+            </div>
+            <div id="codeModalBody" class="code-modal-body"></div>
+        </div>
+    </div>''',
         f'    <h1 style="text-align: center; color: {colors["primary"]}; margin-bottom: 30px; font-size: 32pt;">{course_title}</h1>',
     ]
     
@@ -1777,7 +2242,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             
             logger.info(f"🔍 DEBUG: Slide {slide_idx} '{title}' has {len(slide.get('content_blocks', []))} content blocks")
             
-            for block in slide.get('content_blocks', []):
+            for block_idx, block in enumerate(slide.get('content_blocks', []), 1):
                 block_type = block.get('type')
                 logger.info(f"🔍 DEBUG: Block type='{block_type}', items={len(block.get('items', []))}")
                 
@@ -1883,6 +2348,37 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append('      </tbody>')
                     
                     html_parts.append('    </table>')
+                
+                elif block_type == 'code':
+                    # Render code block with Pygments syntax highlighting (VS Code-like)
+                    heading = block.get('heading', '')
+                    language = block.get('language', 'text').lower()
+                    code = block.get('code', '')
+                    
+                    # Generate unique ID for zoom functionality
+                    code_block_id = f'code-{slide_idx}-{block_idx}'
+                    
+                    # Use Pygments for syntax highlighting
+                    highlighted_code = highlight_code_with_pygments(code, language)
+                    
+                    if heading:
+                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                    
+                    html_parts.append(f'    <div class="code-block" id="{code_block_id}">')
+                    
+                    # Add header with language badge and zoom button
+                    html_parts.append(f'      <div class="code-block-header">')
+                    if language and language != 'text':
+                        html_parts.append(f'        <span class="code-block-language">{language}</span>')
+                    else:
+                        html_parts.append(f'        <span class="code-block-language">CODE</span>')
+                    html_parts.append(f'        <a href="javascript:void(0)" class="code-zoom-btn" data-code-id="{code_block_id}" title="View fullscreen">🔍 Zoom</a>')
+                    html_parts.append(f'      </div>')
+                    
+                    html_parts.append('      <div class="code-content">')
+                    html_parts.append(f'        {highlighted_code}')
+                    html_parts.append('      </div>')
+                    html_parts.append('    </div>')
             
             html_parts.append('  </div>')
         

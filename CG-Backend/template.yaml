@@ -132,6 +132,36 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  ContentValidator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ContentValidator
+      Description: Validate generated lesson and lab content against Aurora schemas
+      Runtime: python3.12
+      Handler: content_validator.lambda_handler
+      CodeUri: ./lambda/content_validator/
+      Timeout: 120
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          SCHEMA_BUCKET: crewai-course-artifacts
+          SCHEMA_PREFIX: schemas
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
   
   BatchExpander:
     Type: AWS::Serverless::Function
@@ -893,6 +923,27 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
+        AssignmentsOptions:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: options
+            Auth:
+              Authorizer: NONE
+        StudentCoursesOptions:
+          Type: Api
+          Properties:
+            Path: /student-courses/{userId}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UsersOptions:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   StarterApiFunction:
     Type: AWS::Serverless::Function
@@ -918,6 +969,7 @@ Resources:
               Action:
                 - s3:HeadObject
                 - s3:GetObject
+                - s3:PutObject
               Resource:
                 - arn:aws:s3:::crewai-course-artifacts/*
       Events:
@@ -1021,6 +1073,7 @@ Resources:
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
                 - !GetAtt StrandsNotification.Arn
+                - !GetAtt ContentValidator.Arn
 
   PptBatchOrchestratorStateMachine:
     Type: AWS::Serverless::StateMachine
@@ -1043,6 +1096,213 @@ Resources:
                 - !GetAtt StrandsPptMerger.Arn
                 - !GetAtt StrandsVisualOptimizer.Arn
                 - !GetAtt StrandsNotification.Arn
+
+  # ======================================
+  # SECURITY & ASSIGNMENTS
+  # ======================================
+  CourseAssignmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CourseAssignments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: courseId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: CourseIndex
+          KeySchema:
+            - AttributeName: courseId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PostConfirmationFunction
+      Description: Post-confirmation trigger to add new users to Estudiantes group
+      Runtime: python3.12
+      Handler: auth/post_confirmation.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminAddUserToGroup
+              Resource: '*'
+
+  # ======================================
+  # ASSIGNMENTS API
+  # ======================================
+  AssignCourseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AssignCourseFunction
+      Description: Assign courses to users
+      Runtime: python3.12
+      Handler: assignments/assign_course.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt CourseAssignmentsTable.Arn
+      Events:
+        AssignCourseApi:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  ListAssignmentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ListAssignmentsFunction
+      Description: List course assignments
+      Runtime: python3.12
+      Handler: assignments/list_assignments.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt CourseAssignmentsTable.Arn
+                - !Sub "${CourseAssignmentsTable.Arn}/index/*"
+      Events:
+        ListAssignmentsApi:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  GetStudentCoursesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: pip
+    Properties:
+      FunctionName: GetStudentCoursesFunction
+      Description: Get courses assigned to a student
+      Runtime: python3.12
+      Handler: get_student_courses.lambda_handler
+      CodeUri: lambda/assignments/
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt CourseAssignmentsTable.Arn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:HeadObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        GetStudentCoursesApi:
+          Type: Api
+          Properties:
+            Path: /student-courses/{userId}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  ListUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ListUsersFunction
+      Description: List users from Cognito
+      Runtime: python3.12
+      Handler: assignments/list_users.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          USER_POOL_ID: us-east-1_B7QVYyDGp
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:ListUsers
+                - cognito-idp:ListUsersInGroup
+              Resource: '*'
+      Events:
+        ListUsersApi:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  RemoveAssignmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: RemoveAssignmentFunction
+      Description: Remove a course assignment
+      Runtime: python3.12
+      Handler: assignments/remove_assignment.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+              Resource: !GetAtt CourseAssignmentsTable.Arn
+      Events:
+        RemoveAssignmentApi:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: delete
+            Auth:
+              Authorizer: NONE
 
 Outputs:
   # Strands Agents Lambdas - Theory Generation
@@ -1131,3 +1391,7 @@ Outputs:
   GeneratePPTEndpoint:
     Description: Generate PowerPoint presentation endpoint
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/generate-ppt"
+
+  PostConfirmationFunctionArn:
+    Description: Post Confirmation Lambda ARN
+    Value: !GetAtt PostConfirmationFunction.Arn

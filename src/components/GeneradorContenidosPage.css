@@ -7,7 +7,7 @@
   padding: 2rem;
   background: #ffffff;
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
 /* Grid de opciones */
@@ -29,12 +29,12 @@
   text-decoration: none;
   color: inherit;
   transition: all 0.25s ease;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 .opcion-menu:hover {
   transform: translateY(-4px);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
   border-color: #1b5784;
   background: #ffffff;
 }
@@ -72,25 +72,41 @@
   background: #fafafa;
   border-radius: 8px;
   border: 1px solid #e0e0e0;
+  flex-grow: 0;
+  flex-shrink: 0;
 }
 
-/* Botón volver al menú */
-.btn-regresar-menu {
-  background: #eef3f7;
-  border: 1px solid #cfd7de;
-  color: #234;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0.5rem 1.2rem;
-  border-radius: 20px;
+/* Navigation icon buttons container */
+.nav-buttons-container {
+  display: flex;
+  gap: 0.5rem;
+  align-self: flex-start;
   margin-bottom: 1.5rem;
-  align-self: flex-start; /* Se alinea a la izquierda */
+}
+
+.nav-icon-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid #1b5784;
+  background: white;
+  color: #1b5784;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
-.btn-regresar-menu:hover {
-  background-color: #e4edf5;
-  border-color: #b7c4cf;
+.nav-icon-btn:hover {
+  background: #1b5784;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(27, 87, 132, 0.3);
 }
 
+.nav-icon-btn:active {
+  transform: translateY(0);
+}

@@ -14,6 +14,14 @@ function PresentacionesPage() {
     const [totalPages, setTotalPages] = useState(1);
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Hide Thor chat bot on this page
+    useEffect(() => {
+        document.body.classList.add('hide-chat-bot');
+        return () => {
+            document.body.classList.remove('hide-chat-bot');
+        };
+    }, []);
+
     useEffect(() => {
         loadInfographics();
     }, [page]);
@@ -80,13 +88,13 @@ function PresentacionesPage() {
 
     if (loading && infographics.length === 0) {
         return (
-            <div className="presentaciones-container">
-                <div className="presentaciones-header">
+            <div className="presentaciones-loading-overlay">
+                <div className="presentaciones-loading-container">
                     <h1>📊 Presentaciones</h1>
                     <p>Cargando presentaciones...</p>
-                </div>
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+                    <div className="loading-bar-wrapper">
+                        <div className="loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );
@@ -94,6 +102,16 @@ function PresentacionesPage() {
 
     return (
         <div className="presentaciones-container">
+            {/* Navigation icons */}
+            <div className="presentaciones-nav-buttons">
+                <button onClick={() => navigate('/')} className="nav-icon-btn" title="Inicio">
+                    🏠
+                </button>
+                <button onClick={() => navigate('/generador-contenidos')} className="nav-icon-btn" title="Menú de contenidos">
+                    ←
+                </button>
+            </div>
+
             <div className="presentaciones-header">
                 <h1>📊 Presentaciones de Cursos</h1>
                 <p>Visualiza y edita las presentaciones generadas para tus cursos</p>

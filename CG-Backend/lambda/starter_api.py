@@ -49,6 +49,92 @@ def decode_cognito_jwt(token, region="us-east-1"):
         return None
 
 
+def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
+    """
+    Normalize an outline YAML file to the standard nested format.
+    
+    Standard format (verified working):
+        course:
+          title: "..."
+          modules:
+            - title: "Module 1"
+              lessons: [...]
+              lab_activities: [...]
+    
+    Non-standard formats supported:
+        1. Top-level modules: { modules: [...], title: "..." }
+        2. Flat structure: { title: "...", modules: [...] }
+    
+    Returns True if normalization was performed, False if already normalized.
+    """
+    try:
+        # Read the outline from S3
+        response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+        outline_content = response['Body'].read().decode('utf-8')
+        outline_data = yaml.safe_load(outline_content)
+        
+        if not outline_data:
+            print(f"⚠️  Empty outline file: {s3_key}")
+            return False
+        
+        # Check if already in standard format (course.modules exists)
+        if 'course' in outline_data and 'modules' in outline_data.get('course', {}):
+            print(f"✅ Outline already in standard format: {s3_key}")
+            return False
+        
+        print(f"🔄 Normalizing outline to standard format: {s3_key}")
+        
+        # Build the normalized structure
+        normalized = {'course': {}}
+        
+        # If there's a 'course' key but no modules under it, merge with top-level
+        existing_course = outline_data.get('course', {})
+        
+        # Copy course-level metadata
+        course_fields = ['title', 'description', 'language', 'level', 'audience', 
+                        'prerequisites', 'total_duration_minutes', 'learning_outcomes',
+                        'duration_hours', 'objectives']
+        
+        for field in course_fields:
+            # Check top-level first, then existing course object
+            if field in outline_data:
+                normalized['course'][field] = outline_data[field]
+            elif field in existing_course:
+                normalized['course'][field] = existing_course[field]
+        
+        # Get modules from wherever they are
+        modules = outline_data.get('modules', [])
+        if not modules and existing_course:
+            modules = existing_course.get('modules', [])
+        
+        if not modules:
+            print(f"⚠️  No modules found in outline: {s3_key}")
+            return False
+        
+        normalized['course']['modules'] = modules
+        
+        # Write back to S3
+        normalized_yaml = yaml.dump(normalized, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=s3_key,
+            Body=normalized_yaml.encode('utf-8'),
+            ContentType='application/x-yaml'
+        )
+        
+        print(f"✅ Outline normalized successfully: {s3_key}")
+        print(f"   - Modules: {len(modules)}")
+        print(f"   - Title: {normalized['course'].get('title', 'N/A')}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error normalizing outline: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     """
     Parse module input into list of module numbers.
@@ -84,7 +170,8 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
                 outline_content = outline_obj['Body'].read().decode('utf-8')
                 outline_data = yaml.safe_load(outline_content)
                 
-                # Support both 'course' and top-level 'modules' (prefer nested)
+                # Outline should already be normalized by normalize_outline_yaml()
+                # Standard format: course.modules
                 course_data = outline_data.get('course', outline_data)
                 modules = course_data.get('modules', [])
                 
@@ -273,6 +360,21 @@ def lambda_handler(event, context):
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
         course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket - must be defined early
+        
+        # ========================================================================
+        # NORMALIZE OUTLINE YAML TO STANDARD FORMAT
+        # ========================================================================
+        # This ensures all downstream functions receive a consistent format:
+        #   course:
+        #     title: "..."
+        #     modules:
+        #       - title: "Module 1"
+        #         lessons: [...]
+        #         lab_activities: [...]
+        # ========================================================================
+        if outline_s3_key:
+            s3_client = boto3.client('s3')
+            normalize_outline_yaml(s3_client, course_bucket, outline_s3_key)
         
         # Get lab_ids_to_regenerate first - if present, extract modules from lab IDs
         lab_ids_to_regenerate = body.get('lab_ids_to_regenerate')

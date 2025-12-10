@@ -107,13 +107,14 @@ def extract_all_labs(
             print(f"⚠️  Invalid modules_to_generate value: {modules_to_generate}, treating as 'all'")
             target_modules = None
     
-    # Modules can be at top level OR under 'course'
-    # Support both nested and flat formats (prefer nested)
+    # Get modules from standard normalized format (course.modules)
+    # Note: StarterApiFunction normalizes the outline before execution
     course_data = outline_data.get('course', outline_data)
     modules = course_data.get('modules', [])
     
     print(f"\n{'='*70}")
     print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")
+    print(f"📊 Found {len(modules)} modules in outline")
     if target_modules is None:
         print(f"🎯 Filtering: All modules")
     else:

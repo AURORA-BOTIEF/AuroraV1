@@ -85,6 +85,18 @@ def lambda_handler(event, context):
         # Sort projects by creation date (newest first)
         projects.sort(key=lambda x: x.get('created') or '', reverse=True)
         
+        # Apply search filter if provided
+        search_term = query_params.get('search', '').strip().lower()
+        if search_term:
+            projects = [
+                p for p in projects
+                if search_term in p.get('title', '').lower() 
+                or search_term in p.get('folder', '').lower()
+                or search_term in p.get('description', '').lower()
+                or search_term in p.get('course_topic', '').lower()
+            ]
+            print(f"Search filter '{search_term}' applied, {len(projects)} matches")
+        
         # Calculate pagination
         total_count = len(projects)
         total_pages = (total_count + limit - 1) // limit

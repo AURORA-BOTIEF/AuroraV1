@@ -35,7 +35,6 @@
                                 "max_lessons_per_batch.$": "$.max_lessons_per_batch",
                                 "model_provider.$": "$.model_provider",
                                 "batch_index.$": "$.batch_index",
-                                "book_version_key.$": "$.book_version_key",
                                 "book_type.$": "$.book_type"
                             }
                         },
@@ -131,8 +130,7 @@
                 "course_bucket.$": "$.course_bucket",
                 "project_folder.$": "$.project_folder",
                 "ppt_batch_results.$": "$.all_ppt_batch_results[*].ppt_generation_result.Payload",
-                "auto_combine.$": "$.auto_combine",
-                "user_email.$": "$.user_email"
+                "auto_combine.$": "$.auto_combine"
             },
             "ResultPath": "$"
         },
