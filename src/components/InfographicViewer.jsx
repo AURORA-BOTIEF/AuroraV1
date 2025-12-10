@@ -599,20 +599,20 @@ function InfographicViewer() {
         }
     };
 
-    const downloadAsPDF = () => {
-        // Open print dialog which allows saving as PDF
-        window.print();
-    };
+
 
     // renderSlide and renderContentBlocks are no longer needed in the parent component
     // as the iframe will handle rendering all slides, including the grid view.
 
     if (loading) {
         return (
-            <div className="viewer-container">
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+            <div className="viewer-loading-overlay">
+                <div className="viewer-loading-container">
+                    <h1>🖼️ Presentación</h1>
                     <p>Cargando presentación...</p>
+                    <div className="viewer-loading-bar-wrapper">
+                        <div className="viewer-loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );
@@ -678,13 +678,7 @@ function InfographicViewer() {
                 </div>
 
                 <div className="viewer-actions">
-                    <button
-                        onClick={downloadAsPDF}
-                        className="btn-download"
-                        title="Descargar como PDF"
-                    >
-                        📄 PDF
-                    </button>
+
 
                     <button
                         onClick={toggleFullscreen}
@@ -734,9 +728,11 @@ function InfographicViewer() {
                             }}
                         />
                     ) : (
-                        <div className="loading-spinner">
-                            <div className="spinner"></div>
-                            <p>Cargando presentación...</p>
+                        <div className="viewer-inline-loading">
+                            <p>Cargando contenido...</p>
+                            <div className="viewer-loading-bar-wrapper">
+                                <div className="viewer-loading-bar"></div>
+                            </div>
                         </div>
                     )}
                 </div>

@@ -102,7 +102,7 @@ export default function GeneradorTemarios_Seminarios() {
         asesor_comercial: params.asesor_comercial.trim(),
       };
 
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
 
       const res = await fetch(generarApiUrl, {
         method: "POST",
@@ -151,7 +151,7 @@ export default function GeneradorTemarios_Seminarios() {
   // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       const body = {
         cursoId: params.tema_curso.trim().toLowerCase().replace(/\s+/g, "_"),
         contenido: temarioParaGuardar,
@@ -187,7 +187,7 @@ export default function GeneradorTemarios_Seminarios() {
   // === Listar versiones ===
   const handleListarVersiones = async () => {
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       const res = await fetch(listarApiUrl, {
         method: "GET",
         headers: {

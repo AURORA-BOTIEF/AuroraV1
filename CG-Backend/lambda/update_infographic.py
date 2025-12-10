@@ -53,8 +53,18 @@ def lambda_handler(event, context):
         import sys
         sys.path.insert(0, '/opt/python')  # Lambda layer path
         sys.path.insert(0, os.path.dirname(__file__))
+        # Import from the correct strands_infographic_generator directory
+        strands_path = os.path.join(os.path.dirname(__file__), 'strands_infographic_generator')
+        sys.path.insert(0, strands_path)
+        
+        logger.info(f"DEBUG: strands_path = {strands_path}")
+        logger.info(f"DEBUG: sys.path = {sys.path[:3]}")
         
         from html_first_generator import generate_html_output as html_generator_generate_html_output
+        
+        # Verify we imported the correct module
+        import html_first_generator
+        logger.info(f"DEBUG: Imported html_first_generator from: {html_first_generator.__file__}")
         
         # Extract data from structure
         slides = updated_structure.get('slides', [])
@@ -78,26 +88,15 @@ def lambda_handler(event, context):
 
         html_content = ""
         if existing_html:
-            # PATCH EXISTING HTML
-            try:
-                from html_patcher import patch_html_content
-                logger.info("Patching existing HTML content...")
-                updated_html = patch_html_content(
-                    existing_html=existing_html, 
-                    updated_slides=slides,
-                    image_mapping=image_url_mapping
-                )
-                html_content = updated_html
-            except ImportError as ie:
-                logger.error(f"Failed to import html_patcher: {ie}")
-                # Fallback to regeneration if patching fails due to import error
-                logger.warning("Falling back to regeneration due to import error")
-                html_content = html_generator_generate_html_output(
-                    slides=slides,
-                    style=style,
-                    image_url_mapping=image_url_mapping,
-                    course_title=course_title
-                )
+            # TEMPORARY WORKAROUND: Skip patching and always regenerate
+            # TODO: Fix frontend to only send edited slides, then re-enable patching
+            logger.info("Regenerating HTML (patching disabled - frontend sends all slides)")
+            html_content = html_generator_generate_html_output(
+                slides=slides,
+                style=style,
+                image_url_mapping=image_url_mapping,
+                course_title=course_title
+            )
         else:
             # Fallback to regeneration (legacy path)
             logger.info("Regenerating HTML content (fallback)...")

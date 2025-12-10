@@ -49,6 +49,92 @@ def decode_cognito_jwt(token, region="us-east-1"):
         return None
 
 
+def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
+    """
+    Normalize an outline YAML file to the standard nested format.
+    
+    Standard format (verified working):
+        course:
+          title: "..."
+          modules:
+            - title: "Module 1"
+              lessons: [...]
+              lab_activities: [...]
+    
+    Non-standard formats supported:
+        1. Top-level modules: { modules: [...], title: "..." }
+        2. Flat structure: { title: "...", modules: [...] }
+    
+    Returns True if normalization was performed, False if already normalized.
+    """
+    try:
+        # Read the outline from S3
+        response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+        outline_content = response['Body'].read().decode('utf-8')
+        outline_data = yaml.safe_load(outline_content)
+        
+        if not outline_data:
+            print(f"⚠️  Empty outline file: {s3_key}")
+            return False
+        
+        # Check if already in standard format (course.modules exists)
+        if 'course' in outline_data and 'modules' in outline_data.get('course', {}):
+            print(f"✅ Outline already in standard format: {s3_key}")
+            return False
+        
+        print(f"🔄 Normalizing outline to standard format: {s3_key}")
+        
+        # Build the normalized structure
+        normalized = {'course': {}}
+        
+        # If there's a 'course' key but no modules under it, merge with top-level
+        existing_course = outline_data.get('course', {})
+        
+        # Copy course-level metadata
+        course_fields = ['title', 'description', 'language', 'level', 'audience', 
+                        'prerequisites', 'total_duration_minutes', 'learning_outcomes',
+                        'duration_hours', 'objectives']
+        
+        for field in course_fields:
+            # Check top-level first, then existing course object
+            if field in outline_data:
+                normalized['course'][field] = outline_data[field]
+            elif field in existing_course:
+                normalized['course'][field] = existing_course[field]
+        
+        # Get modules from wherever they are
+        modules = outline_data.get('modules', [])
+        if not modules and existing_course:
+            modules = existing_course.get('modules', [])
+        
+        if not modules:
+            print(f"⚠️  No modules found in outline: {s3_key}")
+            return False
+        
+        normalized['course']['modules'] = modules
+        
+        # Write back to S3
+        normalized_yaml = yaml.dump(normalized, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=s3_key,
+            Body=normalized_yaml.encode('utf-8'),
+            ContentType='application/x-yaml'
+        )
+        
+        print(f"✅ Outline normalized successfully: {s3_key}")
+        print(f"   - Modules: {len(modules)}")
+        print(f"   - Title: {normalized['course'].get('title', 'N/A')}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error normalizing outline: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     """
     Parse module input into list of module numbers.
@@ -84,7 +170,8 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
                 outline_content = outline_obj['Body'].read().decode('utf-8')
                 outline_data = yaml.safe_load(outline_content)
                 
-                # Support both 'course' and top-level 'modules' (prefer nested)
+                # Outline should already be normalized by normalize_outline_yaml()
+                # Standard format: course.modules
                 course_data = outline_data.get('course', outline_data)
                 modules = course_data.get('modules', [])
                 
@@ -216,6 +303,19 @@ def lambda_handler(event, context):
                 user_email = f"cognito-user-{user_id}@example.com"
                 print(f"User identified via Cognito Identity: {user_email} ({user_id})")
         
+        # Method 6: Check body for user_email (explicitly passed from frontend)
+        # Parse request body first to check for email
+        if isinstance(event.get('body'), str):
+            body_for_email = json.loads(event['body'])
+        else:
+            body_for_email = event.get('body', {})
+            
+        if body_for_email.get('user_email'):
+            user_email = body_for_email.get('user_email')
+            print(f"User identified via request body: {user_email}")
+            if not user_id:
+                user_id = user_email.split('@')[0] # Fallback ID
+
         # Fallback to unknown-user if nothing worked
         if not user_id:
             user_id = 'unknown-user'
@@ -261,9 +361,47 @@ def lambda_handler(event, context):
         course_duration_hours = body.get('course_duration_hours', 40)
         course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket - must be defined early
         
+        # ========================================================================
+        # NORMALIZE OUTLINE YAML TO STANDARD FORMAT
+        # ========================================================================
+        # This ensures all downstream functions receive a consistent format:
+        #   course:
+        #     title: "..."
+        #     modules:
+        #       - title: "Module 1"
+        #         lessons: [...]
+        #         lab_activities: [...]
+        # ========================================================================
+        if outline_s3_key:
+            s3_client = boto3.client('s3')
+            normalize_outline_yaml(s3_client, course_bucket, outline_s3_key)
+        
+        # Get lab_ids_to_regenerate first - if present, extract modules from lab IDs
+        lab_ids_to_regenerate = body.get('lab_ids_to_regenerate')
+        
         # Support both 'module_number' (from GeneradorCursos) and 'module_to_generate' (from GeneradorContenido)
         # Can be: single int (1), string ("1"), "all", comma-separated ("1,3"), range ("1-3"), or mixed ("1,3-5")
-        module_input = body.get('module_number') or body.get('module_to_generate', 1)
+        module_input = body.get('module_number') or body.get('module_to_generate')
+        
+        # If lab_ids_to_regenerate is provided, extract module numbers from lab IDs
+        # Lab ID format is MM-LL-II (module-lesson-lab_index), e.g., "04-00-01" -> module 4
+        if lab_ids_to_regenerate and not module_input:
+            try:
+                modules_from_lab_ids = set()
+                for lab_id in lab_ids_to_regenerate:
+                    if isinstance(lab_id, str) and '-' in lab_id:
+                        module_num = int(lab_id.split('-')[0])
+                        modules_from_lab_ids.add(module_num)
+                if modules_from_lab_ids:
+                    module_input = list(modules_from_lab_ids)
+                    print(f"📋 Extracted modules from lab_ids: {module_input}")
+            except (ValueError, IndexError) as e:
+                print(f"⚠️  Could not extract modules from lab_ids: {e}, defaulting to 'all'")
+                module_input = 'all'
+        
+        # Default to module 1 if no module specified
+        if not module_input:
+            module_input = 1
         
         # Parse module input into list of module numbers
         modules_to_generate = parse_module_input(module_input, outline_s3_key, course_bucket)
@@ -275,9 +413,10 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
-        # Lab generation parameters
-        content_type = body.get('content_type', 'theory')  # 'theory', 'labs', or 'both'
+        # Lab generation parameters - default to 'both' (theory + labs)
+        content_type = body.get('content_type', 'both')  # 'theory', 'labs', or 'both'
         lab_requirements = body.get('lab_requirements', '')  # Optional additional requirements for labs (default to empty string)
+        lesson_requirements = body.get('lesson_requirements', '')  # Optional additional requirements for lessons (default to empty string)
 
         # Get environment variables
         state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
@@ -317,6 +456,8 @@ def lambda_handler(event, context):
             "allow_openai_fallback": allow_openai_fallback,
             "content_type": content_type,  # 'theory', 'labs', or 'both'
             "lab_requirements": lab_requirements,  # Always include (empty string if not provided)
+            "lesson_requirements": lesson_requirements,  # Always include (empty string if not provided)
+            "lab_ids_to_regenerate": body.get('lab_ids_to_regenerate'),  # NEW: Always include (None if not provided)
         }
         
         # Only include optional parameters if they were provided

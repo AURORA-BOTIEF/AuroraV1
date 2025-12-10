@@ -133,7 +133,7 @@ function GeneradorTemarios_KNTR() {
 
       console.log("Enviando payload:", payload);
 
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       
       // --- AJUSTE API: Se usa tu 'generarApiUrl' ---
       const response = await fetch(
@@ -255,7 +255,7 @@ const handleListarVersiones = async () => {
       ? `${listarApiUrl}?id=${encodeURIComponent(cursoId)}`
       : listarApiUrl;
 
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
     const res = await fetch(url, {
       method: "GET",
       headers: {

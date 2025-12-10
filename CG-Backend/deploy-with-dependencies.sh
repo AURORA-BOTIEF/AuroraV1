@@ -76,6 +76,7 @@ FUNCTIONS_WITH_DEPS=(
     "ListInfographicsFunction"      # Lists available presentations (standard lib)
     "GetInfographicFunction"        # Gets presentation details (standard lib)
     "UpdateInfographicFunction"     # Updates and regenerates presentations (uses StrandsAgentsLayer)
+    "StrandsNotification"           # Sends email notifications (standard lib)
 )
 
 echo ""

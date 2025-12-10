@@ -53,11 +53,41 @@ def resolve_batch_size(requested_batch_size: Optional[int]) -> int:
     return size
 
 
-def load_book_from_s3(course_bucket: str, project_folder: str) -> dict:
-    """Load the course book from S3."""
+def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key: str = None, book_type: str = 'theory') -> dict:
+    """Load the course book from S3.
+    
+    Args:
+        course_bucket: S3 bucket name
+        project_folder: Project folder path
+        book_version_key: Optional specific book version key (full S3 path)
+        book_type: 'theory' or 'lab'
+    """
     try:
-        book_key = f"{project_folder}/book/Generated_Course_Book_data.json"
-        logger.info(f"📚 Loading book from s3://{course_bucket}/{book_key}")
+        if book_version_key:
+            # Use specific version provided
+            book_key = book_version_key
+            logger.info(f"📚 Loading specific book version from s3://{course_bucket}/{book_key}")
+        else:
+            # Try to find book in new folder structure first
+            possible_keys = [
+                f"{project_folder}/{book_type}-book/Generated_Course_Book_data.json",
+                f"{project_folder}/book/Generated_Course_Book_data.json"
+            ]
+            
+            book_key = None
+            for key in possible_keys:
+                try:
+                    s3_client.head_object(Bucket=course_bucket, Key=key)
+                    book_key = key
+                    break
+                except Exception:
+                    continue
+            
+            if not book_key:
+                raise ValueError(f"No book found in: {', '.join(possible_keys)}")
+            
+            logger.info(f"📚 Loading book from s3://{course_bucket}/{book_key}")
+        
         response = s3_client.get_object(Bucket=course_bucket, Key=book_key)
         book_data = json.loads(response['Body'].read().decode('utf-8'))
         return book_data
@@ -94,7 +124,9 @@ def create_ppt_batch_tasks(
     project_folder: str,
     batches: list,
     model_provider: str = 'bedrock',
-    html_first: bool = True
+    html_first: bool = True,
+    book_version_key: str = None,
+    book_type: str = 'theory'
 ) -> list:
     """Create Lambda invocation tasks for each batch."""
     tasks = []
@@ -110,7 +142,9 @@ def create_ppt_batch_tasks(
             'total_lessons': batch['total_lessons'],
             'model_provider': model_provider,
             'html_first': html_first,  # NEW: Enable HTML-first architecture
-            'timeout_seconds': 840  # 14 minutes, leaves 1 min buffer before 900s hard limit
+            'timeout_seconds': 840,  # 14 minutes, leaves 1 min buffer before 900s hard limit
+            'book_version_key': book_version_key,  # Pass specific version to use
+            'book_type': book_type  # 'theory' or 'lab'
         }
         tasks.append(task)
     
@@ -145,6 +179,9 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         model_provider = body.get('model_provider', 'bedrock')
         html_first = body.get('html_first', True)
+        user_email = body.get('user_email')  # Optional: for end-user notifications
+        book_version_key = body.get('book_version_key')  # Specific book version to use
+        book_type = body.get('book_type', 'theory')  # 'theory' or 'lab'
         
         # HTML-first architecture: Skip PPT merging and conversion (HTML is final output)
         # Legacy architecture: Merge batches and convert to PPT
@@ -153,6 +190,12 @@ def lambda_handler(event, context):
         if not course_bucket or not project_folder:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'error': 'Missing required parameters: course_bucket, project_folder'
                 })
@@ -160,9 +203,13 @@ def lambda_handler(event, context):
         
         logger.info(f"🚀 Starting PPT batch orchestration")
         logger.info(f"📚 Course: {project_folder} in {course_bucket}")
+        if book_version_key:
+            logger.info(f"📖 Using specific book version: {book_version_key}")
+        else:
+            logger.info(f"📖 Using auto-discovered book ({book_type})")
         
         # Load book to determine lesson count
-        book_data = load_book_from_s3(course_bucket, project_folder)
+        book_data = load_book_from_s3(course_bucket, project_folder, book_version_key, book_type)
         
         # Count total lessons across all modules
         total_lessons = 0
@@ -174,6 +221,12 @@ def lambda_handler(event, context):
         if total_lessons == 0:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'error': 'No lessons found in course book'
                 })
@@ -208,7 +261,9 @@ def lambda_handler(event, context):
             project_folder=project_folder,
             batches=batches,
             model_provider=model_provider,
-            html_first=html_first  # Pass html_first to all batches
+            html_first=html_first,  # Pass html_first to all batches
+            book_version_key=book_version_key,  # Pass specific book version
+            book_type=book_type  # 'theory' or 'lab'
         )
         
         # Prepare Step Functions execution input
@@ -220,8 +275,15 @@ def lambda_handler(event, context):
             'ppt_batch_tasks': ppt_batch_tasks,
             'total_batches': num_batches,
             'total_lessons': total_lessons,
-            'max_concurrent_batches': MAX_CONCURRENT_BATCHES
+            'max_concurrent_batches': MAX_CONCURRENT_BATCHES,
+            'book_version_key': book_version_key,  # Pass through for each batch
+            'book_type': book_type  # 'theory' or 'lab'
         }
+        
+        # Add user_email if provided (for notifications)
+        if user_email:
+            state_machine_input['user_email'] = user_email
+            logger.info(f"📧 User email for notifications: {user_email}")
         
         # Start Step Functions execution
         execution_name = f"ppt-orchestration-{project_folder}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -240,6 +302,12 @@ def lambda_handler(event, context):
             
             return {
                 'statusCode': 202,  # Accepted
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'message': f'PPT batch orchestration started',
                     'execution_arn': execution_arn,
@@ -266,6 +334,12 @@ def lambda_handler(event, context):
         logger.error(f"❌ Error in PPT batch orchestrator: {str(e)}")
         return {
             'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                'Content-Type': 'application/json'
+            },
             'body': json.dumps({
                 'error': str(e)
             })

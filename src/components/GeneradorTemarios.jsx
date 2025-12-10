@@ -127,7 +127,7 @@ function GeneradorTemarios() {
 
       console.log("Enviando payload:", payload);
 
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       
       // --- AJUSTE API: Se usa tu 'generarApiUrl' ---
       const response = await fetch(
@@ -170,52 +170,55 @@ function GeneradorTemarios() {
     }
   };
 
-  const handleGuardarVersion = async (temarioParaGuardar, nota) => { // Se añade 'nota' 
-    try {
-      const token = localStorage.getItem("id_token");
-      const bodyData = {
-        // Body adaptado a la API de 'Practicos' (para el modal)
-        contenido: temarioParaGuardar,
-        nota: nota || `Guardado el ${new Date().toLocaleString()}`, // Se usa la nota del editor
-        autor: userEmail,
-        asesor_comercial: params.asesor_comercial,
-        nombre_preventa: params.nombre_preventa,
-        nombre_curso: params.tema_curso,
-        tecnologia: params.tecnologia,
-        enfoque: params.enfoque,
-        fecha_creacion: new Date().toISOString(),
-      };
+ const handleGuardarVersion = async (temarioParaGuardar, nota) => {
+  try {
+    const token = sessionStorage.getItem("id_token");
 
-      // --- AJUSTE API: Se usa tu 'guardarApiUrl' ---
-      const res = await fetch(
-        guardarApiUrl,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(bodyData),
-        }
-      );
+    const bodyData = {
+      contenido: temarioParaGuardar,
 
-      const data = await res.json();
-      if (!res.ok) { // Se ajusta la validación de respuesta
-        throw new Error(data.error || "Error al guardar versión");
-      }
-      
-      // Se retorna el formato que espera el EditorDeTemario
-      return { success: true, message: `Versión guardada ✔ (versionId: ${data.versionId})` };
+      // 🔥 Guarda lo que escribe el usuario en el popup
+      nota_usuario: nota || "",
 
-    } catch (error) {
-      console.error(error);
-      return { success: false, message: error.message }; // Se retorna el error
-    }
-  };
+      // 🔥 Guarda la nota automática que se ve en la columna de DynamoDB
+      nota_version: `Guardado el ${new Date().toLocaleString()}`,
+
+      autor: userEmail,
+      asesor_comercial: params.asesor_comercial,
+      nombre_preventa: params.nombre_preventa,
+      nombre_curso: params.tema_curso,
+      tecnologia: params.tecnologia,
+      enfoque: params.enfoque,
+      fecha_creacion: new Date().toISOString(),
+    };
+
+    const res = await fetch(guardarApiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(bodyData),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error al guardar versión");
+
+    return {
+      success: true,
+      message: `Versión guardada ✔ (versionId: ${data.versionId})`,
+    };
+
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error.message };
+  }
+};
+
 
   const handleListarVersiones = async () => {
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
       
       // --- AJUSTE API: Se usa tu 'guardarApiUrl' con método GET ---
       const res = await fetch(
@@ -279,7 +282,7 @@ const handleExportarPDF = async (version) => {
     setIsLoading(true);
     setError("");
 
-    const token = localStorage.getItem("id_token");
+    const token = sessionStorage.getItem("id_token");
 
     // 🔹 Construye la URL con los parámetros esperados por tu Lambda
     const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
@@ -614,6 +617,7 @@ const handleExportarPDF = async (version) => {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
+                      <th>Nota</th> 
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -624,7 +628,8 @@ const handleExportarPDF = async (version) => {
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                        <td>{v.autor}</td>
+                        <td>{v.autor}</td><td>{v.nota_version || "Sin nota"}</td>
+
                         <td className="acciones-cell">
                           <button
                             className="menu-btn"

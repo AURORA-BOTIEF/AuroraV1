@@ -2,8 +2,8 @@
 
 **Project:** Aurora - AI-Powered Course Generation Platform  
 **Organization:** NETEC  
-**Last Updated:** November 26, 2025  
-**Version:** 1.4  
+**Last Updated:** December 4, 2025  
+**Version:** 1.5  
 **Repository:** AuroraV1 (Branch: testing)
 
 ---
@@ -626,6 +626,8 @@ Aurora's presentation generator uses **HTML as the single source of truth** for 
 - ✅ Responsive grid layouts for side-by-side images
 - ✅ Print-ready CSS for PDF export
 - ✅ Pixel-perfect slide dimensions (1280x720px)
+- ✅ **Book Version Selection** - Uses saved/edited book versions (Dec 2025)
+- ✅ **Markdown Table Extraction** - Tables from content rendered in slides (Dec 2025)
 
 **Architecture: HTML as Source of Truth**
 
@@ -796,6 +798,91 @@ def generate_presigned_image_urls(image_mapping: Dict) -> Dict:
 }
 ```
 
+**Table Extraction & Rendering (Added Dec 2025):**
+
+Markdown tables in lesson content are now automatically extracted and rendered as professional HTML tables in slides.
+
+**Table Extraction Function:**
+```python
+def extract_tables_from_content(text: str) -> List[Dict]:
+    """
+    Extracts markdown tables from lesson content.
+    
+    Input (markdown):
+    | Header 1 | Header 2 | Header 3 |
+    |----------|----------|----------|
+    | Cell 1   | Cell 2   | Cell 3   |
+    | Cell 4   | Cell 5   | Cell 6   |
+    
+    Output (structured):
+    [{
+        'headers': ['Header 1', 'Header 2', 'Header 3'],
+        'rows': [
+            ['Cell 1', 'Cell 2', 'Cell 3'],
+            ['Cell 4', 'Cell 5', 'Cell 6']
+        ]
+    }]
+    """
+```
+
+**AI Prompt Integration:**
+```python
+# Tables are now included in AI slide generation prompts:
+tables = extract_tables_from_content(lesson_content)
+if tables:
+    prompt += f"\n\nTABLES IN THIS LESSON:\n{json.dumps(tables, indent=2)}"
+    prompt += "\nIMPORTANT: If tables are present, YOU MUST include at least one table slide."
+```
+
+**Table Content Block Format:**
+```json
+{
+    "type": "table",
+    "headers": ["Feature", "Description", "Example"],
+    "rows": [
+        ["Feature A", "Does X", "Usage: command"],
+        ["Feature B", "Does Y", "Usage: other"]
+    ]
+}
+```
+
+**Table CSS Styling:**
+```css
+/* Professional table styling */
+.slide table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+    font-size: 14pt;
+    background: white;
+}
+
+.slide table th {
+    background: linear-gradient(135deg, #003366, #4682B4);
+    color: white;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 600;
+    border: 1px solid #003366;
+}
+
+.slide table td {
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    color: #333;
+}
+
+.slide table tr:nth-child(even) {
+    background-color: #f8f9fa;
+}
+
+.slide table tr:hover {
+    background-color: #e8f4fd;
+}
+```
+
+**Result:** Tables from markdown content now appear as professional, branded tables in generated slides with proper Netec styling.
+
 **Agenda Slide with Nested Bullets (Fixed Nov 2025):**
 
 **Problem:** Double bullets appeared (CSS bullet + text ○ symbol)
@@ -940,6 +1027,31 @@ def determine_completion_status(
 }
 ```
 
+**Book Version Selection (Added Dec 2025):**
+
+PPT generation now supports **selecting which book version** to use for slide content. This enables generating presentations from user-edited books rather than only the original AI-generated content:
+
+- `book_version_key`: S3 path to specific book JSON (e.g., `project/book/Generated_Course_Book_data.json`)
+- `book_type`: Book variant to use - `theory` (default), `practice`, or `exam`
+
+**Flow:**
+```
+PptBatchOrchestrator
+    ↓
+Step Functions (book_version_key, book_type)
+    ↓
+StrandsInfographicGenerator
+    ↓
+Load specific book version from S3
+    ↓
+Generate slides from that version's content
+```
+
+This allows users to:
+1. Edit a book in BookEditor (add/remove content, fix tables, etc.)
+2. Save the edited version
+3. Generate PPT from the **saved version** (not original)
+
 **Output (Final Batch Only):**
 ```json
 {
@@ -1006,6 +1118,11 @@ HTML-first architecture makes PowerPoint conversion **optional**, not required:
 - Typical execution: 60-120 seconds per batch (3 lessons)
 - Memory usage: ~300-500 MB
 - Supports: Unlimited slides (batched processing)
+
+**Recent Improvements (Dec 2025):**
+- ✅ **Book Version Selection**: Generate PPT from saved/edited book versions
+- ✅ **Table Extraction**: Markdown tables rendered as professional HTML tables
+- ✅ **Table CSS Styling**: Netec-branded table design with headers, borders, hover effects
 
 **Future Enhancements:**
 - Interactive slides (JavaScript animations)
@@ -2540,13 +2657,13 @@ aws stepfunctions describe-execution --execution-arn <arn>
 
 ---
 
-**Document Version:** 1.3  
-**Last Updated:** October 20, 2025, 01:01 UTC  
-**Authors:** System Analysis Team, Juan Ossa (Book Editor Implementation), Content Generation Team (Oct 2025 Improvements)  
+**Document Version:** 1.5  
+**Last Updated:** December 4, 2025  
+**Authors:** System Analysis Team, Juan Ossa (Book Editor Implementation, Regenerate Lesson Feature), Content Generation Team  
 **Production Status:** ✅ **READY** (All improvements deployed)  
-**Last Deployment:** October 20, 2025, 01:01 UTC  
-**Validated Success Rate:** 99.4% (Project 251018-JS-06)  
-**Next Review:** After next course generation test
+**Last Deployment:** December 4, 2025  
+**Validated Success Rate:** 99.4%+ (Multiple production courses)  
+**New Features:** Regenerate Lesson/Lab, State Machine Conditional Routing, Lab Guide Deduplication
 
 ---
 
@@ -3602,5 +3719,537 @@ The Aurora V1 course generation system has reached **production maturity** with:
 - ✅ Future-ready with Vertex AI SDK support
 
 **Status:** Production-ready, battle-tested, reliable.
+
+---
+
+## 2025-12-04: Course Generator State Machine - Complete Architecture
+
+### Overview
+
+The **CourseGeneratorStateMachine** is the central orchestration engine for Aurora's course generation system. It handles three distinct content types (theory, labs, both) with intelligent routing, supports both new course generation and selective regeneration of individual lessons/labs.
+
+### State Machine Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      CourseGeneratorStateMachine                             │
+│                 (AWS Step Functions - Standard Type)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                              ┌──────────────────┐
+                              │ DetermineContent │
+                              │      Type        │
+                              └────────┬─────────┘
+                                       │
+           ┌───────────────────────────┼───────────────────────────┐
+           │                           │                           │
+           ▼                           ▼                           ▼
+  ┌────────────────┐         ┌────────────────┐         ┌────────────────┐
+  │ TheoryOnly     │         │ LabsOnly       │         │ BothTheory     │
+  │ Branch         │         │ Branch         │         │ AndLabsBranch  │
+  └───────┬────────┘         └───────┬────────┘         └───────┬────────┘
+          │                          │                          │
+          ▼                          ▼                          ▼
+  ┌────────────────┐         ┌────────────────┐         ┌────────────────┐
+  │ ExpandModules  │         │ InvokeLab      │         │ GenerateMaster │
+  │ ToBatches      │         │ Planner        │         │ LabPlan        │
+  └───────┬────────┘         └───────┬────────┘         └───────┬────────┘
+          │                          │                          │
+          ▼                          ▼                          ▼
+  ┌────────────────┐         ┌────────────────┐         ┌────────────────┐
+  │ CheckIfRegen   │         │ CheckLabPlan   │         │ CheckMasterLab │
+  │ erationMode    │         │ nerResult      │         │ PlanResult     │
+  └───────┬────────┘         └───────┬────────┘         └───────┬────────┘
+          │                          │                          │
+     ┌────┴────┐                     ▼                          ▼
+     │         │             ┌────────────────┐         ┌────────────────┐
+     ▼         ▼             │ ExpandLabs     │         │ ExpandModules  │
+┌─────────┐┌─────────┐       │ ToBatches      │         │ ToBatches      │
+│ Prepare ││ Prepare │       └───────┬────────┘         └───────┬────────┘
+│ NewCrse ││ Regen   │               │                          │
+│ Params  ││ Params  │               ▼                          ▼
+└────┬────┘└────┬────┘       ┌────────────────┐         ┌────────────────┐
+     │         │             │ ProcessLab     │         │ ProcessBatches │
+     └────┬────┘             │ BatchesParallel│         │ InParallel     │ (Theory)
+          │                  └───────┬────────┘         └───────┬────────┘
+          ▼                          │                          │
+  ┌────────────────┐                 ▼                          ▼
+  │ ProcessBatches │         ┌────────────────┐         ┌────────────────┐
+  │ InParallel     │         │ CombineLab     │         │ ChooseCombine  │
+  └───────┬────────┘         │ Results        │         │ ResultsPath    │
+          │                  └───────┬────────┘         └───────┬────────┘
+          ▼                          │                     ┌────┴────┐
+  ┌────────────────┐                 ▼                     ▼         ▼
+  │ CombineResults │         ┌────────────────┐   ┌──────────┐┌──────────┐
+  │ AndBuildBook   │         │ InvokeLab      │   │ Combine  ││ Combine  │
+  └───────┬────────┘         │ GuideBuilder   │   │ Results  ││ Results  │
+          │                  └───────┬────────┘   │ (Theory) ││ (Both)   │
+          ▼                          │            └────┬─────┘└────┬─────┘
+  ┌────────────────┐                 ▼                 │           │
+  │ InvokeBook     │         ┌────────────────┐        └─────┬─────┘
+  │ Builder        │         │ Notify         │              │
+  └───────┬────────┘         │ Completion     │              ▼
+          │                  └───────┬────────┘      ┌────────────────┐
+          ▼                          │               │ InvokeBook     │
+  ┌────────────────┐                 ▼               │ Builder        │
+  │ Notify         │         ┌────────────────┐      └───────┬────────┘
+  │ Completion     │         │ SuccessState   │              │
+  └───────┬────────┘         └────────────────┘              ▼
+          │                                          ┌────────────────┐
+          ▼                                          │ CheckIfLabs    │
+  ┌────────────────┐                                 │ Needed         │
+  │ SuccessState   │                                 └───────┬────────┘
+  └────────────────┘                                    ┌────┴────┐
+                                                        ▼         ▼
+                                                 ┌──────────┐┌──────────┐
+                                                 │ Validate ││ Notify   │
+                                                 │ LabPlan  ││ Complete │
+                                                 │ Exists   ││ (theory) │
+                                                 └────┬─────┘└──────────┘
+                                                      │
+                                                      ▼
+                                              ┌────────────────┐
+                                              │ ExpandLabs     │
+                                              │ ToBatchesBoth  │
+                                              └───────┬────────┘
+                                                      │
+                                                      ▼
+                                              ┌────────────────┐
+                                              │ ProcessLab     │
+                                              │ BatchesBoth    │
+                                              └───────┬────────┘
+                                                      │
+                                                      ▼
+                                              ┌────────────────┐
+                                              │ CombineLab     │
+                                              │ ResultsBoth    │
+                                              └───────┬────────┘
+                                                      │
+                                                      ▼
+                                              ┌────────────────┐
+                                              │ InvokeLab      │
+                                              │ GuideBuilder   │
+                                              └───────┬────────┘
+                                                      │
+                                                      ▼
+                                              ┌────────────────┐
+                                              │ Notify         │
+                                              │ Completion     │
+                                              └───────┬────────┘
+                                                      │
+                                                      ▼
+                                              ┌────────────────┐
+                                              │ SuccessState   │
+                                              └────────────────┘
+```
+
+### All States Reference
+
+| State Name | Type | Purpose |
+|------------|------|---------|
+| **DetermineContentType** | Choice | Routes to theory, labs, or both branch |
+| **TheoryOnlyBranch** | Pass | Prepares params for theory-only generation |
+| **LabsOnlyBranch** | Pass | Prepares params for labs-only generation |
+| **BothTheoryAndLabsBranch** | Pass | Prepares params for combined generation |
+| **GenerateLabMasterPlan** | Task | Creates master lab plan (StrandsLabPlanner) |
+| **CheckMasterLabPlanResult** | Choice | Validates master lab plan success |
+| **ExpandModulesToBatches** | Task | Splits modules into batches (BatchExpander) |
+| **CheckBatchExpansionSuccess** | Choice | Validates batch expansion result |
+| **CheckIfRegenerationMode** | Choice | Detects regeneration vs new course |
+| **PrepareNewCourseParams** | Pass | Sets null defaults for new courses |
+| **PrepareRegenerationParams** | Pass | Preserves regeneration parameters |
+| **ProcessBatchesInParallel** | Map | Parallel execution of content generation |
+| **ChooseCombineResultsPath** | Choice | Routes based on content_type |
+| **CombineResultsAndBuildBook** | Pass | Flattens results (theory-only) |
+| **CombineResultsAndBuildBookBoth** | Pass | Flattens results preserving master_lab_plan |
+| **InvokeBookBuilder** | Task | Compiles final book (BookBuilder) |
+| **CheckIfLabsNeeded** | Choice | Routes to lab generation for "both" mode |
+| **ValidateLabPlanExists** | Choice | Validates master_lab_plan_result exists |
+| **InvokeLabPlanner** | Task | Creates lab plan (StrandsLabPlanner) |
+| **CheckLabPlannerResult** | Choice | Validates lab planner success |
+| **ExpandLabsToBatches** | Task | Splits labs into batches (LabBatchExpander) |
+| **ExpandLabsToBatchesBoth** | Task | Splits labs for "both" mode |
+| **CheckLabBatchExpansionSuccess** | Choice | Validates lab batch expansion |
+| **CheckLabBatchExpansionSuccessBoth** | Choice | Validates lab batch expansion (both) |
+| **ProcessLabBatchesInParallel** | Map | Parallel lab generation |
+| **ProcessLabBatchesInParallelBoth** | Map | Parallel lab generation (both mode) |
+| **CombineLabResults** | Pass | Flattens lab results (labs-only) |
+| **CombineLabResultsBoth** | Pass | Flattens lab results (both mode) |
+| **InvokeLabGuideBuilder** | Task | Compiles lab guide book |
+| **NotifyCompletion** | Task | Sends success notification |
+| **NotifyFailure** | Task | Sends failure notification |
+| **SuccessState** | Succeed | Marks execution complete |
+| **FailWorkflow** | Fail | Marks execution failed |
+
+### Content Type Routing
+
+The state machine supports three content types:
+
+**1. `theory` (Theory Only)**
+- Generates lesson content and images
+- Skips lab generation entirely
+- Fastest execution path
+
+**2. `labs` (Labs Only)**
+- Generates lab guides based on outline
+- Skips theory content generation
+- Used for lab-only regeneration
+
+**3. `both` (Theory + Labs)**
+- Full course generation
+- First generates all theory content
+- Then generates lab guides
+- Most comprehensive path
+
+### New Course vs Regeneration Mode
+
+The state machine intelligently handles both new course generation and selective regeneration:
+
+**New Course Generation:**
+- `lesson_to_generate = null`
+- `lab_ids_to_regenerate = null`
+- Generates all modules/lessons in the outline
+
+**Lesson Regeneration:**
+- `lesson_to_generate = "MM-LL"` (e.g., "01-02")
+- `module_number = N` (specific module)
+- Regenerates only the specified lesson
+
+**Lab Regeneration:**
+- `lab_ids_to_regenerate = ["07-00-01"]`
+- Regenerates only the specified lab(s)
+
+### Key Lambda Functions Invoked
+
+| Lambda | Invoked By | Purpose |
+|--------|------------|---------|
+| **BatchExpander** | ExpandModulesToBatches | Splits modules into batches of 3 lessons |
+| **StrandsContentGen** | ProcessBatchesInParallel | Generates lesson content |
+| **StrandsVisualPlanner** | ProcessBatchesInParallel | Plans visual content |
+| **ImagesGen** | ProcessBatchesInParallel | Generates images |
+| **BookBuilder** | InvokeBookBuilder | Compiles theory book |
+| **StrandsLabPlanner** | GenerateLabMasterPlan, InvokeLabPlanner | Creates lab plans |
+| **LabBatchExpander** | ExpandLabsToBatches | Splits labs into batches |
+| **StrandsLabWriter** | ProcessLabBatchesInParallel | Writes lab content |
+| **LabGuideBuilder** | InvokeLabGuideBuilder | Compiles lab guide |
+| **NotificationFunction** | NotifyCompletion, NotifyFailure | Sends email notifications |
+
+---
+
+## 2025-12-04: Regenerate Lesson/Lab Feature
+
+### Overview
+
+Aurora now supports **selective regeneration** of individual lessons and labs without regenerating the entire course. This feature significantly reduces time and cost when only specific content needs to be updated.
+
+### Use Cases
+
+1. **Content Improvement**: Regenerate a lesson with additional requirements (e.g., "add more real-world examples")
+2. **Error Correction**: Fix issues in a specific lesson without affecting others
+3. **Lab Updates**: Regenerate a lab to match updated lesson content
+4. **Customization**: Tailor specific sections for different audiences
+
+### Frontend Component: RegenerateLesson
+
+**Location:** `src/components/RegenerateLesson.jsx`
+
+**Purpose:** Provides UI for regenerating individual lessons with optional additional requirements.
+
+**Props:**
+```javascript
+{
+  projectFolder: string,      // Current project folder name
+  outlineKey: string,         // S3 key to the outline file
+  currentLessonId: string,    // e.g., "01-02" for module 1, lesson 2
+  currentLessonTitle: string, // Display title
+  moduleNumber: number,       // Module number (1-based)
+  lessonNumber: number,       // Lesson number within module
+  onClose: function,          // Close modal callback
+  onSuccess: function         // Success callback
+}
+```
+
+**Features:**
+- ✅ Displays current lesson info (ID, title, module)
+- ✅ Optional text area for additional requirements
+- ✅ Spanish UI ("Regenerar Lección", "Requisitos Adicionales")
+- ✅ Loading state with spinner
+- ✅ Success modal with estimated time
+- ✅ Error handling with user-friendly messages
+
+**API Request Format:**
+```javascript
+{
+  course_bucket: 'crewai-course-artifacts',
+  outline_s3_key: 'project/outline/course.yaml',
+  project_folder: '251202-curso-ejemplo',
+  content_type: 'theory',           // Theory only for lessons
+  model_provider: 'bedrock',
+  image_model: 'models/gemini-2.5-flash-image',
+  module_number: 2,                 // Specific module
+  lesson_to_generate: '02-01',      // Specific lesson ID
+  lesson_requirements: 'Optional additional instructions',
+  user_email: 'user@example.com'
+}
+```
+
+### Backend Changes for Regeneration
+
+#### 1. StarterApiFunction Updates
+
+**File:** `CG-Backend/lambda/starter_api.py`
+
+**Changes:**
+- Accepts `module_number` parameter (single module for regeneration)
+- Accepts `lesson_to_generate` parameter (specific lesson ID)
+- Accepts `lesson_requirements` parameter (additional instructions)
+- Accepts `lab_ids_to_regenerate` parameter (specific lab IDs)
+- Passes these to state machine for selective processing
+
+**Parameter Handling:**
+```python
+# For regeneration
+module_number = body.get('module_number')          # Single module
+lesson_to_generate = body.get('lesson_to_generate')  # Specific lesson
+lesson_requirements = body.get('lesson_requirements')  # Additional reqs
+lab_ids_to_regenerate = body.get('lab_ids_to_regenerate')  # Specific labs
+
+# For new courses (backwards compatible)
+modules_to_generate = body.get('modules_to_generate', 'all')  # All modules
+```
+
+#### 2. BatchExpander Updates
+
+**File:** `CG-Backend/lambda/batch_expander.py`
+
+**Changes:**
+- Handles `module_number` for single-module regeneration
+- Handles `lesson_to_generate` for single-lesson regeneration
+- Creates minimal batch for regeneration (1 lesson instead of full batches)
+
+**Batch Logic:**
+```python
+if lesson_to_generate:
+    # Regeneration mode: create single-lesson batch
+    batches = [{
+        'module_number': module_number,
+        'lesson_id': lesson_to_generate,
+        'lesson_requirements': lesson_requirements
+    }]
+else:
+    # New course mode: batch all lessons (3 per batch)
+    batches = create_batches(modules, MAX_LESSONS_PER_BATCH=3)
+```
+
+#### 3. StrandsContentGen Updates
+
+**File:** `CG-Backend/lambda/strands_content_gen/strands_content_gen.py`
+
+**Changes:**
+- Passes `lesson_requirements` to AI prompt
+- Enhances content based on additional requirements
+- Logs regeneration context for debugging
+
+**Prompt Enhancement:**
+```python
+if lesson_requirements:
+    prompt += f"""
+    
+    ADDITIONAL REQUIREMENTS (PRIORITY):
+    {lesson_requirements}
+    
+    Please ensure the generated content addresses these specific requirements.
+    """
+```
+
+#### 4. StrandsLabPlanner Updates
+
+**File:** `CG-Backend/lambda/strands_lab_planner/strands_lab_planner.py`
+
+**Changes:**
+- Handles `lab_ids_to_regenerate` for selective lab planning
+- Filters labs to only those specified
+- Enforces outline titles over AI-generated titles
+
+**Title Enforcement (Bug Fix):**
+```python
+# Post-process to enforce outline titles
+outline_lab_titles = extract_lab_titles_from_outline(outline)
+for lab_plan in batch_plan.get('lab_plans', []):
+    lab_id = lab_plan.get('lab_id')
+    if lab_id in outline_lab_titles:
+        # Override AI title with outline title
+        lab_plan['lab_title'] = outline_lab_titles[lab_id]
+```
+
+#### 5. StrandsLabWriter Updates
+
+**File:** `CG-Backend/lambda/strands_lab_writer/strands_lab_writer.py`
+
+**Changes:**
+- Added raw markdown fallback for single-lab generation
+- Handles cases where AI doesn't use delimiter format
+- Improved error recovery
+
+**Raw Markdown Fallback:**
+```python
+# If delimiter parsing fails for single lab, accept raw markdown
+if len(lab_plans) == 1:
+    if response_text.strip().startswith('#') or '##' in response_text:
+        labs_dict[lab_plans[0]['lab_id']] = response_text.strip()
+        logger.info("Using raw markdown fallback for single lab")
+```
+
+#### 6. LabGuideBuilder Updates
+
+**File:** `CG-Backend/lambda/lab_guide_builder.py`
+
+**Changes:**
+- Auto-deduplicates labs by ID
+- Keeps most recent file when duplicates exist
+- Logs deduplication decisions
+
+**Deduplication Logic:**
+```python
+# When multiple files exist for same lab ID, keep most recent
+for lab_id, files in labs_by_id.items():
+    if len(files) > 1:
+        # Sort by modification time, keep newest
+        files.sort(key=lambda f: f['LastModified'], reverse=True)
+        selected = files[0]
+        logger.info(f"Lab ID {lab_id}: using {selected['Key']} (newest)")
+```
+
+### State Machine Changes for Regeneration
+
+**Key States Added:**
+
+1. **CheckIfRegenerationMode**: Detects if `lesson_to_generate` is present
+2. **PrepareNewCourseParams**: Sets null defaults for new courses
+3. **PrepareRegenerationParams**: Preserves regeneration parameters
+4. **ChooseCombineResultsPath**: Routes based on content_type to preserve master_lab_plan
+5. **CombineResultsAndBuildBookBoth**: Special path for "both" mode that preserves master_lab_plan_result
+
+**Routing Logic:**
+```json
+"CheckIfRegenerationMode": {
+  "Type": "Choice",
+  "Choices": [
+    {
+      "Variable": "$.lesson_to_generate",
+      "IsPresent": true,
+      "Next": "PrepareRegenerationParams"
+    }
+  ],
+  "Default": "PrepareNewCourseParams"
+}
+```
+
+### Book Editor Integration
+
+**File:** `src/components/BookEditor.jsx`
+
+**Changes:**
+- Added "Regenerar Lección" button in lesson view
+- Added "Regenerar Lab" button in lab view
+- Added "🔄 Recargar Lecciones" button to refresh from S3
+- Added "🔄 Recargar Labs" button for lab guide refresh
+- Improved header matching for "Capítulo" titles
+- Fixed token overlap to not match lab headers for module search
+
+**Reload Buttons:**
+```jsx
+<button
+    onClick={loadBook}
+    title="Recargar lecciones desde S3"
+>
+    {loadingImages ? '⏳ Recargando...' : '🔄 Recargar Lecciones'}
+</button>
+```
+
+**Header Matching Fix:**
+```javascript
+// Added Capítulo support alongside Module/Módulo
+const modMatch = title.match(/(?:Module|Módulo|Capitulo|Capítulo)\s+(\d+)/i);
+
+// Prevent token overlap from matching lab headers
+if (moduleNum === null && /^lab\s+\d/.test(normH)) {
+    return false; // Skip lab headers when searching for modules
+}
+```
+
+### Usage Flow
+
+**1. Lesson Regeneration:**
+```
+User clicks "Regenerar Lección" on a lesson
+    ↓
+RegenerateLesson modal opens
+    ↓
+User optionally adds requirements
+    ↓
+User clicks "Regenerar Lección"
+    ↓
+API call to /start-job with:
+  - content_type: 'theory'
+  - module_number: N
+  - lesson_to_generate: 'MM-LL'
+  - lesson_requirements: 'optional text'
+    ↓
+State Machine:
+  - Routes to TheoryOnlyBranch
+  - Detects regeneration mode
+  - Creates single-lesson batch
+  - Generates only specified lesson
+  - Updates book
+    ↓
+User clicks "🔄 Recargar Lecciones"
+    ↓
+New content appears in editor
+```
+
+**2. Lab Regeneration:**
+```
+User clicks "Regenerar Lab" on a lab
+    ↓
+Similar flow with:
+  - content_type: 'labs'
+  - lab_ids_to_regenerate: ['07-00-01']
+    ↓
+State Machine:
+  - Routes to LabsOnlyBranch
+  - Filters to specified lab(s)
+  - Regenerates only those labs
+  - Updates lab guide
+    ↓
+User clicks "🔄 Recargar Labs"
+    ↓
+New lab content appears
+```
+
+### Performance
+
+| Operation | Time | Cost |
+|-----------|------|------|
+| Single lesson regeneration | 2-3 minutes | ~$0.15 |
+| Single lab regeneration | 3-5 minutes | ~$0.20 |
+| Full course (40 lessons) | 15-25 minutes | ~$15-20 |
+
+### Error Handling
+
+**Frontend:**
+- Displays error message if API call fails
+- Shows loading spinner during regeneration
+- Success modal with estimated time
+
+**Backend:**
+- State machine catches failures
+- Routes to NotifyFailure on error
+- Sends failure notification email
+
+**Common Errors:**
+- "No se pudo determinar el número de módulo" - Missing moduleNumber prop
+- "Invalid outline format" - Malformed YAML in outline
+- Lambda timeout - Very complex lesson (rare)
 
 ---

@@ -8,9 +8,15 @@ function BookEditorPage() {
     const navigate = useNavigate();
 
     const bookType = searchParams.get('bookType') || 'theory';
+    const viewOnly = searchParams.get('viewOnly') === 'true';
+    const returnTo = searchParams.get('returnTo') || null;
 
     const handleClose = () => {
-        navigate(-1); // Go back to previous page
+        if (returnTo) {
+            navigate(returnTo);
+        } else {
+            navigate(-1); // Go back to previous page
+        }
     };
 
     return (
@@ -19,6 +25,7 @@ function BookEditorPage() {
                 projectFolder={projectFolder}
                 bookType={bookType}
                 onClose={handleClose}
+                viewOnly={viewOnly}
             />
         </div>
     );

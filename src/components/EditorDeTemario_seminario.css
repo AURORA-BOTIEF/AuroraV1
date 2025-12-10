@@ -1,12 +1,14 @@
-/* === CONTENEDOR PRINCIPAL === */
-.editor-container {
-  padding: 2rem 2.6rem;
+/* ============================= */
+/* CONTENEDOR GLOBAL 
+/* ============================= */
+.seminario-editor-container {
+  padding: 2rem 3rem;
+  max-width: 1000px;
+  margin: 1rem auto;
   background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-  margin: 2rem auto;
-  max-width: 1100px;
-  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-base);
+  font-family: var(--font-family-base);
 }
 
 /* === MENSAJES === */
@@ -79,7 +81,8 @@ textarea:focus {
 
 label {
   display: block;
-  margin-top: 0.75rem; /* más pegado para uniformidad visual */
+  margin-top: 0.75rem;
+  /* más pegado para uniformidad visual */
   margin-bottom: 0.4rem;
   font-weight: 600;
   color: #035b6e;
@@ -87,7 +90,8 @@ label {
 }
 
 textarea {
-  min-height: 110px; /* un poco más alto para objetivos */
+  min-height: 110px;
+  /* un poco más alto para objetivos */
   resize: vertical;
   font-family: inherit;
 
@@ -150,8 +154,13 @@ textarea {
   font-family: inherit;
 }
 
-.btn-primario { background-color: #035b6e; }
-.btn-secundario { background-color: #197fa6; }
+.btn-primario {
+  background-color: #035b6e;
+}
+
+.btn-secundario {
+  background-color: #197fa6;
+}
 
 .btn-primario:hover,
 .btn-secundario:hover,
@@ -218,12 +227,17 @@ textarea {
   background: #fff;
   border-radius: 12px;
   padding: 1.5rem;
-  width: 540px; /* más ancho por defecto */
+  width: 540px;
+  /* más ancho por defecto */
   box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
   font-family: inherit;
 }
 
-.modal.modal-xl { width: 900px; } /* para el modal de versiones guardadas */
+.modal.modal-xl {
+  width: 900px;
+}
+
+/* para el modal de versiones guardadas */
 
 .modal-header {
   display: flex;
@@ -232,15 +246,33 @@ textarea {
   margin-bottom: 1rem;
 }
 
-.modal-body label { display: block; margin-bottom: 0.5rem; }
-.modal-footer { text-align: right; }
+.modal-body label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.modal-footer {
+  text-align: right;
+}
 
 /* === RESPONSIVIDAD === */
 @media (max-width: 768px) {
-  .acciones-footer { flex-direction: column; align-items: stretch; }
-  .btn-agregar-capitulo-container { justify-content: center; }
-  .modal { width: min(95vw, 540px); }
-  .modal.modal-xl { width: min(95vw, 900px); }
+  .acciones-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-agregar-capitulo-container {
+    justify-content: center;
+  }
+
+  .modal {
+    width: min(95vw, 540px);
+  }
+
+  .modal.modal-xl {
+    width: min(95vw, 900px);
+  }
 }
 
 .btn-volver {

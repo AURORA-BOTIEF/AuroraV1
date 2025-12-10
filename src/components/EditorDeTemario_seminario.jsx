@@ -214,9 +214,8 @@ export default function EditorDeTemario_seminario({
     if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
       nuevo.temario[capIndex].subcapitulos = [];
     nuevo.temario[capIndex].subcapitulos.push({
-      nombre: `Nuevo tema ${
-        nuevo.temario[capIndex].subcapitulos.length + 1
-      }`,
+      nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1
+        }`,
       tiempo_subcapitulo_min: 30,
       sesion: 1,
     });
@@ -301,7 +300,7 @@ export default function EditorDeTemario_seminario({
     setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
 
-  
+
   // === Guardar versión ===
   const handleSaveClick = async () => {
     setGuardando(true);
@@ -392,7 +391,7 @@ export default function EditorDeTemario_seminario({
         y += 24;
       });
       y += 14;
-      
+
       // === Subtítulo con duración (alineado a la derecha) ===
       if (temarioLimpio?.horas_totales) {
         doc.setFont("helvetica", "italic");
@@ -500,7 +499,7 @@ export default function EditorDeTemario_seminario({
       doc.setFontSize(16);
       doc.setTextColor(azul);
       doc.text("Temario", margin.left, y);
-      y += 22;      
+      y += 22;
 
       temarioLimpio.temario.forEach((cap, i) => {
         addPageIfNeeded(70);
@@ -609,51 +608,51 @@ export default function EditorDeTemario_seminario({
   };
 
   // 🔹 Formatea minutos → "1 hr 8 min"
-const formatearDuracion = (minutos) => {
-  const horas = Math.floor(minutos / 60);
-  const mins = minutos % 60;
-  if (horas > 0) {
-    return `${horas} hr${horas > 1 ? "s" : ""}${mins > 0 ? ` ${mins} min` : ""}`;
-  }
-  return `${mins} min`;
-};
+  const formatearDuracion = (minutos) => {
+    const horas = Math.floor(minutos / 60);
+    const mins = minutos % 60;
+    if (horas > 0) {
+      return `${horas} hr${horas > 1 ? "s" : ""}${mins > 0 ? ` ${mins} min` : ""}`;
+    }
+    return `${mins} min`;
+  };
 
 
-// 🔹 Ajusta los tiempos de los subtemas distribuyendo de forma homogénea minuto a minuto
-const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
-  let valor = parseInt(nuevaDuracion, 10) || 0;
-  if (valor <1) valor =1; //mínimo 1 minuto
+  // 🔹 Ajusta los tiempos de los subtemas distribuyendo de forma homogénea minuto a minuto
+  const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
+    let valor = parseInt(nuevaDuracion, 10) || 0;
+    if (valor < 1) valor = 1; //mínimo 1 minuto
 
-  setTemario((prev) => {
-    const nuevoTemario = JSON.parse(JSON.stringify(prev));
-    const capitulos = nuevoTemario.temario || [];
-    const capitulo = capitulos[indexCap];
-    if (!capitulo || !Array.isArray(capitulo.subcapitulos)) return prev;
+    setTemario((prev) => {
+      const nuevoTemario = JSON.parse(JSON.stringify(prev));
+      const capitulos = nuevoTemario.temario || [];
+      const capitulo = capitulos[indexCap];
+      if (!capitulo || !Array.isArray(capitulo.subcapitulos)) return prev;
 
-    const subtemas = capitulo.subcapitulos;
-    const cantidad = subtemas.length;
-    if (cantidad === 0) return prev;
+      const subtemas = capitulo.subcapitulos;
+      const cantidad = subtemas.length;
+      if (cantidad === 0) return prev;
 
-    // 🔹 Cálculo base uniforme
-    const minutosBase = Math.floor(valor / cantidad);
-    let residuo = valor % cantidad;
+      // 🔹 Cálculo base uniforme
+      const minutosBase = Math.floor(valor / cantidad);
+      let residuo = valor % cantidad;
 
-    // 🔹 Reparto del residuo uno a uno hasta balancear
-    subtemas.forEach((sub, i) => {
-      sub.tiempo_subcapitulo_min = minutosBase + (residuo > 0 ? 1 : 0);
-      if (residuo > 0) residuo--;
+      // 🔹 Reparto del residuo uno a uno hasta balancear
+      subtemas.forEach((sub, i) => {
+        sub.tiempo_subcapitulo_min = minutosBase + (residuo > 0 ? 1 : 0);
+        if (residuo > 0) residuo--;
+      });
+
+      // 🔹 Actualizar el total del capítulo
+      capitulo.tiempo_capitulo_min = valor;
+      capitulos[indexCap] = capitulo;
+      nuevoTemario.temario = capitulos;
+      return nuevoTemario;
     });
-
-    // 🔹 Actualizar el total del capítulo
-    capitulo.tiempo_capitulo_min = valor;
-    capitulos[indexCap] = capitulo;
-    nuevoTemario.temario = capitulos;
-    return nuevoTemario;
-  });
-};
+  };
 
   return (
-    <div className="editor-container">
+    <div className="seminario-editor-container">
       {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
       {/* === Botón para volver al generador === */}
@@ -677,7 +676,7 @@ const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
           onChange={(e) => {
             const val = Math.max(parseFloat(e.target.value) || 0, 0.5); // ✅ mínimo 0.5h
             setTemario({ ...temario, horas_totales: val });
-          }}  
+          }}
         />
 
 
@@ -776,7 +775,7 @@ const handleDuracionCapituloChange = (indexCap, nuevaDuracion) => {
                 />
                 <button
                   className="btn-eliminar-tema"
-                  onClick={() => eliminarTema(i,j)}
+                  onClick={() => eliminarTema(i, j)}
                   title="Eliminar subtema"
                 >
                   🗑️

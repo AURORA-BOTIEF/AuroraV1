@@ -2,8 +2,183 @@
 
 ## Critical System Knowledge & Best Practices
 
-**Last Updated:** October 24, 2025  
+**Last Updated:** December 8, 2025  
 **Purpose:** Prevent recurring issues and maintain system consistency
+
+---
+
+## 📐 STANDARDIZED CONTENT SCHEMAS (v1.0)
+
+### Schema Files Location
+
+All content schemas are located in `/CG-Backend/schemas/`:
+
+```
+schemas/
+├── lesson_schema.md     # Standard lesson format
+├── lab_schema.md        # Standard lab guide format
+└── format_rules.yaml    # Validation rules (machine-readable)
+```
+
+### Heading Hierarchy Rules (MANDATORY)
+
+**NEVER skip heading levels!** This is the most common issue.
+
+| Level | Usage | Example |
+|-------|-------|---------|
+| H1 (`#`) | Document title ONLY (one per file) | `# Lesson 1.1: Title` |
+| H2 (`##`) | Major sections | `## Learning Objectives` |
+| H3 (`###`) | Subsections within H2 | `### Concept Overview` |
+| H4 (`####`) | Details within H3 | `#### Advanced Notes` |
+
+**Valid:** H1 → H2 → H3 → H4  
+**INVALID:** H1 → H3 ❌ (skipped H2)
+
+### Standard Lesson Structure
+
+```markdown
+# Lesson {M}.{L}: {Title}
+
+## Learning Objectives
+- [Bloom verb] + measurable outcome (3-5 items)
+
+## Introduction
+[2-3 paragraphs]
+
+## {Topic Title}
+
+### Concept Overview
+[What and why]
+
+### Technical Details  
+[Deep dive]
+
+### Practical Application
+[Examples, code]
+
+[VISUAL: MM-LL-XXXX - description]
+
+## Summary
+
+### Key Takeaways
+- Point 1
+- Point 2
+
+## Review Questions
+1. Question 1
+2. Question 2
+```
+
+### Standard Lab Guide Structure
+
+```markdown
+# Lab {MM-LL-NN}: {Title}
+
+## Metadata
+| Property | Value |
+|----------|-------|
+| Duration | XX minutes |
+| Complexity | Beginner/Intermediate/Advanced |
+| Bloom Level | Apply/Analyze/Create |
+
+## Overview
+[2-3 sentences]
+
+## Learning Objectives
+- [ ] Objective 1
+- [ ] Objective 2
+
+## Prerequisites
+
+### Required Knowledge
+- Item 1
+
+### Required Access
+- Item 1
+
+## Lab Environment
+
+### Software Requirements
+| Software | Version | Purpose |
+|----------|---------|---------|
+| Tool | X.Y.Z | Why |
+
+### Initial Setup
+```bash
+# setup commands
+```
+
+## Step-by-Step Instructions
+
+### Step 1: {Title}
+
+**Objective:** What this accomplishes
+
+**Instructions:**
+1. Action 1
+   ```bash
+   command
+   ```
+
+**Expected Output:**
+```
+result
+```
+
+**Verification:**
+- How to confirm success
+
+---
+
+### Step 2: {Title}
+[Same structure]
+
+## Validation & Testing
+
+### Success Criteria
+- [ ] Criterion 1
+
+## Troubleshooting
+
+### Issue 1: {Problem}
+**Symptoms:** What you see
+**Cause:** Why it happens
+**Solution:**
+```bash
+fix command
+```
+
+## Cleanup
+```bash
+# cleanup commands
+```
+
+## Summary
+
+### What You Accomplished
+- Item 1
+
+### Key Takeaways
+- Item 1
+```
+
+### Content Validator Lambda
+
+The `ContentValidator` Lambda validates all generated content against schemas:
+
+- **Location:** `/lambda/content_validator/content_validator.py`
+- **Invoked by:** Step Functions after content generation
+- **Mode:** Non-blocking (logs warnings but doesn't stop workflow)
+- **Output:** Validation reports saved to `{project}/validation/`
+
+**Validation Checks:**
+1. Heading hierarchy (no skipped levels)
+2. Required sections present
+3. VISUAL tag format
+4. Code blocks have language
+5. Tables use native Markdown
+6. Learning objectives use Bloom verbs
+7. Word count within range
 
 ---
 
@@ -43,40 +218,44 @@ The deployment script:
 **LLM MUST generate visual tags in EXACTLY this format:**
 
 ```markdown
-[VISUAL: description]
+[VISUAL: MM-LL-XXXX - description]
 ```
+
+Where:
+- `MM` = Module number (2 digits, zero-padded)
+- `LL` = Lesson number (2 digits, zero-padded)
+- `XXXX` = Global image counter (4 digits, zero-padded)
+- `description` = 10-20 words describing the image
 
 **Format Requirements:**
 - ✅ `VISUAL` in capital letters
 - ✅ Single space after colon
-- ✅ No period at end of description
-- ✅ No quotes, parentheses, or special characters in description
-- ✅ 5-15 words (concise but specific)
-- ✅ Place on its own line for best results
+- ✅ ID format: `MM-LL-XXXX`
+- ✅ Hyphen + space before description
+- ✅ 10-20 words (concise but specific)
+- ✅ Place on its own line
 
 **Valid Examples:**
 ```markdown
-[VISUAL: Diagram showing the MVC architecture flow]
-[VISUAL: Screenshot of the IDE debugger panel]
-[VISUAL: Flowchart of the authentication process]
-[VISUAL: Table comparing synchronous vs asynchronous operations]
+[VISUAL: 01-02-0001 - Architecture diagram showing client-server communication flow]
+[VISUAL: 03-01-0015 - Flowchart of the authentication process from login to session]
+[VISUAL: 05-03-0042 - Comparison chart of synchronous vs asynchronous processing]
 ```
 
 **Invalid Examples (DO NOT USE):**
 ```markdown
-[VISUAL: "Diagram showing MVC"]  ❌ Has quotes
-[VISUAL: (Architecture diagram)]  ❌ Has parentheses
-[VISUAL: Diagram showing... etc.]  ❌ Has ellipsis
-[visual: diagram]                  ❌ Lowercase
-[VISUAL:diagram]                   ❌ No space after colon
-[VISUAL: Very long description that exceeds 15 words and becomes too verbose]  ❌ Too long
+[VISUAL: 1-2-1 - diagram]                    ❌ Not zero-padded
+[VISUAL: Description without ID]              ❌ Missing ID
+[visual: 01-02-0001 - lowercase]             ❌ Not uppercase
+[VISUAL: 01-02-0001]                          ❌ Missing description
+[VISUAL:"01-02-0001 - with quotes"]          ❌ Has quotes
 ```
 
 ### Visual Tags Workflow (Theory Content)
 
 ```
 1. Content Generator (strands_content_gen.py)
-   └─> Creates: [VISUAL: description] in lesson markdown
+   └─> Creates: [VISUAL: MM-LL-XXXX - description] in lesson markdown
    
 2. Visual Planner (strands_visual_planner.py)
    ├─> Extracts visual tags using: r'\[VISUAL:\s*(.*?)\]'

@@ -13,32 +13,130 @@
         "model_provider.$": "$.model_provider",
         "modules_to_generate.$": "$.modules_to_generate",
         "outline_s3_key.$": "$.outline_s3_key",
-        "project_folder.$": "$.project_folder"
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "image_model.$": "$.image_model",
+        "lesson_to_generate": null,
+        "lesson_requirements": null
       },
       "Type": "Pass"
     },
     "CheckIfLabsNeeded": {
       "Choices": [
         {
-          "Next": "ExpandLabsToBatchesBoth",
+          "Next": "ValidateLabPlanExists",
           "StringEquals": "both",
           "Variable": "$.content_type"
         }
       ],
       "Comment": "Check if we need to generate labs (both mode)",
-      "Default": "SuccessState",
+      "Default": "NotifyCompletion",
       "Type": "Choice"
+    },
+    "ValidateLabPlanExists": {
+      "Type": "Choice",
+      "Comment": "Verify master lab plan exists before expanding to batches",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.master_lab_plan_result",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.master_lab_plan_result.Payload.master_plan_key",
+              "IsPresent": true
+            }
+          ],
+          "Next": "ExpandLabsToBatchesBoth"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "CheckLabBatchExpansionSuccess": {
+      "Type": "Choice",
+      "Comment": "Verify lab batch expansion succeeded",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.lab_batch_expansion.Payload.statusCode",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_batch_expansion.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.lab_batch_expansion.Payload.batches",
+              "IsPresent": true
+            }
+          ],
+          "Next": "ProcessLabBatchesInParallel"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "CheckLabBatchExpansionSuccessBoth": {
+      "Type": "Choice",
+      "Comment": "Verify lab batch expansion succeeded (both mode)",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.lab_batch_expansion.Payload.statusCode",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_batch_expansion.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.lab_batch_expansion.Payload.batches",
+              "IsPresent": true
+            }
+          ],
+          "Next": "ProcessLabBatchesInParallelBoth"
+        }
+      ],
+      "Default": "NotifyFailure"
     },
     "CheckLabPlannerResult": {
       "Choices": [
         {
-          "Next": "ExpandLabsToBatches",
-          "NumericEquals": 200,
-          "Variable": "$.lab_planner_result.Payload.statusCode"
+          "And": [
+            {
+              "Variable": "$.lab_planner_result.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.master_plan_key",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.master_plan_key",
+              "IsNull": false
+            }
+          ],
+          "Next": "ExpandLabsToBatches"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.lab_planner_result.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.total_labs",
+              "NumericEquals": 0
+            }
+          ],
+          "Next": "NotifyFailure",
+          "Comment": "No labs found matching criteria"
         }
       ],
-      "Comment": "Check if LabPlanner succeeded (statusCode 200)",
-      "Default": "LabPlanningFailedState",
+      "Comment": "Check if LabPlanner succeeded with valid master_plan_key",
+      "Default": "NotifyFailure",
       "Type": "Choice"
     },
     "CheckMasterLabPlanResult": {
@@ -50,22 +148,62 @@
         }
       ],
       "Comment": "Check if master lab plan generation succeeded",
-      "Default": "LabPlanningFailedState",
+      "Default": "NotifyFailure",
       "Type": "Choice"
     },
     "CombineLabResults": {
       "Comment": "Flatten lab results from all batches",
-      "Next": "SuccessState",
+      "Next": "ValidateLabContent",
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
         "course_bucket.$": "$.course_bucket",
-        "project_folder.$": "$.project_folder"
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email"
       },
       "Type": "Pass"
     },
+    "ValidateLabContent": {
+      "Comment": "Validate lab content against schema (non-blocking)",
+      "Next": "InvokeLabGuideBuilder",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "content_keys.$": "$.all_lab_keys",
+          "content_type": "lab",
+          "fail_on_error": false
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.lab_validation_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "InvokeLabGuideBuilder",
+          "ResultPath": "$.lab_validation_error",
+          "Comment": "Continue even if validation fails"
+        }
+      ],
+      "Type": "Task"
+    },
     "CombineLabResultsBoth": {
       "Comment": "Flatten lab results and combine with theory results",
-      "Next": "InvokeLabGuideBuilder",
+      "Next": "ValidateLabContentBoth",
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
         "book_result.$": "$.book_result",
@@ -73,23 +211,180 @@
         "lesson_count.$": "$.book_result.Payload.lesson_count",
         "project_folder.$": "$.project_folder",
         "theory_book_json_key.$": "$.book_result.Payload.book_json_key",
-        "theory_book_key.$": "$.book_result.Payload.book_s3_key"
+        "theory_book_key.$": "$.book_result.Payload.book_s3_key",
+        "user_email.$": "$.user_email"
       },
       "Type": "Pass"
     },
+    "ValidateLabContentBoth": {
+      "Comment": "Validate lab content against schema (non-blocking)",
+      "Next": "InvokeLabGuideBuilder",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "content_keys.$": "$.all_lab_keys",
+          "content_type": "lab",
+          "fail_on_error": false
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.lab_validation_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "InvokeLabGuideBuilder",
+          "ResultPath": "$.lab_validation_error",
+          "Comment": "Continue even if validation fails"
+        }
+      ],
+      "Type": "Task"
+    },
     "CombineResultsAndBuildBook": {
-      "Comment": "Flatten results from all batches for BookBuilder",
-      "Next": "InvokeBookBuilder",
+      "Comment": "Flatten results from all batches for BookBuilder (theory-only, no master_lab_plan)",
+      "Next": "ValidateLessonContent",
       "Parameters": {
         "all_image_mappings.$": "$.all_batches_results[*].image_mappings",
         "all_lesson_keys.$": "$.all_batches_results[*].lesson_keys[*]",
         "content_type.$": "$.content_type",
         "course_bucket.$": "$.course_bucket",
-        "master_lab_plan_result.$": "$.master_lab_plan_result",
         "model_provider.$": "$.model_provider",
-        "project_folder.$": "$.project_folder"
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email"
       },
       "Type": "Pass"
+    },
+    "ValidateLessonContent": {
+      "Comment": "Validate lesson content against schema (non-blocking)",
+      "Next": "InvokeBookBuilder",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "lesson_keys.$": "$.all_lesson_keys",
+          "content_type": "lesson",
+          "fail_on_error": false
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.lesson_validation_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "InvokeBookBuilder",
+          "ResultPath": "$.lesson_validation_error",
+          "Comment": "Continue even if validation fails"
+        }
+      ],
+      "Type": "Task"
+    },
+    "CombineResultsAndBuildBookBoth": {
+      "Comment": "Flatten results from all batches for BookBuilder (both mode, preserves master_lab_plan)",
+      "Next": "ValidateLessonContentBoth",
+      "Parameters": {
+        "all_image_mappings.$": "$.all_batches_results[*].image_mappings",
+        "all_lesson_keys.$": "$.all_batches_results[*].lesson_keys[*]",
+        "content_type.$": "$.content_type",
+        "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "master_lab_plan_result.$": "$.master_lab_plan_result"
+      },
+      "Type": "Pass"
+    },
+    "ValidateLessonContentBoth": {
+      "Comment": "Validate lesson content against schema (non-blocking)",
+      "Next": "InvokeBookBuilder",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "lesson_keys.$": "$.all_lesson_keys",
+          "content_type": "lesson",
+          "fail_on_error": false
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.lesson_validation_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "InvokeBookBuilder",
+          "ResultPath": "$.lesson_validation_error",
+          "Comment": "Continue even if validation fails"
+        }
+      ],
+      "Type": "Task"
+    },
+    "CheckBatchExpansionSuccess": {
+      "Type": "Choice",
+      "Comment": "Verify batch expansion succeeded before processing",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.batch_expansion.Payload.statusCode",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.batch_expansion.Payload.statusCode",
+              "NumericEquals": 200
+            },
+            {
+              "Variable": "$.batch_expansion.Payload.batches",
+              "IsPresent": true
+            }
+          ],
+          "Next": "ProcessBatchesInParallel"
+        }
+      ],
+      "Default": "NotifyFailure"
     },
     "DetermineContentType": {
       "Choices": [
@@ -126,7 +421,7 @@
     },
     "ExpandLabsToBatches": {
       "Comment": "Expand labs into batches for parallel processing",
-      "Next": "ProcessLabBatchesInParallel",
+      "Next": "CheckLabBatchExpansionSuccess",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:LabBatchExpander",
         "Payload": {
@@ -150,11 +445,20 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Task"
     },
     "ExpandLabsToBatchesBoth": {
       "Comment": "Expand labs into batches",
-      "Next": "ProcessLabBatchesInParallelBoth",
+      "Next": "CheckLabBatchExpansionSuccessBoth",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:LabBatchExpander",
         "Payload": {
@@ -178,11 +482,20 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Task"
     },
     "ExpandModulesToBatches": {
       "Comment": "Expand modules into individual batch tasks for parallel processing",
-      "Next": "ProcessBatchesInParallel",
+      "Next": "CheckBatchExpansionSuccess",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:BatchExpander",
         "Payload": {
@@ -191,7 +504,10 @@
           "model_provider.$": "$.model_provider",
           "modules_to_generate.$": "$.modules_to_generate",
           "outline_s3_key.$": "$.outline_s3_key",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "image_model.$": "$.image_model",
+          "lesson_to_generate.$": "$.lesson_to_generate",
+          "lesson_requirements.$": "$.lesson_requirements"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -206,6 +522,15 @@
           ],
           "IntervalSeconds": 5,
           "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
         }
       ],
       "Type": "Task"
@@ -238,17 +563,25 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Task"
     },
     "InvokeBookBuilder": {
-      "Comment": "Build final book with all modules",
+      "Comment": "Build final book with all modules (auto-discovers all lessons from S3)",
       "Next": "CheckIfLabsNeeded",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:crewai-course-generator-stack-BookBuilder-F8jUrBbphojQ",
         "Payload": {
           "course_bucket.$": "$.course_bucket",
           "image_mappings.$": "$.all_image_mappings",
-          "lesson_keys.$": "$.all_lesson_keys",
           "project_folder.$": "$.project_folder"
         }
       },
@@ -266,16 +599,24 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Task"
     },
     "InvokeLabGuideBuilder": {
       "Comment": "Build lab guide book with all lab exercises",
-      "Next": "SuccessState",
+      "Next": "NotifyCompletion",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:crewai-course-generator-stack-LabGuideBuilder-3G4pm9YpQeCp",
         "Payload": {
           "course_bucket.$": "$.course_bucket",
-          "lab_keys.$": "$.all_lab_keys",
           "project_folder.$": "$.project_folder"
         }
       },
@@ -293,6 +634,15 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Task"
     },
     "InvokeLabPlanner": {
@@ -306,7 +656,8 @@
           "model_provider.$": "$.model_provider",
           "modules_to_generate.$": "$.modules_to_generate",
           "outline_s3_key.$": "$.outline_s3_key",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -323,13 +674,16 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Task"
-    },
-    "LabPlanningFailedState": {
-      "Cause": "LabPlanner returned error",
-      "Comment": "Master lab planning failed",
-      "Error": "MasterLabPlanningFailed",
-      "Type": "Fail"
     },
     "LabsOnlyBranch": {
       "Comment": "Prepare input for lab generation with batch expansion",
@@ -337,8 +691,9 @@
       "Type": "Pass"
     },
     "ProcessBatchesInParallel": {
-      "Comment": "Process 2 batches concurrently using Step Functions MaxConcurrency",
+      "Comment": "Process batches sequentially to avoid Bedrock throttling (reduced from 2 to 1)",
       "ItemsPath": "$.batch_expansion.Payload.batches",
+      "MaxConcurrency": 1,
       "Iterator": {
         "StartAt": "GenerateBatchContent",
         "States": {
@@ -347,7 +702,7 @@
             "End": true,
             "Parameters": {
               "batch_index.$": "$.batch_task.batch_index",
-              "image_mappings.$": "States.JsonMerge($.accumulated_mappings, $.images_result.Payload.image_mappings)",
+              "image_mappings.$": "$.accumulated_mappings",
               "lesson_keys.$": "$.batch_result.Payload.lesson_keys",
               "module_number.$": "$.batch_task.module_number"
             },
@@ -385,21 +740,44 @@
           "CheckForVisualTags": {
             "Choices": [
               {
+                "Comment": "Success with visual tags found",
                 "And": [
                   {
-                    "IsPresent": true,
-                    "Variable": "$.visual_result.Payload"
+                    "Variable": "$.visual_result.Payload.statusCode",
+                    "NumericEquals": 200
                   },
                   {
-                    "IsPresent": true,
-                    "Variable": "$.visual_result.Payload.prompts_s3_prefix"
+                    "Variable": "$.visual_result.Payload.prompts_s3_prefix",
+                    "IsPresent": true
                   }
                 ],
                 "Next": "InitializeImageGeneration"
+              },
+              {
+                "Comment": "Success but no visual tags (legitimate skip)",
+                "And": [
+                  {
+                    "Variable": "$.visual_result.Payload.statusCode",
+                    "NumericEquals": 200
+                  },
+                  {
+                    "Or": [
+                      {
+                        "Variable": "$.visual_result.Payload.prompts_s3_prefix",
+                        "IsPresent": false
+                      },
+                      {
+                        "Variable": "$.visual_result.Payload.prompts",
+                        "IsPresent": true
+                      }
+                    ]
+                  }
+                ],
+                "Next": "SkipImageGeneration"
               }
             ],
-            "Comment": "Check if any visual tags were found in this batch",
-            "Default": "SkipImageGeneration",
+            "Comment": "Check if visual planner succeeded and found visual tags",
+            "Default": "VisualPlannerFailed",
             "Type": "Choice"
           },
           "CheckRemainingImages": {
@@ -416,11 +794,42 @@
                   }
                 ],
                 "Next": "PrepareNextImageBatch"
+              },
+              {
+                "Variable": "$.images_result.Payload.image_mappings",
+                "IsPresent": true,
+                "Next": "FinalizeImageMappings"
               }
             ],
             "Comment": "Check if there are remaining images to process (timeout resume)",
-            "Default": "BatchComplete",
+            "Default": "SkipImageMappings",
             "Type": "Choice"
+          },
+          "FinalizeImageMappings": {
+            "Comment": "Set final image mappings (single batch case)",
+            "Next": "BatchComplete",
+            "Parameters": {
+              "accumulated_mappings.$": "$.images_result.Payload.image_mappings",
+              "batch_result.$": "$.batch_result",
+              "batch_task.$": "$.batch_task",
+              "images_result.$": "$.images_result",
+              "visual_result.$": "$.visual_result"
+            },
+            "ResultPath": "$",
+            "Type": "Pass"
+          },
+          "SkipImageMappings": {
+            "Comment": "No image mappings available, use empty",
+            "Next": "BatchComplete",
+            "Parameters": {
+              "accumulated_mappings": {},
+              "batch_result.$": "$.batch_result",
+              "batch_task.$": "$.batch_task",
+              "images_result.$": "$.images_result",
+              "visual_result.$": "$.visual_result"
+            },
+            "ResultPath": "$",
+            "Type": "Pass"
           },
           "GenerateBatchContent": {
             "Catch": [
@@ -463,7 +872,8 @@
                 "course_bucket.$": "$.batch_task.course_bucket",
                 "project_folder.$": "$.batch_task.project_folder",
                 "prompts.$": "$.remaining_prompts",
-                "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix"
+                "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix",
+                "image_model.$": "$.batch_task.image_model"
               }
             },
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -491,7 +901,7 @@
               "accumulated_mappings": {},
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
-              "remaining_prompts": [],
+              "remaining_prompts.$": "$.visual_result.Payload.prompts",
               "visual_result.$": "$.visual_result"
             },
             "ResultPath": "$",
@@ -521,6 +931,24 @@
                 ],
                 "IntervalSeconds": 5,
                 "MaxAttempts": 2
+              },
+              {
+                "Comment": "Retry on Bedrock throttling with longer backoff",
+                "ErrorEquals": [
+                  "States.TaskFailed"
+                ],
+                "IntervalSeconds": 30,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "ResultPath": "$.error",
+                "Next": "VisualPlannerFailed"
               }
             ],
             "Type": "Task"
@@ -542,25 +970,56 @@
           "SkipImageGeneration": {
             "Comment": "No visual tags found, skip image generation",
             "Next": "BatchComplete",
-            "Result": {
-              "Payload": {
-                "image_mappings": {},
-                "message": "No visual tags found, skipped image generation",
-                "statusCode": 200
-              }
+            "Parameters": {
+              "batch_result.$": "$.batch_result",
+              "batch_task.$": "$.batch_task",
+              "accumulated_mappings": {},
+              "images_result": {
+                "Payload": {
+                  "image_mappings": {},
+                  "message": "No visual tags found, skipped image generation",
+                  "statusCode": 200
+                }
+              },
+              "visual_result.$": "$.visual_result"
             },
-            "ResultPath": "$.images_result",
+            "ResultPath": "$",
             "Type": "Pass"
+          },
+          "VisualPlannerFailed": {
+            "Type": "Fail",
+            "Error": "VisualPlannerError",
+            "Cause": "Visual planner failed to process lessons. Check $.visual_result.Payload.error for details (likely Bedrock API throttling or other service error)"
           }
         }
       },
-      "MaxConcurrency": 2,
-      "Next": "CombineResultsAndBuildBook",
+      "Next": "ChooseCombineResultsPath",
       "Parameters": {
         "batch_task.$": "$$.Map.Item.Value"
       },
       "ResultPath": "$.all_batches_results",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Map"
+    },
+    "ChooseCombineResultsPath": {
+      "Type": "Choice",
+      "Comment": "Route to appropriate Combine state based on content_type",
+      "Choices": [
+        {
+          "Variable": "$.content_type",
+          "StringEquals": "both",
+          "Next": "CombineResultsAndBuildBookBoth"
+        }
+      ],
+      "Default": "CombineResultsAndBuildBook"
     },
     "ProcessLabBatchesInParallel": {
       "Comment": "Process 2 lab batches concurrently",
@@ -622,6 +1081,15 @@
         "lab_batch.$": "$$.Map.Item.Value"
       },
       "ResultPath": "$.all_lab_batches_results",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Map"
     },
     "ProcessLabBatchesInParallelBoth": {
@@ -682,15 +1150,155 @@
         "lab_batch.$": "$$.Map.Item.Value"
       },
       "ResultPath": "$.all_lab_batches_results",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
       "Type": "Map"
+    },
+    "NotifyCompletion": {
+      "Comment": "Send completion notification to user and admin",
+      "Next": "SuccessState",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
+        "Payload": {
+          "execution_arn.$": "$$.Execution.Id",
+          "input.$": "$",
+          "project_folder.$": "$.project_folder",
+          "status": "success",
+          "user_email.$": "$.user_email"
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.notification_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Type": "Task"
+    },
+    "NotifyFailure": {
+      "Comment": "Send failure notification to user and admin",
+      "Next": "FailWorkflow",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
+        "Payload": {
+          "execution_arn.$": "$$.Execution.Id",
+          "input.$": "$",
+          "project_folder.$": "$.project_folder",
+          "status": "failed",
+          "user_email.$": "$.user_email"
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.notification_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Type": "Task"
     },
     "SuccessState": {
       "Type": "Succeed"
     },
+    "FailWorkflow": {
+      "Type": "Fail"
+    },
     "TheoryOnlyBranch": {
-      "Comment": "Prepare input for batch expansion",
-      "Next": "ExpandModulesToBatches",
+      "Comment": "Prepare input for batch expansion - check if regeneration mode",
+      "Next": "CheckIfRegenerationMode",
       "Type": "Pass"
+    },
+    "CheckIfRegenerationMode": {
+      "Comment": "Route based on whether lesson_to_generate is present (regeneration vs new course)",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.lesson_to_generate",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lesson_to_generate",
+              "IsNull": false
+            }
+          ],
+          "Next": "CheckIfLessonRequirementsPresent",
+          "Comment": "Regeneration mode - lesson_to_generate is set"
+        }
+      ],
+      "Default": "PrepareNewCourseParams"
+    },
+    "CheckIfLessonRequirementsPresent": {
+      "Comment": "Check if lesson_requirements is present for regeneration",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.lesson_requirements",
+          "IsPresent": true,
+          "Next": "ExpandModulesToBatches",
+          "Comment": "lesson_requirements provided"
+        }
+      ],
+      "Default": "PrepareRegenerationParams"
+    },
+    "PrepareRegenerationParams": {
+      "Comment": "Set default for lesson_requirements in regeneration mode",
+      "Type": "Pass",
+      "Next": "ExpandModulesToBatches",
+      "Parameters": {
+        "content_source.$": "$.content_source",
+        "content_type.$": "$.content_type",
+        "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
+        "modules_to_generate.$": "$.modules_to_generate",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "image_model.$": "$.image_model",
+        "lesson_to_generate.$": "$.lesson_to_generate",
+        "lesson_requirements": null
+      }
+    },
+    "PrepareNewCourseParams": {
+      "Comment": "Set null defaults for new course generation (no specific lesson)",
+      "Type": "Pass",
+      "Next": "ExpandModulesToBatches",
+      "Parameters": {
+        "content_source.$": "$.content_source",
+        "content_type.$": "$.content_type",
+        "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
+        "modules_to_generate.$": "$.modules_to_generate",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "project_folder.$": "$.project_folder",
+        "user_email.$": "$.user_email",
+        "image_model.$": "$.image_model",
+        "lesson_to_generate": null,
+        "lesson_requirements": null
+      }
     }
   }
 }

@@ -26,13 +26,14 @@ export default function HistorialTemarios({ cursoId, onPickVersion }) {
   const [cantidad, setCantidad] = useState(5); // últimas N por defecto
   const [filtroTexto, setFiltroTexto] = useState("");
 
-  // Header de autorización si usas Cognito (toma token del localStorage)
+    // Header de autorización: usar Access Token para llamadas a la API.
+  // Id Token solo como fallback si no hay access_token (no recomendado).
   const authHeader = useMemo(() => {
     try {
       const token =
-        localStorage.getItem("id_token") ||
-        localStorage.getItem("access_token") ||
-        localStorage.getItem("jwtToken") ||
+        sessionStorage.getItem("access_token") ||
+        sessionStorage.getItem("id_token") ||
+        sessionStorage.getItem("jwtToken") ||
         "";
       return token ? { Authorization: `Bearer ${token}` } : {};
     } catch {

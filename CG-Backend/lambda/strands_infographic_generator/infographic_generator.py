@@ -61,6 +61,8 @@ BULLET_HEIGHT = 50       # FIXED: 20pt×1.4 line-height (38px) + 8px padding + 4
 HEADING_HEIGHT = 65      # Height for block headings (20pt font + spacing)
 IMAGE_HEIGHT = 400       # Conservative to prevent overflow with text
 CALLOUT_HEIGHT = 75      # Callout block base height
+CODE_BLOCK_HEIGHT = 300  # Base height for code blocks (dark themed, monospace font)
+CODE_LINE_HEIGHT = 24    # Height per line of code (~14pt font × 1.5 line-height)
 SPACING_BETWEEN_BLOCKS = 20  # Vertical spacing between content blocks
 CHARS_PER_LINE = 70      # Realistic for actual slide width with 20pt font
 
@@ -215,6 +217,124 @@ def extract_images_from_content(content: str) -> List[Dict[str, str]]:
         })
     
     return images
+
+
+def extract_tables_from_content(content: str) -> List[Dict]:
+    """
+    Extract markdown tables from lesson content.
+    Returns list of dicts with 'headers' and 'rows' for each table found.
+    """
+    tables = []
+    lines = content.split('\n')
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Check if this line looks like a table header (starts and ends with |)
+        if line.startswith('|') and line.endswith('|') and '|' in line[1:-1]:
+            # Potential table found - check for separator line next
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # Separator line has dashes and pipes: |---|---|
+                if next_line.startswith('|') and '---' in next_line:
+                    # This is a markdown table
+                    # Parse header row
+                    headers = [cell.strip() for cell in line.split('|')[1:-1]]
+                    
+                    # Skip separator line
+                    i += 2
+                    
+                    # Parse data rows
+                    rows = []
+                    while i < len(lines):
+                        row_line = lines[i].strip()
+                        if row_line.startswith('|') and row_line.endswith('|'):
+                            row_cells = [cell.strip() for cell in row_line.split('|')[1:-1]]
+                            if row_cells:
+                                rows.append(row_cells)
+                            i += 1
+                        else:
+                            break
+                    
+                    if headers and rows:
+                        tables.append({
+                            'headers': headers,
+                            'rows': rows
+                        })
+                    continue
+        i += 1
+    
+    return tables
+
+
+def extract_code_from_content(content: str) -> List[Dict]:
+    """
+    Extract code blocks from lesson content.
+    Returns list of dicts with 'language', 'code', and optional 'title' for each code block.
+    
+    Supports markdown fenced code blocks:
+    ```python
+    def hello():
+        print("Hello!")
+    ```
+    
+    Also extracts titles from preceding comments like:
+    <!-- title: Example Function -->
+    ```python
+    ...
+    ```
+    """
+    code_blocks = []
+    
+    # Pattern to match fenced code blocks with optional language
+    # Captures: language (optional), code content
+    pattern = r'```(\w+)?\s*\n(.*?)```'
+    
+    matches = re.finditer(pattern, content, re.DOTALL)
+    
+    for match in matches:
+        language = match.group(1) or 'text'  # Default to 'text' if no language specified
+        code = match.group(2).rstrip()  # Remove trailing whitespace but preserve indentation
+        
+        # Try to find a title in the preceding lines (look for ## heading or comment)
+        start_pos = match.start()
+        preceding_content = content[:start_pos].split('\n')[-3:]  # Look at last 3 lines before code block
+        
+        title = None
+        for line in reversed(preceding_content):
+            line = line.strip()
+            # Check for markdown heading
+            if line.startswith('##'):
+                title = line.lstrip('#').strip()
+                break
+            # Check for HTML comment title
+            if '<!-- title:' in line.lower():
+                title_match = re.search(r'<!--\s*title:\s*(.+?)\s*-->', line, re.IGNORECASE)
+                if title_match:
+                    title = title_match.group(1)
+                    break
+            # Check for **bold** title pattern
+            if line.startswith('**') and line.endswith('**'):
+                title = line.strip('*').strip()
+                break
+        
+        # Skip very short code snippets (likely inline examples, not worth a slide)
+        if len(code.strip()) < 20:
+            continue
+            
+        code_blocks.append({
+            'language': language.lower(),
+            'code': code,
+            'title': title,
+            'lines': len(code.split('\n'))
+        })
+    
+    logger.info(f"📝 Extracted {len(code_blocks)} code blocks from content")
+    for idx, block in enumerate(code_blocks[:3]):  # Log first 3
+        logger.info(f"   - Code block {idx+1}: {block['language']} ({block['lines']} lines), title: {block.get('title', 'N/A')}")
+    
+    return code_blocks
 
 
 def get_image_dimensions(image_url: str) -> tuple:
@@ -580,12 +700,31 @@ SLIDE STRUCTURE (JSON):
 - subtitle: Optional context  
 - layout_hint: "single-column" | "two-column" | "image-left" | "image-right"
 - content_blocks: Array of content sections (mix multiple types!)
-  - type: 'bullets' | 'image' | 'callout'
+  - type: 'bullets' | 'image' | 'callout' | 'table' | 'code'
   - heading: Section heading (optional)
   - items: Array of detailed bullet points (6-12 items)
   - text: String (for callout)
   - image_reference: EXACT alt text from AVAILABLE IMAGES
   - caption: Image description
+  - headers: Array of table header strings (for tables)
+  - rows: Array of arrays - each inner array is a row with cell values (for tables)
+  - language: Programming language for code blocks (e.g., 'python', 'javascript', 'java')
+  - code: The actual code snippet as a string (preserve formatting and indentation)
+
+7. **TABLES** (preserve from lesson content!):
+   - If the lesson contains tables, you MUST include them as content blocks
+   - Use type: 'table' with 'headers' and 'rows' arrays
+   - Tables are valuable for comparisons, specifications, or structured data
+   - Do NOT convert tables to bullets - preserve the tabular format
+
+8. **CODE BLOCKS** (preserve from lesson content!):
+   - If the lesson contains code snippets, you MUST include them as content blocks
+   - Use type: 'code' with 'language' and 'code' fields
+   - Code blocks are displayed with syntax highlighting in a dark theme
+   - PRESERVE the exact code from the lesson - do NOT modify or truncate
+   - Limit code to ~15 lines per slide to prevent overflow
+   - For longer code, split across multiple slides with descriptive titles
+   - Add a heading to explain what the code demonstrates
 
 EXAMPLE - Image slide with complementary text (MANDATORY FORMAT):
 {{
@@ -601,6 +740,43 @@ EXAMPLE - Image slide with complementary text (MANDATORY FORMAT):
       "type": "image",
       "image_reference": "architecture-diagram",
       "caption": "Architecture overview"
+    }}
+  ]
+}}
+
+EXAMPLE - Table slide (for structured data/comparisons from lesson):
+{{
+  "title": "Feature Comparison",
+  "layout_hint": "single-column",
+  "content_blocks": [
+    {{
+      "type": "table",
+      "heading": "Option Comparison",
+      "headers": ["Feature", "Option A", "Option B", "Option C"],
+      "rows": [
+        ["Performance", "High", "Medium", "Low"],
+        ["Cost", "$100/mo", "$50/mo", "$20/mo"],
+        ["Support", "24/7", "Business hours", "Email only"]
+      ]
+    }}
+  ]
+}}
+
+EXAMPLE - Code slide (for code snippets from lesson):
+{{
+  "title": "Creating a Function",
+  "layout_hint": "single-column",
+  "content_blocks": [
+    {{
+      "type": "bullets",
+      "heading": "Key Points",
+      "items": ["Functions encapsulate reusable logic", "Use descriptive names for clarity"]
+    }},
+    {{
+      "type": "code",
+      "heading": "Example Implementation",
+      "language": "python",
+      "code": "def greet(name):\\n    message = f\\"Hello, {{name}}!\\"\\n    return message\\n\\nresult = greet(\\"World\\")"
     }}
   ]
 }}
@@ -848,6 +1024,18 @@ OUTPUT FORMAT (JSON):
             for img in available_images[:5]:  # Log first 5 images
                 logger.info(f"   - Alt: {img.get('alt_text', 'N/A')} | URL: {img.get('url', 'N/A')}")
         
+        # Extract tables from content
+        available_tables = extract_tables_from_content(lesson_content)
+        logger.info(f"📊 Found {len(available_tables)} tables in lesson content")
+        
+        # Extract code blocks from content
+        try:
+            available_code_blocks = extract_code_from_content(lesson_content)
+            logger.info(f"💻 Found {len(available_code_blocks)} code blocks in lesson content")
+        except Exception as e:
+            logger.error(f"❌ Error extracting code blocks: {e}")
+            available_code_blocks = []
+        
         # Generate slides for this lesson
         # Determine if we should use all content (no limit on slides)
         use_all_content = slides_per_lesson >= 50  # High number indicates "use all content" mode
@@ -877,6 +1065,42 @@ OUTPUT FORMAT (JSON):
             image_info_lines.append(f"  - '{alt}': {url}")
         image_info_str = '\n'.join(image_info_lines) if image_info_lines else "  (none)"
         
+        # Build tables info string for the prompt - EXPLICIT table data
+        tables_info_str = ""
+        if available_tables:
+            tables_info_lines = []
+            for idx, table in enumerate(available_tables, 1):
+                headers = table.get('headers', [])
+                rows = table.get('rows', [])
+                tables_info_lines.append(f"  TABLE {idx}:")
+                tables_info_lines.append(f"    Headers: {json.dumps(headers)}")
+                tables_info_lines.append(f"    Rows ({len(rows)} total): {json.dumps(rows[:3])}{'...' if len(rows) > 3 else ''}")
+            tables_info_str = '\n'.join(tables_info_lines)
+        else:
+            tables_info_str = "  (none)"
+        
+        # Build code blocks info string for the prompt - EXPLICIT code data
+        code_info_str = ""
+        if available_code_blocks:
+            code_info_lines = []
+            for idx, code_block in enumerate(available_code_blocks, 1):
+                lang = code_block.get('language', 'text')
+                lines = code_block.get('lines', 0)
+                title = code_block.get('title', 'N/A')
+                # Include FULL code for AI to copy exactly
+                full_code = code_block.get('code', '')
+                code_info_lines.append(f"  CODE BLOCK {idx}:")
+                code_info_lines.append(f"    Language: {lang}")
+                code_info_lines.append(f"    Lines: {lines}")
+                code_info_lines.append(f"    Title (if found): {title}")
+                code_info_lines.append(f"    Full Code:")
+                code_info_lines.append(f"```{lang}")
+                code_info_lines.append(full_code)
+                code_info_lines.append("```")
+            code_info_str = '\n'.join(code_info_lines)
+        else:
+            code_info_str = "  (none)"
+        
         lesson_prompt = f"""
 Create {slide_count_instruction} for this lesson.
 
@@ -887,6 +1111,12 @@ CONTENT:
 
 AVAILABLE IMAGES ({len(available_images)}):
 {image_info_str}
+
+TABLES FOUND IN CONTENT ({len(available_tables)}):
+{tables_info_str}
+
+CODE BLOCKS FOUND IN CONTENT ({len(available_code_blocks)}):
+{code_info_str}
 
 IMPORTANT: When referencing images, use the alt text (the text in quotes above). 
 For example: set image_reference to "pasted-image" or "01-01-0001" to use those images.
@@ -906,6 +1136,18 @@ REQUIREMENTS:
   * Bullets should describe/explain the image content
   * Short caption below image is OK, but main description goes BESIDE
 - **USE ALL IMAGES**: Every image with 5-7 descriptive bullets beside it
+- **MANDATORY - INCLUDE ALL TABLES**: You MUST create table content blocks for EACH table listed above!
+  * Use type: 'table' with the EXACT headers and rows from TABLES FOUND above
+  * Tables provide critical structured information - do NOT skip or convert to bullets!
+  * Each table should have its own dedicated slide with appropriate title
+  * Format: {{"type": "table", "heading": "Table Title", "headers": [...], "rows": [...]}}
+- **MANDATORY - INCLUDE ALL CODE BLOCKS**: You MUST create code content blocks for EACH code block listed above!
+  * Use type: 'code' with 'language' and 'code' fields
+  * Copy the EXACT code from CODE BLOCKS FOUND above - do NOT modify or truncate!
+  * Code blocks are essential for technical lessons - they show practical examples
+  * Each significant code block should have its own slide with explanatory title
+  * Format: {{"type": "code", "heading": "Example Title", "language": "python", "code": "def example():\\n    return 'Hello'"}}
+  * Add 2-3 bullet points BEFORE the code to explain what it demonstrates
 - **COMPREHENSIVE**: Cover all major topics (create more slides if needed)
 - **LAST SLIDE**: Lesson summary with 6-8 key takeaways
 - **LANGUAGE**: Use the same language as the lesson content (Spanish/English)
@@ -1120,9 +1362,11 @@ def lambda_handler(event, context):
         # Auto-discover book version if not provided
         if not book_version_key:
             logger.info("🔎 No book_version_key provided, starting auto-discovery...")
-            # Try multiple possible book folder structures
+            # Try multiple possible book folder structures (in priority order)
+            # Note: versions/ folder has the latest edited versions, prioritize it
             possible_folders = [
-                f"{project_folder}/{book_type}-book/",  # New structure
+                f"{project_folder}/versions/",          # Latest edited versions (highest priority)
+                f"{project_folder}/{book_type}-book/",  # New structure (theory-book/, lab-book/)
                 f"{project_folder}/book/",              # Legacy structure
                 f"{project_folder}/"                     # Root folder
             ]
@@ -1138,11 +1382,14 @@ def lambda_handler(event, context):
                         Delimiter='/'
                     )
                     
-                    # Find book files (book_version_*.json or Generated_Course_Book_data.json)
+                    # Find book files (various naming patterns)
+                    # Store both Key and LastModified for sorting
                     folder_files = [
-                        obj['Key'] for obj in response.get('Contents', [])
+                        {'Key': obj['Key'], 'LastModified': obj.get('LastModified')}
+                        for obj in response.get('Contents', [])
                         if obj['Key'].endswith('.json') and (
                             'book_version' in obj['Key'] or 
+                            'course_book_data' in obj['Key'] or  # Versioned books
                             'Generated_Course_Book_data' in obj['Key'] or
                             'Book_data' in obj['Key']
                         )
@@ -1151,6 +1398,8 @@ def lambda_handler(event, context):
                     if folder_files:
                         book_files = folder_files
                         logger.info(f"✅ Found {len(book_files)} book file(s) in {book_folder}")
+                        for bf in book_files:
+                            logger.info(f"   📄 {bf['Key']} (modified: {bf.get('LastModified', 'unknown')})")
                         break
                         
                 except Exception as e:
@@ -1160,10 +1409,10 @@ def lambda_handler(event, context):
             if not book_files:
                 raise ValueError(f"No book found. Searched in: {', '.join(possible_folders)}")
             
-            # Sort by timestamp (newest first) and pick the first one
-            book_files.sort(reverse=True)
-            book_version_key = book_files[0]
-            logger.info(f"✅ Auto-discovered: {book_version_key}")
+            # Sort by LastModified timestamp (newest first) if available, otherwise by key name
+            book_files.sort(key=lambda x: x.get('LastModified', x.get('Key', '')), reverse=True)
+            book_version_key = book_files[0].get('Key', book_files[0]) if isinstance(book_files[0], dict) else book_files[0]
+            logger.info(f"✅ Auto-discovered (newest): {book_version_key}")
         else:
             logger.info(f"✅ Using provided book_version_key: {book_version_key}")
         
@@ -1223,7 +1472,7 @@ def lambda_handler(event, context):
             
             # Check if partial (timeout occurred)
             if structure.get('completion_status') == 'partial':
-                logger.info("⚠️ Partial structure returned due to timeout")
+                logger.info("⚠️ Partial structure returned (intermediate batch, not final)")
                 
                 # Save partial structure to S3 (shared file for incremental builds)
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
@@ -1234,24 +1483,52 @@ def lambda_handler(event, context):
                         existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
                         existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
                         
-                        # Append new slides
-                        existing_structure['slides'].extend(structure['slides'])
-                        existing_structure['total_slides'] = len(existing_structure['slides'])
-                        existing_structure['lessons_processed'] += structure['lessons_processed']
-                        existing_structure['last_batch_index'] = batch_index
+                        # CRITICAL: Check if existing structure is from a COMPLETED previous execution
+                        existing_exec_id = existing_structure.get('execution_id', '')
+                        existing_last_batch = existing_structure.get('last_batch_index', -1)
                         
-                        # Merge image mappings
-                        existing_mapping = existing_structure.get('image_url_mapping', {})
-                        new_mapping = structure.get('image_url_mapping', {})
-                        existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                        # If last_batch_index is higher than current-1, this is stale data from previous execution
+                        # Or if completion_status was 'complete', the old execution finished
+                        is_stale_data = (
+                            existing_structure.get('completion_status') == 'complete' or
+                            existing_last_batch >= batch_index
+                        )
                         
-                        structure = existing_structure
-                        logger.info(f"✅ Merged with existing structure (total: {structure['total_slides']} slides)")
+                        if is_stale_data:
+                            logger.warning(f"⚠️ Stale data detected! existing_last_batch={existing_last_batch}, current batch_index={batch_index}")
+                            logger.warning(f"⚠️ Previous execution_id={existing_exec_id}, completion_status={existing_structure.get('completion_status')}")
+                            logger.warning("⚠️ This is a NEW execution - starting fresh, not merging with old data")
+                            import uuid
+                            structure['execution_id'] = str(uuid.uuid4())[:8]
+                            structure['last_batch_index'] = batch_index
+                        else:
+                            # Same execution - safe to merge
+                            # Inherit the execution_id from the existing structure
+                            structure['execution_id'] = existing_exec_id
+                            
+                            existing_structure['slides'].extend(structure['slides'])
+                            existing_structure['total_slides'] = len(existing_structure['slides'])
+                            existing_structure['lessons_processed'] += structure['lessons_processed']
+                            existing_structure['last_batch_index'] = batch_index
+                            
+                            # Merge image mappings
+                            existing_mapping = existing_structure.get('image_url_mapping', {})
+                            new_mapping = structure.get('image_url_mapping', {})
+                            existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                            
+                            structure = existing_structure
+                            logger.info(f"✅ Merged with existing structure (total: {structure['total_slides']} slides)")
                     except Exception as e:
                         logger.warning(f"⚠️ Could not merge with existing structure: {e}")
+                        import uuid
+                        structure['execution_id'] = str(uuid.uuid4())[:8]
                         structure['last_batch_index'] = batch_index
                 else:
+                    # Batch 0 - initialize fresh structure with new execution_id
+                    import uuid
+                    structure['execution_id'] = str(uuid.uuid4())[:8]
                     structure['last_batch_index'] = batch_index
+                    logger.info(f"🆔 New execution started: {structure['execution_id']}")
                 
                 # Save updated structure
                 s3_client.put_object(
@@ -1290,23 +1567,48 @@ def lambda_handler(event, context):
                     existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
                     existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
                     
-                    # Append new slides
-                    previous_count = len(existing_structure.get('slides', []))
-                    existing_structure['slides'].extend(structure['slides'])
-                    existing_structure['total_slides'] = len(existing_structure['slides'])
-                    existing_structure['lessons_processed'] = existing_structure.get('lessons_processed', 0) + structure['lessons_processed']
-                    existing_structure['last_batch_index'] = batch_index
-                    existing_structure['completion_status'] = structure['completion_status']
+                    # CRITICAL: Check if existing structure is from a COMPLETED previous execution
+                    existing_exec_id = existing_structure.get('execution_id', '')
+                    existing_last_batch = existing_structure.get('last_batch_index', -1)
                     
-                    # Merge image mappings
-                    existing_mapping = existing_structure.get('image_url_mapping', {})
-                    new_mapping = structure.get('image_url_mapping', {})
-                    existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                    # If last_batch_index is higher than current-1, this is stale data from previous execution
+                    # Or if completion_status was 'complete', the old execution finished
+                    is_stale_data = (
+                        existing_structure.get('completion_status') == 'complete' or
+                        existing_last_batch >= batch_index
+                    )
                     
-                    structure = existing_structure
-                    logger.info(f"✅ Merged batch {batch_index}: {previous_count} + {len(structure['slides']) - previous_count} = {structure['total_slides']} slides")
+                    if is_stale_data:
+                        logger.warning(f"⚠️ Stale data detected in complete batch! existing_last_batch={existing_last_batch}, current batch_index={batch_index}")
+                        logger.warning(f"⚠️ Previous execution_id={existing_exec_id}, completion_status={existing_structure.get('completion_status')}")
+                        logger.warning("⚠️ This is a NEW execution - starting fresh, not merging with old data")
+                        import uuid
+                        structure['execution_id'] = str(uuid.uuid4())[:8]
+                        structure['last_batch_index'] = batch_index
+                        previous_count = 0  # No merge, so previous count is 0
+                    else:
+                        # Same execution - safe to merge
+                        # Inherit the execution_id from the existing structure
+                        structure['execution_id'] = existing_exec_id
+                        
+                        previous_count = len(existing_structure.get('slides', []))
+                        existing_structure['slides'].extend(structure['slides'])
+                        existing_structure['total_slides'] = len(existing_structure['slides'])
+                        existing_structure['lessons_processed'] = existing_structure.get('lessons_processed', 0) + structure['lessons_processed']
+                        existing_structure['last_batch_index'] = batch_index
+                        existing_structure['completion_status'] = structure['completion_status']
+                        
+                        # Merge image mappings
+                        existing_mapping = existing_structure.get('image_url_mapping', {})
+                        new_mapping = structure.get('image_url_mapping', {})
+                        existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
+                        
+                        structure = existing_structure
+                        logger.info(f"✅ Merged batch {batch_index}: {previous_count} + {len(structure['slides']) - previous_count} = {structure['total_slides']} slides")
                 except Exception as e:
                     logger.warning(f"⚠️ Could not merge with existing structure: {e}")
+                    import uuid
+                    structure['execution_id'] = str(uuid.uuid4())[:8]
                     structure['last_batch_index'] = batch_index
                 
                 # Save updated structure
@@ -1345,9 +1647,14 @@ def lambda_handler(event, context):
                     html_key = None
                     html_url = None
             else:
-                # First batch - initialize structure
+                # First batch - initialize structure with new execution_id
+                import uuid
+                execution_id = body.get('execution_id') or str(uuid.uuid4())[:8]
+                
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
                 structure['last_batch_index'] = 0
+                structure['execution_id'] = execution_id
+                logger.info(f"🆔 New execution started (complete batch 0): {execution_id}")
                 
                 s3_client.put_object(
                     Bucket=course_bucket,
