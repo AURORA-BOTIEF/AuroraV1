@@ -16,13 +16,12 @@ const API_BASE =
 // Wrapper de fetch con token actualizado
 // Wrapper de fetch con token estricto (solo access_token)
 async function apiFetch(url, opts = {}) {
-  // Obtener sesión sin refrescar
+  // 1. Obtener sesión inicial
   let session = await getSessionOrNull(false);
   let token = session?.tokens?.accessToken?.jwtToken;
 
-  // Si no hay token válido, no usar id_token jamás
+  // 2. Si falta token, intentar refresh inmediato
   if (!token) {
-    // Forzar refresh una sola vez
     session = await getSessionOrNull(true);
     token = session?.tokens?.accessToken?.jwtToken;
   }
@@ -31,18 +30,20 @@ async function apiFetch(url, opts = {}) {
     throw new Error("No access token available");
   }
 
-  const makeRequest = async () => {
+  // DEFINICIÓN: Pasamos 'tokenToUse' explícitamente para evitar confusión de scope
+  const makeRequest = async (tokenToUse) => {
     const headers = {
       "Content-Type": "application/json",
       ...(opts.headers || {}),
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${tokenToUse}`,
     };
     return fetch(url, { ...opts, headers });
   };
 
-  let res = await makeRequest();
+  // 3. Primer intento
+  let res = await makeRequest(token);
 
-  // Si expira durante la llamada → refrescar una sola vez
+  // 4. Si expira (401), refrescar y reintentar
   if (res.status === 401) {
     session = await getSessionOrNull(true);
     token = session?.tokens?.accessToken?.jwtToken;
@@ -51,9 +52,11 @@ async function apiFetch(url, opts = {}) {
       throw new Error("Cannot refresh access token");
     }
 
-    res = await makeRequest();
+    // Reintento con el NUEVO token explícito
+    res = await makeRequest(token);
   }
 
+  // 5. Manejo de respuesta
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     let body;
