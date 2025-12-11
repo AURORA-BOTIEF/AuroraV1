@@ -1,6 +1,5 @@
 // src/components/AdminPage.jsx
 import React, { useEffect, useState } from "react"; // Eliminado useMemo
-import { getSessionOrNull } from "../utils/session";
 import "./AdminPage.css";
 import { toast } from 'react-hot-toast';
 import { fetchAuthSession } from "aws-amplify/auth";
@@ -108,9 +107,15 @@ export default function AdminPage() {
     let active = true;
 
     (async () => {
-      const s = await getSessionOrNull();
-      if (active) {
-        setSession(s);
+      try {
+        const auth = await fetchAuthSession();   // ← AHORA SÍ SE OBTIENEN TOKENS REALES
+
+        if (active) {
+          setSession(auth);
+          setLoadingSession(false);
+        }
+      } catch (e) {
+        console.error("Error obteniendo sesión", e);
         setLoadingSession(false);
       }
     })();
@@ -119,6 +124,7 @@ export default function AdminPage() {
       active = false;
     };
   }, []);
+
 
   // Derived
   const email =
