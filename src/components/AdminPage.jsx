@@ -13,24 +13,35 @@ const API_BASE =
   ".com" +
   "/dev2";
 
-// Wrapper de fetch con token actualizado
-// Wrapper de fetch con token estricto (solo access_token)
+// Wrapper de fetch con extracción de token robusta
 async function apiFetch(url, opts = {}) {
+  // Función auxiliar para extraer el string del token sin importar la versión de Amplify
+  const getTokenFromSession = (sess) => {
+    const rawToken = sess?.tokens?.accessToken;
+    if (!rawToken) return null;
+    if (typeof rawToken === 'string') return rawToken;
+    if (rawToken.jwtToken) return rawToken.jwtToken;
+    if (typeof rawToken.toString === 'function') return rawToken.toString();
+    return null;
+  };
+
   // 1. Obtener sesión inicial
   let session = await getSessionOrNull(false);
-  let token = session?.tokens?.accessToken?.jwtToken;
+  let token = getTokenFromSession(session);
 
   // 2. Si falta token, intentar refresh inmediato
   if (!token) {
     session = await getSessionOrNull(true);
-    token = session?.tokens?.accessToken?.jwtToken;
+    token = getTokenFromSession(session);
   }
 
   if (!token) {
+    // Si llegamos aquí, imprime la sesión para entender por qué falla
+    console.error("Error crítico: Sesión existe pero no se pudo extraer accessToken", session);
     throw new Error("No access token available");
   }
 
-  // DEFINICIÓN: Pasamos 'tokenToUse' explícitamente para evitar confusión de scope
+  // DEFINICIÓN: makeRequest recibe el token explícitamente
   const makeRequest = async (tokenToUse) => {
     const headers = {
       "Content-Type": "application/json",
@@ -46,13 +57,12 @@ async function apiFetch(url, opts = {}) {
   // 4. Si expira (401), refrescar y reintentar
   if (res.status === 401) {
     session = await getSessionOrNull(true);
-    token = session?.tokens?.accessToken?.jwtToken;
+    token = getTokenFromSession(session);
 
     if (!token) {
       throw new Error("Cannot refresh access token");
     }
 
-    // Reintento con el NUEVO token explícito
     res = await makeRequest(token);
   }
 
