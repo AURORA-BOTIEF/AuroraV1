@@ -31,6 +31,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const navigate = useNavigate();
     const [bookData, setBookData] = useState(null);
     const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
+    const [loadingOriginal, setLoadingOriginal] = useState(false); // Track if original is being loaded in background
     const [loading, setLoading] = useState(true);
     const [loadingImages, setLoadingImages] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -1320,20 +1321,84 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 } else {
                     // Load original in background for "View Original" feature
                     // Important: Only set originalBookData, do NOT touch bookData
+                    setLoadingOriginal(true);
                     (async () => {
                         try {
                             console.log('📖 Loading original book in background for "View Original" feature...');
                             const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`);
                             if (response.ok) {
                                 const data = await response.json();
+                                let originalBook = null;
+
+                                // Helper to convert modules structure to lessons
+                                const convertModulesToLessonsLocal = (bookData) => {
+                                    if (bookData.modules && Array.isArray(bookData.modules)) {
+                                        console.log('Converting modules structure to lessons array (background)...');
+                                        const lessons = [];
+                                        bookData.modules.forEach((module, moduleIdx) => {
+                                            const items = module.lessons || module.labs;
+                                            if (items && Array.isArray(items)) {
+                                                items.forEach((item, itemIdx) => {
+                                                    lessons.push({
+                                                        ...item,
+                                                        moduleNumber: moduleIdx + 1,
+                                                        lessonNumberInModule: itemIdx + 1,
+                                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                                        filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                                    });
+                                                });
+                                            }
+                                        });
+                                        return { ...bookData, lessons };
+                                    }
+                                    return bookData;
+                                };
+
+                                // Handle all API response formats (same as loadBook)
                                 if (data.bookData) {
-                                    // Only set originalBookData, not bookData
-                                    setOriginalBookData(JSON.parse(JSON.stringify(data.bookData)));
+                                    let bookData = data.bookData;
+                                    // Check if we have modules structure instead of lessons
+                                    if (!bookData.lessons && bookData.modules) {
+                                        bookData = convertModulesToLessonsLocal(bookData);
+                                    }
+                                    if (bookData.lessons && Array.isArray(bookData.lessons)) {
+                                        originalBook = bookData;
+                                    }
+                                } else if (data.bookContent) {
+                                    // Parse markdown content to book
+                                    originalBook = parseMarkdownToBook(data.bookContent);
+                                } else if (data.bookJsonUrl) {
+                                    // Fetch JSON from presigned URL
+                                    const jsonResp = await fetch(data.bookJsonUrl);
+                                    if (jsonResp.ok) {
+                                        let fetchedJson = await jsonResp.json();
+                                        if (!fetchedJson.lessons && fetchedJson.modules) {
+                                            fetchedJson = convertModulesToLessonsLocal(fetchedJson);
+                                        }
+                                        if (fetchedJson.lessons && Array.isArray(fetchedJson.lessons)) {
+                                            originalBook = fetchedJson;
+                                        }
+                                    }
+                                } else if (data.bookMdUrl) {
+                                    // Fetch markdown from presigned URL and parse
+                                    const mdResp = await fetch(data.bookMdUrl);
+                                    if (mdResp.ok) {
+                                        const markdown = await mdResp.text();
+                                        originalBook = parseMarkdownToBook(markdown);
+                                    }
+                                }
+
+                                if (originalBook && originalBook.lessons && Array.isArray(originalBook.lessons)) {
+                                    setOriginalBookData(JSON.parse(JSON.stringify(originalBook)));
                                     console.log('📖 Original book stored for "View Original" (did not overwrite current content)');
+                                } else {
+                                    console.warn('📖 Background original load: Could not parse book data');
                                 }
                             }
                         } catch (e) {
                             console.warn('Background original load failed:', e);
+                        } finally {
+                            setLoadingOriginal(false);
                         }
                     })();
                 }
@@ -2963,7 +3028,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             setLoadingVersion(true);
 
             if (!originalBookData) {
-                throw new Error('No se encontró la versión original');
+                throw new Error('La versión original aún se está cargando. Por favor, espere un momento e intente nuevamente.');
+            }
+
+            // Validate that originalBookData has proper lessons array
+            if (!originalBookData.lessons || !Array.isArray(originalBookData.lessons)) {
+                console.error('originalBookData is invalid:', originalBookData);
+                throw new Error('La versión original no tiene un formato válido (lessons no es un array)');
             }
 
             // Create a deep copy and process images for display
@@ -2994,7 +3065,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             setLoadingVersion(true);
 
             if (!originalBookData) {
-                throw new Error('No se encontró la versión original');
+                throw new Error('La versión original aún se está cargando. Por favor, espere un momento e intente nuevamente.');
+            }
+
+            // Validate that originalBookData has proper lessons array
+            if (!originalBookData.lessons || !Array.isArray(originalBookData.lessons)) {
+                console.error('originalBookData is invalid:', originalBookData);
+                throw new Error('La versión original no tiene un formato válido (lessons no es un array)');
             }
 
             // Create a deep copy and process images for display
@@ -4823,9 +4900,26 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 <div className="version-item version-original">
                                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                            <button className="version-name" onClick={viewOriginal}>Ver</button>
-                                            {!viewOnly && <button onClick={editOriginal}>Editar</button>}
-                                            <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>📄 Original</div>
+                                            <button
+                                                className="version-name"
+                                                onClick={viewOriginal}
+                                                disabled={loadingOriginal || !originalBookData}
+                                                title={loadingOriginal ? 'Cargando versión original...' : (!originalBookData ? 'Versión original no disponible' : 'Ver versión original')}
+                                            >
+                                                {loadingOriginal ? '⏳' : 'Ver'}
+                                            </button>
+                                            {!viewOnly && (
+                                                <button
+                                                    onClick={editOriginal}
+                                                    disabled={loadingOriginal || !originalBookData}
+                                                    title={loadingOriginal ? 'Cargando versión original...' : (!originalBookData ? 'Versión original no disponible' : 'Editar versión original')}
+                                                >
+                                                    {loadingOriginal ? '⏳' : 'Editar'}
+                                                </button>
+                                            )}
+                                            <div style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>
+                                                📄 Original {loadingOriginal && <span style={{ color: '#666', fontWeight: 'normal', fontSize: '0.9em' }}>(cargando...)</span>}
+                                            </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                             <div className="version-meta" style={{ fontStyle: 'italic', color: '#666' }}>Versión inicial del libro</div>
