@@ -1363,11 +1363,11 @@ def lambda_handler(event, context):
         if not book_version_key:
             logger.info("🔎 No book_version_key provided, starting auto-discovery...")
             # Try multiple possible book folder structures (in priority order)
-            # Note: versions/ folder has the latest edited versions, prioritize it
+            # Note: book/ folder has the stable complete versions
             possible_folders = [
-                f"{project_folder}/versions/",          # Latest edited versions (highest priority)
                 f"{project_folder}/{book_type}-book/",  # New structure (theory-book/, lab-book/)
-                f"{project_folder}/book/",              # Legacy structure
+                f"{project_folder}/book/",              # Legacy structure (most reliable)
+                f"{project_folder}/versions/",          # Versioned books (may have drafts)
                 f"{project_folder}/"                     # Root folder
             ]
             
@@ -1431,7 +1431,16 @@ def lambda_handler(event, context):
         book_data = load_book_from_s3(course_bucket, book_version_key)
         
         # Apply batching
-        total_lessons = len(book_data.get('lessons', []))
+        # Use total_lessons_override from input if provided (for testing partial courses)
+        total_lessons_override = body.get('total_lessons_override')
+        book_total_lessons = len(book_data.get('lessons', []))
+        
+        if total_lessons_override:
+            total_lessons = min(int(total_lessons_override), book_total_lessons)
+            logger.info(f"📊 Using total_lessons_override: {total_lessons} (book has {book_total_lessons})")
+        else:
+            total_lessons = book_total_lessons
+        
         if lesson_end:
             lesson_end = min(int(lesson_end), total_lessons)
         else:

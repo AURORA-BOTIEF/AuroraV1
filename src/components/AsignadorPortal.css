@@ -354,6 +354,39 @@
     padding: 0 15px;
 }
 
+/* Instructor-specific styles */
+.item-card.instructor {
+    border-left: 4px solid #8e44ad;
+}
+
+.item-card.instructor.selected {
+    background: linear-gradient(135deg, rgba(142, 68, 173, 0.15) 0%, rgba(155, 89, 182, 0.1) 100%);
+    border-color: #8e44ad;
+}
+
+.item-badge.instructor {
+    background: rgba(142, 68, 173, 0.1);
+    color: #8e44ad;
+}
+
+.csv-input-section.instructor h4 {
+    color: #8e44ad;
+}
+
+.csv-count.instructor {
+    background: rgba(142, 68, 173, 0.1);
+    color: #8e44ad;
+}
+
+.assign-btn.instructor {
+    background: linear-gradient(135deg, #8e44ad 0%, #9b59b6 100%);
+}
+
+.assign-btn.instructor:hover {
+    background: linear-gradient(135deg, #7d3c98 0%, #8e44ad 100%);
+    box-shadow: 0 6px 20px rgba(142, 68, 173, 0.4);
+}
+
 @media (max-width: 900px) {
     .assignment-flow {
         grid-template-columns: 1fr;

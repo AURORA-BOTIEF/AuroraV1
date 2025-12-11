@@ -179,15 +179,15 @@
     border-radius: 10px;
     cursor: pointer;
     transition: all 0.3s ease;
-    background: #035b6e;
+    background: #0d3f66;
     color: #fff;
     min-width: 120px;
 }
 
 .btn-view:hover {
-    background: #047a8f;
+    background: #1b5784;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(3, 91, 110, 0.4);
+    box-shadow: 0 5px 15px rgba(13, 63, 102, 0.4);
 }
 
 .btn-view.lab {

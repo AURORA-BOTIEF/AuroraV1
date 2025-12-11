@@ -184,11 +184,13 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         grupo === 'participant' ? 'Participante' :
           grupo === 'asignador' ? 'Asignador' :
             grupo === 'estudiante' ? 'Estudiante' :
-              'Sin grupo';
+              grupo === 'instructor_externo' ? 'Instructor Externo' :
+                'Sin grupo';
 
   // Check for specific roles based on Cognito groups
   const esAsignador = grupo === 'asignador' || (typeof grupo === 'string' && grupo.toLowerCase().includes('asignador'));
   const esEstudiante = grupo === 'estudiante' || (typeof grupo === 'string' && grupo.toLowerCase().includes('estudiante'));
+  const esInstructorExterno = grupo === 'instructor_externo' || (typeof grupo === 'string' && grupo.toLowerCase().includes('instructor'));
 
   const disabled = estado === 'pendiente' || estado === 'aprobado' || enviando;
 
@@ -304,6 +306,16 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
             <div className="step">
               <div className="circle">📚</div>
               {!colapsado && <span>Mis Cursos</span>}
+            </div>
+          </Link>
+        )}
+
+        {/* Instructores Externos Portal - visible to instructor_externo */}
+        {esInstructorExterno && (
+          <Link to="/portal-instructor" className="nav-link" title="Portal del Instructor">
+            <div className="step">
+              <div className="circle">👨‍🏫</div>
+              {!colapsado && <span>Mi Portal</span>}
             </div>
           </Link>
         )}

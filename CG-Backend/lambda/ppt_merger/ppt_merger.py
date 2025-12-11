@@ -186,24 +186,39 @@ def lambda_handler(event, context):
             )
             logger.info(f"   ✓ Saved merged structure: {final_structure_key}")
             
-            # Generate final HTML from complete structure
-            logger.info(f"🌐 Generating final HTML from merged structure...")
-            final_html = generate_html_from_structure(merged_structure)
-            
-            # OVERFLOW DETECTION: JavaScript in HTML will mark overflow slides client-side
-            # (Server-side Python estimation was too conservative with false positives)
-            # JavaScript uses actual scrollHeight measurement - 100% accurate
-            logger.info(f"✅ HTML generated with JavaScript overflow detection (client-side)")
-            
-            # Save final HTML
+            # HTML-FIRST ARCHITECTURE: Check if HTML already exists from InfographicGenerator
+            # The AI Web Designer generates complete HTML with code blocks, zoom buttons, etc.
+            # We should NOT regenerate from JSON structure - that loses the rich content!
             final_html_key = f"{project_folder}/infographics/infographic_final.html"
-            s3_client.put_object(
-                Bucket=course_bucket,
-                Key=final_html_key,
-                Body=final_html.encode('utf-8'),
-                ContentType='text/html; charset=utf-8'
-            )
-            logger.info(f"   ✓ Saved final HTML: {final_html_key}")
+            
+            try:
+                # Check if HTML already exists and is recent (created by InfographicGenerator)
+                html_metadata = s3_client.head_object(Bucket=course_bucket, Key=final_html_key)
+                html_exists = True
+                html_last_modified = html_metadata.get('LastModified')
+                logger.info(f"✅ HTML-FIRST: Final HTML already exists (created by InfographicGenerator)")
+                logger.info(f"   Last modified: {html_last_modified}")
+                logger.info(f"   Skipping HTML regeneration - preserving AI Web Designer's work")
+            except s3_client.exceptions.NoSuchKey:
+                html_exists = False
+                logger.warning(f"⚠️ No existing HTML found - this is unexpected in HTML-First architecture")
+            except Exception as e:
+                html_exists = False
+                logger.warning(f"⚠️ Could not check for existing HTML: {e}")
+            
+            # Only regenerate HTML if it doesn't exist (fallback)
+            if not html_exists:
+                logger.warning(f"🔄 FALLBACK: Generating HTML from structure (HTML-First should have created it)")
+                from html_generator import generate_html_from_structure
+                final_html = generate_html_from_structure(merged_structure)
+                
+                s3_client.put_object(
+                    Bucket=course_bucket,
+                    Key=final_html_key,
+                    Body=final_html.encode('utf-8'),
+                    ContentType='text/html; charset=utf-8'
+                )
+                logger.info(f"   ✓ Saved fallback HTML: {final_html_key}")
             
             # Clean up intermediate batch files
             logger.info(f"🧹 Cleaning up intermediate batch files...")

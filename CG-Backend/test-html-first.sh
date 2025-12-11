@@ -6,8 +6,8 @@
 
 set -e
 
-PROJECT_FOLDER="251031-databricks-ciencia-datos"
-COURSE_BUCKET="aurora-course-generator"
+PROJECT_FOLDER="test-project"
+COURSE_BUCKET="crewai-course-artifacts"
 
 echo "=========================================="
 echo "HTML-FIRST ARCHITECTURE TEST"
@@ -32,6 +32,7 @@ aws lambda invoke \
     "lesson_start": 1,
     "lesson_end": 2
   }' \
+  --cli-binary-format raw-in-base64-out \
   /tmp/html_first_response.json
 
 echo ""
