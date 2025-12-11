@@ -55,13 +55,13 @@ DEFAULT_OPENAI_MODEL = "gpt-5"
 # Height Estimation Constants (pixels) - MATCHED TO ACTUAL HTML CSS RENDERING
 # HTML-FIRST DESIGN: These constants are calibrated for 1280px × 720px HTML slides
 # CRITICAL: These MUST match html_generator.py CSS exactly (20pt font × 1.4 line-height + padding + margin)
-MAX_CONTENT_HEIGHT_WITH_SUBTITLE = 460  # Slide with subtitle has less content space
+MAX_CONTENT_HEIGHT_WITH_SUBTITLE = 500  # Slide with subtitle has less content space
 MAX_CONTENT_HEIGHT_NO_SUBTITLE = 520    # Slide without subtitle has more space
 BULLET_HEIGHT = 50       # FIXED: 20pt×1.4 line-height (38px) + 8px padding + 4px margin = 50px (was 44px - caused overflow!)
 HEADING_HEIGHT = 65      # Height for block headings (20pt font + spacing)
-IMAGE_HEIGHT = 400       # Conservative to prevent overflow with text
+IMAGE_HEIGHT = 480       # Expanded for larger images
 CALLOUT_HEIGHT = 75      # Callout block base height
-CODE_BLOCK_HEIGHT = 300  # Base height for code blocks (dark themed, monospace font)
+CODE_BLOCK_HEIGHT = 380  # Expanded base height for code blocks
 CODE_LINE_HEIGHT = 24    # Height per line of code (~14pt font × 1.5 line-height)
 SPACING_BETWEEN_BLOCKS = 20  # Vertical spacing between content blocks
 CHARS_PER_LINE = 70      # Realistic for actual slide width with 20pt font
@@ -132,19 +132,27 @@ def load_book_from_s3(bucket: str, book_key: str) -> Dict:
         response = s3_client.get_object(Bucket=bucket, Key=book_key)
         book_data = json.loads(response['Body'].read().decode('utf-8'))
         
-        # Handle nested module structure
+        # Handle book structure: prefer top-level 'lessons' if present (newer format)
+        # Fall back to extracting from 'modules' for older books
         lessons = []
-        if 'modules' in book_data:
-            # New structure: modules contain lessons
+        
+        # Check for top-level lessons array first (newer book format - more reliable)
+        if 'lessons' in book_data and len(book_data.get('lessons', [])) > 0:
+            lessons = book_data.get('lessons', [])
+            logger.info(f"✅ Loaded book with {len(lessons)} lessons from top-level array")
+            # Verify lessons have proper module_number
+            modules_in_lessons = set(l.get('module_number', 0) for l in lessons)
+            logger.info(f"   📊 Lessons span modules: {sorted(modules_in_lessons)}")
+        elif 'modules' in book_data:
+            # Old structure: modules contain lessons - flatten for compatibility
             for module in book_data.get('modules', []):
                 lessons.extend(module.get('lessons', []))
             logger.info(f"✅ Loaded book with {len(lessons)} lessons from {len(book_data.get('modules', []))} modules")
-            # Flatten structure for compatibility
+            # Store flattened lessons for compatibility
             book_data['lessons'] = lessons
         else:
-            # Old structure: lessons at top level
-            lessons = book_data.get('lessons', [])
-            logger.info(f"✅ Loaded book with {len(lessons)} lessons")
+            logger.warning(f"⚠️ No lessons found in book - neither 'lessons' nor 'modules' array present")
+            lessons = []
         
         # Try to load outline for richer module information
         try:
@@ -1362,16 +1370,17 @@ def lambda_handler(event, context):
         # Auto-discover book version if not provided
         if not book_version_key:
             logger.info("🔎 No book_version_key provided, starting auto-discovery...")
-            # Try multiple possible book folder structures (in priority order)
-            # Note: book/ folder has the stable complete versions
+            # FIXED: Search ALL folders and collect ALL book files, then sort globally by date
+            # This ensures we always use the NEWEST book version regardless of folder
             possible_folders = [
                 f"{project_folder}/{book_type}-book/",  # New structure (theory-book/, lab-book/)
-                f"{project_folder}/book/",              # Legacy structure (most reliable)
-                f"{project_folder}/versions/",          # Versioned books (may have drafts)
+                f"{project_folder}/book/",              # Legacy structure
+                f"{project_folder}/versions/",          # Versioned books
                 f"{project_folder}/"                     # Root folder
             ]
             
-            book_files = []
+            # Collect ALL book files from ALL folders
+            all_book_files = []
             for book_folder in possible_folders:
                 logger.info(f"🔍 Searching in {book_folder}")
                 
@@ -1385,7 +1394,7 @@ def lambda_handler(event, context):
                     # Find book files (various naming patterns)
                     # Store both Key and LastModified for sorting
                     folder_files = [
-                        {'Key': obj['Key'], 'LastModified': obj.get('LastModified')}
+                        {'Key': obj['Key'], 'LastModified': obj.get('LastModified'), 'Folder': book_folder}
                         for obj in response.get('Contents', [])
                         if obj['Key'].endswith('.json') and (
                             'book_version' in obj['Key'] or 
@@ -1396,23 +1405,31 @@ def lambda_handler(event, context):
                     ]
                     
                     if folder_files:
-                        book_files = folder_files
-                        logger.info(f"✅ Found {len(book_files)} book file(s) in {book_folder}")
-                        for bf in book_files:
-                            logger.info(f"   📄 {bf['Key']} (modified: {bf.get('LastModified', 'unknown')})")
-                        break
+                        all_book_files.extend(folder_files)
+                        logger.info(f"   Found {len(folder_files)} book file(s) in {book_folder}")
+                        for bf in folder_files:
+                            logger.info(f"      📄 {bf['Key']} (modified: {bf.get('LastModified', 'unknown')})")
                         
                 except Exception as e:
                     logger.warning(f"Could not search {book_folder}: {e}")
                     continue
             
-            if not book_files:
+            if not all_book_files:
                 raise ValueError(f"No book found. Searched in: {', '.join(possible_folders)}")
             
-            # Sort by LastModified timestamp (newest first) if available, otherwise by key name
-            book_files.sort(key=lambda x: x.get('LastModified', x.get('Key', '')), reverse=True)
-            book_version_key = book_files[0].get('Key', book_files[0]) if isinstance(book_files[0], dict) else book_files[0]
-            logger.info(f"✅ Auto-discovered (newest): {book_version_key}")
+            # CRITICAL FIX: Sort ALL files globally by LastModified (newest first)
+            # This ensures we pick the newest version across ALL folders
+            all_book_files.sort(key=lambda x: x.get('LastModified') or '', reverse=True)
+            
+            # Log all candidates for debugging
+            logger.info(f"📚 Found {len(all_book_files)} total book file(s) across all folders:")
+            for idx, bf in enumerate(all_book_files[:5]):  # Show top 5
+                logger.info(f"   #{idx+1}: {bf['Key']} (modified: {bf.get('LastModified', 'unknown')}, folder: {bf.get('Folder', 'N/A')})")
+            
+            book_version_key = all_book_files[0]['Key']
+            logger.info(f"✅ Auto-discovered NEWEST book: {book_version_key}")
+            logger.info(f"   📁 From folder: {all_book_files[0].get('Folder', 'N/A')}")
+            logger.info(f"   📅 Modified: {all_book_files[0].get('LastModified', 'unknown')}")
         else:
             logger.info(f"✅ Using provided book_version_key: {book_version_key}")
         

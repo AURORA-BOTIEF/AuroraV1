@@ -13,8 +13,9 @@ knowing exactly how much space is available in each container.
 
 SLIDE DIMENSIONS: 1280px × 720px
 - Header: 120px (title + subtitle)
-- Footer: 100px (reserved for logo + margin)
-- Content Area: 500px (720 - 120 - 100)
+- Footer: 40px (reserved for logo)
+- Padding: 40px (20px top + 20px bottom)
+- Content Area: 520px (720 - 120 - 40 - 40)
 """
 
 # =============================================================================
@@ -33,11 +34,11 @@ LAYOUTS = {
         "containers": {
             "content": {
                 "width": 1160,   # 1280 - 60px padding each side
-                "height": 400,  # Conservative to prevent overflow
+                "height": 480,  # 520px content - 40px margins
                 "purpose": "Bullet points, callouts, or paragraphs"
             }
         },
-        "max_bullets": 8,  # 400px / 50px per bullet = 8 bullets
+        "max_bullets": 9,  # 480px / 50px per bullet = 9 bullets
         "guidelines": """
 CONTAINER: 1160px × 400px for all text content
 - Each bullet line: ~50px height (font + line-height + margin)
@@ -56,17 +57,17 @@ CONTAINER: 1160px × 400px for all text content
         "containers": {
             "text": {
                 "width": 1160,
-                "height": 150,  # Top portion for explanatory text
+                "height": 120,  # Compact text area
                 "purpose": "2-3 bullets explaining the code"
             },
             "code": {
                 "width": 1160,
-                "height": 250,  # Bottom portion for code
+                "height": 340,  # Expanded code area (520 - 120 text - 60 margins)
                 "purpose": "Code snippet with syntax highlighting"
             }
         },
         "max_bullets": 3,  # Only 3 bullets with code
-        "max_code_lines": 10,  # ~10 lines of code
+        "max_code_lines": 14,  # ~14 lines of code (340px / 24px per line)
         "guidelines": """
 TEXT CONTAINER: 1160px × 150px (top)
 - Maximum 3 bullets (50px each = 150px)
@@ -88,16 +89,16 @@ CODE CONTAINER: 1160px × 250px (bottom)
         "containers": {
             "image": {
                 "width": 520,
-                "height": 380,
+                "height": 460,
                 "purpose": "Image, diagram, or screenshot"
             },
             "text": {
                 "width": 520,
-                "height": 380,
+                "height": 460,
                 "purpose": "Bullet points explaining the image"
             }
         },
-        "max_bullets": 7,  # 380px / 50px = 7 bullets
+        "max_bullets": 9,  # 460px / 50px = 9 bullets
         "guidelines": """
 IMAGE CONTAINER: 520px × 380px (left side)
 - Image scales to fit within container
@@ -114,16 +115,16 @@ TEXT CONTAINER: 520px × 380px (right side)
         "containers": {
             "text": {
                 "width": 520,
-                "height": 380,
+                "height": 460,
                 "purpose": "Bullet points"
             },
             "image": {
                 "width": 520,
-                "height": 380,
+                "height": 460,
                 "purpose": "Image, diagram, or screenshot"
             }
         },
-        "max_bullets": 7,
+        "max_bullets": 9,
         "guidelines": """
 TEXT CONTAINER: 520px × 380px (left side)
 - REQUIRED: 3-7 bullets about the topic
@@ -142,7 +143,7 @@ IMAGE CONTAINER: 520px × 380px (right side)
         "containers": {
             "image": {
                 "width": 1160,
-                "height": 350,
+                "height": 440,
                 "purpose": "Large image, diagram, or screenshot"
             },
             "caption": {
@@ -175,12 +176,12 @@ CAPTION: Required, 1-2 sentences explaining the image
             },
             "code": {
                 "width": 1160,
-                "height": 350,
+                "height": 440,
                 "purpose": "Extended code example"
             }
         },
         "max_bullets": 0,
-        "max_code_lines": 15,  # ~15 lines of code
+        "max_code_lines": 18,  # ~18 lines of code (440px / 24px per line)
         "guidelines": """
 CODE CONTAINER: 1160px × 350px
 - For longer, important code examples
@@ -200,16 +201,16 @@ CAPTION: 1-2 lines explaining what the code does
         "containers": {
             "left": {
                 "width": 520,
-                "height": 380,
+                "height": 460,
                 "purpose": "Left column content"
             },
             "right": {
                 "width": 520,
-                "height": 380,
+                "height": 460,
                 "purpose": "Right column content"
             }
         },
-        "max_bullets": 6,  # Per column
+        "max_bullets": 9,  # Per column (460px / 50px)
         "guidelines": """
 EACH COLUMN: 520px × 380px
 - Maximum 6 bullets per column
@@ -226,7 +227,7 @@ EACH COLUMN: 520px × 380px
         "containers": {
             "table": {
                 "width": 1160,
-                "height": 340,
+                "height": 420,
                 "purpose": "Data table"
             },
             "notes": {
@@ -235,7 +236,7 @@ EACH COLUMN: 520px × 380px
                 "purpose": "Optional notes or key takeaways"
             }
         },
-        "max_rows": 8,  # ~8 rows before overflow
+        "max_rows": 10,  # ~10 rows before overflow (420px / 40px per row)
         "guidelines": """
 TABLE CONTAINER: 1160px × 340px
 - Header row: ~45px
