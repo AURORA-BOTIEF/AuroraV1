@@ -165,7 +165,7 @@ export default function AdminPage() {
 
     try {
       const qs = filtroUsuarios ? `?filtro=${encodeURIComponent(filtroUsuarios)}` : "";
-      const data = await apiFetch(`${API_BASE}/usuarios${qs}`, { method: "GET" });
+      const data = await apiFetch(`${API_BASE}/listar_usuarios${qs}`, { method: "GET" });
 
       // se espera un array de objetos: { correo, rol, tieneSolicitudCreador, dominio }
       setUsuarios(Array.isArray(data?.usuarios) ? data.usuarios : []);
@@ -204,7 +204,7 @@ export default function AdminPage() {
   const accionUsuario = async (correo, accion) => {
     // accion: 'solicitar-creador' | 'cancelar-solicitud' | 'dar-admin' | 'quitar-admin' | 'revocar-creador'
     try {
-      await apiFetch(`${API_BASE}/usuarios/accion`, {
+      await apiFetch(`${API_BASE}/accion_usuarios`, {
         method: "POST",
         body: JSON.stringify({ correo, accion }),
       });
