@@ -198,7 +198,7 @@ class HTMLSlideBuilder:
     SLIDE_HEIGHT = 720
     HEADER_HEIGHT = 120  # Title + subtitle area
     FOOTER_HEIGHT = 40
-    MAX_CONTENT_HEIGHT_WITH_SUBTITLE = 460
+    MAX_CONTENT_HEIGHT_WITH_SUBTITLE = 500
     MAX_CONTENT_HEIGHT_NO_SUBTITLE = 520
     
     # Element heights (from actual CSS)
@@ -572,6 +572,79 @@ def detect_language(book_data: Dict) -> bool:
 # ============================================================================
 
 
+class LayoutDefinitions:
+    """
+    Defines strict, rigid layouts with hard pixel limits.
+    These are the ONLY allowable slide structures.
+    """
+    
+    # Canvas dimensions
+    WIDTH = 1280
+    HEIGHT = 720
+    
+    # Safe zones
+    HEADER_HEIGHT = 120
+    FOOTER_HEIGHT = 40
+    SIDE_PADDING = 50
+    
+    # Layouts - REDUCED LIMITS to avoid logo overlap (footer needs 80px clearance)
+    # NOTE: Image layouts have FEWER bullets (4) because text area is narrower AND long bullets wrap
+    LAYOUTS = {
+        "text_only": {
+            "description": "Title + Bullet points only (full width)",
+            "containers": [
+                {"type": "text", "width": 1160, "height": 440, "max_bullets": 7}
+            ]
+        },
+        "image_left": {
+            "description": "Image on left, text on right (use for visual concepts)",
+            "containers": [
+                {"type": "image", "width": 550, "height": 420},
+                {"type": "text", "width": 520, "height": 420, "max_bullets": 4}
+            ]
+        },
+        "image_right": {
+            "description": "Text on left, image on right (use for visual concepts)",
+            "containers": [
+                {"type": "text", "width": 520, "height": 420, "max_bullets": 4},
+                {"type": "image", "width": 550, "height": 420}
+            ]
+        },
+        "text_and_code": {
+            "description": "Brief explanation (2 bullets) + code snippet (use when context needed)",
+            "containers": [
+                {"type": "text", "width": 1160, "height": 100, "max_bullets": 2},
+                {"type": "code", "width": 1160, "height": 320, "max_lines": 12}
+            ]
+        },
+        "code_only": {
+            "description": "FULL-HEIGHT code block - PREFERRED for code (maximizes lines!)",
+            "containers": [
+                {"type": "code", "width": 1160, "height": 440, "max_lines": 17}
+            ]
+        }
+    }
+
+    @classmethod
+    def get_system_prompt_info(cls) -> str:
+        """Returns layout info formatted for the System Prompt."""
+        info = "📐 STRICT LAYOUT TEMPLATES (YOU MUST CHOOSE ONE):\n\n"
+        info += "🔤 TEXT LAYOUTS:\n"
+        info += f"- **text_only**: Full-width bullets (max {cls.LAYOUTS['text_only']['containers'][0]['max_bullets']} bullets)\n"
+        info += f"- **image_left/image_right**: Image + bullets side-by-side (max {cls.LAYOUTS['image_left']['containers'][1]['max_bullets']} bullets - VERY LIMITED SPACE!)\n"
+        
+        info += "\n💻 CODE LAYOUTS (choose based on context needs):\n"
+        info += f"- **code_only**: FULL-HEIGHT code - {cls.LAYOUTS['code_only']['containers'][0]['max_lines']} lines max - USE THIS WHEN CODE IS SELF-EXPLANATORY!\n"
+        info += f"- **text_and_code**: Brief intro + code - {cls.LAYOUTS['text_and_code']['containers'][0]['max_bullets']} bullets + {cls.LAYOUTS['text_and_code']['containers'][1]['max_lines']} lines - USE ONLY WHEN CONTEXT IS ESSENTIAL!\n"
+        
+        info += "\n⚡ CRITICAL RULES:\n"
+        info += "1. For CODE: Prefer 'code_only' to maximize lines shown\n"
+        info += f"2. For IMAGE layouts: Only {cls.LAYOUTS['image_left']['containers'][1]['max_bullets']} SHORT bullets! Keep text VERY concise!\n"
+        info += "3. ALWAYS respect max_bullets/max_lines - content WILL BE CUT if exceeded!\n"
+        info += "4. Each bullet should be ONE SHORT sentence - avoid multi-line bullets!\n"
+        return info
+
+
 class HTMLFirstGenerator:
     """
     Generates HTML slides directly from content with AI-driven overflow prevention.
@@ -658,70 +731,7 @@ class HTMLFirstGenerator:
         
         return filtered_content
     
-class LayoutDefinitions:
-    """
-    Defines strict, rigid layouts with hard pixel limits.
-    These are the ONLY allowable slide structures.
-    """
-    
-    # Canvas dimensions
-    WIDTH = 1280
-    HEIGHT = 720
-    
-    # Safe zones
-    HEADER_HEIGHT = 120
-    FOOTER_HEIGHT = 80
-    SIDE_PADDING = 50
-    
-    # Layouts
-    LAYOUTS = {
-        "text_only": {
-            "description": "Title + Bullet points only",
-            "containers": [
-                {"type": "text", "width": 1100, "height": 450, "max_bullets": 12}
-            ]
-        },
-        "image_left": {
-            "description": "Image on left, text on right",
-            "containers": [
-                {"type": "image", "width": 550, "height": 440},
-                {"type": "text", "width": 500, "height": 450, "max_bullets": 8}
-            ]
-        },
-        "image_right": {
-            "description": "Text on left, image on right",
-            "containers": [
-                {"type": "text", "width": 500, "height": 450, "max_bullets": 8},
-                {"type": "image", "width": 550, "height": 440}
-            ]
-        },
-        "text_and_code": {
-            "description": "Text section followed by code block",
-            "containers": [
-                {"type": "text", "width": 1100, "height": 150, "max_bullets": 4},
-                {"type": "code", "width": 1100, "height": 300, "max_lines": 12}
-            ]
-        },
-        "code_only": {
-            "description": "Title + Large code block",
-            "containers": [
-                {"type": "code", "width": 1100, "height": 500, "max_lines": 20}
-            ]
-        }
-    }
 
-    @classmethod
-    def get_system_prompt_info(cls) -> str:
-        """Returns layout info formatted for the System Prompt."""
-        info = "📐 STRICT LAYOUT TEMPLATES (YOU MUST CHOOSE ONE):\n"
-        for key, layout in cls.LAYOUTS.items():
-            info += f"- **{key}**: {layout['description']}\n"
-            for c in layout['containers']:
-                if c['type'] == 'text':
-                    info += f"  - Text Area: {c['max_bullets']} bullets max\n"
-                elif c['type'] == 'code':
-                    info += f"  - Code Area: {c['max_lines']} lines max\n"
-        return info
 
     def generate_from_lesson(self, lesson: Dict, lesson_idx: int, images: List[Dict]) -> List[Dict]:
         """
@@ -740,24 +750,43 @@ class LayoutDefinitions:
         # 1. Define the Creator Agent
         layout_info = LayoutDefinitions.get_system_prompt_info()
         
-        system_prompt = f"""You are a STRICT TEMPLATE WEB DESIGNER.
-TARGET: Create HTML slides by filling pre-defined templates.
+        system_prompt = f"""You are a STRICT TEMPLATE WEB DESIGNER creating educational slides.
+TARGET: Create HTML slides by filling pre-defined templates with SMART CONTENT DISTRIBUTION.
 
 {layout_info}
 
 🛑 CRITICAL RULES:
-1. **NO OVERFLOW**: If content doesn't fit the template limits, you MUST split it into multiple slides (e.g., "Bash Basics (Part 1)", "Bash Basics (Part 2)").
-2. **IMAGE RULES**: Use "image_left" or "image_right". NEVER use an image without text context (bullet points).
-3. **CODE RULES**: 
-   - Small snippets (<12 lines) -> Use "text_and_code"
-   - Large blocks (>12 lines) -> Use "code_only"
-   - Very large blocks (>20 lines) -> SPLIT into multiple "code_only" slides.
+
+1. **SMART CONTENT DISTRIBUTION** (MOST IMPORTANT!):
+   - When content exceeds slide limits, SPLIT into MULTIPLE SLIDES with BALANCED content
+   - Example: 10 bullets for text_only (max 7) → Create 2 slides with 5 bullets EACH, NOT 7+3!
+   - Example: 8 bullets for image_left (max 4) → Create 2 slides with 4 bullets EACH
+   - Each split slide should have SIMILAR amount of content - AVOID lopsided Part 1/Part 2 slides
+   - Use titles like "Topic (Part 1 of 2)", "Topic (Part 2 of 2)" to show relationship
+
+2. **IMAGE LAYOUT RULES** (VERY STRICT LIMITS!):
+   - image_left/image_right: MAX 4 SHORT BULLETS - text area is NARROW (520px)
+   - KEEP EACH BULLET TO ONE SHORT SENTENCE - avoid long explanations
+   - If bullets are long, use FEWER bullets or SPLIT into more slides
+   - NEVER exceed 4 bullets - ALWAYS split if more content exists
+
+3. **BULLET FORMAT RULES** (CRITICAL FOR FITTING):
+   - Each bullet must be ONE SHORT sentence (under 80 characters if possible)
+   - Use concise technical terminology instead of long explanations
+   - For image layouts: even shorter bullets (under 50 characters ideal)
+   - Long multi-line bullets will be CUT - keep them brief!
+
+4. **CODE LAYOUT RULES** (MAXIMIZE CODE SPACE!):
+   - PREFER "code_only" for code blocks - uses FULL slide (17 lines max)
+   - Use "text_and_code" ONLY when brief context is ESSENTIAL (2 bullets + 12 lines)
+   - Very large code (>17 lines) → SPLIT into multiple "code_only" slides
+   - CODE BLOCKS SHOULD USE ALL AVAILABLE SPACE - don't leave empty space!
 
 OUTPUT JSON FORMAT:
 {{
     "slides": [
         {{
-            "layout": "text_only",  // Must match one of the keys above
+            "layout": "text_only",  // Must match one of the layout keys
             "title": "Slide Title",
             "content": {{
                 "bullets": ["Point 1", "Point 2"],
@@ -780,8 +809,72 @@ OUTPUT JSON FORMAT:
         
         # Initial draft generation
         try:
-            response = web_designer.run(f"Create slides for this content:\n\n{lesson_content}")
-            draft_slides = response.get('slides', [])
+            response = web_designer(f"Create slides for this content:\n\n{lesson_content}")
+            
+            # Extract text from Strands Agent response object
+            # The response structure is: {'role': 'assistant', 'content': [{'text': '...'}]}
+            response_text = ""
+            
+            if hasattr(response, 'message'):
+                msg = response.message
+                # Handle Strands message object
+                if hasattr(msg, 'content'):
+                    content = msg.content
+                    if isinstance(content, list):
+                        # Extract text from content blocks
+                        for block in content:
+                            if isinstance(block, dict) and 'text' in block:
+                                response_text += block['text']
+                            elif hasattr(block, 'text'):
+                                response_text += str(block.text)
+                            else:
+                                response_text += str(block)
+                    elif isinstance(content, str):
+                        response_text = content
+                    else:
+                        response_text = str(content)
+                elif isinstance(msg, dict) and 'content' in msg:
+                    # Handle dict-style message
+                    content = msg['content']
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and 'text' in block:
+                                response_text += block['text']
+                            else:
+                                response_text += str(block)
+                    else:
+                        response_text = str(content)
+                else:
+                    response_text = str(msg)
+            elif hasattr(response, 'output'):
+                response_text = str(response.output)
+            elif hasattr(response, 'text'):
+                response_text = str(response.text)
+            else:
+                response_text = str(response)
+            
+            response_text = response_text.strip()
+            logger.info(f"📄 AI Response (first 500 chars): {response_text[:500]}...")
+            
+            # ROBUST markdown fence stripping - handle various formats
+            import re
+            # Remove ```json or ``` at start (with optional language tag)
+            response_text = re.sub(r'^```\w*\s*\n?', '', response_text, flags=re.MULTILINE)
+            # Remove ``` at end
+            response_text = re.sub(r'\n?```\s*$', '', response_text, flags=re.MULTILINE)
+            response_text = response_text.strip()
+            
+            # Parse JSON from response
+            start_idx = response_text.find('{')
+            if start_idx == -1:
+                logger.error(f"No JSON found in AI response: {response_text[:200]}")
+                return []
+            
+            import json
+            parsed_response, _ = json.JSONDecoder().raw_decode(response_text[start_idx:])
+            draft_slides = parsed_response.get('slides', [])
+            logger.info(f"📊 Parsed {len(draft_slides)} draft slides")
+            
         except Exception as e:
             logger.error(f"AI Generation failed: {e}")
             return []
@@ -874,11 +967,19 @@ OUTPUT JSON FORMAT:
 
         if not violations:
             return slide
+        
+        # For code-only violations, skip AI refinement and go straight to truncation
+        # This saves significant time since code truncation is deterministic
+        code_only_violation = len(violations) == 1 and 'Code too long' in violations[0]
+        if code_only_violation:
+            logger.warning(f"⚠️ Slide '{slide.get('title')}' has code overflow - using fast truncation (skipping AI)")
+            self._force_truncate(slide, layout_spec)
+            return slide
             
-        # Refinement Loop (Max 2 retries)
+        # Refinement Loop (Max 1 retry for non-code issues to save time)
         logger.warning(f"⚠️ Slide '{slide.get('title')}' failed validation: {violations}. Attempting refinement...")
         
-        for attempt in range(2):
+        for attempt in range(1):  # Reduced from 2 to 1 to save time
             refinement_prompt = f"""
             CRITICAL LAYOUT VIOLATION in slide '{slide.get('title')}':
             {', '.join(violations)}
@@ -888,20 +989,53 @@ OUTPUT JSON FORMAT:
             - Summarize text.
             - Truncate code if necessary.
             
-            Return ONLY the corrected JSON for this single slide.
+            Return ONLY the corrected JSON for this single slide. NO markdown fences, NO explanation text.
             """
             
             try:
                 # Ask agent to fix
-                fixed_response = agent.run(refinement_prompt)
-                fixed_slide = fixed_response.get('slides', [{}])[0] if 'slides' in fixed_response else fixed_response
+                fixed_response = agent(refinement_prompt)
                 
-                # Re-validate
-                # (Simplified re-validation for brevity - in production would act recurisvely or strictly)
-                # For now, we accept the fix if structure is valid
-                if fixed_slide and 'content' in fixed_slide:
-                    logger.info(f"✅ Slide fixed on attempt {attempt+1}")
-                    return fixed_slide
+                # Extract text from response (same as main generation)
+                response_text = ""
+                if hasattr(fixed_response, 'message'):
+                    msg = fixed_response.message
+                    if hasattr(msg, 'content'):
+                        content = msg.content
+                        if isinstance(content, list):
+                            for block in content:
+                                if isinstance(block, dict) and 'text' in block:
+                                    response_text += block['text']
+                                else:
+                                    response_text += str(block)
+                        else:
+                            response_text = str(content)
+                    else:
+                        response_text = str(msg)
+                else:
+                    response_text = str(fixed_response)
+                
+                response_text = response_text.strip()
+                
+                # ROBUST markdown fence stripping - handle various formats
+                import re
+                # Remove ```json or ``` at start (with optional language tag)
+                response_text = re.sub(r'^```\w*\s*\n?', '', response_text, flags=re.MULTILINE)
+                # Remove ``` at end
+                response_text = re.sub(r'\n?```\s*$', '', response_text, flags=re.MULTILINE)
+                response_text = response_text.strip()
+                
+                # Parse JSON
+                start_idx = response_text.find('{')
+                if start_idx != -1:
+                    import json
+                    parsed, _ = json.JSONDecoder().raw_decode(response_text[start_idx:])
+                    fixed_slide = parsed.get('slides', [parsed])[0] if 'slides' in parsed else parsed
+                    
+                    # Accept fix if structure is valid
+                    if fixed_slide and 'content' in fixed_slide:
+                        logger.info(f"✅ Slide fixed on attempt {attempt+1}")
+                        return fixed_slide
             except Exception as e:
                 logger.error(f"Refinement failed: {e}")
         
@@ -921,322 +1055,7 @@ OUTPUT JSON FORMAT:
                  code = code_obj.get('code', '')
                  lines = code.split('\n')
                  slide['content']['code']['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# ... (truncated)"
-        
-        # Build image info with aspect ratios
-        image_info_list = []
-        for img in images:
-            img_alt = img.get('alt_text', '')
-            suggested = img.get('suggested_layout', 'split')
-            aspect = img.get('aspect_ratio', 'unknown')
-            image_info_list.append(f"  - '{img_alt}' (layout: {suggested}, aspect_ratio: {aspect:.2f})" if isinstance(aspect, (int, float)) else f"  - '{img_alt}' (layout: {suggested})")
-        
-        image_info = "\n".join(image_info_list) if image_info_list else "  (none)"
-        
-        # Extract tables from content
-        tables = extract_tables_from_content(lesson_content)
-        logger.info(f"📊 Found {len(tables)} tables in lesson content")
-        
-        # Build tables info for prompt
-        tables_info = ""
-        if tables:
-            tables_info_lines = [""]
-            for idx, table in enumerate(tables, 1):
-                headers = table.get('headers', [])
-                rows = table.get('rows', [])
-                tables_info_lines.append(f"TABLE {idx}:")
-                tables_info_lines.append(f"  Headers: {json.dumps(headers)}")
-                # Show first 3 rows as sample
-                sample_rows = rows[:3]
-                tables_info_lines.append(f"  Rows ({len(rows)} total): {json.dumps(sample_rows)}{'...' if len(rows) > 3 else ''}")
-                tables_info_lines.append("")
-            tables_info = "\n".join(tables_info_lines)
-        
-        # Build tables section for prompt
-        tables_prompt_section = ""
-        if tables:
-            tables_prompt_section = f"""
-TABLES FOUND IN CONTENT ({len(tables)}):
-{tables_info}
-⚠️ MANDATORY: You MUST create a section with "table" object for EACH table above!
-Use the EXACT headers and rows provided. Do NOT convert tables to bullets!
-"""
-        
-        # Extract code blocks from content
-        code_blocks = extract_code_from_content(lesson_content)
-        logger.info(f"💻 Found {len(code_blocks)} code blocks in lesson content")
-        
-        # Build code blocks info for prompt
-        code_info = ""
-        if code_blocks:
-            code_info_lines = [""]
-            for idx, block in enumerate(code_blocks, 1):
-                lang = block.get('language', 'text')
-                lines = block.get('lines', 0)
-                title = block.get('title', 'N/A')
-                code = block.get('code', '')
-                code_info_lines.append(f"CODE BLOCK {idx}:")
-                code_info_lines.append(f"  Language: {lang}")
-                code_info_lines.append(f"  Lines: {lines}")
-                code_info_lines.append(f"  Title: {title}")
-                code_info_lines.append(f"  Code:")
-                code_info_lines.append(f"```{lang}")
-                code_info_lines.append(code)
-                code_info_lines.append("```")
-                code_info_lines.append("")
-            code_info = "\n".join(code_info_lines)
-        
-        # Build code section for prompt - limit to max 5 most important code blocks per lesson
-        code_prompt_section = ""
-        if code_blocks:
-            # Prioritize longer, more complete code blocks (they're usually more instructive)
-            sorted_blocks = sorted(code_blocks, key=lambda x: x.get('lines', 0), reverse=True)
-            top_blocks = sorted_blocks[:5]  # Max 5 code blocks per lesson
-            
-            code_prompt_section = f"""
-CODE BLOCKS FOUND IN CONTENT ({len(code_blocks)} total, showing TOP {len(top_blocks)}):
-{code_info}
-⚠️ BE SELECTIVE: Include only 2-3 MOST IMPORTANT code examples per lesson!
-- Choose blocks that demonstrate KEY concepts
-- Skip trivial variations or repetitive examples
-- Prioritize working examples over fragments
-"""
-        
-        # Ask AI to structure content - system handles overflow automatically
-        prompt = f"""
-Create slide sections for this lesson. The system will AUTOMATICALLY handle overflow by splitting slides when needed.
 
-LESSON: {lesson_title}
-
-CONTENT:
-{lesson_content}
-
-AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
-{image_info}
-{tables_prompt_section}{code_prompt_section}
-⚠️ IMAGE INSTRUCTIONS:
-- Use the EXACT image ID from the list above
-- DO NOT create descriptive names
-- Copy the ID EXACTLY as shown
-
-🎯 FOCUS ON CONTENT QUALITY:
-- Group related concepts into sections
-- Include ALL important bullets - system splits automatically if needed
-- Be comprehensive and educational
-- For images: use image-left/image-right with 2-4 bullets, or image-full for standalone
-{"- Include ALL tables from TABLES FOUND section!" if tables else ""}
-{"- Be SELECTIVE with code: include only 2-3 KEY examples that best demonstrate concepts!" if code_blocks else ""}
-"""
-        
-        logger.info(f"🤖 AI Web Designer generating content sections...")
-        
-        # Call AI with retry logic (migrated from legacy)
-        max_retries = 3
-        retry_delay = 10
-        response = None
-        
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"🔄 Attempt {attempt + 1}/{max_retries}...")
-                response = web_designer(prompt)
-                logger.info(f"✅ Generated content sections")
-                break
-            except Exception as e:
-                if "timed out" in str(e).lower() and attempt < max_retries - 1:
-                    logger.warning(f"⚠️ Timeout, retrying in {retry_delay}s...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                else:
-                    logger.error(f"❌ Failed after {attempt + 1} attempts: {e}")
-                    raise
-        
-        if response is None:
-            raise Exception(f"Failed to generate slides for lesson {lesson_idx}")
-        
-        # Parse response
-        if hasattr(response, 'output'):
-            response = response.output
-        elif hasattr(response, 'text'):
-            response = response.text
-        
-        response = str(response).strip()
-        start_idx = response.find('{')
-        if start_idx == -1:
-            logger.error("❌ AI response has no JSON")
-            return []
-        
-        try:
-            structured_content, _ = json.JSONDecoder().raw_decode(response[start_idx:])
-            sections = structured_content.get('sections', [])
-            logger.info(f"✅ AI created {len(sections)} content sections")
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ JSON parse error: {e}")
-            return []
-        
-        # VALIDATE height calculations from AI
-        validated_sections = []
-        for section in sections:
-            title = section.get('title', 'Untitled')
-            calc = section.get('height_calculation', {})
-            
-            if calc:
-                total_px = calc.get('total_px', 0)
-                container_px = calc.get('container_px', 480)
-                fits = calc.get('fits', True)
-                
-                if not fits:
-                    logger.warning(f"⚠️ AI admits section '{title}' doesn't fit: {total_px}px > {container_px}px")
-                    # Continue anyway - AI should have already split, but we'll truncate if needed
-                elif total_px > container_px:
-                    logger.warning(f"⚠️ AI calc error for '{title}': claims fits=true but {total_px}px > {container_px}px")
-                else:
-                    logger.info(f"✓ Section '{title}' validated: {total_px}px / {container_px}px ({int(100*total_px/container_px) if container_px else 0}%)")
-            else:
-                logger.warning(f"⚠️ Section '{title}' missing height_calculation - accepting anyway")
-            
-            validated_sections.append(section)
-        
-        sections = validated_sections
-        logger.info(f"✅ Validated {len(sections)} sections")
-        
-        # Build slides from sections - AI should have already calculated overflow
-        # We validate and handle any remaining edge cases
-        slides_created = 0
-        
-        # Import layout specs for validation
-        try:
-            from layouts import get_layout_spec
-        except ImportError:
-            get_layout_spec = lambda x: {"containers": {"content": {"height": 480}}}
-        
-        for section_idx, section in enumerate(sections, 1):
-            title = section.get('title', '')
-            subtitle = section.get('subtitle', '')
-            layout = section.get('layout', 'text-only')
-            bullets = section.get('bullets', [])
-            image_ref = section.get('image_reference', '')
-            callout = section.get('callout', '')
-            table_data = section.get('table', None)
-            code_data = section.get('code', None)
-            
-            # Map new layout names to existing builder layouts
-            layout_mapping = {
-                'text-only': 'single-column',
-                'text-code': 'single-column',
-                'text-image-left': 'image-left',
-                'text-image-right': 'image-right',
-                'image-full': 'image-full',
-                'image-code': 'image-left',
-                'code-full': 'single-column',
-                'table': 'single-column',
-            }
-            builder_layout = layout_mapping.get(layout, 'single-column')
-            
-            logger.info(f"  Section {section_idx}/{len(sections)}: {title} (layout: {layout}, {len(bullets)} bullets, code: {code_data is not None}, table: {table_data is not None})")
-            
-            # Start slide
-            self.builder.start_slide(title, subtitle=subtitle, layout=builder_layout)
-            
-            # Add image if layout requires it
-            if image_ref and layout in ['text-image-left', 'text-image-right', 'image-full', 'image-code']:
-                self.builder.add_image(image_ref)
-            
-            # Add code block for code layouts
-            if code_data and layout in ['text-code', 'code-full', 'image-code']:
-                code_lang = code_data.get('language', 'text')
-                code_content = code_data.get('code', '')
-                if code_content:
-                    code_lines = len(code_content.splitlines())
-                    # Get max lines based on layout
-                    max_lines = 10 if layout == 'text-code' else 18 if layout == 'code-full' else 20
-                    
-                    # Truncate if needed (AI should have done this, but validate)
-                    if code_lines > max_lines:
-                        lines = code_content.splitlines()
-                        code_content = '\n'.join(lines[:max_lines-1]) + '\n// ... (truncated)'
-                        logger.info(f"  ⚠️ Code truncated from {code_lines} to {max_lines} lines")
-                    
-                    self.builder.current_slide['content_blocks'].append({
-                        'type': 'code',
-                        'heading': '',
-                        'language': code_lang,
-                        'code': code_content
-                    })
-                    code_height = max(180, code_lines * 22 + 40)
-                    self.builder.current_height += min(code_height, 260) + self.builder.SPACING
-            
-            # Add bullets with layout-aware limits
-            if bullets and layout not in ['image-full', 'code-full']:
-                # Get max bullets based on layout
-                max_bullets_per_layout = {
-                    'text-only': 10,
-                    'text-code': 4,
-                    'text-image-left': 10,
-                    'text-image-right': 10,
-                    'image-code': 4,
-                    'two-column': 8,
-                    'table': 2,
-                }
-                max_bullets = max_bullets_per_layout.get(layout, 10)
-                
-                # Validate AI followed rules
-                if len(bullets) > max_bullets:
-                    logger.warning(f"  ⚠️ AI sent {len(bullets)} bullets for {layout} (max {max_bullets}) - truncating")
-                    bullets = bullets[:max_bullets]
-                
-                added = self.builder.add_bullets(bullets)
-                if not added:
-                    # Force add - shouldn't happen if AI calculated correctly
-                    self.builder.current_slide['content_blocks'].append({
-                        'type': 'bullets',
-                        'heading': '',
-                        'items': bullets
-                    })
-                    self.builder.current_height += len(bullets) * self.builder.BULLET_HEIGHT
-            
-            # Add table if present
-            if table_data:
-                headers = table_data.get('headers', [])
-                rows = table_data.get('rows', [])
-                if headers and rows:
-                    table_height = 50 + (len(rows) * 35)
-                    logger.info(f"  📊 Adding table ({len(headers)} cols, {len(rows)} rows, {table_height}px)")
-                    
-                    if self.builder.can_add_content(table_height + self.builder.SPACING):
-                        self.builder.current_slide['content_blocks'].append({
-                            'type': 'table',
-                            'heading': '',
-                            'headers': headers,
-                            'rows': rows
-                        })
-                        self.builder.current_height += table_height + self.builder.SPACING
-                    else:
-                        # Table doesn't fit - create dedicated slide
-                        logger.info(f"  ⚠️ Table doesn't fit - creating dedicated table slide")
-                        self.builder.finish_slide()
-                        slides_created += 1
-                        
-                        self.builder.start_slide(f"{title} - Tabla", subtitle='', layout='single-column')
-                        self.builder.current_slide['content_blocks'].append({
-                            'type': 'table',
-                            'heading': '',
-                            'headers': headers,
-                            'rows': rows
-                        })
-                        self.builder.current_height += table_height + self.builder.SPACING
-            
-            # Add callout if present
-            if callout:
-                if not self.builder.add_callout(callout):
-                    logger.info(f"  ⚠️ Callout doesn't fit - skipping")
-            
-            # Finish slide
-            self.builder.finish_slide()
-            slides_created += 1
-        
-        logger.info(f"✅ Created {slides_created} slides for lesson {lesson_idx} (TRUE HTML-FIRST with auto-split)")
-        # Return only NEW slides created for THIS lesson (not accumulated from previous lessons)
-        all_slides = self.builder.get_slides()
-        return all_slides[starting_slide_count:]
 
 
 def generate_complete_course(
@@ -1704,16 +1523,16 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             line-height: 1.3;
         }}
         
-        /* Content area - BALANCED HEIGHT LIMITS */
+        /* Content area - OPTIMIZED HEIGHT LIMITS */
         .slide-content {{
-            padding: 30px 50px 70px 50px; /* Bottom padding for logo clearance */
-            max-height: 460px; /* Balanced: 720 - 120 header - 70 footer - 70 padding = 460px */
+            padding: 20px 50px 40px 50px; /* Reduced bottom padding */
+            max-height: 520px; /* Optimized: 720 - 120 header - 40 footer - 40 padding = 520px */
             overflow: hidden; /* Clip content that exceeds bounds */
             position: relative;
         }}
         
         .slide-content.with-subtitle {{
-            max-height: 440px; /* With subtitle: 460 - 20 = 440px */
+            max-height: 500px; /* With subtitle: 520 - 20 = 500px */
         }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
@@ -1827,13 +1646,15 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* Code block in text-code layout (with bullets above) */
         .layout-text-code .code-block {{
-            max-height: 260px; /* Fixed height for text-code layout */
+            max-height: 320px; /* Reduced to leave space for logo */
+            overflow: hidden;
         }}
         
         /* Code block in code-full layout (standalone) */
         .layout-code-full .code-block,
         .slide-content:not(.layout-text-code) .code-block {{
-            max-height: 380px; /* Large code block when standalone */
+            max-height: 440px; /* Reduced to leave space for logo */
+            overflow: hidden;
         }}
         
         .code-block-header {{
@@ -1887,14 +1708,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             /* Height inherited from parent .code-block minus header (~45px) */
         }}
         
-        /* Code content heights based on layout - BALANCED for 460px content area */
+        /* Code content heights based on layout - reduced to avoid logo overlap */
         .layout-text-code .code-content {{
-            max-height: 220px; /* Balanced for text+code layout */
+            max-height: 280px; /* Reduced from 300 */
         }}
         
         .layout-code-full .code-content,
         .slide-content:not(.layout-text-code) .code-content {{
-            max-height: 350px; /* Balanced for code-full layout */
+            max-height: 400px; /* Reduced from 420 */
         }}
         
         .code-content pre {{
@@ -2013,64 +1834,72 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* ============================================
            STRICT PREDEFINED LAYOUTS (Validated by AI)
+           CRITICAL: All containers must have overflow:hidden
+           to prevent content from overlapping the logo!
            ============================================ */
            
-        /* L1: Text Only (1100x450) */
+        /* L1: Text Only (1160x480) - reduced to avoid logo overlap */
         .layout-text-only .bullets {{
-            max-width: 1100px;
-            max-height: 450px;
+            max-width: 1160px;
+            max-height: 440px; /* Reduced from 480 to leave space for logo */
+            overflow: hidden;
         }}
 
-        /* L2: Image Left (Img: 550x440, Text: 500x450) */
+        /* L2: Image Left (Img: 550x420, Text: 520x420) - reduced heights */
         .image-layout.image-left .image-column {{
             width: 550px;
-            max-height: 440px;
+            max-height: 420px; /* Reduced from 460 */
         }}
         .image-layout.image-left .slide-image {{
-            max-height: 440px;
+            max-height: 400px; /* Reduced from 460 */
             width: auto;
             max-width: 100%;
         }}
         .image-layout.image-left .bullets-column {{
-            width: 500px;
-            max-height: 450px;
+            width: 520px;
+            max-height: 420px; /* Reduced from 460 */
+            overflow: hidden; /* CRITICAL: Clip overflowing content */
         }}
         
-        /* L3: Image Right (Text: 500x450, Img: 550x440) */
+        /* L3: Image Right (Text: 520x420, Img: 550x420) - reduced heights */
         .image-layout.image-right .bullets-column {{
-            width: 500px;
-            max-height: 450px;
+            width: 520px;
+            max-height: 420px; /* Reduced from 460 */
+            overflow: hidden; /* CRITICAL: Clip overflowing content */
         }}
         .image-layout.image-right .image-column {{
             width: 550px;
-            max-height: 440px;
+            max-height: 420px; /* Reduced from 460 */
         }}
         .image-layout.image-right .slide-image {{
-            max-height: 440px;
+            max-height: 400px; /* Reduced from 460 */
             width: auto;
             max-width: 100%;
         }}
 
-        /* L4: Text + Code (Text: 1100x150, Code: 1100x300) */
+        /* L4: Text + Code (Text: 1160x100, Code: 1160x340) */
         .layout-text-code .bullets {{
-            max-height: 150px;
+            max-height: 100px; /* Reduced from 120 */
             overflow: hidden;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }}
         .layout-text-code .code-block {{
-            max-height: 300px;
-            /* Header 40px, Content 260px */
+            max-height: 320px; /* Reduced from 340 to leave space for logo */
+            overflow: hidden;
         }}
         .layout-text-code .code-content {{
-            max-height: 260px;
+            max-height: 280px; /* Reduced from 300 */
+            overflow: auto;
         }}
         
-        /* L5: Code Only (Code: 1100x500) */
+        /* L5: Code Only (Code: 1160x440) - reduced to avoid logo overlap */
         .layout-code-full .code-block {{
-            max-height: 500px;
+            max-height: 440px; /* Reduced from 480 */
+            overflow: hidden;
         }}
         .layout-code-full .code-content {{
-            max-height: 460px;
+            max-height: 400px; /* Reduced from 440 */
+            overflow: auto;
         }}
         
         /* General Utils */
@@ -2132,7 +1961,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         .image-layout.image-full .slide-image {{
             max-width: 100%;
-            max-height: 440px; /* Balanced for 460px content area */
+            max-height: 480px; /* Optimized for 520px content area */
             width: auto;
             height: auto;
             object-fit: contain;
@@ -2145,7 +1974,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* TEXT-ONLY Layout: Full width for bullets */
         .layout-text-only {{
-            height: 480px;
+            height: 520px;
             overflow: hidden;
         }}
         
@@ -2153,26 +1982,26 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .layout-text-code {{
             display: flex;
             flex-direction: column;
-            height: 480px;
+            height: 520px;
         }}
         
         .layout-text-code .text-area {{
-            height: 200px;
+            height: 140px;
             overflow: hidden;
         }}
         
         .layout-text-code .code-area {{
-            height: 260px;
+            height: 360px;
             overflow: hidden;
         }}
         
         /* CODE-FULL Layout: Large code block */
         .layout-code-full {{
-            height: 480px;
+            height: 520px;
         }}
         
         .layout-code-full .code-area {{
-            height: 420px;
+            height: 460px;
             overflow: hidden;
         }}
         
@@ -2186,22 +2015,22 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 40px;
-            height: 480px;
+            height: 520px;
         }}
         
         .layout-image-code .image-area,
         .layout-image-code .code-area {{
-            height: 480px;
+            height: 520px;
             overflow: hidden;
         }}
         
         /* TABLE Layout */
         .layout-table {{
-            height: 480px;
+            height: 520px;
         }}
         
         .layout-table .table-area {{
-            height: 400px;
+            height: 440px;
             overflow: auto;
         }}
         

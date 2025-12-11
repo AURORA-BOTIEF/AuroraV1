@@ -6,7 +6,7 @@
 
 set -e
 
-PROJECT_FOLDER="test-project"
+PROJECT_FOLDER="251031-databricks-ciencia-datos"
 COURSE_BUCKET="crewai-course-artifacts"
 
 echo "=========================================="

@@ -68,25 +68,47 @@ def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key:
             book_key = book_version_key
             logger.info(f"📚 Loading specific book version from s3://{course_bucket}/{book_key}")
         else:
-            # Try to find book in new folder structure first
-            possible_keys = [
-                f"{project_folder}/{book_type}-book/Generated_Course_Book_data.json",
-                f"{project_folder}/book/Generated_Course_Book_data.json"
+            # FIXED: Search ALL folders and pick the NEWEST book by LastModified date
+            # This ensures we always use the most recent version regardless of folder
+            possible_folders = [
+                f"{project_folder}/{book_type}-book/",
+                f"{project_folder}/book/",
+                f"{project_folder}/versions/",
+                f"{project_folder}/"
             ]
             
-            book_key = None
-            for key in possible_keys:
+            all_book_files = []
+            for folder in possible_folders:
                 try:
-                    s3_client.head_object(Bucket=course_bucket, Key=key)
-                    book_key = key
-                    break
-                except Exception:
+                    response = s3_client.list_objects_v2(Bucket=course_bucket, Prefix=folder, Delimiter='/')
+                    for obj in response.get('Contents', []):
+                        key = obj['Key']
+                        if key.endswith('.json') and (
+                            'book' in key.lower() or 
+                            'course' in key.lower()
+                        ) and 'lab' not in key.lower():  # Exclude lab books for theory
+                            all_book_files.append({
+                                'Key': key,
+                                'LastModified': obj.get('LastModified'),
+                                'Size': obj.get('Size', 0)
+                            })
+                            logger.info(f"   Found: {key} (modified: {obj.get('LastModified')}, size: {obj.get('Size', 0)})")
+                except Exception as e:
+                    logger.debug(f"Could not search {folder}: {e}")
                     continue
             
-            if not book_key:
-                raise ValueError(f"No book found in: {', '.join(possible_keys)}")
+            if not all_book_files:
+                raise ValueError(f"No book found in: {', '.join(possible_folders)}")
             
-            logger.info(f"📚 Loading book from s3://{course_bucket}/{book_key}")
+            # Sort by LastModified (newest first) to always use the latest version
+            all_book_files.sort(key=lambda x: x.get('LastModified') or '', reverse=True)
+            
+            logger.info(f"📚 Found {len(all_book_files)} book candidates:")
+            for idx, bf in enumerate(all_book_files[:3]):
+                logger.info(f"   #{idx+1}: {bf['Key']} (modified: {bf.get('LastModified')}, size: {bf.get('Size')})")
+            
+            book_key = all_book_files[0]['Key']
+            logger.info(f"✅ Selected NEWEST book: {book_key}")
         
         response = s3_client.get_object(Bucket=course_bucket, Key=book_key)
         book_data = json.loads(response['Body'].read().decode('utf-8'))
@@ -211,12 +233,19 @@ def lambda_handler(event, context):
         # Load book to determine lesson count
         book_data = load_book_from_s3(course_bucket, project_folder, book_version_key, book_type)
         
-        # Count total lessons across all modules
+        # Count total lessons - prefer top-level 'lessons' array (newer/more reliable format)
+        # Fall back to counting from 'modules' for older books
         total_lessons = 0
-        modules = book_data.get('modules', [])
-        for module in modules:
-            lessons_in_module = len(module.get('lessons', []))
-            total_lessons += lessons_in_module
+        if 'lessons' in book_data and len(book_data.get('lessons', [])) > 0:
+            total_lessons = len(book_data.get('lessons', []))
+            logger.info(f"📖 Found {total_lessons} lessons in top-level array")
+        else:
+            # Fall back to counting from modules
+            modules = book_data.get('modules', [])
+            for module in modules:
+                lessons_in_module = len(module.get('lessons', []))
+                total_lessons += lessons_in_module
+            logger.info(f"📖 Found {total_lessons} lessons across {len(modules)} modules")
         
         if total_lessons == 0:
             return {
