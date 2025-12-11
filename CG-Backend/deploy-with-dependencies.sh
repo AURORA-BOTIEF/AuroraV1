@@ -77,6 +77,7 @@ FUNCTIONS_WITH_DEPS=(
     "GetInfographicFunction"        # Gets presentation details (standard lib)
     "UpdateInfographicFunction"     # Updates and regenerates presentations (uses StrandsAgentsLayer)
     "StrandsNotification"           # Sends email notifications (standard lib)
+    "GetStudentCoursesFunction"     # Needs: pyyaml (for parsing outline.yaml)
 )
 
 echo ""
