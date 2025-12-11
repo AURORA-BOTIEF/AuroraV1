@@ -1,5 +1,5 @@
 // src/components/AdminPage.jsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react"; // Eliminado useMemo
 import { getSessionOrNull } from "../utils/session";
 import "./AdminPage.css";
 import { toast } from 'react-hot-toast';
@@ -103,6 +103,9 @@ export default function AdminPage() {
 
   // listado de usuarios (filtrados por backend)
   const [usuarios, setUsuarios] = useState([]);
+  const [cursor, setCursor] = useState(null); // Para paginación
+  const PAGE_SIZE = 20;
+
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
   const [filtroUsuarios, setFiltroUsuarios] = useState(""); // texto de búsqueda
 
@@ -158,17 +161,36 @@ export default function AdminPage() {
   };
 
   // LOAD usuarios (filtrados por email / dominio desde backend)
-  const cargarUsuarios = async () => {
+  const cargarUsuarios = async (reset = false) => {
     if (!puedeGestionar) return;
+
     setLoadingUsuarios(true);
     setError("");
 
     try {
-      const qs = filtroUsuarios ? `?filtro=${encodeURIComponent(filtroUsuarios)}` : "";
-      const data = await apiFetch(`${API_BASE}/listar_usuarios${qs}`, { method: "GET" });
+      const params = new URLSearchParams();
+      params.set("limit", PAGE_SIZE);
 
-      // se espera un array de objetos: { correo, rol, tieneSolicitudCreador, dominio }
-      setUsuarios(Array.isArray(data?.usuarios) ? data.usuarios : []);
+      // Filtro por email
+      if (filtroUsuarios.trim()) {
+        params.set("email", filtroUsuarios.trim());
+      }
+
+      // Si no es reset, enviar el cursor
+      if (!reset && cursor) {
+        params.set("cursor", cursor);
+      }
+
+      const url = `${API_BASE}/listar_usuarios?${params.toString()}`;
+      const data = await apiFetch(url, { method: "GET" });
+
+      const nuevos = Array.isArray(data.items) ? data.items : [];
+
+      // Si es reset, reemplaza; si no, acumula
+      setUsuarios((prev) => (reset ? nuevos : [...prev, ...nuevos]));
+
+      // Actualizar cursor
+      setCursor(data.nextCursor || null);
     } catch (err) {
       console.error("cargarUsuarios", err);
       const msg = err.body?.message || err.message || "Error cargando usuarios";
@@ -201,16 +223,17 @@ export default function AdminPage() {
   };
 
   // Acciones sobre usuarios (cambiar rol / crear solicitud)
-  const accionUsuario = async (correo, accion) => {
+  const accionUsuario = async (emailTarget, accion) => {
     // accion: 'solicitar-creador' | 'cancelar-solicitud' | 'dar-admin' | 'quitar-admin' | 'revocar-creador'
     try {
       await apiFetch(`${API_BASE}/accion_usuarios`, {
         method: "POST",
-        body: JSON.stringify({ correo, accion }),
+        body: JSON.stringify({ email: emailTarget, accion }),
       });
       toast.success("Acción aplicada");
       // refrescar listas
-      cargarUsuarios();
+      setCursor(null);
+      cargarUsuarios(true);
       cargarSolicitudes();
     } catch (err) {
       const msg = err.body?.message || err.message || "Error en acción de usuario";
@@ -218,16 +241,7 @@ export default function AdminPage() {
       setError(msg);
     }
   };
-
-  const usuariosFiltrados = useMemo(() => {
-    const txt = filtroUsuarios.toLowerCase().trim();
-    if (!txt) return usuarios;
-    return usuarios.filter((u) =>
-      (u.correo || "").toLowerCase().includes(txt) ||
-      (u.dominio || "").toLowerCase().includes(txt)
-    );
-  }, [usuarios, filtroUsuarios]);
-
+  
   // ---- Render ----
   if (loadingSession) return <div>Cargando sesión…</div>;
   if (!puedeGestionar) return <div>🚫 No autorizado</div>;
@@ -243,7 +257,8 @@ export default function AdminPage() {
           className={tab === "usuarios" ? "tab active" : "tab"}
           onClick={() => {
             setTab("usuarios");
-            cargarUsuarios();
+            setCursor(null);
+            cargarUsuarios(true);
           }}
         >
           Usuarios registrados
@@ -255,8 +270,7 @@ export default function AdminPage() {
           Solicitudes de rol
         </button>
       </div>
-
-
+      
       {error && <div className="error-box">{error}</div>}
 
       {tab === "usuarios" ? (
@@ -265,11 +279,23 @@ export default function AdminPage() {
           <div className="filtros-usuarios">
             <input
               type="text"
-              placeholder="Buscar por correo o dominio…"
+              placeholder="Buscar por email exacto..."
               value={filtroUsuarios}
-              onChange={(e) => setFiltroUsuarios(e.target.value)}
+              onChange={(e) => {
+                setFiltroUsuarios(e.target.value);
+                if (e.target.value === "") setCursor(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setCursor(null);
+                  cargarUsuarios(true);
+                }
+              }}
             />
-            <button onClick={cargarUsuarios} disabled={loadingUsuarios}>
+            <button onClick={() => {
+              setCursor(null);
+              cargarUsuarios(true);
+            }} disabled={loadingUsuarios}>
               {loadingUsuarios ? "Buscando…" : "🔍 Buscar"}
             </button>
           </div>
@@ -277,46 +303,44 @@ export default function AdminPage() {
           <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
             <thead>
               <tr>
-                <th>Correo</th>
+                <th>Email</th>
                 <th>Rol</th>
-                <th>Solicitud creador</th>
+                <th>Estado</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {usuariosFiltrados.map((u) => (
-                <tr key={u.correo}>
-                  <td>{u.correo}</td>
-                  <td>{u.rol}</td>
-                  <td>{u.tieneSolicitudCreador ? "Sí" : "No"}</td>
+              {usuarios.map((u) => (
+                <tr key={u.id || u.email}>
+                  <td>{u.email}</td>
+                  <td>{u.role}</td>
+                  <td>{u.status}</td>
                   <td>
-                    {/* Aquí decides qué botones mostrar según rol */}
-                    {u.rol === "Participante" && (
+                    {/* BOTONES RESTAURADOS (Usando u.role y u.email) */}
+                    {u.role === "Participante" && (
                       <>
-                        {!u.tieneSolicitudCreador && (
-                          <button onClick={() => accionUsuario(u.correo, "solicitar-creador")}>
-                            Solicitar rol creador
-                          </button>
-                        )}
-                        <button onClick={() => accionUsuario(u.correo, "dar-admin")} style={{ marginLeft: 8 }}>
+                        <button onClick={() => accionUsuario(u.email, "solicitar-creador")}>
+                          Solicitar Creador
+                        </button>
+                        <button onClick={() => accionUsuario(u.email, "dar-admin")} style={{ marginLeft: 8 }}>
                           Dar admin
                         </button>
                       </>
                     )}
 
-                    {u.rol === "Creador" && (
+                    {u.role === "Creador" && (
                       <>
-                        <button onClick={() => accionUsuario(u.correo, "revocar-creador")}>
+                        <button onClick={() => accionUsuario(u.email, "revocar-creador")}>
                           Revocar creador
                         </button>
-                        <button onClick={() => accionUsuario(u.correo, "dar-admin")} style={{ marginLeft: 8 }}>
+                        <button onClick={() => accionUsuario(u.email, "dar-admin")} style={{ marginLeft: 8 }}>
                           Dar admin
                         </button>
                       </>
                     )}
 
-                    {u.rol === "Administrador" && (
-                      <button onClick={() => accionUsuario(u.correo, "quitar-admin")}>
+                    {u.role === "Administrador" && (
+                      <button onClick={() => accionUsuario(u.email, "quitar-admin")}>
                         Quitar admin
                       </button>
                     )}
@@ -325,6 +349,17 @@ export default function AdminPage() {
               ))}
             </tbody>
           </table>
+
+          {cursor && (
+            <div style={{ textAlign: "center", marginTop: 20 }}>
+              <button
+                disabled={loadingUsuarios}
+                onClick={() => cargarUsuarios(false)}
+              >
+                {loadingUsuarios ? "Cargando..." : "⬇ Cargar más"}
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <>
