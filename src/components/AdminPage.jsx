@@ -15,33 +15,42 @@ const API_BASE =
 
 // Wrapper de fetch con extracción de token robusta
 async function apiFetch(url, opts = {}) {
-  // Función auxiliar para extraer el string del token sin importar la versión de Amplify
+  // Función auxiliar para obtener el string del token.
+  // IMPORTANTE: Cambiamos la prioridad a idToken para satisfacer a API Gateway
   const getTokenFromSession = (sess) => {
-    const rawToken = sess?.tokens?.accessToken;
+    // 1. Intentamos sacar el ID TOKEN (Contiene email, grupos, identidad)
+    let rawToken = sess?.tokens?.idToken;
+    
+    // Si no hay idToken, probamos con accessToken como fallback
+    if (!rawToken) {
+        rawToken = sess?.tokens?.accessToken;
+    }
+
     if (!rawToken) return null;
+    
+    // Extracción de string compatible con todas las versiones de Amplify
     if (typeof rawToken === 'string') return rawToken;
     if (rawToken.jwtToken) return rawToken.jwtToken;
     if (typeof rawToken.toString === 'function') return rawToken.toString();
+    
     return null;
   };
 
-  // 1. Obtener sesión inicial
+  // 1. Obtener sesión
   let session = await getSessionOrNull(false);
   let token = getTokenFromSession(session);
 
-  // 2. Si falta token, intentar refresh inmediato
+  // 2. Si no hay token, intentar refresh
   if (!token) {
     session = await getSessionOrNull(true);
     token = getTokenFromSession(session);
   }
 
   if (!token) {
-    // Si llegamos aquí, imprime la sesión para entender por qué falla
-    console.error("Error crítico: Sesión existe pero no se pudo extraer accessToken", session);
-    throw new Error("No access token available");
+    console.error("SESSION DEBUG:", session); // Para ver qué está fallando si ocurre
+    throw new Error("No token available (Login required)");
   }
 
-  // DEFINICIÓN: makeRequest recibe el token explícitamente
   const makeRequest = async (tokenToUse) => {
     const headers = {
       "Content-Type": "application/json",
@@ -51,27 +60,26 @@ async function apiFetch(url, opts = {}) {
     return fetch(url, { ...opts, headers });
   };
 
-  // 3. Primer intento
   let res = await makeRequest(token);
 
-  // 4. Si expira (401), refrescar y reintentar
+  // 3. Manejo de expiración (401) -> Refresh y reintento
   if (res.status === 401) {
+    console.warn("Token expirado o inválido (401). Intentando refresh...");
     session = await getSessionOrNull(true);
     token = getTokenFromSession(session);
 
-    if (!token) {
-      throw new Error("Cannot refresh access token");
-    }
+    if (!token) throw new Error("Cannot refresh token");
 
     res = await makeRequest(token);
   }
 
-  // 5. Manejo de respuesta
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     let body;
     try { body = JSON.parse(txt); } catch { body = txt; }
-    const err = new Error(body?.message || `HTTP ${res.status}`);
+    
+    // Creamos un error más detallado
+    const err = new Error(body?.message || `Error HTTP ${res.status}`);
     err.status = res.status;
     err.body = body;
     throw err;
