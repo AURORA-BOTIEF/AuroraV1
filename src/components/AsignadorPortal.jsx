@@ -5,9 +5,10 @@ import './AsignadorPortal.css';
 const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
 
 function AsignadorPortal() {
-    const [activeTab, setActiveTab] = useState('by-course'); // 'by-course' or 'by-user'
+    const [activeTab, setActiveTab] = useState('by-course'); // 'by-course', 'by-user', or 'instructors'
     const [courses, setCourses] = useState([]);
     const [users, setUsers] = useState([]);
+    const [instructors, setInstructors] = useState([]);
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedCourse, setSelectedCourse] = useState(null);
@@ -27,6 +28,7 @@ function AsignadorPortal() {
             await Promise.all([
                 loadCourses(),
                 loadUsers(),
+                loadInstructors(),
                 loadAssignments()
             ]);
         } catch (error) {
@@ -49,6 +51,22 @@ function AsignadorPortal() {
         if (!response.ok) throw new Error('Failed to load users');
         const data = await response.json();
         setUsers(data.users || []);
+    };
+
+    const loadInstructors = async () => {
+        try {
+            const response = await fetch(`${API_BASE}/users?group=Instructores_Externos`);
+            if (!response.ok) {
+                // If no instructors group exists yet, just set empty array
+                setInstructors([]);
+                return;
+            }
+            const data = await response.json();
+            setInstructors(data.users || []);
+        } catch (err) {
+            console.log('No instructors found yet');
+            setInstructors([]);
+        }
     };
 
     const loadAssignments = async () => {
@@ -79,7 +97,7 @@ function AsignadorPortal() {
         try {
             let body = {};
 
-            if (activeTab === 'by-course' && selectedCourse) {
+            if ((activeTab === 'by-course' || activeTab === 'instructors') && selectedCourse) {
                 // Combine selected users and CSV emails
                 const csvEmailList = parseEmails(csvEmails);
                 const allUserIds = [...new Set([...selectedItems, ...csvEmailList])];
@@ -92,7 +110,8 @@ function AsignadorPortal() {
                 body = {
                     courseId: selectedCourse.folder,
                     userIds: allUserIds,
-                    assignedBy: 'Asignador'
+                    assignedBy: 'Asignador',
+                    userType: activeTab === 'instructors' ? 'instructor' : 'student'
                 };
             } else if (activeTab === 'by-user' && selectedUser && selectedItems.length > 0) {
                 body = {
@@ -167,6 +186,10 @@ function AsignadorPortal() {
         (u.email || u.username || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const filteredInstructors = instructors.filter(u =>
+        (u.email || u.username || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
     if (loading) {
         return <div className="asignador-loading">Cargando...</div>;
     }
@@ -175,7 +198,7 @@ function AsignadorPortal() {
         <div className="asignador-portal">
             <div className="asignador-header">
                 <h1>🎓 Portal de Asignación de Cursos</h1>
-                <p>Asigna cursos a estudiantes seleccionando por curso o por usuario</p>
+                <p>Asigna cursos a estudiantes e instructores externos</p>
             </div>
 
             {message.text && (
@@ -187,15 +210,21 @@ function AsignadorPortal() {
             <div className="tabs">
                 <button
                     className={`tab ${activeTab === 'by-course' ? 'active' : ''}`}
-                    onClick={() => { setActiveTab('by-course'); setSelectedItems([]); setSearchTerm(''); setCsvEmails(''); }}
+                    onClick={() => { setActiveTab('by-course'); setSelectedItems([]); setSearchTerm(''); setCsvEmails(''); setSelectedCourse(null); }}
                 >
-                    📚 Por Curso
+                    📚 Por Curso (Estudiantes)
                 </button>
                 <button
                     className={`tab ${activeTab === 'by-user' ? 'active' : ''}`}
-                    onClick={() => { setActiveTab('by-user'); setSelectedItems([]); setSearchTerm(''); setCsvEmails(''); }}
+                    onClick={() => { setActiveTab('by-user'); setSelectedItems([]); setSearchTerm(''); setCsvEmails(''); setSelectedUser(null); }}
                 >
                     👤 Por Usuario
+                </button>
+                <button
+                    className={`tab ${activeTab === 'instructors' ? 'active' : ''}`}
+                    onClick={() => { setActiveTab('instructors'); setSelectedItems([]); setSearchTerm(''); setCsvEmails(''); setSelectedCourse(null); }}
+                >
+                    👨‍🏫 Instructores Externos
                 </button>
             </div>
 
@@ -287,6 +316,104 @@ function AsignadorPortal() {
                                 {(selectedItems.length > 0 || getCsvEmailCount() > 0) && (
                                     <button className="assign-btn" onClick={handleAssign}>
                                         ✓ Asignar {selectedItems.length + getCsvEmailCount()} estudiante(s)
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ) : activeTab === 'instructors' ? (
+                    /* INSTRUCTORES EXTERNOS TAB */
+                    <div className="assignment-flow">
+                        <div className="selection-panel">
+                            <h3>1. Selecciona un Curso</h3>
+                            <input
+                                type="text"
+                                placeholder="Buscar cursos..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="search-input"
+                            />
+                            <div className="items-list">
+                                {filteredCourses.map(course => (
+                                    <div
+                                        key={course.folder}
+                                        className={`item-card ${selectedCourse?.folder === course.folder ? 'selected' : ''}`}
+                                        onClick={() => { setSelectedCourse(course); setSelectedItems([]); setCsvEmails(''); }}
+                                    >
+                                        <div className="item-title">{course.title}</div>
+                                        <div className="item-subtitle">{course.folder}</div>
+                                        <div className="item-badge instructor">
+                                            {getAssignedUsers(course.folder).length} asignados
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {selectedCourse && (
+                            <div className="selection-panel">
+                                <h3>2. Asignar Instructores Externos</h3>
+                                <div className="selected-info">
+                                    Curso: <strong>{selectedCourse.title}</strong>
+                                </div>
+
+                                {/* CSV Email Input for Instructors */}
+                                <div className="csv-input-section instructor">
+                                    <h4>👨‍🏫 Asignar Instructor por Email</h4>
+                                    <textarea
+                                        placeholder="Ingresa emails de instructores separados por coma, punto y coma, o líneas nuevas. Ej:&#10;instructor1@email.com, instructor2@email.com&#10;instructor3@email.com"
+                                        value={csvEmails}
+                                        onChange={(e) => setCsvEmails(e.target.value)}
+                                    />
+                                    <small>Los instructores serán pre-asignados. Cuando se registren y se les asigne al grupo Instructores_Externos, verán el curso automáticamente.</small>
+                                    {getCsvEmailCount() > 0 && (
+                                        <div className="csv-count instructor">{getCsvEmailCount()} email(s) detectados</div>
+                                    )}
+                                </div>
+
+                                {instructors.length > 0 && (
+                                    <>
+                                        <div className="divider"><span>o selecciona instructores registrados</span></div>
+
+                                        <div className="items-list">
+                                            {filteredInstructors.map(instructor => {
+                                                const instructorId = instructor.email || instructor.username;
+                                                const isAssigned = getAssignedUsers(selectedCourse.folder).includes(instructorId);
+                                                const isSelected = selectedItems.includes(instructorId);
+
+                                                return (
+                                                    <div
+                                                        key={instructorId}
+                                                        className={`item-card instructor ${isSelected ? 'selected' : ''} ${isAssigned ? 'assigned' : ''}`}
+                                                        onClick={() => !isAssigned && toggleSelection(instructorId)}
+                                                    >
+                                                        <div className="item-title">{instructor.email || instructor.username}</div>
+                                                        <div className="item-subtitle">{instructor.name || 'Instructor Externo'}</div>
+                                                        {isAssigned ? (
+                                                            <button
+                                                                className="remove-btn"
+                                                                onClick={(e) => { e.stopPropagation(); handleRemoveAssignment(instructorId, selectedCourse.folder); }}
+                                                            >
+                                                                ✕ Quitar
+                                                            </button>
+                                                        ) : (
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleSelection(instructorId)}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </>
+                                )}
+
+                                {(selectedItems.length > 0 || getCsvEmailCount() > 0) && (
+                                    <button className="assign-btn instructor" onClick={handleAssign}>
+                                        ✓ Asignar {selectedItems.length + getCsvEmailCount()} instructor(es)
                                     </button>
                                 )}
                             </div>

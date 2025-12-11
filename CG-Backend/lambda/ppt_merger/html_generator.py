@@ -2,9 +2,61 @@ from typing import Dict
 import logging
 import re
 import boto3
+import html as html_module
 
 logger = logging.getLogger(__name__)
 s3_client = boto3.client('s3')
+
+# Try to import Pygments for syntax highlighting
+try:
+    from pygments import highlight
+    from pygments.lexers import get_lexer_by_name, guess_lexer, TextLexer
+    from pygments.formatters import HtmlFormatter
+    from pygments.styles import get_style_by_name
+    PYGMENTS_AVAILABLE = True
+except ImportError:
+    PYGMENTS_AVAILABLE = False
+    logger.warning("⚠️ Pygments not installed - code blocks will render without syntax highlighting")
+
+
+def highlight_code_with_pygments(code: str, language: str = None) -> str:
+    """
+    Highlight code using Pygments with Monokai style (VS Code dark theme compatible).
+    Returns HTML with inline styles for syntax highlighting.
+    """
+    if not PYGMENTS_AVAILABLE:
+        # Fallback: just escape HTML and wrap in pre/code
+        escaped = html_module.escape(code)
+        return f'<code style="color: #f8f8f2;">{escaped}</code>'
+    
+    try:
+        # Get lexer for the language
+        if language and language.lower() not in ['text', 'plain', 'none', '']:
+            try:
+                lexer = get_lexer_by_name(language.lower(), stripall=True)
+            except:
+                lexer = TextLexer()
+        else:
+            try:
+                lexer = guess_lexer(code)
+            except:
+                lexer = TextLexer()
+        
+        # Use Monokai style with inline styles (no external CSS needed)
+        formatter = HtmlFormatter(
+            style='monokai',
+            noclasses=True,  # Use inline styles
+            nowrap=True,     # Don't wrap in <div class="highlight">
+            prestyles='margin: 0; background: transparent;'
+        )
+        
+        highlighted = highlight(code, lexer, formatter)
+        return f'<code>{highlighted}</code>'
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Pygments highlighting failed: {e}")
+        escaped = html_module.escape(code)
+        return f'<code style="color: #f8f8f2;">{escaped}</code>'
 
 def calculate_content_height_px(content_blocks) -> tuple:
     """
@@ -72,6 +124,16 @@ def calculate_content_height_px(content_blocks) -> tuple:
             block_height += 15
             block_info['height'] = block_height
             block_info['details'] = "image placeholder"
+        
+        elif block_type == 'code':
+            code = block.get('code', '')
+            # Estimate code block height: header (45px) + code lines
+            code_lines = len(code.split('\n'))
+            block_height = 45  # Header
+            block_height += code_lines * 22  # ~22px per line
+            block_height += 24  # Padding
+            block_info['height'] = block_height
+            block_info['details'] = f"code: {code_lines} lines"
         
         estimated_height += block_height
         block_breakdown.append(block_info)
@@ -893,6 +955,134 @@ def generate_html_from_structure(structure: Dict) -> str:
                 margin: 0 !important;
             }}
         }}
+        
+        /* Code block styles */
+        .code-block {{
+            background: #1e1e1e;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 10px 0;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+        }}
+        
+        .code-block-header {{
+            background: #2d2d2d;
+            padding: 8px 16px;
+            font-size: 12pt;
+            color: #9cdcfe;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        
+        .code-block-language {{
+            background: {colors['accent']};
+            color: {colors['primary']};
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10pt;
+            font-weight: 600;
+            text-transform: uppercase;
+        }}
+        
+        .code-zoom-btn {{
+            background: #f5a623;
+            border: none;
+            color: #1e1e1e;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12pt;
+            font-weight: 600;
+            transition: background 0.2s;
+        }}
+        
+        .code-zoom-btn:hover {{
+            background: #4d4d4d;
+            color: white;
+        }}
+        
+        .code-content {{
+            padding: 12px 16px;
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 300px;
+        }}
+        
+        .code-content pre {{
+            margin: 0;
+            white-space: pre;
+            color: #f8f8f2;
+            font-size: 14pt;
+            line-height: 1.4;
+        }}
+        
+        .code-content code {{
+            font-family: inherit;
+            background: transparent;
+        }}
+        
+        /* Code fullscreen modal */
+        .code-modal {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+        }}
+        
+        .code-modal-content {{
+            background: #1e1e1e;
+            border-radius: 12px;
+            max-width: 95%;
+            max-height: 90%;
+            overflow: auto;
+            position: relative;
+        }}
+        
+        .code-modal-header {{
+            background: #2d2d2d;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }}
+        
+        .code-modal-close {{
+            background: #e74c3c;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14pt;
+            font-weight: 600;
+        }}
+        
+        .code-modal-close:hover {{
+            background: #c0392b;
+        }}
+        
+        .code-modal-body {{
+            padding: 20px 30px;
+        }}
+        
+        .code-modal-body pre {{
+            margin: 0;
+            color: #f8f8f2;
+            font-size: 16pt;
+            line-height: 1.6;
+        }}
     </style>
 </head>
 <body>
@@ -1006,7 +1196,80 @@ def generate_html_from_structure(structure: Dict) -> str:
     html += """
     </div> <!-- End content -->
     
+    <!-- Code fullscreen modal -->
+    <div id="codeModal" class="code-modal">
+        <div class="code-modal-content">
+            <div class="code-modal-header">
+                <span id="codeModalLang" class="code-block-language">CODE</span>
+                <button class="code-modal-close" onclick="closeCodeModal()">✕ Close</button>
+            </div>
+            <div id="codeModalBody" class="code-modal-body"></div>
+        </div>
+    </div>
+    
     <script>
+        // Code block zoom functionality
+        function openCodeModal(codeId) {
+            console.log('openCodeModal called with:', codeId);
+            
+            var codeBlock = document.getElementById(codeId);
+            var modal = document.getElementById('codeModal');
+            var modalBody = document.getElementById('codeModalBody');
+            var modalLang = document.getElementById('codeModalLang');
+            
+            if (!codeBlock) {
+                console.error('Code block not found: ' + codeId);
+                return;
+            }
+            if (!modal) {
+                console.error('Modal not found');
+                return;
+            }
+            
+            var codeContent = codeBlock.querySelector('.code-content');
+            var langBadge = codeBlock.querySelector('.code-block-language');
+            
+            if (codeContent && modalBody) {
+                modalBody.innerHTML = codeContent.innerHTML;
+            }
+            if (langBadge && modalLang) {
+                modalLang.textContent = langBadge.textContent;
+            }
+            
+            modal.classList.add('active');
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            console.log('Modal opened successfully');
+        }
+        
+        function closeCodeModal() {
+            var modal = document.getElementById('codeModal');
+            if (modal) {
+                modal.classList.remove('active');
+                modal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+        }
+        
+        // Make functions globally available
+        window.openCodeModal = openCodeModal;
+        window.closeCodeModal = closeCodeModal;
+        
+        // Close on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeCodeModal();
+            }
+        });
+        
+        // Close on click outside modal content
+        document.addEventListener('click', function(e) {
+            var modal = document.getElementById('codeModal');
+            if (e.target === modal) {
+                closeCodeModal();
+            }
+        });
+        
         let editingEnabled = true;
         
         // Check for content overflow on load
@@ -1271,6 +1534,28 @@ def generate_content_block_html(block: Dict, image_url_mapping: Dict = None, all
     elif block_type == 'text':
         text = block.get('text') or ''
         html += f'  <p style="font-size:24px;line-height:1.6;" contenteditable="true">{text}</p>\n'
+    
+    elif block_type == 'code':
+        # Render code block with syntax highlighting
+        code_content = block.get('code', '')
+        language = block.get('language', 'text')
+        
+        # Generate unique ID for zoom functionality
+        import uuid
+        code_block_id = f"code-block-{uuid.uuid4().hex[:8]}"
+        
+        # Highlight with Pygments
+        highlighted_code = highlight_code_with_pygments(code_content, language)
+        
+        html += f'  <div class="code-block" id="{code_block_id}">\n'
+        html += f'    <div class="code-block-header">\n'
+        html += f'      <span class="code-block-language">{language.upper() if language else "CODE"}</span>\n'
+        html += f'      <button type="button" class="code-zoom-btn" onclick="openCodeModal(\'{code_block_id}\'); return false;">🔍 Zoom</button>\n'
+        html += f'    </div>\n'
+        html += f'    <div class="code-content">\n'
+        html += f'      <pre>{highlighted_code}</pre>\n'
+        html += f'    </div>\n'
+        html += f'  </div>\n'
     
     html += '</div>\n'
     return html

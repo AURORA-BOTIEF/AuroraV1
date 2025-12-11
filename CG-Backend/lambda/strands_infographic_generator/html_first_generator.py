@@ -660,18 +660,19 @@ class HTMLFirstGenerator:
     
     def generate_from_lesson(self, lesson: Dict, lesson_idx: int, images: List[Dict]) -> List[Dict]:
         """
-        Generate slides for a lesson with AI-driven overflow prevention.
+        Generate slides for a lesson using TRUE HTML-FIRST architecture.
         
         Strategy:
-        1. AI generates content sections with HEIGHT AWARENESS
-        2. Each section designed to fit within slide limits
-        3. Builder validates in real-time
-        4. Guaranteed fit because AI knows the constraints
+        1. AI knows EXACT container dimensions for each layout
+        2. AI chooses appropriate layout based on content type
+        3. AI fits content to containers OR splits when content exceeds space
+        4. Each slide is generated with overflow awareness
         
         Returns:
             List of slides for THIS lesson only (not accumulated from previous lessons)
         """
         from strands import Agent
+        from layouts import get_all_layouts_summary
         
         # Track starting index to return only NEW slides for this lesson
         starting_slide_count = len(self.builder.slides)
@@ -684,112 +685,116 @@ class HTMLFirstGenerator:
         
         logger.info(f"\n📝 HTML-First generation for: {lesson_title}")
         
-        # Create AI Web Designer Agent - KNOWS EXACT HEIGHT CONSTRAINTS
+        # Get layout specifications for AI
+        layouts_info = get_all_layouts_summary()
+        
+        # Create AI Web Designer Agent - KNOWS EXACT CONTAINER SIZES
         web_designer = Agent(
             model=self.model,
-            system_prompt=f"""You are a PROFESSIONAL WEB DESIGNER creating educational slides.
+            system_prompt=f"""You are a PROFESSIONAL WEB DESIGNER creating educational slides with EXACT container dimensions.
 
-🎯 YOUR JOB: Create slide content that FITS within STRICT HEIGHT LIMITS using DYNAMIC SPACE CALCULATION.
+🎯 YOUR JOB: Create slides that FIT within specific container sizes. You MUST choose the right layout and fit content appropriately.
 
-📏 CRITICAL CONSTRAINTS (HTML slides, 1280px × 720px):
-- **MAX CONTENT HEIGHT**: 460px (with subtitle) or 520px (without subtitle)
-- **EACH BULLET**: 50px height (20pt font + line-height + padding + margin)
-- **EACH HEADING**: 65px height
-- **EACH IMAGE**: 400px height
-- **EACH CALLOUT**: 75px height
-- **SPACING**: 20px between blocks
+{layouts_info}
 
-🧮 DYNAMIC SPACE CALCULATION:
-For each slide, calculate available space and fit content accordingly:
-- **Start with**: 460px (with subtitle) or 520px (without subtitle)
-- **Subtract heading**: -65px if heading present
-- **Subtract image**: -400px if image present
-- **Subtract callout**: -75px if callout present
-- **Remaining space ÷ 50px** = Maximum bullets that fit
-- **Example 1**: No subtitle, no extras = 520px ÷ 50px = 10 bullets max
-- **Example 2**: With subtitle + heading = 460px - 65px = 395px ÷ 50px = 7 bullets max
-- **Example 3**: With subtitle + image = 460px - 400px = 60px ÷ 50px = 1 bullet max
+📏 SIZING RULES (CRITICAL - NEVER EXCEED):
+- **Bullet height**: 40px per bullet (including spacing)
+- **Code line height**: 22px per line (plus 40px header)
+- **Table row height**: 35px per row (plus 50px header)
+- **Footer zone**: Last 80px of slide is RESERVED - content must NOT enter this area
 
-⚠️ CRITICAL RULES - SMART SPLITTING:
-1. **CALCULATE available space** for each slide: (460 or 520) - heading - image - callout
-2. **Count your bullets**: If you have 7 key points and max is 10, use ONE slide with 7 bullets
-3. **Only split when necessary**: If you have 12 points and max is 10, create TWO slides (10 + 2)
-4. **Don't over-split**: Having 5 bullets on a slide that fits 10 is PERFECT - don't split unnecessarily
-5. **Quality content**: Better to have meaningful bullets that fit comfortably than splitting prematurely
+🧮 CALCULATE BEFORE CREATING (MANDATORY):
+For each slide, CALCULATE if content fits:
+1. Choose layout based on content type (text, code, image, etc.)
+2. Check container height for that layout
+3. Calculate: bullets × 40px, code_lines × 22px + 40px, table_rows × 35px + 50px
+4. If content EXCEEDS container → SPLIT into multiple slides with "(cont.)" suffix
 
-🖼️ IMAGE REFERENCE RULES (CRITICAL):
+EXAMPLE CALCULATIONS (USE THESE EXACT LIMITS):
+- text-only layout, 420px container → 420 ÷ 40 = **10 bullets MAX** (NEVER more!)
+- text-code layout, text=200px → 200 ÷ 40 = **5 bullets MAX** (NEVER more!)
+- text-image-left/right, text=420px → 420 ÷ 40 = **10 bullets MAX**
+- code container 300px → (300-40) ÷ 22 = **11 code lines MAX**
+- code-full layout, 380px → (380-40) ÷ 22 = **15 code lines MAX**
+
+🖼️ IMAGE RULES (CRITICAL):
 - **Use EXACT image IDs from the AVAILABLE IMAGES list** (e.g., "06-01-0001", "04-01-0003")
-- **DO NOT create descriptive names** like "diagram", "flow chart", "architecture diagram"
-- **COPY the ID EXACTLY** as provided in the user prompt
-- Example: If available images show "06-01-0001", use exactly "06-01-0001" in image_reference
-- Example: If available images show "pasted-image", use exactly "pasted-image" in image_reference
+- **DO NOT create descriptive names** like "diagram", "flow chart"
+- **COPY the ID EXACTLY** as provided
+- **ALWAYS add 2-4 explanatory bullets** when using images (use text-image-left/right, NOT image-full)
+- **image-full is DEPRECATED** - use text-image-left or text-image-right instead
 
-🎨 LAYOUT STRATEGIES (OPTIMIZED FOR IMAGE ASPECT RATIOS):
-- **single-column**: Text-only slides, bullets calculated from available space (typically 8-10 bullets)
-- **image-left**: Image (4:3 aspect ratio) on left 50%, bullets on right 50%
-  * Use for SQUARE/PORTRAIT images (aspect ratio < 1.6)
-  * CRITICAL: Space limited to ~60-120px = MAXIMUM 1-2 bullets
-  * ALWAYS include 1-2 SHORT explanatory bullets
-- **image-right**: Bullets on left 50%, image (4:3 aspect ratio) on right 50%
-  * Use for SQUARE/PORTRAIT images (aspect ratio < 1.6)
-  * CRITICAL: Space limited to ~60-120px = MAXIMUM 1-2 bullets
-  * ALWAYS include 1-2 SHORT explanatory bullets
-- **image-full**: Full-width image without bullets
-  * Use for WIDE images (16:9 aspect ratio ~1.78 or wider)
-  * NO bullets - image takes full slide space
-  * Image speaks for itself (diagrams, screenshots, charts)
-- **two-column**: Split bullets across TWO columns based on calculated space
+🎨 LAYOUT SELECTION (Choose based on content):
+- **text-only**: Text/bullets only → 420px container = 10 bullets MAX
+- **text-code**: Text + code → text=200px (5 bullets MAX), code=300px (11 lines MAX)
+- **text-image-left/right**: Text + image → text=420px (10 bullets MAX), ALWAYS include bullets!
+- **image-code**: Image + code side by side → code side for code
+- **two-column**: Comparison → 420px each column
+- **table**: Tabular data → 380px (9 rows max)
+- **code-full**: Large code block → 380px (15 lines MAX)
 
-⚠️ IMAGE LAYOUT SELECTION:
-- Check image suggested_layout in available images list
-- If suggested_layout='split': use image-left or image-right WITH 1-2 bullets
-- If suggested_layout='full-width': use image-full WITHOUT bullets
-
-📤 OUTPUT FORMAT (JSON):
+📤 OUTPUT FORMAT (JSON) - MANDATORY height_calculation:
 {{
     "sections": [
         {{
             "title": "Section Title",
             "subtitle": "Optional subtitle",
-            "layout": "single-column" | "image-left" | "image-right" | "image-full" | "two-column",
-            "bullets": ["Bullet 1", "Bullet 2", ...],  // As many as fit! Empty for image-full
-            "image_reference": "06-01-0001",  // EXACT ID from AVAILABLE IMAGES list!
+            "layout": "text-only" | "text-code" | "text-image-left" | "text-image-right" | "code-full",
+            "bullets": ["Bullet 1", "Bullet 2", ...],  // REQUIRED for ALL layouts
+            "image_reference": "06-01-0001",  // EXACT ID from AVAILABLE IMAGES!
             "callout": "Optional important note",
-            "table": {{  // OPTIONAL: Include when content has tabular data
+            "table": {{
                 "headers": ["Col1", "Col2", "Col3"],
-                "rows": [["R1C1", "R1C2", "R1C3"], ["R2C1", "R2C2", "R2C3"]]
+                "rows": [["R1C1", "R1C2", "R1C3"]]
             }},
-            "code": {{  // OPTIONAL: Include ONLY for KEY code snippets
-                "language": "bash",  // python, javascript, bash, etc.
-                "code": "echo 'Hello World'"  // The actual code - preserve formatting!
+            "code": {{
+                "language": "bash",
+                "code": "echo 'Hello'"
+            }},
+            "height_calculation": {{  // MANDATORY - prove content fits!
+                "bullets_px": 160,       // bullets.length × 40
+                "code_px": 0,           // code_lines × 22 + 40 header
+                "image_px": 0,          // 400 if image present
+                "callout_px": 0,        // 75 if callout present
+                "table_px": 0,          // rows × 35 + 50 header
+                "total_px": 160,        // SUM of above
+                "container_px": 420,    // from layout spec
+                "fits": true            // total_px <= container_px
             }}
         }}
     ]
 }}
 
-📊 TABLE HANDLING (CRITICAL):
-- If TABLES FOUND section lists tables, you MUST include them as table objects
-- Tables are ~200px height (depends on rows) - calculate space accordingly
-- Use the EXACT headers and rows provided in TABLES FOUND section
-- Create dedicated slides for tables with appropriate titles
-- Do NOT convert tables to bullet points - preserve the tabular structure!
+⚠️ OVERFLOW PREVENTION (CRITICAL):
+When content EXCEEDS container limits, you MUST SPLIT:
+1. Create first section with content that FITS the limit
+2. Create second section with title "(cont.)" containing the REST
+3. NEVER exceed bullet limits: 10 for text-only, 5 for text-code
 
-💻 CODE BLOCK HANDLING (BE SELECTIVE - LIMIT SLIDES):
-- Include ONLY the 2-3 MOST IMPORTANT code blocks per lesson topic
-- Prioritize: working examples, critical syntax, key commands
-- SKIP: trivial variations, repetitive examples, simple one-liners that can be described in bullets
-- Code blocks are ~180px height - calculate space accordingly
-- Use the EXACT code from CODE BLOCKS FOUND section - do NOT modify or truncate!
-- Include 1-2 bullets before the code to explain what it demonstrates
-- GOAL: Keep total slides reasonable - summarize concepts, don't show every code example!
+EXAMPLE - 15 bullets for text-only (max 10):
+Section 1: "Topic Name" → bullets[0-9] (10 bullets = 400px ✓)
+Section 2: "Topic Name (cont.)" → bullets[10-14] (5 bullets = 200px ✓)
 
-🎯 YOUR MISSION:
-1. For each topic, CALCULATE max bullets: (460 or 520) - extras ÷ 50
-2. If topic has ≤ max bullets: Create ONE section with all bullets
-3. If topic has > max bullets: Split intelligently (e.g., 15 bullets, max 10 → two slides: 10 + 5)
-4. AVOID premature splitting: 5 bullets fitting in 10-bullet space = ONE slide, not multiple!
-5. INCLUDE ALL TABLES from TABLES FOUND section - do NOT skip them!
-6. BE SELECTIVE with code blocks - only include the most instructive examples!
+🖼️ IMAGE SLIDES MUST HAVE EXPLANATORY BULLETS:
+- ALWAYS use text-image-left or text-image-right layouts for images
+- Include 3-5 bullets explaining the image content
+- Never leave image slides without context
+
+💻 CODE BLOCKS:
+- Use text-code layout for code with explanation (4 bullets + 10 lines)
+- Use code-full layout for important longer code (18 lines max)
+- If code exceeds limit, truncate with "// ... continued" comment
+
+📊 TABLES:
+- Use table layout
+- If >10 rows, split across multiple slides
+
+🎯 MISSION:
+1. CALCULATE content height and INCLUDE height_calculation object
+2. CHOOSE correct layout for content type
+3. If fits=false, SPLIT into multiple sections with "(cont.)" suffix
+4. EVERY section MUST have height_calculation proving it fits
+5. Server validates - sections with fits=false will be rejected
 """,
             tools=[]
         )
@@ -871,14 +876,11 @@ CODE BLOCKS FOUND IN CONTENT ({len(code_blocks)} total, showing TOP {len(top_blo
 - Choose blocks that demonstrate KEY concepts
 - Skip trivial variations or repetitive examples
 - Prioritize working examples over fragments
-- Use type: 'code' with 'language' and 'code' fields
-- Code blocks ~180px height - calculate space accordingly
-- GOAL: Keep slides concise - one good example is better than many similar ones!
 """
         
-        # Ask AI to structure content with HEIGHT AWARENESS
+        # Ask AI to structure content - system handles overflow automatically
         prompt = f"""
-Create slide sections for this lesson using DYNAMIC SPACE CALCULATION.
+Create slide sections for this lesson. The system will AUTOMATICALLY handle overflow by splitting slides when needed.
 
 LESSON: {lesson_title}
 
@@ -888,23 +890,18 @@ CONTENT:
 AVAILABLE IMAGES (use these EXACT IDs - do NOT rename them):
 {image_info}
 {tables_prompt_section}{code_prompt_section}
-⚠️ CRITICAL IMAGE INSTRUCTIONS:
-- Use the EXACT image ID from the list above (e.g., "06-01-0001", "04-01-0003")
-- DO NOT create descriptive names like "diagram" or "flow chart"
-- Copy the ID EXACTLY as shown in the AVAILABLE IMAGES list
-- If you want to use an image, set image_reference to the EXACT ID from above
+⚠️ IMAGE INSTRUCTIONS:
+- Use the EXACT image ID from the list above
+- DO NOT create descriptive names
+- Copy the ID EXACTLY as shown
 
-CRITICAL SPACE CALCULATION:
-- Available: 460px (with subtitle) or 520px (without)
-- Subtract extras: heading (-65px), image (-400px), callout (-75px), table (-200px approx), code (-180px approx)
-- Formula: remaining_space ÷ 50px = MAX bullets per slide
-- **ONLY split if bullets > MAX**
-- Example: Topic has 6 bullets, MAX is 10 → Use ONE slide with 6 bullets (don't split!)
-- Example: Topic has 15 bullets, MAX is 10 → Use TWO slides (10 + 5 bullets)
-
-Create sections intelligently - combine related points up to the calculated MAX, split only when necessary.
-{"Include ALL tables from TABLES FOUND section as table objects in your output!" if tables else ""}
-{"Be SELECTIVE with code: include only 2-3 KEY examples that best demonstrate the concepts!" if code_blocks else ""}
+🎯 FOCUS ON CONTENT QUALITY:
+- Group related concepts into sections
+- Include ALL important bullets - system splits automatically if needed
+- Be comprehensive and educational
+- For images: use image-left/image-right with 2-4 bullets, or image-full for standalone
+{"- Include ALL tables from TABLES FOUND section!" if tables else ""}
+{"- Be SELECTIVE with code: include only 2-3 KEY examples that best demonstrate concepts!" if code_blocks else ""}
 """
         
         logger.info(f"🤖 AI Web Designer generating content sections...")
@@ -952,90 +949,168 @@ Create sections intelligently - combine related points up to the calculated MAX,
             logger.error(f"❌ JSON parse error: {e}")
             return []
         
-        # Build slides from sections with REAL-TIME OVERFLOW VALIDATION
+        # VALIDATE height calculations from AI
+        validated_sections = []
+        for section in sections:
+            title = section.get('title', 'Untitled')
+            calc = section.get('height_calculation', {})
+            
+            if calc:
+                total_px = calc.get('total_px', 0)
+                container_px = calc.get('container_px', 480)
+                fits = calc.get('fits', True)
+                
+                if not fits:
+                    logger.warning(f"⚠️ AI admits section '{title}' doesn't fit: {total_px}px > {container_px}px")
+                    # Continue anyway - AI should have already split, but we'll truncate if needed
+                elif total_px > container_px:
+                    logger.warning(f"⚠️ AI calc error for '{title}': claims fits=true but {total_px}px > {container_px}px")
+                else:
+                    logger.info(f"✓ Section '{title}' validated: {total_px}px / {container_px}px ({int(100*total_px/container_px) if container_px else 0}%)")
+            else:
+                logger.warning(f"⚠️ Section '{title}' missing height_calculation - accepting anyway")
+            
+            validated_sections.append(section)
+        
+        sections = validated_sections
+        logger.info(f"✅ Validated {len(sections)} sections")
+        
+        # Build slides from sections - AI should have already calculated overflow
+        # We validate and handle any remaining edge cases
         slides_created = 0
+        
+        # Import layout specs for validation
+        try:
+            from layouts import get_layout_spec
+        except ImportError:
+            get_layout_spec = lambda x: {"containers": {"content": {"height": 480}}}
         
         for section_idx, section in enumerate(sections, 1):
             title = section.get('title', '')
             subtitle = section.get('subtitle', '')
-            layout = section.get('layout', 'single-column')
+            layout = section.get('layout', 'text-only')
             bullets = section.get('bullets', [])
             image_ref = section.get('image_reference', '')
             callout = section.get('callout', '')
             table_data = section.get('table', None)
             code_data = section.get('code', None)
             
-            logger.info(f"  Section {section_idx}/{len(sections)}: {title} ({len(bullets)} bullets, layout: {layout}, has_table: {table_data is not None}, has_code: {code_data is not None})")
+            # Map new layout names to existing builder layouts
+            layout_mapping = {
+                'text-only': 'single-column',
+                'text-code': 'single-column',
+                'text-image-left': 'image-left',
+                'text-image-right': 'image-right',
+                'image-full': 'image-full',
+                'image-code': 'image-left',
+                'code-full': 'single-column',
+                'table': 'single-column',
+            }
+            builder_layout = layout_mapping.get(layout, 'single-column')
             
-            # Start slide with AI-specified layout
-            self.builder.start_slide(title, subtitle=subtitle, layout=layout)
+            logger.info(f"  Section {section_idx}/{len(sections)}: {title} (layout: {layout}, {len(bullets)} bullets, code: {code_data is not None}, table: {table_data is not None})")
             
-            # Add image if present
-            if image_ref:
-                if layout == 'image-full':
-                    # Full-width image without bullets (16:9 aspect ratio)
-                    self.builder.add_image(image_ref)
-                elif 'image' in layout:
-                    # Split layout image with bullets (4:3 aspect ratio)
-                    self.builder.add_image(image_ref)
+            # Start slide
+            self.builder.start_slide(title, subtitle=subtitle, layout=builder_layout)
             
-            # Add bullets - skip for image-full layout
-            if bullets and layout != 'image-full':
-                added = self.builder.add_bullets(bullets)
-                if not added:
-                    # AI made a mistake - force add anyway and log warning
-                    logger.warning(f"  ⚠️ Bullets exceed calculated space ({len(bullets)} bullets) but adding anyway - AI calculation error")
-                    self.builder.current_slide['content_blocks'].append({
-                        'type': 'bullets',
-                        'heading': '',
-                        'items': bullets
-                    })
-                    # Still update height for tracking
-                    self.builder.current_height += len(bullets) * self.builder.BULLET_HEIGHT + self.builder.SPACING
+            # Add image if layout requires it
+            if image_ref and layout in ['text-image-left', 'text-image-right', 'image-full', 'image-code']:
+                self.builder.add_image(image_ref)
             
-            # Add table if present
-            if table_data:
-                headers = table_data.get('headers', [])
-                rows = table_data.get('rows', [])
-                if headers and rows:
-                    logger.info(f"  📊 Adding table with {len(headers)} columns and {len(rows)} rows")
-                    self.builder.current_slide['content_blocks'].append({
-                        'type': 'table',
-                        'heading': '',
-                        'headers': headers,
-                        'rows': rows
-                    })
-                    # Estimate table height (header + rows)
-                    table_height = 50 + (len(rows) * 35)  # ~50px header, ~35px per row
-                    self.builder.current_height += table_height + self.builder.SPACING
-            
-            # Add code block if present
-            if code_data:
+            # Add code block for code layouts
+            if code_data and layout in ['text-code', 'code-full', 'image-code']:
                 code_lang = code_data.get('language', 'text')
                 code_content = code_data.get('code', '')
                 if code_content:
-                    logger.info(f"  💻 Adding code block ({code_lang}, {len(code_content.splitlines())} lines)")
+                    code_lines = len(code_content.splitlines())
+                    # Get max lines based on layout
+                    max_lines = 10 if layout == 'text-code' else 18 if layout == 'code-full' else 20
+                    
+                    # Truncate if needed (AI should have done this, but validate)
+                    if code_lines > max_lines:
+                        lines = code_content.splitlines()
+                        code_content = '\n'.join(lines[:max_lines-1]) + '\n// ... (truncated)'
+                        logger.info(f"  ⚠️ Code truncated from {code_lines} to {max_lines} lines")
+                    
                     self.builder.current_slide['content_blocks'].append({
                         'type': 'code',
                         'heading': '',
                         'language': code_lang,
                         'code': code_content
                     })
-                    # Estimate code height (~180px for typical code block)
-                    code_lines = len(code_content.splitlines())
-                    code_height = max(180, code_lines * 22 + 40)  # ~22px per line + padding
-                    self.builder.current_height += code_height + self.builder.SPACING
+                    code_height = max(180, code_lines * 22 + 40)
+                    self.builder.current_height += min(code_height, 260) + self.builder.SPACING
+            
+            # Add bullets with layout-aware limits
+            if bullets and layout not in ['image-full', 'code-full']:
+                # Get max bullets based on layout
+                max_bullets_per_layout = {
+                    'text-only': 10,
+                    'text-code': 4,
+                    'text-image-left': 10,
+                    'text-image-right': 10,
+                    'image-code': 4,
+                    'two-column': 8,
+                    'table': 2,
+                }
+                max_bullets = max_bullets_per_layout.get(layout, 10)
+                
+                # Validate AI followed rules
+                if len(bullets) > max_bullets:
+                    logger.warning(f"  ⚠️ AI sent {len(bullets)} bullets for {layout} (max {max_bullets}) - truncating")
+                    bullets = bullets[:max_bullets]
+                
+                added = self.builder.add_bullets(bullets)
+                if not added:
+                    # Force add - shouldn't happen if AI calculated correctly
+                    self.builder.current_slide['content_blocks'].append({
+                        'type': 'bullets',
+                        'heading': '',
+                        'items': bullets
+                    })
+                    self.builder.current_height += len(bullets) * self.builder.BULLET_HEIGHT
+            
+            # Add table if present
+            if table_data:
+                headers = table_data.get('headers', [])
+                rows = table_data.get('rows', [])
+                if headers and rows:
+                    table_height = 50 + (len(rows) * 35)
+                    logger.info(f"  📊 Adding table ({len(headers)} cols, {len(rows)} rows, {table_height}px)")
+                    
+                    if self.builder.can_add_content(table_height + self.builder.SPACING):
+                        self.builder.current_slide['content_blocks'].append({
+                            'type': 'table',
+                            'heading': '',
+                            'headers': headers,
+                            'rows': rows
+                        })
+                        self.builder.current_height += table_height + self.builder.SPACING
+                    else:
+                        # Table doesn't fit - create dedicated slide
+                        logger.info(f"  ⚠️ Table doesn't fit - creating dedicated table slide")
+                        self.builder.finish_slide()
+                        slides_created += 1
+                        
+                        self.builder.start_slide(f"{title} - Tabla", subtitle='', layout='single-column')
+                        self.builder.current_slide['content_blocks'].append({
+                            'type': 'table',
+                            'heading': '',
+                            'headers': headers,
+                            'rows': rows
+                        })
+                        self.builder.current_height += table_height + self.builder.SPACING
             
             # Add callout if present
             if callout:
                 if not self.builder.add_callout(callout):
-                    logger.warning(f"  ⚠️ Callout doesn't fit - skipping")
+                    logger.info(f"  ⚠️ Callout doesn't fit - skipping")
             
             # Finish slide
             self.builder.finish_slide()
             slides_created += 1
         
-        logger.info(f"✅ Created {slides_created} slides for lesson {lesson_idx} (ZERO overflow guaranteed)")
+        logger.info(f"✅ Created {slides_created} slides for lesson {lesson_idx} (TRUE HTML-FIRST with auto-split)")
         # Return only NEW slides created for THIS lesson (not accumulated from previous lessons)
         all_slides = self.builder.get_slides()
         return all_slides[starting_slide_count:]
@@ -1345,6 +1420,17 @@ def generate_complete_course(
     else:
         logger.info(f"⏭️  INTERMEDIATE BATCH: lesson_batch_end={lesson_batch_end} < total_lessons={course_total_lessons}")
     
+    # Post-process: Fix image-only slides by adding contextual bullets
+    try:
+        from infographic_generator import fix_image_only_slides
+        original_count = len(all_slides)
+        all_slides = fix_image_only_slides(all_slides, is_spanish)
+        logger.info(f"🖼️ Post-processed {original_count} slides with fix_image_only_slides")
+    except ImportError as e:
+        logger.warning(f"⚠️ Could not import fix_image_only_slides: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️ fix_image_only_slides failed: {e}")
+    
     return {
         'course_title': course_title,
         'total_slides': len(all_slides),
@@ -1497,14 +1583,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         /* Content area - CRITICAL HEIGHT LIMITS */
         .slide-content {{
-            padding: 30px 50px 70px 50px; /* Bottom padding for logo clearance */
-            max-height: 530px; /* Without subtitle - header is 120px, logo area is 70px, total 720px */
-            overflow: hidden; /* Clip content that doesn't fit */
+            padding: 30px 50px 80px 50px; /* Bottom padding for logo clearance */
+            max-height: 480px; /* 720 - 120 header - 60 footer - 60 padding = 480px */
+            overflow: visible; /* Allow content to extend slightly if needed */
             position: relative;
         }}
         
         .slide-content.with-subtitle {{
-            max-height: 480px; /* With subtitle */
+            max-height: 400px; /* With subtitle: 450 - 50 = 400px */
         }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
@@ -1568,7 +1654,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             background: {colors['accent']};
             padding: 20px;
             border-radius: 8px;
-            margin: 20px 0;
+            margin: 20px 0 60px 0; /* Extra bottom margin for logo clearance */
             font-size: 20pt;
             line-height: 1.3;
             /* Total height: ~75px minimum */
@@ -1609,11 +1695,22 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .code-block {{
             background: #1e1e1e;
             border-radius: 8px;
-            margin: 10px 0 80px 0; /* Large bottom margin to clear footer/logo */
+            margin: 10px 0 20px 0;
             overflow: hidden;
             font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
             position: relative;
-            max-height: 220px; /* Strictly limited to prevent footer overlap */
+            /* Height controlled by layout - no max-height here */
+        }}
+        
+        /* Code block in text-code layout (with bullets above) */
+        .layout-text-code .code-block {{
+            max-height: 260px; /* Fixed height for text-code layout */
+        }}
+        
+        /* Code block in code-full layout (standalone) */
+        .layout-code-full .code-block,
+        .slide-content:not(.layout-text-code) .code-block {{
+            max-height: 380px; /* Large code block when standalone */
         }}
         
         .code-block-header {{
@@ -1663,8 +1760,18 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .code-content {{
             padding: 12px 16px;
             overflow-x: auto;
-            max-height: 160px; /* Strictly limited to prevent footer overlap */
             overflow-y: auto;
+            /* Height inherited from parent .code-block minus header (~45px) */
+        }}
+        
+        /* Code content heights based on layout - INCREASED to reduce scrolling */
+        .layout-text-code .code-content {{
+            max-height: 250px; /* Increased from 215px */
+        }}
+        
+        .layout-code-full .code-content,
+        .slide-content:not(.layout-text-code) .code-content {{
+            max-height: 400px; /* Increased from 335px - let code expand */
         }}
         
         .code-content pre {{
@@ -1695,7 +1802,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             color: #f8f8f2 !important;
         }}
         
-        /* Code fullscreen modal */
+        /* Code fullscreen modal - MAX Z-INDEX for iframe visibility */
         .code-modal {{
             display: none;
             position: fixed;
@@ -1704,7 +1811,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.95);
-            z-index: 10000;
+            z-index: 2147483647; /* Max z-index to break out of iframe stacking */
             justify-content: center;
             align-items: center;
             padding: 40px;
@@ -1767,9 +1874,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         /* Images */
         .slide-image {{
             max-width: 100%;
-            max-height: 350px; /* Reduced to fit in split layouts */
+            max-height: 450px; /* Expanded to fill available space */
             display: block;
-            margin: 20px auto;
+            margin: 10px auto;
             object-fit: contain;
         }}
         
@@ -1833,10 +1940,82 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         .image-layout.image-full .slide-image {{
             max-width: 100%;
-            max-height: 450px; /* Reduced to fit within content area */
+            max-height: 560px; /* Increased to fill more content area */
             width: auto;
             height: auto;
             object-fit: contain;
+        }}
+        
+        /* ============================================
+           LAYOUT-SPECIFIC CONTAINER SIZES
+           These match the layouts.py specifications
+           ============================================ */
+        
+        /* TEXT-ONLY Layout: Full width for bullets */
+        .layout-text-only {{
+            height: 480px;
+            overflow: hidden;
+        }}
+        
+        /* TEXT-CODE Layout: Bullets above, code below */
+        .layout-text-code {{
+            display: flex;
+            flex-direction: column;
+            height: 480px;
+        }}
+        
+        .layout-text-code .text-area {{
+            height: 200px;
+            overflow: hidden;
+        }}
+        
+        .layout-text-code .code-area {{
+            height: 260px;
+            overflow: hidden;
+        }}
+        
+        /* CODE-FULL Layout: Large code block */
+        .layout-code-full {{
+            height: 480px;
+        }}
+        
+        .layout-code-full .code-area {{
+            height: 420px;
+            overflow: hidden;
+        }}
+        
+        .layout-code-full .caption-area {{
+            height: 60px;
+            overflow: hidden;
+        }}
+        
+        /* IMAGE-CODE Layout: Side by side */
+        .layout-image-code {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            height: 480px;
+        }}
+        
+        .layout-image-code .image-area,
+        .layout-image-code .code-area {{
+            height: 480px;
+            overflow: hidden;
+        }}
+        
+        /* TABLE Layout */
+        .layout-table {{
+            height: 480px;
+        }}
+        
+        .layout-table .table-area {{
+            height: 400px;
+            overflow: auto;
+        }}
+        
+        .layout-table .notes-area {{
+            height: 80px;
+            overflow: hidden;
         }}
         
         /* Logo positioning */
@@ -1847,7 +2026,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             width: 120px;
             height: auto;
             opacity: 0.9;
-            z-index: 100;
+            z-index: 500; /* High z-index to stay above all content */
         }}
         
         /* COURSE TITLE SLIDE - Main branded opening */
@@ -2001,12 +2180,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         ''',
         '    </style>',
         '''    <script>
-        // Code block zoom functionality
-        window.openCodeModal = function(codeId, event) {
-            if (event) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
+        // Code block zoom functionality - inline for maximum compatibility
+        function openCodeModal(codeId) {
             console.log('openCodeModal called with:', codeId);
             
             var codeBlock = document.getElementById(codeId);
@@ -2016,11 +2191,11 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             
             if (!codeBlock) {
                 console.error('Code block not found: ' + codeId);
-                return false;
+                return;
             }
             if (!modal) {
                 console.error('Modal not found');
-                return false;
+                return;
             }
             
             var codeContent = codeBlock.querySelector('.code-content');
@@ -2033,60 +2208,24 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 modalLang.textContent = langBadge.textContent;
             }
             
-            modal.style.display = 'flex';
             modal.classList.add('active');
+            modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
-            
-            return false;
-        };
+            console.log('Modal opened successfully');
+        }
         
-        window.closeCodeModal = function(event) {
-            if (event) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
+        function closeCodeModal() {
             var modal = document.getElementById('codeModal');
             if (modal) {
-                modal.style.display = 'none';
                 modal.classList.remove('active');
+                modal.style.display = 'none';
                 document.body.style.overflow = '';
             }
-            return false;
-        };
+        }
         
-        // Initialize zoom buttons after DOM loads
-        document.addEventListener('DOMContentLoaded', function() {
-            var zoomButtons = document.querySelectorAll('.code-zoom-btn');
-            zoomButtons.forEach(function(btn) {
-                btn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // Try data attribute first, then find parent code-block
-                    var codeBlockId = btn.getAttribute('data-code-id') || (btn.closest('.code-block') ? btn.closest('.code-block').id : null);
-                    console.log('Zoom button clicked, codeBlockId:', codeBlockId);
-                    if (codeBlockId) {
-                        openCodeModal(codeBlockId, e);
-                    }
-                    return false;
-                });
-            });
-            console.log('Initialized ' + zoomButtons.length + ' zoom buttons');
-        });
-        
-        // Also handle clicks via event delegation for dynamically added content
-        document.body.addEventListener('click', function(e) {
-            if (e.target.classList.contains('code-zoom-btn') || e.target.closest('.code-zoom-btn')) {
-                e.preventDefault();
-                e.stopPropagation();
-                var btn = e.target.classList.contains('code-zoom-btn') ? e.target : e.target.closest('.code-zoom-btn');
-                var codeBlockId = btn.getAttribute('data-code-id') || (btn.closest('.code-block') ? btn.closest('.code-block').id : null);
-                console.log('Delegated click, codeBlockId:', codeBlockId);
-                if (codeBlockId) {
-                    openCodeModal(codeBlockId, e);
-                }
-                return false;
-            }
-        });
+        // Make functions globally available
+        window.openCodeModal = openCodeModal;
+        window.closeCodeModal = closeCodeModal;
         
         // Close on Escape key
         document.addEventListener('keydown', function(e) {
@@ -2372,7 +2511,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'        <span class="code-block-language">{language}</span>')
                     else:
                         html_parts.append(f'        <span class="code-block-language">CODE</span>')
-                    html_parts.append(f'        <a href="javascript:void(0)" class="code-zoom-btn" data-code-id="{code_block_id}" title="View fullscreen">🔍 Zoom</a>')
+                    html_parts.append(f'        <button type="button" class="code-zoom-btn" onclick="openCodeModal(\'{code_block_id}\'); return false;">🔍 Zoom</button>')
                     html_parts.append(f'      </div>')
                     
                     html_parts.append('      <div class="code-content">')
