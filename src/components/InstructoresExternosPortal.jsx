@@ -95,11 +95,11 @@ function InstructoresExternosPortal() {
     };
 
     const viewPresentation = (folder) => {
-        navigate(`/presentaciones/viewer/${encodeURIComponent(folder)}`);
+        navigate(`/presentaciones/viewer/${encodeURIComponent(folder)}?returnTo=/portal-instructor`);
     };
 
     const editPresentation = (folder) => {
-        navigate(`/presentaciones/editor/${encodeURIComponent(folder)}`);
+        navigate(`/presentaciones/editor/${encodeURIComponent(folder)}?returnTo=/portal-instructor`);
     };
 
     const formatDate = (dateString) => {
