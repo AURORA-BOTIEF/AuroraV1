@@ -51,6 +51,7 @@ import InfographicViewer from './components/InfographicViewer.jsx';
 import InfographicEditor from './components/InfographicEditor.jsx';
 import AsignadorPortal from './components/AsignadorPortal.jsx';
 import EstudiantesPortal from './components/EstudiantesPortal.jsx';
+import InstructoresExternosPortal from './components/InstructoresExternosPortal.jsx';
 
 
 
@@ -379,14 +380,15 @@ function App() {
   // normalizar nombres de grupo para comparaciones robustas
   const groups = Array.isArray(rawGroups) ? rawGroups.map(g => String(g || '').toLowerCase().trim()) : [];
 
-  // rol derivado (prioridad: admin > creador > asignador > participante > estudiante)
+  // rol derivado (prioridad: admin > creador > asignador > instructor_externo > participante > estudiante)
   const rol =
     groups.includes('administrador') || groups.includes('admin') ? 'admin' :
       groups.includes('creador') ? 'creador' :
         groups.includes('asignadores') || groups.includes('asignador') ? 'asignador' :
-          groups.includes('participante') ? 'participant' :
-            groups.includes('estudiantes') || groups.includes('estudiante') ? 'estudiante' :
-              'usuario';
+          groups.includes('instructores_externos') || groups.includes('instructor_externo') ? 'instructor_externo' :
+            groups.includes('participante') ? 'participant' :
+              groups.includes('estudiantes') || groups.includes('estudiante') ? 'estudiante' :
+                'usuario';
 
   const groupNameForRole = {
     admin: "Administrador",
@@ -394,6 +396,7 @@ function App() {
     participant: "Participante",
     asignador: "Asignadores",
     estudiante: "Estudiantes",
+    instructor_externo: "Instructores_Externos",
   };
 
   const ProtectedRoute = ({ children, allowedRoles = [] }) => {
@@ -539,7 +542,7 @@ function App() {
               {/* PRESENTACIONES -> accesible a todos autenticados */}
               <Route path="/presentaciones" element={<ProtectedRoute><PresentacionesPage /></ProtectedRoute>} />
               <Route path="/presentaciones/viewer/:folder" element={<ProtectedRoute><InfographicViewer /></ProtectedRoute>} />
-              <Route path="/presentaciones/editor/:folder" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><InfographicEditor /></ProtectedRoute>} />
+              <Route path="/presentaciones/editor/:folder" element={<ProtectedRoute allowedRoles={['admin', 'creador', 'instructor_externo']}><InfographicEditor /></ProtectedRoute>} />
 
               {/* EDITORES EXTERNOS -> admin/creador */}
               <Route path="/editor-seminario/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorSeminarioPage /></ProtectedRoute>} />
@@ -547,14 +550,17 @@ function App() {
               <Route path="/editor-practico/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorPracticoPage /></ProtectedRoute>} />
               <Route path="/editor-KNTR/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorKNTRPage /></ProtectedRoute>} />
 
-              {/* BOOK EDITOR -> creador/admin */}
-              <Route path="/book-editor/:projectFolder" element={<ProtectedRoute allowedRoles={['admin', 'creador', 'estudiante']}><BookEditorPage /></ProtectedRoute>} />
+              {/* BOOK EDITOR -> creador/admin/estudiante/instructor_externo */}
+              <Route path="/book-editor/:projectFolder" element={<ProtectedRoute allowedRoles={['admin', 'creador', 'estudiante', 'instructor_externo']}><BookEditorPage /></ProtectedRoute>} />
 
               {/* ASIGNADOR PORTAL -> asignadores */}
               <Route path="/asignador" element={<ProtectedRoute allowedRoles={['admin', 'asignador']}><AsignadorPortal /></ProtectedRoute>} />
 
               {/* ESTUDIANTES PORTAL -> estudiantes */}
               <Route path="/mis-cursos" element={<ProtectedRoute allowedRoles={['estudiante']}><EstudiantesPortal /></ProtectedRoute>} />
+
+              {/* INSTRUCTORES EXTERNOS PORTAL -> instructor_externo */}
+              <Route path="/portal-instructor" element={<ProtectedRoute allowedRoles={['admin', 'instructor_externo']}><InstructoresExternosPortal /></ProtectedRoute>} />
 
               {/* FALLBACK */}
               <Route path="*" element={<Navigate to="/" replace />} />

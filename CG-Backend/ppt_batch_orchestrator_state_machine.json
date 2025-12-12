@@ -35,7 +35,8 @@
                                 "max_lessons_per_batch.$": "$.max_lessons_per_batch",
                                 "model_provider.$": "$.model_provider",
                                 "batch_index.$": "$.batch_index",
-                                "book_type.$": "$.book_type"
+                                "book_type.$": "$.book_type",
+                                "total_lessons.$": "$.total_lessons"
                             }
                         },
                         "ResultPath": "$.ppt_generation_result",
@@ -185,7 +186,7 @@
             "Next": "ParseMergerResult"
         },
         "ParseMergerResult": {
-            "Comment": "Parse the merger's body JSON string into an object",
+            "Comment": "Parse the merger's body JSON string into an object - HTML-First: no PPT conversion needed",
             "Type": "Pass",
             "Parameters": {
                 "ppt_batch_results.$": "$.ppt_batch_results",
@@ -196,54 +197,6 @@
                 "total_batches.$": "$.total_batches",
                 "ppt_merger_result.$": "States.StringToJson($.ppt_merger_result.Payload.body)"
             },
-            "Next": "PrepareFinalizePpt"
-        },
-        "PrepareFinalizePpt": {
-            "Comment": "Prepare parameters for final PPT generation using merged HTML (no optimization step)",
-            "Type": "Pass",
-            "Parameters": {
-                "html_s3_key.$": "$.ppt_merger_result.html_s3_key",
-                "course_bucket.$": "$.course_bucket",
-                "project_folder.$": "$.project_folder"
-            },
-            "Next": "FinalizePpt"
-        },
-        "FinalizePpt": {
-            "Comment": "Convert optimized (or original) HTML to final PowerPoint",
-            "Type": "Task",
-            "Resource": "arn:aws:states:::lambda:invoke",
-            "Parameters": {
-                "FunctionName": "${StrandsPptMergerArn}",
-                "Payload": {
-                    "course_bucket.$": "$.course_bucket",
-                    "project_folder.$": "$.project_folder",
-                    "action": "convert_to_ppt",
-                    "html_s3_key.$": "$.html_s3_key"
-                }
-            },
-            "ResultPath": "$.final_ppt_result",
-            "Retry": [
-                {
-                    "ErrorEquals": [
-                        "Lambda.ServiceException",
-                        "Lambda.AWSLambdaException",
-                        "Lambda.SdkClientException"
-                    ],
-                    "IntervalSeconds": 5,
-                    "MaxAttempts": 2,
-                    "BackoffRate": 2.0
-                }
-            ],
-            "Catch": [
-                {
-                    "ErrorEquals": [
-                        "States.ALL"
-                    ],
-                    "Next": "NotifyFailure",
-                    "ResultPath": "$.error"
-                }
-            ],
-            "TimeoutSeconds": 600,
             "Next": "NotifySuccess"
         },
         "NotifySuccess": {

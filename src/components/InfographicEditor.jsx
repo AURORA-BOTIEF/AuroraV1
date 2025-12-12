@@ -1,6 +1,6 @@
 // src/components/InfographicEditor.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBlobUrlForS3Object } from '../utils/s3ImageLoader';
 import './InfographicEditor.css';
 
@@ -9,6 +9,8 @@ const API_BASE = 'https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod';
 function InfographicEditor() {
     const { folder } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const returnTo = searchParams.get('returnTo') || '/presentaciones';
     const [infographic, setInfographic] = useState(null);
     const [selectedSlideIndex, setSelectedSlideIndex] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -343,8 +345,8 @@ function InfographicEditor() {
                 <div className="error-message">
                     <h2>⚠️ Error</h2>
                     <p>{error}</p>
-                    <button onClick={() => navigate('/presentaciones')}>
-                        Volver a Presentaciones
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
                     </button>
                 </div>
             </div>
@@ -357,8 +359,8 @@ function InfographicEditor() {
                 <div className="error-message">
                     <h2>📭 Sin diapositivas</h2>
                     <p>Esta presentación no tiene diapositivas para editar.</p>
-                    <button onClick={() => navigate('/presentaciones')}>
-                        Volver a Presentaciones
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
                     </button>
                 </div>
             </div>
@@ -373,7 +375,7 @@ function InfographicEditor() {
             {/* ... header ... */}
             <div className="editor-header">
                 {/* ... existing header code ... */}
-                <button onClick={() => navigate('/presentaciones')} className="btn-back">
+                <button onClick={() => navigate(returnTo)} className="btn-back">
                     ← Volver
                 </button>
 
@@ -392,7 +394,7 @@ function InfographicEditor() {
                         {saving ? '💾 Guardando...' : '💾 Guardar Cambios'}
                     </button>
                     <button
-                        onClick={() => navigate(`/presentaciones/viewer/${folder}`)}
+                        onClick={() => navigate(`/presentaciones/viewer/${folder}?returnTo=${encodeURIComponent(returnTo)}`)}
                         className="btn-preview"
                     >
                         👁️ Vista Previa

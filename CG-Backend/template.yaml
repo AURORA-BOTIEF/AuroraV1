@@ -1208,7 +1208,7 @@ Resources:
   GetStudentCoursesFunction:
     Type: AWS::Serverless::Function
     Metadata:
-      BuildMethod: pip
+      BuildMethod: python3.12
     Properties:
       FunctionName: GetStudentCoursesFunction
       Description: Get courses assigned to a student
