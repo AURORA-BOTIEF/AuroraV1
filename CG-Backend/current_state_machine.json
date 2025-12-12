@@ -35,9 +35,28 @@
     },
     "ValidateLabPlanExists": {
       "Type": "Choice",
-      "Comment": "Verify master lab plan exists before expanding to batches",
+      "Comment": "Verify master lab plan exists before expanding to batches, or skip if no labs in outline",
       "Choices": [
         {
+          "Comment": "No labs in outline - skip lab generation and complete successfully (theory-only)",
+          "And": [
+            {
+              "Variable": "$.master_lab_plan_result",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.master_lab_plan_result.Payload.total_labs",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.master_lab_plan_result.Payload.total_labs",
+              "NumericEquals": 0
+            }
+          ],
+          "Next": "NotifyCompletion"
+        },
+        {
+          "Comment": "Labs exist and master plan was generated - proceed with lab generation",
           "And": [
             {
               "Variable": "$.master_lab_plan_result",
