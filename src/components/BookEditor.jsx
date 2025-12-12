@@ -2325,8 +2325,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     let labId = null;
                     if (item.type === 'lab' && item.original) {
                         const labNumber = item.original.number || (idx + 1);
-                        labId = `${String(modIdx + 1).padStart(2, '0')}-00 - ${String(labNumber).padStart(2, '0')} `;
-                        console.log(`Calculated lab_id for "${item.title}": ${labId} `);
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
+                        console.log(`Calculated lab_id for "${item.title}": ${labId}`);
                     }
 
                     const lessonObj = {
@@ -2362,8 +2362,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (item.type === 'lab' && item.original) {
                         const labNumberRaw = item.original.number;
                         const labNumber = labNumberRaw != null ? labNumberRaw : (idx + 1);
-                        labId = `${String(modIdx + 1).padStart(2, '0')
-                            }-00 - ${String(labNumber).padStart(2, '0')} `;
+                        labId = `${String(modIdx + 1).padStart(2, '0')}-00-${String(labNumber).padStart(2, '0')}`;
                     }
 
                     // Add as placeholder so it shows in the UI for regeneration
