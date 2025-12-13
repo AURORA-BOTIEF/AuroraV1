@@ -23,24 +23,22 @@ async function apiFetch(url, opts = {}) {
     console.warn("No session available yet. Trying refresh...");
   }
 
-  const extractToken = (session) => {
-    if (!session?.tokens) return null;
+  const extractAccessToken = (session) => {
+    if (!session?.tokens?.accessToken) return null;
 
     return (
-      session.tokens.idToken?.jwtToken ||
-      session.tokens.idToken?.toString?.() ||
-      session.tokens.accessToken?.jwtToken ||
-      session.tokens.accessToken?.toString?.() ||
+      session.tokens.accessToken.jwtToken ||
+      session.tokens.accessToken.toString?.() ||
       null
     );
   };
 
-  let token = extractToken(session);
+  let token = extractAccessToken(session);
 
   if (!token) {
     console.log("Refreshing session...");
     session = await fetchAuthSession({ forceRefresh: true });
-    token = extractToken(session);
+    token = extractAccessToken(session);
   }
 
   if (!token) throw new Error("No token available");
@@ -51,7 +49,8 @@ async function apiFetch(url, opts = {}) {
       headers: {
         "Content-Type": "application/json",
         ...(opts.headers || {}),
-        Authorization: t,
+        Authorization: `Bearer ${t}`,
+
       },
     });
 
