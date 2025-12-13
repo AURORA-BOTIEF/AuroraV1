@@ -1,5 +1,12 @@
+export async function downloadExcelTemario() {
+  console.warn(
+    "downloadExcelTemario deshabilitado: implementación incompatible con frontend build (Vite)"
+  );
+}
+
+/*
 //import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
+//import { saveAs } from "file-saver";
 
 export async function downloadExcelTemario(temario) {
   const workbook = new ExcelJS.Workbook();
@@ -103,3 +110,4 @@ export async function downloadExcelTemario(temario) {
     `Temario_${temario.nombre_curso || "curso"}.xlsx`
   );
 }
+*/
