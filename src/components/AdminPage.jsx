@@ -51,7 +51,7 @@ async function apiFetch(url, opts = {}) {
       headers: {
         "Content-Type": "application/json",
         ...(opts.headers || {}),
-        Authorization: `Bearer ${t}`,
+        Authorization: t,
       },
     });
 
