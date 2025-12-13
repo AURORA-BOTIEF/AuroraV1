@@ -23,22 +23,22 @@ async function apiFetch(url, opts = {}) {
     console.warn("No session available yet. Trying refresh...");
   }
 
-  const extractAccessToken = (session) => {
-    if (!session?.tokens?.accessToken) return null;
+  const extractIdToken = (session) => {
+    if (!session?.tokens?.idToken) return null;
 
     return (
-      session.tokens.accessToken.jwtToken ||
-      session.tokens.accessToken.toString?.() ||
+      session.tokens.idToken.jwtToken ||
+      session.tokens.idToken.toString?.() ||
       null
     );
   };
 
-  let token = extractAccessToken(session);
+  let token = extractIdToken(session);
 
   if (!token) {
     console.log("Refreshing session...");
     session = await fetchAuthSession({ forceRefresh: true });
-    token = extractAccessToken(session);
+    token = extractIdToken(session);
   }
 
   if (!token) throw new Error("No token available");
@@ -59,7 +59,7 @@ async function apiFetch(url, opts = {}) {
   if (res.status === 401) {
     console.warn("401 → refreshing token...");
     session = await fetchAuthSession({ forceRefresh: true });
-    token = extractAccessToken(session);
+    token = extractIdToken(session);
     if (!token) throw new Error("No token available after refresh");
     res = await makeRequest(token);
   }
