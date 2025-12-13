@@ -59,7 +59,7 @@ async function apiFetch(url, opts = {}) {
   if (res.status === 401) {
     console.warn("401 → refreshing token...");
     session = await fetchAuthSession({ forceRefresh: true });
-    token = extractToken(session);
+    token = extractAccessToken(session);
     res = await makeRequest(token);
   }
 
