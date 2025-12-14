@@ -462,3 +462,63 @@ input:checked + .slider:before {
   border: none;
   cursor: pointer;
 }
+
+/* ========================= */
+/* SISTEMA UNIFICADO DE BOTONES */
+/* ========================= */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  height: 36px;
+  padding: 0 12px;
+  min-width: 36px;
+
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-primary {
+  background: #1b5784;
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #e5eef6;
+  color: #0f2e4a;
+}
+
+.btn-warning {
+  background: #f9a825;
+  color: #3e2723;
+}
+
+.btn-danger {
+  background: #c62828;
+  color: #fff;
+}
+
+/* Botón solo ícono */
+.btn-icon {
+  width: 36px;
+  padding: 0;
+}
+
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  margin: 24px 0;
+}

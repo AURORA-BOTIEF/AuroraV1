@@ -282,7 +282,7 @@ export default function AdminPage() {
     return actions.map((btn) => (
       <button
         key={btn.action}
-        className={`btn-${btn.variant}`}
+        className={`btn btn-${btn.variant} btn-icon`}
         onClick={() => onAction(user.email, btn.action)}
         title={btn.label}
       >
@@ -295,7 +295,7 @@ export default function AdminPage() {
   const renderEmptyState = (message, onClear) => (
     <div className="empty-state">
       <p>{message}</p>
-      <button className="btn-primary" onClick={onClear}>
+      <button className="btn btn-primary" onClick={onClear}>
         Limpiar búsqueda
       </button>
     </div>
@@ -333,7 +333,7 @@ export default function AdminPage() {
           <div className="filtros-usuarios">
             <input
               type="text"
-              placeholder="Buscar por email ..."
+              placeholder="Buscar por correo ..."
               value={filtroUsuarios}
               onChange={(e) => setFiltroUsuarios(e.target.value)}
             />
@@ -369,6 +369,19 @@ export default function AdminPage() {
               </tbody>
             </table>
           )}
+
+          {cursor && (
+            <div className="load-more-container">
+              <button
+                className="btn btn-secondary"
+                disabled={loadingUsuarios}
+                onClick={() => cargarUsuarios(false)}
+              >
+                {loadingUsuarios ? "Cargando..." : "⬇ Cargar más"}
+              </button>
+            </div>
+          )}
+
         </>
       ) : (
         <>
@@ -400,10 +413,39 @@ export default function AdminPage() {
                       <span className={`badge-estado ${s.estado.toLowerCase()}`}>{estadoLabel[s.estado] || s.estado}</span>
                     </td>
                     <td>
-                      <button onClick={() => accionSolicitud(s.correo, "aprobar")}>✅</button>
-                      <button onClick={() => accionSolicitud(s.correo, "rechazar")}>❌</button>
-                      <button onClick={() => accionSolicitud(s.correo, "revocar")}>🔄</button>
-                      <button onClick={() => accionSolicitud(s.correo, "eliminar")}>🗑️</button>
+                      <div className="action-buttons-group">
+                        <button
+                          className="btn btn-primary btn-icon"
+                          title="Aprobar"
+                          onClick={() => accionSolicitud(s.correo, "aprobar")}
+                        >
+                          ✅
+                        </button>
+
+                        <button
+                          className="btn btn-danger btn-icon"
+                          title="Rechazar"
+                          onClick={() => accionSolicitud(s.correo, "rechazar")}
+                        >
+                          ❌
+                        </button>
+
+                        <button
+                          className="btn btn-secondary btn-icon"
+                          title="Revocar"
+                          onClick={() => accionSolicitud(s.correo, "revocar")}
+                        >
+                          🔄
+                        </button>
+
+                        <button
+                          className="btn btn-danger btn-icon"
+                          title="Eliminar"
+                          onClick={() => accionSolicitud(s.correo, "eliminar")}
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
