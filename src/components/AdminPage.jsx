@@ -102,6 +102,9 @@ export default function AdminPage() {
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
   const [filtroUsuarios, setFiltroUsuarios] = useState(""); // texto de búsqueda
 
+  // Add state for filtering solicitudes
+  const [filtroSolicitudes, setFiltroSolicitudes] = useState("");
+
   // Cargar sesión una sola vez
   useEffect(() => {
     let active = true;
@@ -225,13 +228,17 @@ export default function AdminPage() {
   // Acciones sobre usuarios (cambiar rol / crear solicitud)
   const accionUsuario = async (emailTarget, accion) => {
     // accion: 'solicitar-creador' | 'cancelar-solicitud' | 'dar-admin' | 'quitar-admin' | 'revocar-creador'
+    const esDestructivo = ["revocar-creador", "quitar-admin", "eliminar"];
+    if (esDestructivo.includes(accion)) {
+      if (!window.confirm(`¿Estás seguro de ejecutar: ${accion} a ${emailTarget}?`)) return;
+    }
+
     try {
       await apiFetch(`${API_BASE}/accion_usuarios`, {
         method: "POST",
         body: JSON.stringify({ email: emailTarget, accion }),
       });
       toast.success("Acción aplicada");
-      // refrescar listas
       setCursor(null);
       cargarUsuarios(true);
       cargarSolicitudes();
@@ -246,6 +253,43 @@ export default function AdminPage() {
   if (loadingSession) return <div>Cargando sesión…</div>;
   if (!puedeGestionar) return <div>🚫 No autorizado</div>;
 
+  // Derived state for filtered solicitudes
+  const solicitudesFiltradas = solicitudes.filter((s) =>
+    s.correo.toLowerCase().includes(filtroSolicitudes.toLowerCase())
+  );
+
+  // Add a mapping for estado labels
+  const estadoLabel = {
+    pendiente: "Pendiente",
+    aprobado: "Aprobado",
+    rechazado: "Rechazado",
+    revocado: "Revocado",
+  };
+
+  const renderUserActions = (user, onAction) => {
+    const actions = [];
+
+    if (user.role === "Participante") {
+      actions.push({ label: "Solicitar Creador", icon: "⬆️", action: "solicitar-creador", variant: "primary" });
+      actions.push({ label: "Dar Admin", icon: "🛡️", action: "dar-admin", variant: "warning" });
+    } else if (user.role === "Creador") {
+      actions.push({ label: "Revocar Creador", icon: "🔽", action: "revocar-creador", variant: "danger" });
+      actions.push({ label: "Dar Admin", icon: "🛡️", action: "dar-admin", variant: "warning" });
+    } else if (user.role === "Administrador") {
+      actions.push({ label: "Quitar Admin", icon: "❌", action: "quitar-admin", variant: "danger" });
+    }
+
+    return actions.map((btn) => (
+      <button
+        key={btn.action}
+        className={`btn-${btn.variant}`}
+        onClick={() => onAction(user.email, btn.action)}
+        title={btn.label}
+      >
+        {btn.icon}
+      </button>
+    ));
+  };
 
   return (
     <div className="pagina-admin">
@@ -270,144 +314,91 @@ export default function AdminPage() {
           Solicitudes de rol
         </button>
       </div>
-      
+
       {error && <div className="error-box">{error}</div>}
 
       {tab === "usuarios" ? (
         <>
-          {/* Filtros usuarios */}
           <div className="filtros-usuarios">
             <input
               type="text"
-              placeholder="Buscar por email exacto..."
+              placeholder="Buscar por email ..."
               value={filtroUsuarios}
-              onChange={(e) => {
-                setFiltroUsuarios(e.target.value);
-                if (e.target.value === "") setCursor(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setCursor(null);
-                  cargarUsuarios(true);
-                }
-              }}
+              onChange={(e) => setFiltroUsuarios(e.target.value)}
             />
-            <button onClick={() => {
-              setCursor(null);
-              cargarUsuarios(true);
-            }} disabled={loadingUsuarios}>
-              {loadingUsuarios ? "Buscando…" : "🔍 Buscar"}
-            </button>
           </div>
 
-          <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Rol</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usuarios.map((u) => (
-                <tr key={u.id || u.email}>
-                  <td>{u.email}</td>
-                  <td>{u.role}</td>
-                  <td>{u.status}</td>
-                  <td>
-                    {/* BOTONES RESTAURADOS (Usando u.role y u.email) */}
-                    {u.role === "Participante" && (
-                      <>
-                        <button onClick={() => accionUsuario(u.email, "solicitar-creador")}>
-                          Solicitar Creador
-                        </button>
-                        <button onClick={() => accionUsuario(u.email, "dar-admin")} style={{ marginLeft: 8 }}>
-                          Dar admin
-                        </button>
-                      </>
-                    )}
-
-                    {u.role === "Creador" && (
-                      <>
-                        <button onClick={() => accionUsuario(u.email, "revocar-creador")}>
-                          Revocar creador
-                        </button>
-                        <button onClick={() => accionUsuario(u.email, "dar-admin")} style={{ marginLeft: 8 }}>
-                          Dar admin
-                        </button>
-                      </>
-                    )}
-
-                    {u.role === "Administrador" && (
-                      <button onClick={() => accionUsuario(u.email, "quitar-admin")}>
-                        Quitar admin
-                      </button>
-                    )}
-                  </td>
+          {usuarios.length === 0 && !loadingUsuarios ? (
+            renderEmptyState("No se encontraron usuarios con ese criterio.", () => setFiltroUsuarios("")) 
+          ) : (
+            <table className="tabla-solicitudes">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {cursor && (
-            <div style={{ textAlign: "center", marginTop: 20 }}>
-              <button
-                disabled={loadingUsuarios}
-                onClick={() => cargarUsuarios(false)}
-              >
-                {loadingUsuarios ? "Cargando..." : "⬇ Cargar más"}
-              </button>
-            </div>
+              </thead>
+              <tbody>
+                {usuarios.map((u) => (
+                  <tr key={u.id || u.email}>
+                    <td>{u.email}</td>
+                    <td>
+                      <span className={`badge ${u.role.toLowerCase()}`}>{u.role}</span>
+                    </td>
+                    <td>{u.status}</td>
+                    <td>
+                      <div className="action-buttons-group">
+                        {renderUserActions(u, accionUsuario)}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </>
       ) : (
         <>
-          {/* pestaña Solicitudes (tu lógica actual, apenas ajustada) */}
-          <button onClick={cargarSolicitudes} disabled={loading}>
-            {loading ? "Actualizando…" : "↻ Actualizar"}
-          </button>
+          <div className="filtros-usuarios">
+            <input
+              type="text"
+              placeholder="Buscar por correo..."
+              value={filtroSolicitudes}
+              onChange={(e) => setFiltroSolicitudes(e.target.value)}
+            />
+          </div>
 
-          <table className="tabla-solicitudes" style={{ marginTop: 20 }}>
-            <thead>
-              <tr>
-                <th>Correo</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {solicitudes.map((s) => (
-                <tr key={s.correo}>
-                  <td>{s.correo}</td>
-                  <td>{s.estado}</td>
-                  <td>
-                    <button onClick={() => accionSolicitud(s.correo, "aprobar")}>
-                      Aprobar
-                    </button>
-                    <button
-                      onClick={() => accionSolicitud(s.correo, "rechazar")}
-                      style={{ marginLeft: 8 }}
-                    >
-                      Rechazar
-                    </button>
-                    <button
-                      onClick={() => accionSolicitud(s.correo, "revocar")}
-                      style={{ marginLeft: 8 }}
-                    >
-                      Revocar
-                    </button>
-                    <button
-                      onClick={() => accionSolicitud(s.correo, "eliminar")}
-                      style={{ marginLeft: 8 }}
-                    >
-                      Eliminar
-                    </button>
-                  </td>
+          {solicitudesFiltradas.length === 0 ? (
+            renderEmptyState("No se encontraron solicitudes con ese criterio.", () => setFiltroSolicitudes(""))
+          ) : (
+            <table className="tabla-solicitudes">
+              <thead>
+                <tr>
+                  <th>Correo</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {solicitudesFiltradas.map((s) => (
+                  <tr key={s.correo}>
+                    <td>{s.correo}</td>
+                    <td>
+                      <span className={`badge ${s.estado.toLowerCase()}`}>{estadoLabel[s.estado] || s.estado}</span>
+                    </td>
+                    <td>
+                      <button onClick={() => accionSolicitud(s.correo, "aprobar")}>✅</button>
+                      <button onClick={() => accionSolicitud(s.correo, "rechazar")}>❌</button>
+                      <button onClick={() => accionSolicitud(s.correo, "revocar")}>🔄</button>
+                      <button onClick={() => accionSolicitud(s.correo, "eliminar")}>🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </>
       )}
 
