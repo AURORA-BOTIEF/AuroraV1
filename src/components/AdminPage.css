@@ -59,7 +59,7 @@
 /* ========================= */
 /* FILTROS */
 /* ========================= */
-.pagina-admin .filtros {
+.pagina-admin .filtros-usuarios {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -120,7 +120,7 @@
 /* ========================= */
 /* TABLA SOLICITUDES */
 /* ========================= */
-.tabla-solicitudes table {
+.tabla-solicitudes {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
@@ -156,7 +156,7 @@
   white-space: nowrap;
 }
 
-/* Badges */
+/* Badges de estado */
 .badge-estado {
   display: inline-block;
   padding: 6px 10px;
@@ -164,22 +164,33 @@
   font-size: 0.875rem;
   font-weight: 700;
   border: 1px solid transparent;
+  text-transform: capitalize;
 }
+
 .badge-estado.pendiente {
   background: #fff4e5;
   color: #8a6d3b;
   border-color: #f7d7a3;
 }
+
 .badge-estado.aprobado {
   background: #e9f7ef;
   color: #2e7d32;
   border-color: #b6e1c3;
 }
+
 .badge-estado.rechazado {
   background: #fdecea;
   color: #c62828;
   border-color: #f5b7b1;
 }
+
+.badge-estado.revocado {
+  background: #eef2f7;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
 
 /* Chip protegido */
 .chip-protegido {
@@ -430,4 +441,24 @@ input:checked + .slider:before {
 .action-buttons-group {
   display: flex;
   gap: 8px;
+}
+
+.empty-state {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  text-align: center;
+  color: #475569;
+}
+
+.empty-state button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: #1b5784;
+  color: white;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
 }

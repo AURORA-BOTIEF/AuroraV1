@@ -291,6 +291,17 @@ export default function AdminPage() {
     ));
   };
 
+
+  const renderEmptyState = (message, onClear) => (
+    <div className="empty-state">
+      <p>{message}</p>
+      <button className="btn-primary" onClick={onClear}>
+        Limpiar búsqueda
+      </button>
+    </div>
+  );
+
+
   return (
     <div className="pagina-admin">
       <h1>Panel de Administración</h1>
@@ -386,7 +397,7 @@ export default function AdminPage() {
                   <tr key={s.correo}>
                     <td>{s.correo}</td>
                     <td>
-                      <span className={`badge ${s.estado.toLowerCase()}`}>{estadoLabel[s.estado] || s.estado}</span>
+                      <span className={`badge-estado ${s.estado.toLowerCase()}`}>{estadoLabel[s.estado] || s.estado}</span>
                     </td>
                     <td>
                       <button onClick={() => accionSolicitud(s.correo, "aprobar")}>✅</button>
