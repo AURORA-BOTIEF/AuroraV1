@@ -103,9 +103,6 @@ export default function AdminPage() {
   const [filtroUsuarios, setFiltroUsuarios] = useState("");
   const [filtroRol, setFiltroRol] = useState("");
 
-  // Sorted data
-  const usuariosOrdenados = sortData(usuariosFiltrados);
-  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
   
   // Add state for filtering solicitudes
   const [filtroSolicitudes, setFiltroSolicitudes] = useState("");
@@ -317,6 +314,10 @@ export default function AdminPage() {
       </button>
     </div>
   );
+
+  // Sorted data
+  const usuariosOrdenados = sortData(usuariosFiltrados);
+  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
 
   const sortData = (data) => {
     if (!sortConfig.key) return data;
