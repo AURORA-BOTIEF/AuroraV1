@@ -104,6 +104,9 @@ export default function AdminPage() {
 
   // Add state for filtering solicitudes
   const [filtroSolicitudes, setFiltroSolicitudes] = useState("");
+  // State for sorting
+  const [sortConfig, setSortConfig] = useState({  key: null,  direction: "asc",});
+
 
   // Cargar sesión una sola vez
   useEffect(() => {
@@ -173,12 +176,7 @@ export default function AdminPage() {
     try {
       const params = new URLSearchParams();
       params.set("limit", PAGE_SIZE);
-
-      // Filtro por email
-      if (filtroUsuarios.trim()) {
-        params.set("email", filtroUsuarios.trim());
-      }
-
+    
       // Si no es reset, enviar el cursor
       if (!reset && cursor) {
         params.set("cursor", cursor);
@@ -257,6 +255,20 @@ export default function AdminPage() {
   const solicitudesFiltradas = solicitudes.filter((s) =>
     s.correo.toLowerCase().includes(filtroSolicitudes.toLowerCase())
   );
+  
+  const usuariosFiltrados = usuarios.filter((u) => {
+    const matchEmail = u.email
+      .toLowerCase()
+      .includes(filtroUsuarios.toLowerCase());
+
+    const matchRol = filtroRol
+      ? u.role === filtroRol
+      : true;
+
+    return matchEmail && matchRol;
+  });
+
+
 
   // Add a mapping for estado labels
   const estadoLabel = {
@@ -301,6 +313,35 @@ export default function AdminPage() {
     </div>
   );
 
+  const sortData = (data) => {
+    if (!sortConfig.key) return data;
+
+    return [...data].sort((a, b) => {
+      const aVal = a[sortConfig.key] ?? "";
+      const bVal = b[sortConfig.key] ?? "";
+
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const usuariosOrdenados = sortData(usuariosFiltrados);
+  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
+  const [filtroRol, setFiltroRol] = useState("");
+
+  const handleSort = (key) => {
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        return {
+          key,
+          direction: prev.direction === "asc" ? "desc" : "asc",
+        };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
 
   return (
     <div className="pagina-admin">
@@ -333,26 +374,36 @@ export default function AdminPage() {
           <div className="filtros-usuarios">
             <input
               type="text"
-              placeholder="Buscar por correo ..."
+              placeholder="Buscar por correo..."
               value={filtroUsuarios}
               onChange={(e) => setFiltroUsuarios(e.target.value)}
             />
+
+            <select
+              value={filtroRol}
+              onChange={(e) => setFiltroRol(e.target.value)}
+            >
+              <option value="">Todos los roles</option>
+              <option value="Participante">Participante</option>
+              <option value="Creador">Creador</option>
+              <option value="Administrador">Administrador</option>
+            </select>
           </div>
 
-          {usuarios.length === 0 && !loadingUsuarios ? (
+          {usuariosFiltrados.length === 0 && !loadingUsuarios ? (
             renderEmptyState("No se encontraron usuarios con ese criterio.", () => setFiltroUsuarios("")) 
           ) : (
             <table className="tabla-solicitudes">
               <thead>
                 <tr>
-                  <th>Email</th>
-                  <th>Rol</th>
-                  <th>Estado</th>
+                  <th onClick={() => handleSort("email")}>Email</th>
+                  <th onClick={() => handleSort("role")}>Rol</th>
+                  <th onClick={() => handleSort("status")}>Estado</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {usuarios.map((u) => (
+                {usuariosOrdenados.map((u) => (
                   <tr key={u.id || u.email}>
                     <td>{u.email}</td>
                     <td>
@@ -400,13 +451,13 @@ export default function AdminPage() {
             <table className="tabla-solicitudes">
               <thead>
                 <tr>
-                  <th>Correo</th>
-                  <th>Estado</th>
+                  <th onClick={() => handleSort("correo")}>Correo</th>
+                  <th onClick={() => handleSort("estado")}>Estado</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {solicitudesFiltradas.map((s) => (
+                {solicitudesOrdenadas.map((s) => (
                   <tr key={s.correo}>
                     <td>{s.correo}</td>
                     <td>
