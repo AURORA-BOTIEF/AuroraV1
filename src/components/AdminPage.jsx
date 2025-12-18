@@ -100,8 +100,13 @@ export default function AdminPage() {
   const PAGE_SIZE = 20;
 
   const [loadingUsuarios, setLoadingUsuarios] = useState(false);
-  const [filtroUsuarios, setFiltroUsuarios] = useState(""); // texto de búsqueda
+  const [filtroUsuarios, setFiltroUsuarios] = useState("");
+  const [filtroRol, setFiltroRol] = useState("");
 
+  // Sorted data
+  const usuariosOrdenados = sortData(usuariosFiltrados);
+  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
+  
   // Add state for filtering solicitudes
   const [filtroSolicitudes, setFiltroSolicitudes] = useState("");
   // State for sorting
@@ -325,10 +330,6 @@ export default function AdminPage() {
       return 0;
     });
   };
-
-  const usuariosOrdenados = sortData(usuariosFiltrados);
-  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
-  const [filtroRol, setFiltroRol] = useState("");
 
   const handleSort = (key) => {
     setSortConfig((prev) => {
