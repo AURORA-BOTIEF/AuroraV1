@@ -248,7 +248,7 @@ export default function AdminPage() {
     try {
       await apiFetch(`${API_BASE}/accion_usuarios`, {
         method: "POST",
-        body: JSON.stringify({ email: emailTarget, accion }),
+        body: JSON.stringify({ correo: emailTarget, accion }),
       });
       toast.success("Acción aplicada");
       setCursor(null);
