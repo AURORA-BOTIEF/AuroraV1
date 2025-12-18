@@ -121,11 +121,7 @@ export default function AdminPage() {
       return 0;
     });
   };
-
-  // Sorted data
-  const usuariosOrdenados = sortData(usuariosFiltrados);
-  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
-
+  
   // Cargar sesión una sola vez
   useEffect(() => {
     let active = true;
@@ -286,7 +282,9 @@ export default function AdminPage() {
     return matchEmail && matchRol;
   });
 
-
+  // Sorted data
+  const usuariosOrdenados = sortData(usuariosFiltrados);
+  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
 
   // Add a mapping for estado labels
   const estadoLabel = {
