@@ -109,6 +109,22 @@ export default function AdminPage() {
   // State for sorting
   const [sortConfig, setSortConfig] = useState({  key: null,  direction: "asc",});
 
+  const sortData = (data) => {
+    if (!sortConfig.key) return data;
+
+    return [...data].sort((a, b) => {
+      const aVal = a[sortConfig.key] ?? "";
+      const bVal = b[sortConfig.key] ?? "";
+
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+  };
+
+  // Sorted data
+  const usuariosOrdenados = sortData(usuariosFiltrados);
+  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
 
   // Cargar sesión una sola vez
   useEffect(() => {
@@ -315,22 +331,7 @@ export default function AdminPage() {
     </div>
   );
 
-  // Sorted data
-  const usuariosOrdenados = sortData(usuariosFiltrados);
-  const solicitudesOrdenadas = sortData(solicitudesFiltradas);
-
-  const sortData = (data) => {
-    if (!sortConfig.key) return data;
-
-    return [...data].sort((a, b) => {
-      const aVal = a[sortConfig.key] ?? "";
-      const bVal = b[sortConfig.key] ?? "";
-
-      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
-    });
-  };
+  
 
   const handleSort = (key) => {
     setSortConfig((prev) => {
