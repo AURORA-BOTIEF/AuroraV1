@@ -231,9 +231,15 @@ export default function AdminPage() {
         body: JSON.stringify({ correo, accion }),
       });
 
+      toast.success(`Solicitud ${accion === "aprobar" ? "aprobada" : "rechazada"}`);
+
+      // Refrescar listas
       cargarSolicitudes();
+      cargarUsuarios(true);
+
     } catch (err) {
-      setError(err.body?.message || err.message || "Error en la acción");
+      toast.error(err.body?.message ||"Error en la acción");
+      setError(err.body?.message || err.message);
     }
   };
 
@@ -266,8 +272,10 @@ export default function AdminPage() {
   if (!puedeGestionar) return <div>🚫 No autorizado</div>;
 
   // Derived state for filtered solicitudes
-  const solicitudesFiltradas = solicitudes.filter((s) =>
-    s.correo.toLowerCase().includes(filtroSolicitudes.toLowerCase())
+  const solicitudesFiltradas = solicitudes
+    .filter((s) => s.estado === "pendiente")
+    .filter((s) =>
+      s.correo.toLowerCase().includes(filtroSolicitudes.toLowerCase())
   );
   
   const usuariosFiltrados = usuarios.filter((u) => {
@@ -290,8 +298,7 @@ export default function AdminPage() {
   const estadoLabel = {
     pendiente: "Pendiente",
     aprobado: "Aprobado",
-    rechazado: "Rechazado",
-    revocado: "Revocado",
+    rechazado: "Rechazado",    
   };
 
   const renderUserActions = (user, onAction) => {
@@ -480,23 +487,7 @@ export default function AdminPage() {
                           onClick={() => accionSolicitud(s.correo, "rechazar")}
                         >
                           ❌
-                        </button>
-
-                        <button
-                          className="btn btn-secondary btn-icon"
-                          title="Revocar"
-                          onClick={() => accionSolicitud(s.correo, "revocar")}
-                        >
-                          🔄
-                        </button>
-
-                        <button
-                          className="btn btn-danger btn-icon"
-                          title="Eliminar"
-                          onClick={() => accionSolicitud(s.correo, "eliminar")}
-                        >
-                          🗑️
-                        </button>
+                        </button>                        
                       </div>
                     </td>
                   </tr>
