@@ -10,7 +10,21 @@ const API_BASE = 'https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2';
 
 const DOMINIOS_PERMITIDOS = new Set([
   'netec.com', 'netec.com.mx', 'netec.com.co',
-  'netec.com.pe', 'netec.com.cl', 'netec.com.es', 'netec.com.pr'
+  'netec.com.pe', 'netec.com.cl', 'netec.com.es', 'netec.com.pr',
+
+   // Google
+  'gmail.com', 'googlemail.com',
+
+  // Microsoft
+  'hotmail.com', 'hotmail.com.mx',
+  'outlook.com', 'outlook.es', 'outlook.com.mx',
+  'live.com', 'live.com.mx', 'msn.com',
+
+  // Yahoo
+  'yahoo.com', 'yahoo.com.mx', 'yahoo.es',
+
+  // Apple
+  'icloud.com', 'me.com', 'mac.com',
 ]);
 
 export default function Sidebar({ email = '', nombre, grupo = '', token }) {
