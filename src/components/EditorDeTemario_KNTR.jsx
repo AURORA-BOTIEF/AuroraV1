@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
-import { downloadExcelTemario } from "../utils/downloadExcel";
-// import { downloadExcelTemario } from "../utils/downloadExcelcopia"; // carga de nuevo formato de Excel
+// import { downloadExcelTemario } from "../utils/downloadExcel";
+import { downloadExcelTemario } from "../utils/downloadExcelcopia"; // Prueba de nuevo temario en Excel
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_KNTR.css";
