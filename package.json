@@ -22,7 +22,10 @@
     "@lexical/rich-text": "0.36.2",
     "aws-amplify": "^6.15.7",
     "buffer": "^6.0.3",
+    "cors": "^2.8.5",
     "dompurify": "^3.2.6",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
     "html2pdf.js": "^0.12.0",
     "js-yaml": "^4.1.1",
     "jspdf": "^3.0.3",
@@ -49,5 +52,23 @@
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
     "vite": "^6.3.5"
-  }
+  },
+  "description": "```bash\r git clone https://github.com/tuusuario/aurora.git\r cd aurora\r npm install\r cp .env.example .env\r ```",
+  "main": "aws-exports.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavidRogelioMC/AuroraV1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/DavidRogelioMC/AuroraV1/issues"
+  },
+  "homepage": "https://github.com/DavidRogelioMC/AuroraV1#readme"
 }
