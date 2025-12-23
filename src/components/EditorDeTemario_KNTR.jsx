@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
 // import { downloadExcelTemario } from "../utils/downloadExcel";
-// import { downloadExcelTemario } from "../utils/downloadExcelcopia"; // Prueba de nuevo temario en Excel
+import { downloadExcelTemario } from "../utils/downloadExcelcopia"; // Prueba de nuevo temario en Excel
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_KNTR.css";
@@ -451,7 +451,6 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
     }
   };
 
-  /*
   const exportarExcel = () => {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
       setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
@@ -459,26 +458,6 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
     }
     downloadExcelTemario(temario);
     setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
-  };
-
-  */
-
-  const exportarExcel = async () => {
-    const response = await fetch("http://localhost:3001/export/excel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(temario),
-    });
-
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Temario_${temario.nombre_curso}.xlsx`;
-    a.click();
-
-    window.URL.revokeObjectURL(url);
   };
 
 
