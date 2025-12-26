@@ -7,16 +7,11 @@ import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
 import { Plus, Trash2 } from "lucide-react";
 
-/* =========================
-   Helpers
-========================= */
-
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
-  if (minutos === null || minutos === undefined) return "0 min";
-  const m = Math.max(0, parseInt(minutos, 10) || 0);
-  const horas = Math.floor(m / 60);
-  const mins = m % 60;
+  if (!minutos || minutos < 0) return "0 min";
+  const horas = Math.floor(minutos / 60);
+  const mins = minutos % 60;
   if (horas === 0) return `${mins} min`;
   if (mins === 0) return `${horas} hr`;
   return `${horas} hr ${mins} min`;
@@ -41,7 +36,24 @@ const slugify = (str = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
 
-const fetchJsonSafe = async (response) => {
+// ✅ token robusto
+const getAuthToken = () => {
+  return (
+    localStorage.getItem("id_token") ||
+    sessionStorage.getItem("id_token") ||
+    ""
+  );
+};
+
+// ✅ headers robustos (Bearer + fallback sin Bearer)
+const buildAuthHeaders = (token) => {
+  const h1 = { Authorization: `Bearer ${token}` };
+  const h2 = { Authorization: token };
+  return { h1, h2 };
+};
+
+// ✅ parse seguro (evita romper con 401/HTML)
+const safeJson = async (response) => {
   const text = await response.text();
   try {
     return text ? JSON.parse(text) : {};
@@ -50,77 +62,22 @@ const fetchJsonSafe = async (response) => {
   }
 };
 
-// ✅ Token robusto: localStorage / sessionStorage / Amplify
-const getAuthToken = async () => {
-  const t =
-    localStorage.getItem("id_token") ||
-    sessionStorage.getItem("id_token") ||
-    "";
-
-  if (t) return t;
-
-  try {
-    const session = await fetchAuthSession();
-    const idt = session?.tokens?.idToken?.toString?.();
-    return idt || "";
-  } catch {
-    return "";
-  }
-};
-
-// ✅ Fetch con auth + fallback sin Bearer
-const fetchWithAuth = async (url, { method = "GET", body = null, headers = {} } = {}) => {
-  const token = await getAuthToken();
-  if (!token) {
-    return {
-      ok: false,
-      status: 401,
-      data: { error: "No hay token (id_token). Inicia sesión de nuevo." },
-    };
-  }
-
-  const baseHeaders = {
-    "Content-Type": "application/json",
-    ...headers,
-  };
-
-  // 1) Bearer
-  let resp = await fetch(url, {
-    method,
-    headers: { ...baseHeaders, Authorization: `Bearer ${token}` },
-    body: body ? JSON.stringify(body) : null,
-  });
-
-  // 2) Fallback sin Bearer
-  if (resp.status === 401 || resp.status === 403) {
-    resp = await fetch(url, {
-      method,
-      headers: { ...baseHeaders, Authorization: token },
-      body: body ? JSON.stringify(body) : null,
-    });
-  }
-
-  const data = await fetchJsonSafe(resp);
-  return { ok: resp.ok, status: resp.status, data };
-};
-
-/* =========================
-   Component
-========================= */
-
 function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const [temario, setTemario] = useState(() => ({
     ...temarioInicial,
-    temario: Array.isArray(temarioInicial?.temario) ? temarioInicial.temario : [],
+    temario: Array.isArray(temarioInicial?.temario)
+      ? temarioInicial.temario
+      : [],
   }));
 
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
+
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
-  // ✅ Modal versiones
+  // ✅ NUEVO: Modal Versiones
   const [modalVersiones, setModalVersiones] = useState(false);
   const [cargandoVersiones, setCargandoVersiones] = useState(false);
   const [versiones, setVersiones] = useState([]);
@@ -144,7 +101,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   useEffect(() => {
     setTemario({
       ...temarioInicial,
-      temario: Array.isArray(temarioInicial?.temario) ? temarioInicial.temario : [],
+      temario: Array.isArray(temarioInicial?.temario)
+        ? temarioInicial.temario
+        : [],
     });
   }, [temarioInicial]);
 
@@ -180,7 +139,10 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       } else {
         nuevo.temario[capIndex].tiempo_capitulo_min = (
           nuevo.temario[capIndex].subcapitulos || []
-        ).reduce((sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0), 0);
+        ).reduce(
+          (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+          0
+        );
       }
     } else {
       if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
@@ -188,20 +150,27 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
       if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
         nuevo.temario[capIndex].subcapitulos[subIndex] = {
-          nombre: String(nuevo.temario[capIndex].subcapitulos[subIndex]) || "Tema",
+          nombre:
+            String(nuevo.temario[capIndex].subcapitulos[subIndex]) || "Tema",
         };
       }
 
       if (field.includes("tiempo") || field === "sesion") {
         const parsed = parseInt(value, 10) || 0;
-        nuevo.temario[capIndex].subcapitulos[subIndex][field] = Math.max(0, parsed);
+        nuevo.temario[capIndex].subcapitulos[subIndex][field] = Math.max(
+          0,
+          parsed
+        );
       } else {
         nuevo.temario[capIndex].subcapitulos[subIndex][field] = value;
       }
 
       nuevo.temario[capIndex].tiempo_capitulo_min = (
         nuevo.temario[capIndex].subcapitulos || []
-      ).reduce((sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0), 0);
+      ).reduce(
+        (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min) || 0),
+        0
+      );
     }
 
     setTemario(nuevo);
@@ -215,14 +184,20 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       capitulo: `Nuevo capítulo ${nuevo.temario.length + 1}`,
       tiempo_capitulo_min: 0,
       objetivos_capitulo: "",
-      subcapitulos: [{ nombre: "Nuevo tema 1", tiempo_subcapitulo_min: 30, sesion: 1 }],
+      subcapitulos: [
+        { nombre: "Nuevo tema 1", tiempo_subcapitulo_min: 30, sesion: 1 },
+      ],
     });
     setTemario(nuevo);
   };
 
   // ===== ELIMINAR CAPÍTULO =====
   const eliminarCapitulo = (capIndex) => {
-    if (!window.confirm(`¿Seguro que deseas eliminar el capítulo ${capIndex + 1} y todos sus temas?`))
+    if (
+      !window.confirm(
+        `¿Seguro que deseas eliminar el capítulo ${capIndex + 1} y todos sus temas?`
+      )
+    )
       return;
 
     const nuevo = JSON.parse(JSON.stringify(temario));
@@ -263,7 +238,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
     const horas = temario?.horas_por_sesion || 2;
     const minutosTotales = horas * 60;
-
     const totalTemas = temario.temario.reduce(
       (acc, cap) => acc + (cap.subcapitulos?.length || 0),
       0
@@ -272,7 +246,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
     const minutosPorTema = Math.floor(minutosTotales / totalTemas);
     const nuevo = JSON.parse(JSON.stringify(temario));
-
     nuevo.temario.forEach((cap) => {
       if (!Array.isArray(cap.subcapitulos)) cap.subcapitulos = [];
       cap.subcapitulos.forEach((sub) => {
@@ -288,7 +261,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
 
-  // ===== GUARDAR VERSIÓN =====
+  // ✅ GUARDAR (POST) — Combina tu lógica con auth robusto
   const handleSaveClick = async () => {
     setGuardando(true);
     setMensaje({ tipo: "", texto: "" });
@@ -296,6 +269,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
     try {
+      const token = getAuthToken();
+      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
+
       const bodyData = {
         cursoId:
           temario?.nombre_curso?.trim() ||
@@ -311,13 +287,34 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         fecha_creacion: new Date().toISOString(),
       };
 
-      const { ok, status, data } = await fetchWithAuth(API_VERSIONES, {
+      const { h1, h2 } = buildAuthHeaders(token);
+
+      // 1) Bearer
+      let response = await fetch(API_VERSIONES, {
         method: "POST",
-        body: bodyData,
+        headers: {
+          "Content-Type": "application/json",
+          ...h1,
+        },
+        body: JSON.stringify(bodyData),
       });
 
-      if (!ok || data?.success === false) {
-        throw new Error(data?.error || data?.message || `HTTP ${status}`);
+      // 2) fallback sin Bearer
+      if (response.status === 401 || response.status === 403) {
+        response = await fetch(API_VERSIONES, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...h2,
+          },
+          body: JSON.stringify(bodyData),
+        });
+      }
+
+      const data = await safeJson(response);
+
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
       }
 
       setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
@@ -333,68 +330,86 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     }
   };
 
-  /* =========================
-     ✅ VER VERSIONES (FIX)
-  ========================= */
-
-  const abrirVersiones = async () => {
+  // ✅ VER VERSIONES (GET) — Auth robusto + sort seguro
+  const verVersionesGuardadas = async () => {
     setModalVersiones(true);
     setCargandoVersiones(true);
+    setVersiones([]);
     setMensaje({ tipo: "", texto: "" });
 
     try {
-      const { ok, status, data } = await fetchWithAuth(API_VERSIONES, { method: "GET" });
+      const token = getAuthToken();
+      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
 
-      if (!ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${status}`);
+      const { h1, h2 } = buildAuthHeaders(token);
+
+      // 1) Bearer
+      let response = await fetch(API_VERSIONES, {
+        method: "GET",
+        headers: { ...h1 },
+      });
+
+      // 2) fallback sin Bearer
+      if (response.status === 401 || response.status === 403) {
+        response = await fetch(API_VERSIONES, {
+          method: "GET",
+          headers: { ...h2 },
+        });
       }
 
-      // ✅ Normaliza: backend puede devolver array directo o dentro de propiedades
-      const arr =
-        Array.isArray(data) ? data
-        : Array.isArray(data?.items) ? data.items
-        : Array.isArray(data?.versiones) ? data.versiones
-        : Array.isArray(data?.data) ? data.data
-        : [];
+      const data = await safeJson(response);
 
-      // ✅ Orden seguro
-      const ordenadas = [...arr].sort(
-        (a, b) => new Date(b.fecha_creacion || 0) - new Date(a.fecha_creacion || 0)
-      );
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+      }
+
+      // Normaliza posibles formas de respuesta
+      const arr =
+        Array.isArray(data) ? data :
+        Array.isArray(data?.items) ? data.items :
+        Array.isArray(data?.versiones) ? data.versiones :
+        Array.isArray(data?.data) ? data.data :
+        [];
+
+      // sort seguro
+      const ordenadas = Array.isArray(arr)
+        ? [...arr].sort(
+            (a, b) =>
+              new Date(b?.fecha_creacion || 0) - new Date(a?.fecha_creacion || 0)
+          )
+        : [];
 
       setVersiones(ordenadas);
     } catch (err) {
       console.error("Error al obtener versiones:", err);
-      setVersiones([]);
       setMensaje({
         tipo: "error",
         texto: `❌ Error al obtener versiones: ${err?.message || "ver consola"}`,
       });
+      setVersiones([]);
     } finally {
       setCargandoVersiones(false);
     }
   };
 
-  const cargarVersion = (v) => {
-    // Si tu backend guarda "contenido", úsalo; si guarda directo el temario, fallback
-    const contenido = v?.contenido || v?.temario || v;
+  const cargarVersionEnEditor = (v) => {
+    const contenido = v?.contenido || v;
     if (!contenido || typeof contenido !== "object") {
       setMensaje({ tipo: "error", texto: "❌ Versión inválida (sin contenido)" });
       return;
     }
+
     setTemario({
       ...contenido,
       temario: Array.isArray(contenido.temario) ? contenido.temario : [],
     });
+
     setModalVersiones(false);
     setMensaje({ tipo: "ok", texto: "✅ Versión cargada en el editor" });
     setTimeout(() => setMensaje({ tipo: "", texto: "" }), 3000);
   };
 
-  /* =========================
-     EXPORTAR
-  ========================= */
-
+  // ✅ EXPORTAR PDF (con tus mejoras visuales)
   const exportarPDFLocal = async () => {
     try {
       if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
@@ -435,6 +450,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
       y += 20;
 
+      // ✅ Duración alineada a la derecha (tu mejora)
       doc.setFont("helvetica", "bolditalic");
       doc.setFontSize(12);
       doc.setTextColor(azul);
@@ -452,7 +468,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       secciones.forEach((s) => {
         if (!s.texto) return;
         addPageIfNeeded(60);
-
         doc.setFont("helvetica", "bold");
         doc.setFontSize(14);
         doc.setTextColor(azul);
@@ -472,6 +487,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         y += 10;
       });
 
+      // ✅ divisor (tu mejora)
       y += 10;
       doc.setDrawColor(150, 150, 150);
       doc.setLineWidth(0.8);
@@ -487,7 +503,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
       temario.temario.forEach((cap, i) => {
         addPageIfNeeded(60);
-
         doc.setFont("helvetica", "bold");
         doc.setFontSize(13);
         doc.setTextColor(azul);
@@ -512,7 +527,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           const objetivos = Array.isArray(cap.objetivos_capitulo)
             ? cap.objetivos_capitulo.join(" ")
             : cap.objetivos_capitulo;
-
           const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
           lines.forEach((line) => {
             addPageIfNeeded(12);
@@ -536,7 +550,8 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           subLineas.forEach((linea, idx) => {
             addPageIfNeeded(12);
             doc.text(linea, margin.left + 25, y);
-            if (idx === 0) doc.text(meta, pageWidth - margin.right, y, { align: "right" });
+            if (idx === 0)
+              doc.text(meta, pageWidth - margin.right, y, { align: "right" });
             y += 12;
           });
         });
@@ -585,10 +600,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
 
-  /* =========================
-     RENDER
-  ========================= */
-
+  // === RENDER ===
   return (
     <div className="temario-editor-container">
       {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
@@ -610,7 +622,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         value={temario.descripcion_general || ""}
         onChange={(e) => setTemario({ ...temario, descripcion_general: e.target.value })}
         className="textarea-objetivos-capitulo"
-        placeholder="Ej: Curso introductorio a Scrum..."
+        placeholder="Ej: Curso introductorio..."
       />
 
       <label>Audiencia</label>
@@ -618,7 +630,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         value={temario.audiencia || ""}
         onChange={(e) => setTemario({ ...temario, audiencia: e.target.value })}
         className="textarea-objetivos-capitulo"
-        placeholder="Ej: Desarrolladores, líderes de proyecto..."
+        placeholder="Ej: Desarrolladores..."
       />
 
       <label>Prerrequisitos</label>
@@ -658,7 +670,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
               type="number"
               min="0"
               value={cap.tiempo_capitulo_min || 0}
-              onChange={(e) => handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)}
+              onChange={(e) =>
+                handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)
+              }
               className="input-duracion"
               style={{ width: "80px", textAlign: "center" }}
             />
@@ -758,8 +772,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           {guardando ? "Guardando..." : "Guardar Versión"}
         </button>
 
-        {/* ✅ Botón FIX para versiones */}
-        <button className="btn-secundario" onClick={abrirVersiones}>
+        <button className="btn-secundario" onClick={verVersionesGuardadas}>
           Ver Versiones Guardadas
         </button>
 
@@ -768,9 +781,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         </button>
       </div>
 
-      {/* =========================
-          MODAL: Versiones
-      ========================= */}
+      {/* ✅ MODAL VERSIONES */}
       {modalVersiones && (
         <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -790,7 +801,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {versiones.map((v, idx) => (
                     <div
-                      key={v?.id || v?._id || idx}
+                      key={v?.id || v?._id || v?.cursoId || idx}
                       style={{
                         border: "1px solid #ddd",
                         borderRadius: 10,
@@ -800,6 +811,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                       <div style={{ fontWeight: 700 }}>
                         {v?.nombre_curso || v?.contenido?.nombre_curso || "Sin nombre"}
                       </div>
+
                       <div style={{ fontSize: 12, opacity: 0.8 }}>
                         {v?.fecha_creacion
                           ? new Date(v.fecha_creacion).toLocaleString()
@@ -807,12 +819,13 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                         {" • "}
                         {v?.autor || v?.contenido?.autor || "Sin autor"}
                       </div>
+
                       <div style={{ marginTop: 6, fontSize: 13 }}>
                         {v?.nota_version || "Sin nota"}
                       </div>
 
                       <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-                        <button className="btn-guardar" onClick={() => cargarVersion(v)}>
+                        <button className="btn-guardar" onClick={() => cargarVersionEnEditor(v)}>
                           Cargar en editor
                         </button>
                       </div>
@@ -831,9 +844,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         </div>
       )}
 
-      {/* =========================
-          MODAL: Exportar
-      ========================= */}
+      {/* MODAL EXPORTAR */}
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -843,7 +854,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                 ✕
               </button>
             </div>
-
             <div className="modal-body">
               <label>
                 <input
@@ -862,7 +872,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
                 Excel
               </label>
             </div>
-
             <div className="modal-footer">
               <button
                 onClick={() => {
@@ -881,9 +890,8 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   );
 }
 
-/* ===================================================
-   ✅ Exportar función exportarPDF para otros módulos
-=================================================== */
+// ✅ Exportar función exportarPDF para que GeneradorTemarios pueda usar la misma lógica
+// (se deja como la tenías; no afecta a las versiones)
 export const exportarPDF = async (temarioData) => {
   if (!temarioData || !Array.isArray(temarioData.temario)) {
     alert("No hay contenido válido para exportar.");
@@ -903,7 +911,6 @@ export const exportarPDF = async (temarioData) => {
     });
   };
 
-  // ⚠️ Nota: esta ruta puede fallar en producción. Si te pasa, lo migramos a imports.
   const encabezado = await toDataURL2("/src/assets/encabezado.png");
   const pie = await toDataURL2("/src/assets/pie_de_pagina.png");
 
@@ -935,7 +942,11 @@ export const exportarPDF = async (temarioData) => {
   });
 
   y += 20;
-  doc.text(`Duración total del curso: ${temarioData.horas_total_curso || 0} horas`, margin.left, y);
+  doc.text(
+    `Duración total del curso: ${temarioData.horas_total_curso || 0} horas`,
+    margin.left,
+    y
+  );
   y += 14;
 
   const secciones = [
@@ -964,6 +975,7 @@ export const exportarPDF = async (temarioData) => {
       doc.text(linea, margin.left, y, { align: "justify" });
       y += 14;
     });
+
     y += 10;
   });
 
@@ -1051,10 +1063,13 @@ export const exportarPDF = async (temarioData) => {
       margin.left,
       pageHeight - 70
     );
-    doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, { align: "center" });
+    doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
+      align: "center",
+    });
   }
 
   doc.save(`Temario_${temarioData.nombre_curso || "curso"}.pdf`);
 };
 
 export default EditorDeTemario;
+
