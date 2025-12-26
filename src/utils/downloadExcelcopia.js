@@ -190,7 +190,8 @@ export async function downloadExcelTemario(temario) {
   const filename = `${filenameBase}_${timestamp}`;
 
   try {
-    const XLSX = (await import("xlsx")).default;
+    const mod = await import("xlsx");
+    const XLSX = mod.default ?? mod;
     const { rows, cellStyles } = toRowsFromTemario(temario);
     
     // Crear worksheet
