@@ -1072,4 +1072,3 @@ export const exportarPDF = async (temarioData) => {
 };
 
 export default EditorDeTemario;
-
