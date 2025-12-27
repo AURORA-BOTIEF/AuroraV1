@@ -5,7 +5,7 @@ import "./GeneradorTemarios.css";
 import { exportarPDF } from "./EditorDeTemario_Practico";
 import { useNavigate } from "react-router-dom";
 
-// Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
+// Endpoints
 const generarApiUrl =
   "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
 
@@ -26,6 +26,7 @@ const makeCursoId = (tema = "") =>
     .replace(/[^\w]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
+// Lista de asesores
 const asesoresComerciales = [
   "Alejandra Galvez",
   "Ana Aragón",
@@ -59,14 +60,23 @@ function GeneradorTemariosPracticos() {
   });
 
   const navigate = useNavigate();
+
   const [userEmail, setUserEmail] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
   const [error, setError] = useState("");
+
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
-  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+
+  // ✅ ahora incluye filtro por nota
+  const [filtros, setFiltros] = useState({
+    curso: "",
+    asesor: "",
+    tecnologia: "",
+    nota: "",
+  });
 
   useEffect(() => {
     const getUser = async () => {
@@ -117,8 +127,6 @@ function GeneradorTemariosPracticos() {
         horas_totales: horasTotales,
       };
 
-      console.log("Enviando payload:", payload);
-
       const token = sessionStorage.getItem("id_token");
 
       const response = await fetch(generarApiUrl, {
@@ -135,8 +143,6 @@ function GeneradorTemariosPracticos() {
         const errorMessage = typeof data.error === "object" ? JSON.stringify(data.error) : data.error;
         throw new Error(errorMessage || "Ocurrió un error en el servidor.");
       }
-
-      console.log("✅ Respuesta recibida:", data);
 
       const temarioCompleto = {
         ...data,
@@ -205,10 +211,8 @@ function GeneradorTemariosPracticos() {
 
       alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
 
-      // ✅ Si el modal ya está abierto, refresca la tabla
-      if (mostrarModal) {
-        await handleListarVersiones();
-      }
+      // ✅ refresca lista si modal está abierto
+      if (mostrarModal) await handleListarVersiones();
     } catch (err) {
       console.error(err);
       alert("❌ Error al guardar versión: " + err.message);
@@ -255,26 +259,28 @@ function GeneradorTemariosPracticos() {
 
   // === Editar versión ===
   const handleEditarVersion = (v) => {
-    console.log("✏️ Editando versión", v.cursoId, v.versionId);
     navigate(`/editor-practico/${v.cursoId}/${v.versionId}`);
   };
 
+  // === Filtros ===
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "", nota: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
     const curso = v.nombre_curso?.toLowerCase() || "";
     const asesor = v.asesor_comercial?.toLowerCase() || "";
     const tecnologia = v.tecnologia?.toLowerCase() || "";
+    const nota = (v.nota_version || v.nota || "").toLowerCase();
 
     return (
       curso.includes(filtros.curso.toLowerCase()) &&
       (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
-      tecnologia.includes(filtros.tecnologia.toLowerCase())
+      tecnologia.includes(filtros.tecnologia.toLowerCase()) &&
+      nota.includes(filtros.nota.toLowerCase())
     );
   });
 
@@ -494,6 +500,15 @@ function GeneradorTemariosPracticos() {
                   onChange={handleFiltroChange}
                 />
 
+                {/* ✅ NUEVO: filtro por nota */}
+                <input
+                  type="text"
+                  placeholder="Filtrar por nota"
+                  name="nota"
+                  value={filtros.nota}
+                  onChange={handleFiltroChange}
+                />
+
                 <button className="btn-secundario" onClick={limpiarFiltros}>
                   Limpiar
                 </button>
@@ -510,7 +525,7 @@ function GeneradorTemariosPracticos() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
-                      <th>Nota</th>
+                      <th>Notas</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -523,6 +538,7 @@ function GeneradorTemariosPracticos() {
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
+
                         <td
                           style={{
                             maxWidth: 280,
@@ -534,6 +550,7 @@ function GeneradorTemariosPracticos() {
                         >
                           {v.nota_version || v.nota || ""}
                         </td>
+
                         <td style={{ textAlign: "center" }}>
                           <button
                             title="Editar versión"
