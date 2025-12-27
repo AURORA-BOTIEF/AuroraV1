@@ -1,4 +1,6 @@
 // src/utils/downloadExcelFormato.js
+
+/*
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -99,3 +101,5 @@ export async function downloadExcelTemarioConPlantilla(temario) {
 
   downloadBlob(blob, `${filenameBase}_${date}.xlsx`);
 }
+
+*/
