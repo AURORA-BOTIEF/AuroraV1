@@ -16,12 +16,31 @@ const obtenerVersionApi =
 const listarApiUrl =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario/list";
 
+// ✅ Unifica el algoritmo de cursoId (USAR SIEMPRE ESTE)
+const makeCursoId = (tema = "") =>
+  tema
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
 // === Asesores Comerciales ===
 const asesoresComerciales = [
-  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
-  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
-  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
-  "Natalia García", "Natalia Gomez", "Vianey Miranda",
+  "Alejandra Galvez",
+  "Ana Aragón",
+  "Arely Alvarez",
+  "Benjamin Araya",
+  "Carolina Aguilar",
+  "Cristian Centeno",
+  "Elizabeth Navia",
+  "Eonice Garfías",
+  "Guadalupe Agiz",
+  "Jazmin Soriano",
+  "Lezly Durán",
+  "Lusdey Trujillo",
+  "Natalia García",
+  "Natalia Gomez",
+  "Vianey Miranda",
 ].sort();
 
 export default function GeneradorTemarios_Seminarios() {
@@ -40,10 +59,19 @@ export default function GeneradorTemarios_Seminarios() {
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
   const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
-  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+
+  // ✅ ahora incluye filtro por nota
+  const [filtros, setFiltros] = useState({
+    curso: "",
+    asesor: "",
+    tecnologia: "",
+    nota: "",
+  });
+
   const navigate = useNavigate();
 
   // === Obtener email del usuario autenticado ===
@@ -89,7 +117,6 @@ export default function GeneradorTemarios_Seminarios() {
     setError("");
     setMostrandoModalThor(true);
 
-
     try {
       const payload = {
         tecnologia: params.tecnologia.trim(),
@@ -117,17 +144,14 @@ export default function GeneradorTemarios_Seminarios() {
       if (!res.ok) throw new Error(resData.error || "Error al generar el seminario.");
 
       // Parsear body si viene como string desde la lambda
-      const data =
-        typeof resData.body === "string" ? JSON.parse(resData.body) : resData;
+      const data = typeof resData.body === "string" ? JSON.parse(resData.body) : resData;
 
       const temarioCompleto = {
         nombre_curso: data.nombre_curso || "Seminario sin título",
         descripcion_general: data.descripcion_general || "Sin descripción generada",
         audiencia: data.audiencia || "",
         prerrequisitos: data.prerrequisitos || "",
-        objetivos_generales: Array.isArray(data.objetivos_generales)
-          ? data.objetivos_generales
-          : [],
+        objetivos_generales: Array.isArray(data.objetivos_generales) ? data.objetivos_generales : [],
         temario: Array.isArray(data.temario) ? data.temario : [],
         _metadata: data._metadata || {},
         nombre_preventa: params.nombre_preventa,
@@ -152,8 +176,14 @@ export default function GeneradorTemarios_Seminarios() {
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = sessionStorage.getItem("id_token");
+
+      if (!temarioParaGuardar) throw new Error("No hay contenido del temario para guardar.");
+      if (!params.tema_curso) throw new Error("Falta el nombre del seminario (tema_curso).");
+
+      const cursoId = makeCursoId(params.tema_curso || "");
+
       const body = {
-        cursoId: params.tema_curso.trim().toLowerCase().replace(/\s+/g, "_"),
+        cursoId,
         contenido: temarioParaGuardar,
         nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
         autor: userEmail || "Desconocido",
@@ -169,7 +199,7 @@ export default function GeneradorTemarios_Seminarios() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(body),
       });
@@ -178,6 +208,9 @@ export default function GeneradorTemarios_Seminarios() {
       if (!res.ok) throw new Error(data.error || "Error al guardar versión");
 
       alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
+
+      // ✅ refresca lista si modal está abierto
+      if (mostrarModal) await handleListarVersiones();
     } catch (err) {
       console.error(err);
       alert("❌ Error al guardar versión: " + err.message);
@@ -187,25 +220,38 @@ export default function GeneradorTemarios_Seminarios() {
   // === Listar versiones ===
   const handleListarVersiones = async () => {
     try {
+      setIsLoading(true);
       const token = sessionStorage.getItem("id_token");
-      const res = await fetch(listarApiUrl, {
+
+      // ✅ lista por curso actual si existe (mejor UX)
+      const cursoId = makeCursoId(params.tema_curso || "");
+      const url = cursoId ? `${listarApiUrl}?id=${encodeURIComponent(cursoId)}` : listarApiUrl;
+
+      const res = await fetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? {Authorization:`Bearer ${token}`}:{}),          
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al listar versiones.");
 
-      const sorted = data.sort(
-        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+      const items = Array.isArray(data) ? data : [];
+
+      const sorted = items.sort(
+        (a, b) =>
+          new Date(b.fecha_guardado || b.fecha_creacion || 0) -
+          new Date(a.fecha_guardado || a.fecha_creacion || 0)
       );
+
       setVersiones(sorted);
       setMostrarModal(true);
     } catch (err) {
       console.error("Error al listar versiones:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -214,22 +260,26 @@ export default function GeneradorTemarios_Seminarios() {
     console.log("✏️ Editando versión", v.cursoId, v.versionId);
     navigate(`/editor-seminario/${v.cursoId}/${v.versionId}`);
   };
-  
+
+  // === Filtros ===
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "", nota: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
     const curso = v.nombre_curso?.toLowerCase() || "";
     const asesor = v.asesor_comercial?.toLowerCase() || "";
     const tecnologia = v.tecnologia?.toLowerCase() || "";
+    const nota = (v.nota_version || v.nota || "").toLowerCase();
+
     return (
       curso.includes(filtros.curso.toLowerCase()) &&
       (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
-      tecnologia.includes(filtros.tecnologia.toLowerCase())
+      tecnologia.includes(filtros.tecnologia.toLowerCase()) &&
+      nota.includes(filtros.nota.toLowerCase())
     );
   });
 
@@ -243,30 +293,59 @@ export default function GeneradorTemarios_Seminarios() {
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado (Opcional)</label>
-            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleChange} disabled={isLoading} />
+            <input
+              name="nombre_preventa"
+              value={params.nombre_preventa}
+              onChange={handleChange}
+              disabled={isLoading}
+            />
           </div>
 
           <div className="form-group">
             <label>Asesor(a) Comercial (Opcional)</label>
-            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleChange} disabled={isLoading}>
+            <select
+              name="asesor_comercial"
+              value={params.asesor_comercial}
+              onChange={handleChange}
+              disabled={isLoading}
+            >
               <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
+              {asesoresComerciales.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
             </select>
           </div>
 
           <div className="form-group">
             <label>Tecnología *</label>
-            <input name="tecnologia" value={params.tecnologia} onChange={handleChange} disabled={isLoading} placeholder="Ej: AWS, React, Python" />
+            <input
+              name="tecnologia"
+              value={params.tecnologia}
+              onChange={handleChange}
+              disabled={isLoading}
+              placeholder="Ej: AWS, React, Python"
+            />
           </div>
 
           <div className="form-group">
             <label>Tema Principal del Seminario *</label>
-            <input name="tema_curso" value={params.tema_curso} onChange={handleChange} disabled={isLoading} placeholder="Ej: Análisis ejecutivo de datos" />
+            <input
+              name="tema_curso"
+              value={params.tema_curso}
+              onChange={handleChange}
+              disabled={isLoading}
+              placeholder="Ej: Análisis ejecutivo de datos"
+            />
           </div>
 
           <div className="form-group">
             <label>Nivel de Dificultad</label>
-            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleChange} disabled={isLoading}>
+            <select
+              name="nivel_dificultad"
+              value={params.nivel_dificultad}
+              onChange={handleChange}
+              disabled={isLoading}
+            >
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option>
@@ -276,7 +355,16 @@ export default function GeneradorTemarios_Seminarios() {
           <div className="form-group">
             <label>Duración total (1–3h)</label>
             <div className="slider-container">
-              <input type="range" min="1" max="3" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} />
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.5"
+                name="horas_por_sesion"
+                value={params.horas_por_sesion}
+                onChange={handleChange}
+                disabled={isLoading}
+              />
               <span className="slider-value">{params.horas_por_sesion} h</span>
             </div>
           </div>
@@ -284,12 +372,26 @@ export default function GeneradorTemarios_Seminarios() {
 
         <div className="form-group">
           <label>Sector* / Audiencia*</label>
-          <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
+          <textarea
+            name="sector"
+            value={params.sector}
+            onChange={handleChange}
+            disabled={isLoading}
+            rows="3"
+            placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..."
+          />
         </div>
 
         <div className="form-group">
           <label>Enfoque Adicional (opcional)</label>
-          <textarea name="enfoque" value={params.enfoque} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos" />
+          <textarea
+            name="enfoque"
+            value={params.enfoque}
+            onChange={handleChange}
+            disabled={isLoading}
+            rows="3"
+            placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
+          />
         </div>
 
         <div className="botones">
@@ -331,17 +433,48 @@ export default function GeneradorTemarios_Seminarios() {
           <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>
+                ✕
+              </button>
             </div>
+
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input type="text" placeholder="Filtrar por curso" name="curso" value={filtros.curso} onChange={handleFiltroChange} />
+                <input
+                  type="text"
+                  placeholder="Filtrar por curso"
+                  name="curso"
+                  value={filtros.curso}
+                  onChange={handleFiltroChange}
+                />
+
                 <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
                   <option value="">Todos los asesores</option>
-                  {asesoresComerciales.map((a) => (<option key={a}>{a}</option>))}
+                  {asesoresComerciales.map((a) => (
+                    <option key={a}>{a}</option>
+                  ))}
                 </select>
-                <input type="text" placeholder="Filtrar por tecnología" name="tecnologia" value={filtros.tecnologia} onChange={handleFiltroChange} />
-                <button className="btn-secundario" onClick={limpiarFiltros}>Limpiar</button>
+
+                <input
+                  type="text"
+                  placeholder="Filtrar por tecnología"
+                  name="tecnologia"
+                  value={filtros.tecnologia}
+                  onChange={handleFiltroChange}
+                />
+
+                {/* ✅ NUEVO: filtro por nota */}
+                <input
+                  type="text"
+                  placeholder="Filtrar por nota"
+                  name="nota"
+                  value={filtros.nota}
+                  onChange={handleFiltroChange}
+                />
+
+                <button className="btn-secundario" onClick={limpiarFiltros}>
+                  Limpiar
+                </button>
               </div>
 
               {versionesFiltradas.length === 0 ? (
@@ -355,19 +488,40 @@ export default function GeneradorTemarios_Seminarios() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
+                      <th>Notas</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
-                      <tr key={i}>
+                      <tr key={v.versionId || i}>
                         <td>{v.nombre_curso}</td>
                         <td>{v.tecnologia}</td>
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
+
+                        <td
+                          style={{
+                            maxWidth: 280,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                          title={v.nota_version || v.nota || ""}
+                        >
+                          {v.nota_version || v.nota || ""}
+                        </td>
+
                         <td style={{ textAlign: "center" }}>
-                          <button title="Editar versión" className="btn-accion" onClick={() => handleEditarVersion(v)}>✏️</button>                          
+                          <button
+                            title="Editar versión"
+                            className="btn-accion"
+                            onClick={() => handleEditarVersion(v)}
+                          >
+                            ✏️
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -378,15 +532,15 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
         </div>
       )}
+
       {/* === MODAL DE CARGA THOR === */}
       {mostrandoModalThor && (
         <div className="modal-overlay-thor">
           <div className="modal-thor">
             <h2>THOR está generando tu temario...</h2>
             <p>
-              Mientras se crea el contenido, recuerda que está siendo generado
-              con inteligencia artificial y está pensado como una propuesta base
-              para ayudarte a estructurar tus ideas.
+              Mientras se crea el contenido, recuerda que está siendo generado con inteligencia artificial y está pensado
+              como una propuesta base para ayudarte a estructurar tus ideas.
             </p>
             <ul>
               <li>✅ Verifica la información antes de compartirla con el equipo de Preventa.</li>
@@ -396,9 +550,8 @@ export default function GeneradorTemarios_Seminarios() {
               <li>🧠 Utiliza el contenido como apoyo, no como sustituto de tu criterio pedagógico.</li>
             </ul>
             <p className="nota-thor">
-              La IA es una herramienta poderosa, pero requiere tu supervisión
-              como Instructor experto para garantizar calidad, precisión y
-              relevancia educativa.
+              La IA es una herramienta poderosa, pero requiere tu supervisión como Instructor experto para garantizar
+              calidad, precisión y relevancia educativa.
             </p>
           </div>
         </div>
