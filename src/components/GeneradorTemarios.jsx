@@ -56,7 +56,7 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  // ✅ ahora incluye filtro por nota
+  // ✅ incluye filtro por nota
   const [filtros, setFiltros] = useState({
     curso: "",
     asesor: "",
@@ -69,6 +69,10 @@ function GeneradorTemarios() {
     "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
   const guardarApiUrl =
     "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
+
+  // ✅ GET debe ir a /list (como tus otros generadores)
+  const listarApiUrl =
+    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones/list";
 
   useEffect(() => {
     const getUser = async () => {
@@ -83,14 +87,31 @@ function GeneradorTemarios() {
     getUser();
   }, []);
 
+  // ✅ Token helper (Amplify -> fallback storage)
+  const getBearerToken = async () => {
+    try {
+      const session = await fetchAuthSession();
+      const t = session?.tokens?.idToken?.toString();
+      if (t) return t;
+    } catch (e) {
+      console.warn("No se pudo obtener token desde Amplify:", e);
+    }
+
+    return (
+      sessionStorage.getItem("id_token") ||
+      localStorage.getItem("id_token") ||
+      sessionStorage.getItem("idToken") ||
+      localStorage.getItem("idToken") ||
+      ""
+    );
+  };
+
   const handleParamChange = (e) => {
     const { name, value } = e.target;
 
     if (name === "objetivo_tipo") {
       let codigoCert = params.codigo_certificacion;
-      if (value === "saber_hacer") {
-        codigoCert = "";
-      }
+      if (value === "saber_hacer") codigoCert = "";
       setParams((prev) => ({
         ...prev,
         [name]: value,
@@ -129,27 +150,21 @@ function GeneradorTemarios() {
 
     setIsLoading(true);
     setError("");
-
     setMostrandoModalThor(true);
     setTimeout(() => setMostrandoModalThor(false), 160000);
 
     try {
-      const payload = {
-        ...params,
-        horas_totales: horasTotales,
-      };
+      const payload = { ...params, horas_totales: horasTotales };
 
-      if (payload.objetivo_tipo !== "certificacion") {
-        delete payload.codigo_certificacion;
-      }
+      if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
 
-      const token = sessionStorage.getItem("id_token");
+      const token = await getBearerToken();
 
       const response = await fetch(generarApiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
       });
@@ -181,32 +196,29 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión (incluye cursoId + notas consistentes)
+  // ✅ Guardar versión (incluye cursoId + nota_version)
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
-      const token = sessionStorage.getItem("id_token");
+      const token = await getBearerToken();
 
       const cursoId = makeCursoId(params.tema_curso || "");
 
       const bodyData = {
-        // ✅ IMPORTANTÍSIMO: guardar cursoId para editar/consultar/exportar consistente
         cursoId,
-
         contenido: temarioParaGuardar,
 
-        // 🔥 Nota escrita por el usuario
+        // Nota escrita por usuario (si la quieres guardar aparte)
         nota_usuario: nota || "",
 
-        // 🔥 Nota “automática” (si quieres, aquí puedes mezclar ambas)
-        // Si prefieres que “nota_version” sea lo que escribe el usuario, cambia esta línea por: (nota || ...)
+        // Nota mostrada/filtrada en tabla (prioriza lo del usuario)
         nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
 
-        autor: userEmail,
-        asesor_comercial: params.asesor_comercial,
-        nombre_preventa: params.nombre_preventa,
-        nombre_curso: params.tema_curso,
-        tecnologia: params.tecnologia,
-        enfoque: params.enfoque,
+        autor: userEmail || "sin-correo",
+        asesor_comercial: params.asesor_comercial || "",
+        nombre_preventa: params.nombre_preventa || "",
+        nombre_curso: params.tema_curso || "",
+        tecnologia: params.tecnologia || "",
+        enfoque: params.enfoque || "",
         fecha_creacion: new Date().toISOString(),
       };
 
@@ -214,13 +226,23 @@ function GeneradorTemarios() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(bodyData),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al guardar versión");
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
+
+      if (!res.ok) {
+        console.error("Guardar versión ->", res.status, data);
+        throw new Error(data?.error || `Error HTTP ${res.status}`);
+      }
 
       // ✅ refresca lista si modal está abierto
       if (mostrarModal) await handleListarVersiones();
@@ -235,11 +257,21 @@ function GeneradorTemarios() {
     }
   };
 
+  // ✅ Listar versiones (usa /list + token Amplify)
   const handleListarVersiones = async () => {
     try {
-      const token = sessionStorage.getItem("id_token");
+      setIsLoading(true);
 
-      const res = await fetch(guardarApiUrl, {
+      const token = await getBearerToken();
+
+      if (!token) {
+        console.error("⚠️ No hay token. Revisa Amplify o storage.");
+        setVersiones([]);
+        setMostrarModal(true);
+        return;
+      }
+
+      const res = await fetch(listarApiUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -247,7 +279,19 @@ function GeneradorTemarios() {
         },
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
+
+      if (!res.ok) {
+        console.error("Listar versiones ->", res.status, data);
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
       const items = Array.isArray(data) ? data : [];
 
       const sortedData = items.sort(
@@ -260,6 +304,10 @@ function GeneradorTemarios() {
       setMostrarModal(true);
     } catch (error) {
       console.error("Error al obtener versiones:", error);
+      setVersiones([]);
+      setMostrarModal(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -278,11 +326,8 @@ function GeneradorTemarios() {
     setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
-  // === EDITAR VERSIÓN EXISTENTE ===
   const handleEditarVersion = (v) => {
     const id = v.versionId || v.version_id || v.id;
-
-    // ✅ cursoId consistente (si viene en el item, úsalo; si no, deriva del nombre_curso)
     const curso = v.cursoId || makeCursoId(v.nombre_curso || "") || "sin-id";
 
     if (!id) {
@@ -294,15 +339,13 @@ function GeneradorTemarios() {
     navigate(`/editor-temario/${curso}/${id}`);
   };
 
-  // === EXPORTAR PDF ===
   const handleExportarPDF = async (version) => {
     try {
       setIsLoading(true);
       setError("");
 
-      const token = sessionStorage.getItem("id_token");
+      const token = await getBearerToken();
 
-      // ✅ usa cursoId consistente
       const cursoId = version.cursoId || makeCursoId(version.nombre_curso || "");
 
       const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
@@ -313,7 +356,7 @@ function GeneradorTemarios() {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
 
@@ -344,8 +387,6 @@ function GeneradorTemarios() {
     const nombreCurso = (v.nombre_curso || "").toLowerCase();
     const tecnologia = (v.tecnologia || "").toLowerCase();
     const asesor = (v.asesor_comercial || "").toLowerCase();
-
-    // ✅ nota: intenta con nota_version, luego nota_usuario, luego nota
     const nota = (v.nota_version || v.nota_usuario || v.nota || "").toLowerCase();
 
     return (
@@ -556,7 +597,6 @@ function GeneradorTemarios() {
           <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-
           <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
             Ver Versiones Guardadas
           </button>
@@ -597,14 +637,12 @@ function GeneradorTemarios() {
                   value={filtros.curso}
                   onChange={handleFiltroChange}
                 />
-
                 <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
                   <option value="">Todos los asesores</option>
                   {asesoresComerciales.map((a) => (
                     <option key={a}>{a}</option>
                   ))}
                 </select>
-
                 <input
                   type="text"
                   placeholder="Filtrar por tecnología"
@@ -613,7 +651,7 @@ function GeneradorTemarios() {
                   onChange={handleFiltroChange}
                 />
 
-                {/* ✅ NUEVO: filtro por nota */}
+                {/* ✅ NUEVO */}
                 <input
                   type="text"
                   placeholder="Filtrar por nota"
@@ -642,7 +680,6 @@ function GeneradorTemarios() {
                       <th>Acciones</th>
                     </tr>
                   </thead>
-
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
                       <tr key={v.versionId || i}>
@@ -672,6 +709,17 @@ function GeneradorTemarios() {
                           >
                             ✏️
                           </button>
+
+                          {/* Si quieres botón PDF aquí, descomenta:
+                          <button
+                            className="menu-btn"
+                            title="Exportar PDF"
+                            onClick={() => handleExportarPDF(v)}
+                            style={{ marginLeft: 8 }}
+                          >
+                            📄
+                          </button>
+                          */}
                         </td>
                       </tr>
                     ))}
@@ -688,8 +736,8 @@ function GeneradorTemarios() {
           <div className="modal-thor">
             <h2>THOR está generando tu temario...</h2>
             <p>
-              Mientras se crea el contenido, recuerda que está siendo generado con inteligencia
-              artificial y está pensado como una propuesta base para ayudarte a estructurar tus ideas.
+              Mientras se crea el contenido, recuerda que está siendo generado con inteligencia artificial y está pensado
+              como una propuesta base para ayudarte a estructurar tus ideas.
             </p>
             <ul>
               <li>✅ Verifica la información antes de compartirla con el equipo de Preventa.</li>
@@ -699,8 +747,8 @@ function GeneradorTemarios() {
               <li>🧠 Utiliza el contenido como apoyo, no como sustituto de tu criterio pedagógico.</li>
             </ul>
             <p className="nota-thor">
-              La IA es una herramienta poderosa, pero requiere tu supervisión como Instructor experto
-              para garantizar calidad, precisión y relevancia educativa.
+              La IA es una herramienta poderosa, pero requiere tu supervisión como Instructor experto para garantizar
+              calidad, precisión y relevancia educativa.
             </p>
           </div>
         </div>
