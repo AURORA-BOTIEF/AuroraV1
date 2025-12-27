@@ -19,8 +19,8 @@ const makeCursoId = (tema = "") =>
   tema
     .trim()
     .toLowerCase()
-    .replace(/[^\w]+/g, "_") // mismo que tenías en guardar
-    .replace(/^_+|_+$/g, ""); // limpia underscores al inicio/fin
+    .replace(/[^\w]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const asesoresComerciales = [
   "Alejandra Gálvez",
@@ -73,7 +73,14 @@ function GeneradorTemarios_KNTR() {
   const [error, setError] = useState("");
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
-  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+
+  // ✅ ahora incluye filtro por nota
+  const [filtros, setFiltros] = useState({
+    curso: "",
+    asesor: "",
+    tecnologia: "",
+    nota: "",
+  });
 
   useEffect(() => {
     const getUser = async () => {
@@ -169,7 +176,7 @@ function GeneradorTemarios_KNTR() {
       if (!temarioParaGuardar) throw new Error("No hay contenido del temario para guardar.");
       if (!params.tema_curso) throw new Error("Falta el nombre del curso (tema_curso).");
 
-      const cursoId = makeCursoId(params.tema_curso);
+      const cursoId = makeCursoId(params.tema_curso || "");
 
       const body = {
         cursoId,
@@ -207,7 +214,7 @@ function GeneradorTemarios_KNTR() {
 
       alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
 
-      // ✅ Opcional: refresca lista si el modal está abierto
+      // ✅ refresca lista si el modal está abierto
       if (mostrarModal) await handleListarVersiones();
     } catch (err) {
       console.error(err);
@@ -220,9 +227,7 @@ function GeneradorTemarios_KNTR() {
     try {
       setIsLoading(true);
 
-      // ✅ mismo cursoId que guardar
       const cursoId = makeCursoId(params.tema_curso || "");
-
       const url = cursoId ? `${listarApiUrl}?id=${encodeURIComponent(cursoId)}` : listarApiUrl;
 
       const token = sessionStorage.getItem("id_token");
@@ -264,17 +269,19 @@ function GeneradorTemarios_KNTR() {
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "", nota: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
     const curso = v.nombre_curso?.toLowerCase() || "";
     const asesor = v.asesor_comercial?.toLowerCase() || "";
     const tecnologia = v.tecnologia?.toLowerCase() || "";
+    const nota = (v.nota_version || v.nota || "").toLowerCase();
 
     return (
-      curso.includes(filtros.curso.toLowerCase()) &&
-      (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
-      tecnologia.includes(filtros.tecnologia.toLowerCase())
+      curso.includes((filtros.curso || "").toLowerCase()) &&
+      (filtros.asesor ? asesor === (filtros.asesor || "").toLowerCase() : true) &&
+      tecnologia.includes((filtros.tecnologia || "").toLowerCase()) &&
+      nota.includes((filtros.nota || "").toLowerCase())
     );
   });
 
@@ -494,6 +501,15 @@ function GeneradorTemarios_KNTR() {
                   onChange={handleFiltroChange}
                 />
 
+                {/* ✅ NUEVO: filtro por nota */}
+                <input
+                  type="text"
+                  placeholder="Filtrar por nota"
+                  name="nota"
+                  value={filtros.nota}
+                  onChange={handleFiltroChange}
+                />
+
                 <button className="btn-secundario" onClick={limpiarFiltros}>
                   Limpiar
                 </button>
@@ -510,7 +526,7 @@ function GeneradorTemarios_KNTR() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
-                      <th>Nota</th> {/* ✅ NUEVA COLUMNA */}
+                      <th>Notas</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -524,8 +540,15 @@ function GeneradorTemarios_KNTR() {
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
 
-                        {/* ✅ Muestra nota_version (o nota si tu lambda la guarda con otro nombre) */}
-                        <td style={{ maxWidth: 280, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <td
+                          style={{
+                            maxWidth: 280,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                          title={v.nota_version || v.nota || ""}
+                        >
                           {v.nota_version || v.nota || ""}
                         </td>
 
