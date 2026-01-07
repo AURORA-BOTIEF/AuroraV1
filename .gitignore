@@ -74,3 +74,7 @@ CG-Backend/execution_history*.json
 venv/
 *.pyc
 __pycache__/
+
+# Local environment and agent files
+.envrc
+AGENTS.md
