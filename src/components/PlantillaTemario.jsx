@@ -4,8 +4,8 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
-import { Plus, Trash2 } from "lucide-react";
 import "./EditorDeTemario_Practico.css";
+import { Plus, Trash2 } from "lucide-react";
 
 // ===== Utils =====
 const formatDuration = (minutos) => {
@@ -55,6 +55,7 @@ export default function PlantillaTemario() {
   // ===== EDICIÓN =====
   const handleFieldChange = (cap, sub, field, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
+
     if (sub === null) {
       nuevo.temario[cap][field] = value;
     } else {
@@ -153,12 +154,24 @@ export default function PlantillaTemario() {
     doc.text(temario.nombre_curso || "Temario", pageW / 2, y, { align: "center" });
     y += 30;
 
-    temario.temario.forEach((cap, i) => {
-      if (y > pageH - margin.bottom) {
-        doc.addPage();
-        y = margin.top;
-      }
+    const secciones = [
+      { titulo: "Descripción General", texto: temario.descripcion_general },
+      { titulo: "Audiencia", texto: temario.audiencia },
+      { titulo: "Prerrequisitos", texto: temario.prerrequisitos },
+      { titulo: "Objetivos", texto: temario.objetivos },
+    ];
 
+    secciones.forEach((s) => {
+      if (!s.texto) return;
+      doc.setFontSize(12);
+      doc.text(s.titulo, margin.left, y);
+      y += 14;
+      doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(s.texto, pageW - margin.left - margin.right), margin.left, y);
+      y += 30;
+    });
+
+    temario.temario.forEach((cap, i) => {
       doc.setFontSize(13);
       doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
       y += 14;
@@ -213,13 +226,55 @@ export default function PlantillaTemario() {
         className="input-capitulo"
       />
 
+      <hr style={{ margin: "20px 0" }} />
+
+      <h3>Información general del curso</h3>
+
+      <label>Descripción General</label>
+      <textarea
+        value={temario.descripcion_general}
+        onChange={(e) =>
+          setTemario({ ...temario, descripcion_general: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+      />
+
+      <label>Audiencia</label>
+      <textarea
+        value={temario.audiencia}
+        onChange={(e) =>
+          setTemario({ ...temario, audiencia: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+      />
+
+      <label>Prerrequisitos</label>
+      <textarea
+        value={temario.prerrequisitos}
+        onChange={(e) =>
+          setTemario({ ...temario, prerrequisitos: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+      />
+
+      <label>Objetivos</label>
+      <textarea
+        value={temario.objetivos}
+        onChange={(e) =>
+          setTemario({ ...temario, objetivos: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+      />
+
       <hr />
 
       {temario.temario.map((cap, i) => (
         <div key={i} className="capitulo-editor">
           <input
             value={cap.capitulo}
-            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+            onChange={(e) =>
+              handleFieldChange(i, null, "capitulo", e.target.value)
+            }
             className="input-capitulo"
           />
 
@@ -246,27 +301,33 @@ export default function PlantillaTemario() {
                     e.target.value
                   )
                 }
-                style={{ width: 80 }}
               />
-              <button onClick={() => eliminarTema(i, j)}>
+              <button className="btn-eliminar-tema" onClick={() => eliminarTema(i, j)}>
                 <Trash2 size={16} />
               </button>
             </div>
           ))}
 
-          <button onClick={() => agregarTema(i)}>
-            <Plus size={16} /> Agregar tema
-          </button>
+          <div className="acciones-capitulo">
+            <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
+              <Plus size={16} /> Agregar tema
+            </button>
 
-          <button onClick={() => eliminarCapitulo(i)}>
-            <Trash2 size={16} /> Eliminar capítulo
-          </button>
+            <button
+              className="btn-eliminar-capitulo"
+              onClick={() => eliminarCapitulo(i)}
+            >
+              <Trash2 size={16} /> Eliminar capítulo
+            </button>
+          </div>
         </div>
       ))}
 
-      <button onClick={agregarCapitulo}>
-        <Plus size={18} /> Agregar capítulo
-      </button>
+      <div className="btn-agregar-capitulo-container">
+        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
+          <Plus size={18} /> Agregar capítulo
+        </button>
+      </div>
 
       <div className="acciones-footer">
         <button className="btn-primario" onClick={ajustarTiempos}>
