@@ -5,7 +5,7 @@ import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
 import { Plus, Trash2 } from "lucide-react";
-import "./EditorDeTemario.css";
+import "./EditorDeTemario_Practico.css";
 
 // ===== Utils =====
 const formatDuration = (minutos) => {
