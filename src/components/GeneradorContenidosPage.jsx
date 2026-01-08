@@ -9,7 +9,7 @@ import BotonVersionesTemario from './BotonVersionesTemario';
 function GeneradorContenidosPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const mostrarMenu = location.pathname === '/generador-contenidos';
+  const mostrarMenu = location.pathname.startsWith('/generador-contenidos')
 
   const handleRegresar = () => {
     navigate('/generador-contenidos'); // Navega de vuelta al menú principal
@@ -66,6 +66,16 @@ function GeneradorContenidosPage() {
             <div className="texto">
               <h3>Generador de Temario Seminarios</h3>
               <p>Diseña un temario para sesiones cortas, charlas,conferencias, divulgación.</p>
+            </div>
+          </Link>
+
+          <Link to="plantilla-temario" className="opcion-menu">
+            <div className="icono">📝</div>
+            <div className="texto">
+              <h3>Plantilla de Temario</h3>
+              <p>
+                Da formato Netec a un temario existente mediante una plantilla estandarizada, sin generación con IA.
+              </p>
             </div>
           </Link>
 
