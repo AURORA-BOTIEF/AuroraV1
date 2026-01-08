@@ -148,12 +148,21 @@ export default function PlantillaTemario() {
 
     let y = margin.top;
 
+    const addPageIfNeeded = (extra = 40) => {
+      if (y + extra > pageH - margin.bottom) {
+        doc.addPage();
+        y = margin.top;
+      }
+    };
+
+    // ===== TÍTULO =====
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
     doc.setTextColor(azul);
     doc.text(temario.nombre_curso || "Temario", pageW / 2, y, { align: "center" });
     y += 30;
 
+    // ===== SECCIONES GENERALES =====
     const secciones = [
       { titulo: "Descripción General", texto: temario.descripcion_general },
       { titulo: "Audiencia", texto: temario.audiencia },
@@ -163,30 +172,81 @@ export default function PlantillaTemario() {
 
     secciones.forEach((s) => {
       if (!s.texto) return;
-      doc.setFontSize(12);
+
+      addPageIfNeeded(60);
+
+      // Título sección (azul)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(azul);
       doc.text(s.titulo, margin.left, y);
-      y += 14;
-      doc.setFontSize(10);
-      doc.text(doc.splitTextToSize(s.texto, pageW - margin.left - margin.right), margin.left, y);
-      y += 30;
-    });
+      y += 18;
 
-    temario.temario.forEach((cap, i) => {
-      doc.setFontSize(13);
-      doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
-      y += 14;
+      // Texto sección (NEGRO)
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(negro);
 
-      cap.subcapitulos.forEach((sub, j) => {
-        doc.setFontSize(10);
-        doc.text(
-          `${i + 1}.${j + 1} ${sub.nombre} (${sub.tiempo_subcapitulo_min} min)`,
-          margin.left + 20,
-          y
-        );
-        y += 12;
+      doc.splitTextToSize(s.texto, contentW).forEach((line) => {
+        addPageIfNeeded(14);
+        doc.text(line, margin.left, y);
+        y += 14;
       });
 
       y += 10;
+    });
+
+    // ===== TEMARIO =====
+    addPageIfNeeded(60);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(azul);
+    doc.text("Temario", margin.left, y);
+    y += 25;
+
+    temario.temario.forEach((cap, i) => {
+      addPageIfNeeded(60);
+
+      // Capítulo (azul)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(azul);
+      doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+      y += 14;
+
+      // Duración capítulo (NEGRO)
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(negro);
+      doc.text(
+        `Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`,
+        margin.left + 10,
+        y
+      );
+      y += 14;
+
+      cap.subcapitulos.forEach((sub, j) => {
+        addPageIfNeeded(14);
+
+        // Subtema + metadata (TODO NEGRO)
+        doc.setFontSize(10);
+        doc.text(
+          `${i + 1}.${j + 1} ${sub.nombre}`,
+          margin.left + 25,
+          y
+        );
+
+        doc.text(
+          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
+          pageW - margin.right,
+          y,
+          { align: "right" }
+        );
+
+        y += 12;
+      });
+
+      y += 12;
     });
 
     const totalPages = doc.internal.getNumberOfPages();
