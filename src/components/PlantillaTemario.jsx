@@ -139,9 +139,11 @@ export default function PlantillaTemario() {
 
     const doc = new jsPDF({ unit: "pt", format: "letter" });
     const azul = "#005A9C";
+    const negro = "#000000"; 
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const margin = { top: 230, bottom: 100, left: 60, right: 60 };
+    const contentW = pageW - margin.left - margin.right;
 
     const enc = await toDataURL(encabezadoImagen);
     const pie = await toDataURL(pieDePaginaImagen);
