@@ -346,24 +346,37 @@ export default function PlantillaTemario() {
 
           {cap.subcapitulos.map((sub, j) => (
             <div key={j} className="subcapitulo-item">
-              <input
+            <input
                 value={sub.nombre}
                 onChange={(e) =>
-                  handleFieldChange(i, j, "nombre", e.target.value)
+                handleFieldChange(i, j, "nombre", e.target.value)
                 }
-              />
-              <input
+            />
+
+            <input
                 type="number"
                 value={sub.tiempo_subcapitulo_min}
                 onChange={(e) =>
-                  handleFieldChange(
+                handleFieldChange(
                     i,
                     j,
                     "tiempo_subcapitulo_min",
                     e.target.value
-                  )
+                )
                 }
-              />
+                placeholder="min"
+            />
+
+            <input
+                type="number"
+                min="1"
+                value={sub.sesion || 1}
+                onChange={(e) =>
+                handleFieldChange(i, j, "sesion", parseInt(e.target.value, 10) || 1)
+                }
+                placeholder="sesión"
+                className="input-sesion"
+            />
               <button className="btn-eliminar-tema" onClick={() => eliminarTema(i, j)}>
                 <Trash2 size={16} />
               </button>
