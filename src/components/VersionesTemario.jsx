@@ -127,4 +127,3 @@ function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
 
 export default VersionesTemario;
 
-
