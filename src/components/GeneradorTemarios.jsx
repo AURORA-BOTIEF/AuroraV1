@@ -1,8 +1,8 @@
+// src/components/GeneradorTemarios.jsx
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
-import EditorDeTemario from "./EditorDeTemario";
+import EditorDeTemario, { exportarPDF } from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
-import { exportarPDF } from "./EditorDeTemario";
 import { useNavigate } from "react-router-dom";
 
 const asesoresComerciales = [
@@ -23,13 +23,45 @@ const asesoresComerciales = [
   "Vianey Miranda",
 ].sort();
 
-// ✅ Unifica el algoritmo de cursoId (USAR SIEMPRE ESTE)
 const makeCursoId = (tema = "") =>
   tema
     .trim()
     .toLowerCase()
     .replace(/[^\w]+/g, "_")
     .replace(/^_+|_+$/g, "");
+
+const stripTrailingSlash = (s = "") => s.replace(/\/+$/, "");
+const joinUrl = (base, path) => `${stripTrailingSlash(base)}${path.startsWith("/") ? "" : "/"}${path}`;
+
+async function fetchJsonOrThrow(url, options) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+  if (!res.ok) {
+    const msg = data?.error || data?.message || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+async function tryMany(candidates, options) {
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      return await fetchJsonOrThrow(url, options);
+    } catch (e) {
+      lastErr = e;
+      if (e?.status === 401 || e?.status === 403) throw e;
+      continue;
+    }
+  }
+  throw lastErr || new Error("No se pudo conectar a ningún endpoint");
+}
 
 function GeneradorTemarios() {
   const [params, setParams] = useState({
@@ -56,7 +88,6 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  // ✅ incluye filtro por nota
   const [filtros, setFiltros] = useState({
     curso: "",
     asesor: "",
@@ -64,15 +95,20 @@ function GeneradorTemarios() {
     nota: "",
   });
 
-  // --- URLs ---
+  // ✅ URLs desde env (sin romper otras APIs)
   const generarApiUrl =
+    import.meta.env.VITE_GENERAR_TEMARIO_API_URL ||
     "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
-  const guardarApiUrl =
-    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
-  // ✅ GET debe ir a /list (como tus otros generadores)
-  const listarApiUrl =
-    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones/list";
+  const pdfApiUrlBase =
+    import.meta.env.VITE_TEMARIO_PDF_API_URL ||
+    "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF";
+
+  // ✅ Base de tu API REST (stage "versiones")
+  // ejemplo: https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones
+  const versionesApiBase =
+    import.meta.env.VITE_VERSIONES_API_BASE ||
+    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
 
   useEffect(() => {
     const getUser = async () => {
@@ -87,7 +123,6 @@ function GeneradorTemarios() {
     getUser();
   }, []);
 
-  // ✅ Token helper (Amplify -> fallback storage)
   const getBearerToken = async () => {
     try {
       const session = await fetchAuthSession();
@@ -135,9 +170,7 @@ function GeneradorTemarios() {
 
   const handleGenerar = async () => {
     if (!params.tecnologia || !params.tema_curso || !params.sector) {
-      setError(
-        "Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia."
-      );
+      setError("Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
     }
 
@@ -155,7 +188,6 @@ function GeneradorTemarios() {
 
     try {
       const payload = { ...params, horas_totales: horasTotales };
-
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
 
       const token = await getBearerToken();
@@ -196,23 +228,17 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión (incluye cursoId + nota_version)
+  // ✅ Guardar versión (fallback entre /versiones y /versiones/versiones)
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = await getBearerToken();
-
       const cursoId = makeCursoId(params.tema_curso || "");
 
       const bodyData = {
         cursoId,
         contenido: temarioParaGuardar,
-
-        // Nota escrita por usuario (si la quieres guardar aparte)
         nota_usuario: nota || "",
-
-        // Nota mostrada/filtrada en tabla (prioriza lo del usuario)
         nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
-
         autor: userEmail || "sin-correo",
         asesor_comercial: params.asesor_comercial || "",
         nombre_preventa: params.nombre_preventa || "",
@@ -222,7 +248,12 @@ function GeneradorTemarios() {
         fecha_creacion: new Date().toISOString(),
       };
 
-      const res = await fetch(guardarApiUrl, {
+      const candidates = [
+        joinUrl(versionesApiBase, "/versiones"),           // stage + /versiones
+        joinUrl(versionesApiBase, "/versiones/versiones"), // por si tu Lambda está colgada así
+      ];
+
+      const data = await tryMany(candidates, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -231,37 +262,22 @@ function GeneradorTemarios() {
         body: JSON.stringify(bodyData),
       });
 
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { raw: text };
-      }
-
-      if (!res.ok) {
-        console.error("Guardar versión ->", res.status, data);
-        throw new Error(data?.error || `Error HTTP ${res.status}`);
-      }
-
-      // ✅ refresca lista si modal está abierto
       if (mostrarModal) await handleListarVersiones();
 
       return {
         success: true,
-        message: `Versión guardada ✔ (versionId: ${data.versionId})`,
+        message: `Versión guardada ✔ (versionId: ${data?.versionId || "ok"})`,
       };
-    } catch (error) {
-      console.error(error);
-      return { success: false, message: error.message };
+    } catch (err) {
+      console.error(err);
+      return { success: false, message: err.message };
     }
   };
 
-  // ✅ Listar versiones (usa /list + token Amplify)
+  // ✅ Listar versiones (fallback entre /list, /versiones/list, /versiones/versiones/list)
   const handleListarVersiones = async () => {
     try {
       setIsLoading(true);
-
       const token = await getBearerToken();
 
       if (!token) {
@@ -271,7 +287,14 @@ function GeneradorTemarios() {
         return;
       }
 
-      const res = await fetch(listarApiUrl, {
+      const candidates = [
+        joinUrl(versionesApiBase, "/list"),
+        joinUrl(versionesApiBase, "/versiones/list"),
+        joinUrl(versionesApiBase, "/versiones/versiones/list"),
+        joinUrl(versionesApiBase, "/versiones"), // por si GET /versiones lista
+      ];
+
+      const data = await tryMany(candidates, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -279,21 +302,7 @@ function GeneradorTemarios() {
         },
       });
 
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { raw: text };
-      }
-
-      if (!res.ok) {
-        console.error("Listar versiones ->", res.status, data);
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
-
-      const items = Array.isArray(data) ? data : [];
-
+      const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
       const sortedData = items.sort(
         (a, b) =>
           new Date(b.fecha_guardado || b.fecha_creacion || 0) -
@@ -302,28 +311,13 @@ function GeneradorTemarios() {
 
       setVersiones(sortedData);
       setMostrarModal(true);
-    } catch (error) {
-      console.error("Error al obtener versiones:", error);
+    } catch (err) {
+      console.error("Error al obtener versiones:", err);
       setVersiones([]);
       setMostrarModal(true);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleCargarVersion = (version) => {
-    setMostrarModal(false);
-    setParams((prev) => ({
-      ...prev,
-      nombre_preventa: version.nombre_preventa || "",
-      asesor_comercial: version.asesor_comercial || "",
-      tecnologia: version.tecnologia || "",
-      tema_curso: version.nombre_curso || "",
-      enfoque: version.enfoque || "",
-      nivel_dificultad: version.contenido?.nivel_dificultad || "basico",
-      sector: version.contenido?.sector || "",
-    }));
-    setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
   const handleEditarVersion = (v) => {
@@ -345,14 +339,11 @@ function GeneradorTemarios() {
       setError("");
 
       const token = await getBearerToken();
-
       const cursoId = version.cursoId || makeCursoId(version.nombre_curso || "");
 
-      const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
-        cursoId
-      )}&version=${encodeURIComponent(version.versionId)}`;
+      const url = `${pdfApiUrlBase}?id=${encodeURIComponent(cursoId)}&version=${encodeURIComponent(version.versionId)}`;
 
-      const response = await fetch(apiUrl, {
+      const response = await fetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -408,6 +399,10 @@ function GeneradorTemarios() {
           Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
         </p>
 
+        {/* ... TU FORM ORIGINAL (no lo toqué) ... */}
+        {/* (lo dejé tal cual para no romper UI) */}
+
+        {/* === FORM GRID === */}
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado (Opcional)</label>
@@ -650,8 +645,6 @@ function GeneradorTemarios() {
                   value={filtros.tecnologia}
                   onChange={handleFiltroChange}
                 />
-
-                {/* ✅ NUEVO */}
                 <input
                   type="text"
                   placeholder="Filtrar por nota"
@@ -688,7 +681,6 @@ function GeneradorTemarios() {
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
-
                         <td
                           style={{
                             maxWidth: 280,
@@ -710,7 +702,7 @@ function GeneradorTemarios() {
                             ✏️
                           </button>
 
-                          {/* Si quieres botón PDF aquí, descomenta:
+                          {/* PDF si lo necesitas:
                           <button
                             className="menu-btn"
                             title="Exportar PDF"
