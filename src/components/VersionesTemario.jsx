@@ -1,8 +1,8 @@
 // src/components/VersionesTemario.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import "./VersionesTemario.css";
 
-// 🔁 Función incrustada para exportar a CSV (sin import externo)
+// 🔁 Exportar CSV
 function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "version") {
   const lines = [];
   const safe = (v) => {
@@ -11,7 +11,7 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   };
 
   lines.push(["Campo", "Valor"].map(safe).join(","));
-  lines.push(["Nombre del curso", temarioJson?.nombre_curso || ""].map(safe).join(","));  
+  lines.push(["Nombre del curso", temarioJson?.nombre_curso || ""].map(safe).join(","));
   lines.push(["Versión tecnología", temarioJson?.version_tecnologia || ""].map(safe).join(","));
   lines.push(["Horas totales", temarioJson?.horas_totales || ""].map(safe).join(","));
   lines.push(["Número de sesiones", temarioJson?.numero_sesiones || ""].map(safe).join(","));
@@ -24,11 +24,13 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   lines.push(["Objetivos", (temarioJson?.objetivos || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push([]);
   lines.push(["Capítulo", "Subcapítulo", "Duración cap (min)", "Distribución cap", "Tiempo sub (min)", "Sesión"].map(safe).join(","));
+
   for (const cap of (temarioJson?.temario || [])) {
     const capTitulo = cap?.capitulo || "";
     const dur = cap?.tiempo_capitulo_min ?? "";
     const dist = cap?.porcentaje_teoria_practica_capitulo || "";
     const subs = cap?.subcapitulos || [];
+
     if (!subs.length) {
       lines.push([capTitulo, "", dur, dist, "", ""].map(safe).join(","));
     } else {
@@ -40,6 +42,7 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
       }
     }
   }
+
   const csv = lines.join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const file = `${cursoId}_${versionId}.csv`;
@@ -52,26 +55,119 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   a.remove();
 }
 
+// Helpers
+const stripTrailingSlash = (s = "") => s.replace(/\/+$/, "");
+const joinUrl = (base, path) => `${stripTrailingSlash(base)}${path.startsWith("/") ? "" : "/"}${path}`;
+
+async function fetchJsonOrThrow(url, options) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+  if (!res.ok) {
+    const msg = data?.error || data?.message || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+// Intenta varios endpoints hasta que uno funcione (evita adivinar tu path exacto)
+async function tryMany(candidates, options) {
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      return await fetchJsonOrThrow(url, options);
+    } catch (e) {
+      lastErr = e;
+      // Si es 401/403, ya no intentes más rutas: es auth, no path
+      if (e?.status === 401 || e?.status === 403) throw e;
+      // Si es 404, prueba el siguiente
+      continue;
+    }
+  }
+  throw lastErr || new Error("No se pudo conectar a ningún endpoint");
+}
+
 /**
- * Panel de versiones que lista el historial y permite descargar cada versión en CSV/Excel.
+ * Modal de versiones:
+ * - lista versiones
+ * - restaurar
+ * - exportar CSV
+ *
+ * Props:
+ * - cursoId: string
+ * - apiBase: string (ej: https://.../versiones)
+ * - token: string (Bearer token opcional)
+ * - visible: bool
+ * - onClose: fn
+ * - onRestore: fn(json)
  */
-function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
+function VersionesTemario({ cursoId, apiBase, token = "", visible, onClose, onRestore }) {
   const [versiones, setVersiones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
+  const headers = useMemo(() => {
+    const h = { "Content-Type": "application/json" };
+    if (token) h.Authorization = `Bearer ${token}`;
+    return h;
+  }, [token]);
+
   useEffect(() => {
-    if (!visible || !cursoId) return;
-    setLoading(true);
-    setErr("");
-    fetch(`${apiBase}/temarios?cursoId=${encodeURIComponent(cursoId)}`)
-      .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
-      .then(setVersiones)
-      .catch((e) => setErr(e?.error || "Error cargando versiones"))
-      .finally(() => setLoading(false));
-  }, [visible, cursoId, apiBase]);
+    if (!visible || !cursoId || !apiBase) return;
+
+    const run = async () => {
+      setLoading(true);
+      setErr("");
+
+      const q = `?cursoId=${encodeURIComponent(cursoId)}`;
+
+      // ✅ Fallback según tu API real (por screenshots):
+      // - /list (raíz) o /versiones/list (dentro) o GET /versiones
+      const candidates = [
+        joinUrl(apiBase, `/list${q}`),
+        joinUrl(apiBase, `/versiones/list${q}`),
+        joinUrl(apiBase, `/versiones${q}`), // por si GET /versiones lista
+      ];
+
+      try {
+        const data = await tryMany(candidates, { method: "GET", headers });
+
+        // normaliza a array
+        const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        setVersiones(items);
+      } catch (e) {
+        setVersiones([]);
+        setErr(e?.message || "Error cargando versiones");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    run();
+  }, [visible, cursoId, apiBase, headers]);
 
   if (!visible) return null;
+
+  const handleGetOne = async (versionId) => {
+    const q = `?cursoId=${encodeURIComponent(cursoId)}&versionId=${encodeURIComponent(versionId)}`;
+
+    // ✅ Fallback para obtener una versión:
+    // - /get?cursoId&versionId
+    // - /versiones/{id}?cursoId=...
+    // - /versiones/get?...
+    const candidates = [
+      joinUrl(apiBase, `/get${q}`),
+      joinUrl(apiBase, `/versiones/get${q}`),
+      joinUrl(apiBase, `/versiones/${encodeURIComponent(versionId)}?cursoId=${encodeURIComponent(cursoId)}`),
+    ];
+
+    return await tryMany(candidates, { method: "GET", headers });
+  };
 
   return (
     <div className="versiones-overlay" role="dialog" aria-modal="true">
@@ -85,38 +181,48 @@ function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
         {!loading && !err && (
           <ul className="lista-versiones">
             {versiones.map((v) => (
-              <li key={v.versionId} className="item-version">
+              <li key={v.versionId || v.id || JSON.stringify(v)} className="item-version">
                 <div className="col-info">
-                  <strong>{new Date(v.createdAt).toLocaleString()}</strong>
-                  <div className="nota">{v.nota || "Sin nota"}</div>
+                  <strong>{new Date(v.createdAt || v.fecha_creacion || Date.now()).toLocaleString()}</strong>
+                  <div className="nota">{v.nota_version || v.nota_usuario || v.nota || "Sin nota"}</div>
                   <div className="mini">
                     {v.isLatest ? "Última" : ""} {v.size ? `• ${v.size} bytes` : ""}
                   </div>
                 </div>
+
                 <div className="col-actions">
                   <button
                     className="btn"
-                    onClick={() =>
-                      fetch(`${apiBase}/temarios/${encodeURIComponent(v.versionId)}?cursoId=${encodeURIComponent(cursoId)}`)
-                        .then((r) => r.json())
-                        .then(onRestore)
-                    }
+                    onClick={async () => {
+                      try {
+                        const json = await handleGetOne(v.versionId || v.id);
+                        onRestore?.(json?.contenido ?? json); // por si viene envuelto
+                      } catch (e) {
+                        setErr(e?.message || "No se pudo restaurar");
+                      }
+                    }}
                   >
                     Restaurar
                   </button>
+
                   <button
                     className="btn sec"
-                    onClick={() =>
-                      fetch(`${apiBase}/temarios/${encodeURIComponent(v.versionId)}?cursoId=${encodeURIComponent(cursoId)}`)
-                        .then((r) => r.json())
-                        .then((json) => downloadTemarioAsExcel(json, cursoId, v.versionId))
-                    }
+                    onClick={async () => {
+                      try {
+                        const json = await handleGetOne(v.versionId || v.id);
+                        const payload = json?.contenido ?? json;
+                        downloadTemarioAsExcel(payload, cursoId, v.versionId || v.id || "version");
+                      } catch (e) {
+                        setErr(e?.message || "No se pudo descargar");
+                      }
+                    }}
                   >
                     Excel ⬇️
                   </button>
                 </div>
               </li>
             ))}
+
             {versiones.length === 0 && <li>No hay versiones aún.</li>}
           </ul>
         )}
@@ -126,4 +232,3 @@ function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
 }
 
 export default VersionesTemario;
-
