@@ -1,60 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
-import EditorDeTemario_Practico from "./EditorDeTemario_Practico";
-import "./GeneradorTemarios.css";
-import { exportarPDF } from "./EditorDeTemario_Practico";
-import { useNavigate } from "react-router-dom";
+import EditorDeTemario from "./EditorDeTemario";
+import "./GeneradorTemarios.css"; // Asegúrate que este CSS sea el del generador 'Practicos'
+import { exportarPDF } from "./EditorDeTemario";
 
-// Endpoints
-const generarApiUrl =
-  "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
-
-const guardarApiUrl =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico";
-
-const obtenerVersionApi =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico?id={cursoId}&version={versionId}";
-
-const listarApiUrl =
-  "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/list";
-
-// ✅ Unifica el algoritmo de cursoId (USAR SIEMPRE ESTE)
-const makeCursoId = (tema = "") =>
-  tema
-    .trim()
-    .toLowerCase()
-    .replace(/[^\w]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-// Lista de asesores
 const asesoresComerciales = [
-<<<<<<< HEAD
-  "Alejandra Gálvez", "Ana Aragón", "Arely Álvarez", "Carolina Aguilar",
-  "Christian Centeno", "Elizabeth Navia", "Eonice Garfias", "Gabriela Zumarán",
-  "Gamaliel Hernández", "Guadalupe Agiz", "Ingrid Monroy", "Javier Unciti",
-  "Jazmin Soriano", "Kelly Morales", "Lesly Vargas", "Lezly Durán",
-  "Lourdes Iglesias", "Lusdey Trujillo", "Macarena Faúndez", "Mariana Rivera",
-  "Mateo Zamora", "Natalia Gómez", "Nicolle Chaucanez", "Santiago Cueva",
-  "Valeria Velásquez", "Vianey Miranda"
-=======
-  "Alejandra Galvez",
-  "Ana Aragón",
-  "Arely Alvarez",
-  "Benjamin Araya",
-  "Carolina Aguilar",
-  "Cristian Centeno",
-  "Elizabeth Navia",
-  "Eonice Garfías",
-  "Guadalupe Agiz",
-  "Jazmin Soriano",
-  "Lezly Durán",
-  "Lusdey Trujillo",
-  "Natalia García",
-  "Natalia Gomez",
-  "Vianey Miranda",
->>>>>>> testing
+  "Alejandra Galvez", "Ana Aragón", "Arely Alvarez", "Benjamin Araya",
+  "Carolina Aguilar", "Cristian Centeno", "Elizabeth Navia", "Eonice Garfías",
+  "Guadalupe Agiz", "Jazmin Soriano", "Lezly Durán", "Lusdey Trujillo",
+  "Natalia García", "Natalia Gomez", "Vianey Miranda",
 ].sort();
 
+// === COMPONENTE: GeneradorTemariosPracticos ===
 function GeneradorTemariosPracticos() {
   const [params, setParams] = useState({
     nombre_preventa: "",
@@ -65,28 +22,24 @@ function GeneradorTemariosPracticos() {
     numero_sesiones_por_semana: 1,
     horas_por_sesion: 7,
     sector: "",
-    enfoque: "",
+    enfoque: "", // se forzará a "practico" en el payload si viene vacío
     syllabus_text: "",
   });
 
-  const navigate = useNavigate();
 
   const [userEmail, setUserEmail] = useState("");
   const [temarioGenerado, setTemarioGenerado] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mostrandoModalThor, setMostrandoModalThor] = useState(false);
   const [error, setError] = useState("");
-
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [filtros, setFiltros] = useState({ curso: "", asesor: "", tecnologia: "" });
+  const [menuActivo, setMenuActivo] = useState(null);
 
-  // ✅ ahora incluye filtro por nota
-  const [filtros, setFiltros] = useState({
-    curso: "",
-    asesor: "",
-    tecnologia: "",
-    nota: "",
-  });
+ // Endpoints (mismos que el generador original; esta UI está alineada a la Lambda PRÁCTICOS)
+  const generarApiUrl = "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/tem_practico_openai";
+  const guardarApiUrl = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   useEffect(() => {
     const getUser = async () => {
@@ -117,49 +70,63 @@ function GeneradorTemariosPracticos() {
     setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
   };
 
-  const handleGenerar = async () => {
+
+
+
+   const handleGenerar = async () => {
+
     if (!params.tecnologia || !params.tema_curso || !params.sector) {
       setError("Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia.");
       return;
-    }
-
+    }    
     const horasTotales = params.horas_por_sesion * params.numero_sesiones_por_semana;
 
     setIsLoading(true);
     setError("");
 
     setMostrandoModalThor(true);
-    setTimeout(() => setMostrandoModalThor(false), 160000);
+    // Ocultar automáticamente después de 2:40
+    setTimeout(() => {
+      setMostrandoModalThor(false);
+    }, 160000);
 
     try {
       const payload = {
         ...params,
         horas_totales: horasTotales,
+        // Asegurar enfoque práctico si viene vacío
+        enfoque: params.enfoque?.trim() || "practico",
       };
 
-      const token = sessionStorage.getItem("id_token");
+
+
+      console.log("Enviando payload:", payload);
+      const token = localStorage.getItem("id_token");
 
       const response = await fetch(generarApiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       const data = await response.json();
       if (!response.ok) {
-        const errorMessage = typeof data.error === "object" ? JSON.stringify(data.error) : data.error;
+        const errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
         throw new Error(errorMessage || "Ocurrió un error en el servidor.");
       }
+      console.log("✅ Respuesta recibida:", data);
 
       const temarioCompleto = {
         ...data,
+
         nombre_preventa: params.nombre_preventa,
         asesor_comercial: params.asesor_comercial,
         horas_totales: horasTotales,
-        enfoque: params.enfoque,
+        enfoque: params.enfoque?.trim() || "practico",
         tecnologia: params.tecnologia,
         tema_curso: params.tema_curso,
       };
@@ -174,26 +141,18 @@ function GeneradorTemariosPracticos() {
     }
   };
 
-  // === Guardar versión ===
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
-      const session = await fetchAuthSession();
-      const token = session?.tokens?.idToken?.toString();
-
-      if (!temarioParaGuardar) throw new Error("No hay contenido del temario para guardar.");
-      if (!params.tema_curso) throw new Error("Falta el nombre del curso (tema_curso).");
-
-      const cursoId = makeCursoId(params.tema_curso || "");
-
-      const body = {
-        cursoId,
+      const token = localStorage.getItem("id_token");
+      const bodyData = {
         contenido: temarioParaGuardar,
-        nota_version: nota || `Guardado el ${new Date().toLocaleString()}`,
-        autor: userEmail || "Desconocido",
-        asesor_comercial: params.asesor_comercial || "No asignado",
-        nombre_preventa: params.nombre_preventa || "",
-        nombre_curso: params.tema_curso || "Sin título",
-        tecnologia: params.tecnologia || "No especificada",
+        nota: nota || `Guardado el ${new Date().toLocaleString()}`,
+        autor: userEmail,
+        asesor_comercial: params.asesor_comercial,
+        nombre_preventa: params.nombre_preventa,
+        nombre_curso: params.tema_curso,
+        tecnologia: params.tecnologia,
+        enfoque: params.enfoque?.trim() || "practico",
         fecha_creacion: new Date().toISOString(),
       };
 
@@ -201,106 +160,122 @@ function GeneradorTemariosPracticos() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(body),
-      });
-
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { raw: text };
-      }
-
-      if (!res.ok) {
-        console.error("Guardar versión -> status:", res.status, "body:", data);
-        throw new Error(data?.error || `Error HTTP ${res.status}`);
-      }
-
-      alert(`✅ Versión guardada correctamente (ID: ${data.versionId})`);
-
-      // ✅ refresca lista si modal está abierto
-      if (mostrarModal) await handleListarVersiones();
-    } catch (err) {
-      console.error(err);
-      alert("❌ Error al guardar versión: " + err.message);
-    }
-  };
-
-  // === Listar versiones ===
-  const handleListarVersiones = async () => {
-    try {
-      setIsLoading(true);
-
-      const cursoId = makeCursoId(params.tema_curso || "");
-      const url = cursoId ? `${listarApiUrl}?id=${encodeURIComponent(cursoId)}` : listarApiUrl;
-
-      const token = sessionStorage.getItem("id_token");
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        body: JSON.stringify(bodyData),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(data.error || "Error al guardar versión");
+      }
 
-      const items = Array.isArray(data) ? data : [];
 
-      const sorted = items.sort(
-        (a, b) =>
-          new Date(b.fecha_guardado || b.fecha_creacion || 0) -
-          new Date(a.fecha_guardado || a.fecha_creacion || 0)
+      return { success: true, message: `Versión guardada ✔ (versionId: ${data.versionId})` };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: error.message };
+    }
+  };
+
+
+  const handleListarVersiones = async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("id_token");
+
+      const res = await fetch(
+        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
 
-      setVersiones(sorted);
+      if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
+
+      const data = await res.json();
+      console.log("📦 Datos crudos recibidos desde Lambda:", data);
+      
+    // 🔹 Mostrar todos los temarios (sin filtrar)
+      const practicos = data || [];
+      // 🔹 Ordena por fecha de creación descendente
+      const sortedData = practicos.sort(
+        (a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion)
+      );
+
+      console.log(`✅ Temarios prácticos encontrados: ${sortedData.length}`);
+      setVersiones(sortedData);
       setMostrarModal(true);
-    } catch (err) {
-      console.error("Error al listar versiones:", err);
-      setError(err.message || "Error al listar versiones.");
+    } catch (error) {
+      console.error("❌ Error al obtener versiones:", error);
+      setError("No se pudieron cargar los temarios guardados.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // === Editar versión ===
-  const handleEditarVersion = (v) => {
-    navigate(`/editor-practico/${v.cursoId}/${v.versionId}`);
+  const handleCargarVersion = (version) => {
+    setMostrarModal(false);
+    setParams((prev) => ({
+      ...prev,
+      nombre_preventa: version.nombre_preventa || "",
+      asesor_comercial: version.asesor_comercial || "",
+      tecnologia: version.tecnologia || "",
+      tema_curso: version.nombre_curso || "",
+      enfoque: version.enfoque || "",
+      nivel_dificultad: version.contenido?.nivel_dificultad || "basico",
+      sector: version.contenido?.sector || "",
+    }));
+    setTimeout(() => setTemarioGenerado(version.contenido), 300);
   };
 
-  // === Filtros ===
+  // === EDITAR VERSIÓN EXISTENTE ===
+  const handleEditarVersion = (v) => {
+    console.log("🧭 handleEditarVersion ejecutado con:", v);
+
+    const id = v.versionId || v.version_id || v.id;
+    const curso = v.cursoId || "sin-id"; // ✅ usa cursoId que sí existe en Dynamo
+
+    if (!id) {
+      console.error("⚠️ No se encontró versionId en:", v);
+      return;
+    }
+
+    console.log(`📝 Editando versión estándar ${curso}/${id}`);
+    setMostrarModal(false); // cierra modal antes de navegar
+    navigate(`/editor-temario/${curso}/${id}`);
+  };
+
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((prev) => ({ ...prev, [name]: value }));
   };
 
-  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "", nota: "" });
+  const limpiarFiltros = () => setFiltros({ curso: "", asesor: "", tecnologia: "" });
 
   const versionesFiltradas = versiones.filter((v) => {
-    const curso = v.nombre_curso?.toLowerCase() || "";
-    const asesor = v.asesor_comercial?.toLowerCase() || "";
-    const tecnologia = v.tecnologia?.toLowerCase() || "";
-    const nota = (v.nota_version || v.nota || "").toLowerCase();
+    const nombreCurso = v.nombre_curso || "";
+    const tecnologia = v.tecnologia || "";
+    const asesor = v.asesor_comercial || "";
 
     return (
-      curso.includes(filtros.curso.toLowerCase()) &&
-      (filtros.asesor ? asesor === filtros.asesor.toLowerCase() : true) &&
-      tecnologia.includes(filtros.tecnologia.toLowerCase()) &&
-      nota.includes(filtros.nota.toLowerCase())
+      nombreCurso.toLowerCase().includes(filtros.curso.toLowerCase()) &&
+      (filtros.asesor ? asesor === filtros.asesor : true) &&
+      tecnologia.toLowerCase().includes(filtros.tecnologia.toLowerCase())
     );
   });
 
   return (
     <div className="contenedor-generador">
       <div className="card-generador">
-        <div className="header-practico" style={{ marginBottom: "15px" }}>
-          <h2>Generador de Temarios Practicos</h2>
-        </div>
 
+        <div className="header-practico" style={{ marginBottom: "15px" }}>
+          <h2>Generador de Temarios Prácticos</h2>
+        </div>
         <p className="descripcion-practico" style={{ marginTop: "0px" }}>
           Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
         </p>
@@ -308,22 +283,12 @@ function GeneradorTemariosPracticos() {
         <div className="form-grid">
           <div className="form-group">
             <label>Nombre Preventa Asociado (Opcional)</label>
-            <input
-              name="nombre_preventa"
-              value={params.nombre_preventa}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            />
+            <input name="nombre_preventa" value={params.nombre_preventa} onChange={handleParamChange} disabled={isLoading} />
           </div>
 
           <div className="form-group">
             <label>Asesor(a) Comercial (Opcional)</label>
-            <select
-              name="asesor_comercial"
-              value={params.asesor_comercial}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            >
+            <select name="asesor_comercial" value={params.asesor_comercial} onChange={handleParamChange} disabled={isLoading}>
               <option value="">Selecciona un asesor(a)</option>
               {asesoresComerciales.map((a) => (
                 <option key={a}>{a}</option>
@@ -355,12 +320,7 @@ function GeneradorTemariosPracticos() {
 
           <div className="form-group">
             <label>Nivel de Dificultad</label>
-            <select
-              name="nivel_dificultad"
-              value={params.nivel_dificultad}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            >
+            <select name="nivel_dificultad" value={params.nivel_dificultad} onChange={handleParamChange} disabled={isLoading}>
               <option value="basico">Básico</option>
               <option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option>
@@ -380,8 +340,7 @@ function GeneradorTemariosPracticos() {
                 disabled={isLoading}
               />
               <span className="slider-value">
-                {params.numero_sesiones_por_semana}{" "}
-                {params.numero_sesiones_por_semana > 1 ? "sesiones" : "sesión"}
+                {params.numero_sesiones_por_semana} {params.numero_sesiones_por_semana > 1 ? "sesiones" : "sesión"}
               </span>
             </div>
           </div>
@@ -404,9 +363,7 @@ function GeneradorTemariosPracticos() {
 
           <div className="form-group total-horas">
             <label>Total del Curso</label>
-            <div className="total-badge">
-              {params.horas_por_sesion * params.numero_sesiones_por_semana} horas
-            </div>
+            <div className="total-badge">{params.horas_por_sesion * params.numero_sesiones_por_semana} horas</div>
           </div>
         </div>
 
@@ -431,7 +388,7 @@ function GeneradorTemariosPracticos() {
             disabled={isLoading}
             rows="3"
             placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
-          />
+          />          
         </div>
 
         <div className="form-group">
@@ -445,17 +402,24 @@ function GeneradorTemariosPracticos() {
             placeholder="Copia y pega aquí el contenido del syllabus o temario base (texto plano, sin formato)..."
           />
           <small className="hint">
-            💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al contenido original.
+            💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al contenido original.            
           </small>
         </div>
 
         <div className="botones">
-          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
+          <button 
+            className="btn-generar" 
+            onClick={handleGenerar} 
+            disabled={isLoading}
+          >
             {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
           </button>
-
-          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
-            Ver Versiones Guardadas
+          <button 
+            className="btn-versiones" 
+            onClick={handleListarVersiones} 
+            disabled={isLoading}
+          >
+          Ver Versiones Guardadas
           </button>
         </div>
 
@@ -464,13 +428,13 @@ function GeneradorTemariosPracticos() {
             <span>⚠️</span> {error}
           </div>
         )}
-      </div>
+      </div> 
 
       {temarioGenerado && (
-        <EditorDeTemario_Practico
-          temarioInicial={temarioGenerado}
-          onSave={handleGuardarVersion}
-          onRegenerate={handleGenerar}
+        <EditorDeTemario 
+          temarioInicial={temarioGenerado} 
+          onSave={handleGuardarVersion} 
+          onRegenerate={handleGenerar} // Se añade onRegenerate
           isLoading={isLoading}
         />
       )}
@@ -480,45 +444,32 @@ function GeneradorTemariosPracticos() {
           <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="modal-close" onClick={() => setMostrarModal(false)}>
-                ✕
-              </button>
+              <button className="modal-close" onClick={() => setMostrarModal(false)}>✕</button>
             </div>
-
             <div className="modal-body">
               <div className="filtros-versiones">
-                <input
-                  type="text"
-                  placeholder="Filtrar por curso"
-                  name="curso"
-                  value={filtros.curso}
+                <input 
+                  type="text" 
+                  placeholder="Filtrar por curso" 
+                  name="curso" 
+                  value={filtros.curso} 
                   onChange={handleFiltroChange}
                 />
-
-                <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
+                <select 
+                  name="asesor" 
+                  value={filtros.asesor} 
+                  onChange={handleFiltroChange}
+                >
                   <option value="">Todos los asesores</option>
-                  {asesoresComerciales.map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
+                  {asesoresComerciales.map((a) => <option key={a}>{a}</option>)}
                 </select>
-
-                <input
-                  type="text"
-                  placeholder="Filtrar por tecnología"
-                  name="tecnologia"
-                  value={filtros.tecnologia}
+                <input 
+                  type="text" 
+                  placeholder="Filtrar por tecnología" 
+                  name="tecnologia" 
+                  value={filtros.tecnologia} 
                   onChange={handleFiltroChange}
                 />
-
-                {/* ✅ NUEVO: filtro por nota */}
-                <input
-                  type="text"
-                  placeholder="Filtrar por nota"
-                  name="nota"
-                  value={filtros.nota}
-                  onChange={handleFiltroChange}
-                />
-
                 <button className="btn-secundario" onClick={limpiarFiltros}>
                   Limpiar
                 </button>
@@ -535,11 +486,9 @@ function GeneradorTemariosPracticos() {
                       <th>Asesor</th>
                       <th>Fecha</th>
                       <th>Autor</th>
-                      <th>Notas</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
-
                   <tbody>
                     {versionesFiltradas.map((v, i) => (
                       <tr key={v.versionId || i}>
@@ -548,25 +497,11 @@ function GeneradorTemariosPracticos() {
                         <td>{v.asesor_comercial}</td>
                         <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
                         <td>{v.autor}</td>
-
-                        <td
-                          style={{
-                            maxWidth: 280,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                          title={v.nota_version || v.nota || ""}
-                        >
-                          {v.nota_version || v.nota || ""}
-                        </td>
-
-                        <td style={{ textAlign: "center" }}>
+                        <td className="acciones-cell">
                           <button
-                            title="Editar versión"
-                            className="btn-accion"
-                            onClick={() => handleEditarVersion(v)}
-                          >
+                            className="menu-btn"
+                            title = "Editar versión"
+                            onClick={() => handleCargarVersion(v)}>
                             ✏️
                           </button>
                         </td>
@@ -575,10 +510,10 @@ function GeneradorTemariosPracticos() {
                   </tbody>
                 </table>
               )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* === MODAL DE CARGA THOR === */}
       {mostrandoModalThor && (
@@ -586,19 +521,35 @@ function GeneradorTemariosPracticos() {
           <div className="modal-thor">
             <h2>THOR está generando tu temario...</h2>
             <p>
-              Mientras se crea el contenido, recuerda que está siendo generado con inteligencia artificial y está pensado
-              como una propuesta base para ayudarte a estructurar tus ideas.
+              Mientras se crea el contenido, recuerda que está siendo generado
+              con inteligencia artificial y está pensado como una propuesta base
+              para ayudarte a estructurar tus ideas.
             </p>
             <ul>
-              <li>✅ Verifica la información antes de compartirla con el equipo de Preventa.</li>
-              <li>✏️ Edita y adapta los temas según tus objetivos, el nivel del grupo y el contexto específico.</li>
-              <li>🌍 Revisa y asegúrate de que el contenido sea inclusivo y respetuoso.</li>
-              <li>🔐 Evita ingresar datos personales o sensibles en la plataforma.</li>
-              <li>🧠 Utiliza el contenido como apoyo, no como sustituto de tu criterio pedagógico.</li>
+              <li>
+                ✅ Verifica la información antes de compartirla con el equipo de
+                Preventa.
+              </li>
+              <li>
+                ✏️ Edita y adapta los temas según tus objetivos, el nivel del
+                grupo y el contexto específico.
+              </li>
+              <li>
+                🌍 Revisa y asegúrate de que el contenido sea inclusivo y
+                respetuoso.
+              </li>
+              <li>
+                🔐 Evita ingresar datos personales o sensibles en la plataforma.
+              </li>
+              <li>
+                🧠 Utiliza el contenido como apoyo, no como sustituto de tu
+                criterio pedagógico.
+              </li>
             </ul>
             <p className="nota-thor">
-              La IA es una herramienta poderosa, pero requiere tu supervisión como Instructor experto para garantizar
-              calidad, precisión y relevancia educativa.
+              La IA es una herramienta poderosa, pero requiere tu supervisión
+              como Instructor experto para garantizar calidad, precisión y
+              relevancia educativa.
             </p>
           </div>
         </div>

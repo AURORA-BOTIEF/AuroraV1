@@ -23,7 +23,6 @@ const makeCursoId = (tema = "") =>
     .replace(/^_+|_+$/g, "");
 
 const asesoresComerciales = [
-<<<<<<< HEAD
   "Alejandra Gálvez", "Ana Aragón", "Arely Álvarez", "Carolina Aguilar",
   "Christian Centeno", "Elizabeth Navia", "Eonice Garfias", "Gabriela Zumarán",
   "Gamaliel Hernández", "Guadalupe Agiz", "Ingrid Monroy", "Javier Unciti",
@@ -31,34 +30,6 @@ const asesoresComerciales = [
   "Lourdes Iglesias", "Lusdey Trujillo", "Macarena Faúndez", "Mariana Rivera",
   "Mateo Zamora", "Natalia Gómez", "Nicolle Chaucanez", "Santiago Cueva",
   "Valeria Velásquez", "Vianey Miranda"
-=======
-  "Alejandra Gálvez",
-  "Ana Aragón",
-  "Arely Álvarez",
-  "Carolina Aguilar",
-  "Christian Centeno",
-  "Elizabeth Navia",
-  "Eonice Garfias",
-  "Gabriela Zumarán",
-  "Gamaliel Hernández",
-  "Guadalupe Agiz",
-  "Ingrid Monroy",
-  "Javier Unciti",
-  "Jazmin Soriano",
-  "Kelly Morales",
-  "Lesly Vargas",
-  "Lezly Durán",
-  "Lourdes Iglesias",
-  "Lusdey Trujillo",
-  "Macarena Faúndez",
-  "Mariana Rivera",
-  "Mateo Zamora",
-  "Natalia Gómez",
-  "Nicolle Chaucanez",
-  "Santiago Cueva",
-  "Valeria Velásquez",
-  "Vianey Miranda",
->>>>>>> testing
 ].sort();
 
 function GeneradorTemarios_KNTR() {

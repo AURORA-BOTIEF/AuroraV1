@@ -7,7 +7,6 @@ import { exportarPDF } from "./EditorDeTemario";
 import { useNavigate } from "react-router-dom";
 
 const asesoresComerciales = [
-<<<<<<< HEAD
   "Alejandra Gálvez", "Ana Aragón", "Arely Álvarez", "Carolina Aguilar",
   "Christian Centeno", "Elizabeth Navia", "Eonice Garfias", "Gabriela Zumarán",
   "Gamaliel Hernández", "Guadalupe Agiz", "Ingrid Monroy", "Javier Unciti",
@@ -19,33 +18,6 @@ const asesoresComerciales = [
 
 
 // --- AJUSTE 1: Se renombra el componente ---
-=======
-  "Alejandra Galvez",
-  "Ana Aragón",
-  "Arely Alvarez",
-  "Benjamin Araya",
-  "Carolina Aguilar",
-  "Cristian Centeno",
-  "Elizabeth Navia",
-  "Eonice Garfías",
-  "Guadalupe Agiz",
-  "Jazmin Soriano",
-  "Lezly Durán",
-  "Lusdey Trujillo",
-  "Natalia García",
-  "Natalia Gomez",
-  "Vianey Miranda",
-].sort();
-
-// ✅ Unifica el algoritmo de cursoId (USAR SIEMPRE ESTE)
-const makeCursoId = (tema = "") =>
-  tema
-    .trim()
-    .toLowerCase()
-    .replace(/[^\w]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
->>>>>>> testing
 function GeneradorTemarios() {
   const [params, setParams] = useState({
     nombre_preventa: "",
