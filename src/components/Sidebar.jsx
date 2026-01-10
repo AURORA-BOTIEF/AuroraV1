@@ -154,7 +154,14 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   // Roles
   const esAdmin = (grupo === 'admin');
   const esCreador = (grupo === 'creador');
-  const esAdminPrincipal = email.toLowerCase() === 'anette.flores@netec.com.mx';
+  const correosAdminPrincipales = [
+    'anette.flores@netec.com.mx',
+    'mitzi.montiel@netec.com',
+    'america.vicente@netec.com.mx',
+    'juan.londono@netec.com.co'
+  ];
+
+  const esAdminPrincipal = correosAdminPrincipales.includes(email.toLowerCase());
 
   // ⭐ NUEVO: botón visible si:
   // - es Netec (siempre)
@@ -175,7 +182,15 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     grupo === 'admin' ? 'Administrador' :
       grupo === 'creador' ? 'Creador' :
         grupo === 'participant' ? 'Participante' :
-          'Sin grupo';
+          grupo === 'asignador' ? 'Asignador' :
+            grupo === 'estudiante' ? 'Estudiante' :
+              grupo === 'instructor_externo' ? 'Instructor Externo' :
+                'Sin grupo';
+
+  // Check for specific roles based on Cognito groups
+  const esAsignador = grupo === 'asignador' || (typeof grupo === 'string' && grupo.toLowerCase().includes('asignador'));
+  const esEstudiante = grupo === 'estudiante' || (typeof grupo === 'string' && grupo.toLowerCase().includes('estudiante'));
+  const esInstructorExterno = grupo === 'instructor_externo' || (typeof grupo === 'string' && grupo.toLowerCase().includes('instructor'));
 
   const disabled = estado === 'pendiente' || estado === 'aprobado' || enviando;
 
@@ -239,15 +254,15 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
       <div id="caminito" className="caminito">
         <Link to="/resumenes" className="nav-link">
           <div className="step"><div className="circle">🧠</div>{!
-colapsado && <span>Resúmenes</span>}</div>
+            colapsado && <span>Resúmenes</span>}</div>
         </Link>
         <Link to="/actividades" className="nav-link">
           <div className="step"><div className="circle">📘</div>{!
-colapsado && <span>Actividades</span>}</div>
+            colapsado && <span>Actividades</span>}</div>
         </Link>
         <Link to="/examenes" className="nav-link">
           <div className="step"><div className="circle">🔬</div>{!
-colapsado && <span>Examen</span>}</div>
+            colapsado && <span>Examen</span>}</div>
         </Link>
 
         {(esAdmin || esAdminPrincipal) && (
@@ -271,6 +286,36 @@ colapsado && <span>Examen</span>}</div>
             <div className="step">
               <div className="circle">👥</div>
               {!colapsado && <span>Usuarios</span>}
+            </div>
+          </Link>
+        )}
+
+        {/* Asignador Portal - visible to admin and asignadores */}
+        {(esAdmin || esAdminPrincipal || esAsignador) && (
+          <Link to="/asignador" className="nav-link" title="Portal de Asignación">
+            <div className="step">
+              <div className="circle">🎓</div>
+              {!colapsado && <span>Asignar</span>}
+            </div>
+          </Link>
+        )}
+
+        {/* Estudiantes Portal - visible to estudiantes */}
+        {esEstudiante && (
+          <Link to="/mis-cursos" className="nav-link" title="Mis Cursos">
+            <div className="step">
+              <div className="circle">📚</div>
+              {!colapsado && <span>Mis Cursos</span>}
+            </div>
+          </Link>
+        )}
+
+        {/* Instructores Externos Portal - visible to instructor_externo */}
+        {esInstructorExterno && (
+          <Link to="/portal-instructor" className="nav-link" title="Portal del Instructor">
+            <div className="step">
+              <div className="circle">👨‍🏫</div>
+              {!colapsado && <span>Mi Portal</span>}
             </div>
           </Link>
         )}

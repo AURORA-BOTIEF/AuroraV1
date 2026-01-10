@@ -277,9 +277,9 @@ export default function GeneradorTemarios_Seminarios() {
           </div>
 
           <div className="form-group">
-            <label>Duración total (1–3h)</label>
+            <label>Duración total (1–2.5h)</label>
             <div className="slider-container">
-              <input type="range" min="1" max="3" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} />
+              <input type="range" min="1" max="2.5" step="0.5" name="horas_por_sesion" value={params.horas_por_sesion} onChange={handleChange} disabled={isLoading} title="Duración máxima permitida: 2.5 horas"/>
               <span className="slider-value">{params.horas_por_sesion} h</span>
             </div>
           </div>
@@ -287,7 +287,7 @@ export default function GeneradorTemarios_Seminarios() {
 
         <div className="form-group">
           <label>Sector* / Audiencia*</label>
-          <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero, Desarrolladores con 1 año de experiencia..." />
+          <textarea name="sector" value={params.sector} onChange={handleChange} disabled={isLoading} rows="3" placeholder="Ej: Sector financiero / Desarrolladores con 1 año de experiencia..." />
         </div>
 
         <div className="form-group">

@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import { fetchAuthSession } from "aws-amplify/auth";
-import { downloadExcelTemario } from "../utils/downloadExcel";
+// import { downloadExcelTemario } from "../utils/downloadExcel";
+import { downloadExcelTemario } from "../utils/downloadExcelcopia"; // Prueba de nuevo temario en Excel
+//import { downloadExcelTemario } from "../utils/downloadExcelFormato"; // Prueba de nuevo temario en Excel
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_KNTR.css";
 import { Plus, Trash2 } from "lucide-react";
+
 
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
@@ -48,6 +51,8 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
+  //const [exportTipo, setExportTipo] = useState("Yaml");
+  
 
   useEffect(() => {
     const getUser = async () => {
@@ -230,7 +235,7 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
       window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
 
       const bodyData = {
         cursoId:
@@ -458,6 +463,54 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
     setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
 
+  const exportarYAML = () => {
+    if (!temario || !Array.isArray(temario.temario)) {
+      setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
+      return;
+    }
+
+    // Convertimos el objeto temario a YAML manualmente
+    const toYAML = (obj, indent = 0) => {
+      const space = "  ".repeat(indent);
+      if (Array.isArray(obj)) {
+        return obj
+          .map((item) => `${space}- ${toYAML(item, indent + 1).trimStart()}`)
+          .join("\n");
+      } else if (obj !== null && typeof obj === "object") {
+        return Object.entries(obj)
+          .map(([key, value]) => {
+            if (
+              typeof value === "object" &&
+              value !== null &&
+              (Array.isArray(value) || Object.keys(value).length > 0)
+            ) {
+              return `${space}${key}:\n${toYAML(value, indent + 1)}`;
+            }
+            return `${space}${key}: ${value ?? ""}`;
+          })
+          .join("\n");
+      }
+      return String(obj);
+    };
+
+    const yamlContent = toYAML(temario);
+
+    const blob = new Blob([yamlContent], {
+      type: "text/yaml;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Temario_${slugify(temario.nombre_curso)}.yaml`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+
+    setMensaje({ tipo: "ok", texto: "✅ YAML exportado correctamente" });
+  };
+
+
   // === RENDER ===
   return (
     <div className="kntr-editor-container">
@@ -665,6 +718,14 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
               <label>
                 <input
                   type="radio"
+                  checked={exportTipo === "yaml"}
+                  onChange={() => setExportTipo("yaml")}
+                />{" "}
+                YAML
+              </label>
+              <label>
+                <input
+                  type="radio"
                   checked={exportTipo === "excel"}
                   onChange={() => setExportTipo("excel")}
                 />{" "}
@@ -674,7 +735,14 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
             <div className="modal-footer">
               <button
                 onClick={() => {
-                  exportTipo === "pdf" ? exportarPDF(temario) : exportarExcel();
+                  // exportTipo === "pdf" ? exportarPDF(temario) : exportarExcel();
+                  if (exportTipo === "pdf") {
+                    exportarPDF(temario);
+                  } else if (exportTipo === "excel") {
+                    exportarExcel();
+                  } else if (exportTipo === "yaml") {
+                    exportarYAML();
+                  }
                   setModalExportar(false);
                 }}
                 className="btn-guardar"

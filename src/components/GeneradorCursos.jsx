@@ -1,6 +1,6 @@
 // src/components/GeneradorCursos.jsx
 import React, { useState, useEffect } from 'react';
-import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+import { getCurrentUser, fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { post } from 'aws-amplify/api';
@@ -13,13 +13,14 @@ function GeneradorCursos() {
     const [outlineFile, setOutlineFile] = useState(null);
     const [projectFolder, setProjectFolder] = useState('');
     const [moduleInput, setModuleInput] = useState('1');
-    const [generateFullCourse, setGenerateFullCourse] = useState(false);
+    const [generateFullCourse, setGenerateFullCourse] = useState(true); // Always full course
     const [modelProvider, setModelProvider] = useState('bedrock');
     const [imageModel, setImageModel] = useState('models/gemini-2.5-flash-image'); // Default to cost-optimized
-    const [contentType, setContentType] = useState('theory'); // 'theory', 'labs', 'both'
+    const contentType = 'both'; // Always theory + labs
     const [labRequirements, setLabRequirements] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [userEmail, setUserEmail] = useState('');
     const [statusMessage, setStatusMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
@@ -33,8 +34,10 @@ function GeneradorCursos() {
     const checkAuth = async () => {
         try {
             const user = await getCurrentUser();
+            const attributes = await fetchUserAttributes();
             setIsAuthenticated(true);
-            console.log('Usuario autenticado:', user.username);
+            setUserEmail(attributes.email || '');
+            console.log('Usuario autenticado:', user.username, attributes.email);
         } catch (e) {
             setIsAuthenticated(false);
             console.log('Usuario no autenticado');
@@ -98,8 +101,7 @@ function GeneradorCursos() {
                 credentials: session.credentials,
             });
 
-            // Change: Use project folder structure instead of generic uploads
-            // Old: const key = `uploads/${Date.now()}-${file.name}`;
+            // Use project folder structure as requested
             const key = `${currentProjectFolder}/outline/${file.name}`;
 
             const fileSize = file.size || 0;
@@ -151,6 +153,7 @@ function GeneradorCursos() {
                 image_model: imageModel, // 'gemini' or 'imagen'
                 content_type: contentType, // 'theory', 'labs', or 'both'
                 lab_requirements: labRequirements.trim() || undefined, // Optional
+                user_email: userEmail, // Send user email for notifications
                 // Note: NOT sending lesson_number = MODULE mode
             };
 
@@ -225,33 +228,10 @@ function GeneradorCursos() {
             const uploadedKey = await uploadToS3(outlineFile, projectFolder);
             console.log('Archivo subido:', uploadedKey);
 
-            // Step 2: Start generation(s)
-            if (generateFullCourse) {
-                setStatusMessage('🚀 Iniciando generación de curso completo...');
-                await startGeneration(uploadedKey, 'all'); // Future: will generate all modules
-                const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
-                    contentType === 'labs' ? 'guía de laboratorios' :
-                        'contenido teórico y guía de laboratorios';
-                setSuccessMessage(`✅ Generación de ${contentTypeText} del curso completo iniciada exitosamente`);
-            } else {
-                const modules = parseModules(moduleInput);
-                console.log('Módulos a generar:', modules);
-
-                setStatusMessage(`🚀 Iniciando generación de ${modules.length} módulo(s)...`);
-
-                // Send all modules as array for backend to process
-                await startGeneration(uploadedKey, modules);
-
-                const contentTypeText = contentType === 'theory' ? 'contenido teórico' :
-                    contentType === 'labs' ? 'guía de laboratorios' :
-                        'contenido teórico y guía de laboratorios';
-
-                if (modules.length === 1) {
-                    setSuccessMessage(`✅ Generación de ${contentTypeText} del módulo ${modules[0]} iniciada exitosamente`);
-                } else {
-                    setSuccessMessage(`✅ Generación de ${contentTypeText} de ${modules.length} módulos iniciada exitosamente`);
-                }
-            }
+            // Step 2: Start generation - always full course with theory + labs
+            setStatusMessage('🚀 Iniciando generación de curso completo...');
+            await startGeneration(uploadedKey, 'all');
+            setSuccessMessage('✅ Generación de contenido teórico y guía de laboratorios del curso completo iniciada exitosamente');
 
             // Show success message
             setStatusMessage('');
@@ -259,8 +239,7 @@ function GeneradorCursos() {
             // Reset form after a delay
             setTimeout(() => {
                 setOutlineFile(null);
-                setModuleInput('1');
-                setGenerateFullCourse(false);
+                setLabRequirements('');
                 document.getElementById('fileInput').value = '';
             }, 3000);
 
@@ -375,139 +354,41 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Optimizado para costos)</option>
-                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image Preview (Alta Calidad)</option>
+                                    <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Rápido, Menor Costo)</option>
+                                    <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image (Alta Calidad, Más Lento)</option>
                                 </select>
                                 <small className="form-hint">
-                                    Imagen 4.0 es superior para diagramas con texto y etiquetas precisas
+                                    Gemini 2.5: ~7s/imagen, menor costo | Gemini 3: ~25s/imagen, mejor calidad (máx 4 por lote)
                                 </small>
                             </div>
                         </div>
 
-                        {/* Content Type Selection */}
+                        {/* Lab Requirements - Always shown since we always generate labs */}
                         <div className="form-section">
-                            <h3>📝 Tipo de Contenido a Generar</h3>
-
-                            <div className="scope-options">
-                                <label className="radio-option">
-                                    <input
-                                        type="radio"
-                                        checked={contentType === 'theory'}
-                                        onChange={() => setContentType('theory')}
-                                        disabled={isProcessing}
-                                    />
-                                    <div className="radio-content">
-                                        <strong>Solo Contenido Teórico</strong>
-                                        <p>Genera únicamente las lecciones teóricas del curso</p>
-                                    </div>
-                                </label>
-
-                                <label className="radio-option">
-                                    <input
-                                        type="radio"
-                                        checked={contentType === 'labs'}
-                                        onChange={() => setContentType('labs')}
-                                        disabled={isProcessing}
-                                    />
-                                    <div className="radio-content">
-                                        <strong>Solo Guía de Laboratorios</strong>
-                                        <p>Genera únicamente la guía paso a paso de los laboratorios</p>
-                                    </div>
-                                </label>
-
-                                <label className="radio-option">
-                                    <input
-                                        type="radio"
-                                        checked={contentType === 'both'}
-                                        onChange={() => setContentType('both')}
-                                        disabled={isProcessing}
-                                    />
-                                    <div className="radio-content">
-                                        <strong>Teoría y Laboratorios</strong>
-                                        <p>Genera el contenido teórico y la guía de laboratorios completa</p>
-                                    </div>
-                                </label>
+                            <h3>🧪 Requerimientos Adicionales para Laboratorios (Opcional)</h3>
+                            <p className="section-description">
+                                Especifica requisitos técnicos, plataformas, herramientas específicas, o consideraciones especiales que deben incluirse en los laboratorios
+                            </p>
+                            <div className="form-group">
+                                <textarea
+                                    id="labRequirements"
+                                    value={labRequirements}
+                                    onChange={(e) => setLabRequirements(e.target.value)}
+                                    placeholder="Ej: Usar contenedores Docker, enfocarse en servicios AWS, incluir troubleshooting común, considerar ambiente Windows..."
+                                    disabled={isProcessing}
+                                    className="form-input"
+                                    rows="4"
+                                    style={{
+                                        resize: 'vertical',
+                                        fontFamily: 'inherit',
+                                        fontSize: '0.95rem',
+                                        lineHeight: '1.5'
+                                    }}
+                                />
                             </div>
-
-                            {/* Additional Requirements for Lab Generation */}
-                            {(contentType === 'labs' || contentType === 'both') && (
-                                <div className="form-group" style={{ marginTop: '1.5rem' }}>
-                                    <label htmlFor="labRequirements">
-                                        Requerimientos Adicionales para Laboratorios (Opcional)
-                                    </label>
-                                    <textarea
-                                        id="labRequirements"
-                                        value={labRequirements}
-                                        onChange={(e) => setLabRequirements(e.target.value)}
-                                        placeholder="Ej: Usar contenedores Docker, enfocarse en servicios AWS, incluir troubleshooting común, considerar ambiente Windows..."
-                                        disabled={isProcessing}
-                                        className="form-input"
-                                        rows="4"
-                                        style={{
-                                            resize: 'vertical',
-                                            fontFamily: 'inherit',
-                                            fontSize: '0.95rem',
-                                            lineHeight: '1.5'
-                                        }}
-                                    />
-                                    <small className="form-hint">
-                                        Especifica requisitos técnicos, plataformas, herramientas específicas,
-                                        o consideraciones especiales que deben incluirse en los laboratorios
-                                    </small>
-                                </div>
-                            )}
                         </div>
 
-                        {/* Generation Scope */}
-                        <div className="form-section">
-                            <h3>🎯 Alcance de Generación</h3>
 
-                            <div className="scope-options">
-                                <label className="radio-option">
-                                    <input
-                                        type="radio"
-                                        checked={!generateFullCourse}
-                                        onChange={() => setGenerateFullCourse(false)}
-                                        disabled={isProcessing}
-                                    />
-                                    <div className="radio-content">
-                                        <strong>Módulos Específicos</strong>
-                                        <p>Genera solo los módulos que necesitas</p>
-                                    </div>
-                                </label>
-
-                                <label className="radio-option">
-                                    <input
-                                        type="radio"
-                                        checked={generateFullCourse}
-                                        onChange={() => setGenerateFullCourse(true)}
-                                        disabled={isProcessing}
-                                    />
-                                    <div className="radio-content">
-                                        <strong>Curso Completo</strong>
-                                        <p>Genera todos los módulos del curso</p>
-                                    </div>
-                                </label>
-                            </div>
-
-                            {!generateFullCourse && (
-                                <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label htmlFor="moduleInput">Módulos a Generar</label>
-                                    <input
-                                        id="moduleInput"
-                                        type="text"
-                                        value={moduleInput}
-                                        onChange={(e) => setModuleInput(e.target.value)}
-                                        placeholder="Ej: 1 o 1,3 o 1-5 o 1,3-5"
-                                        disabled={isProcessing}
-                                        className="form-input"
-                                    />
-                                    <small className="form-hint">
-                                        Ejemplos: "1" (un módulo), "1,3" (módulos 1 y 3), "1-5" (módulos 1 al 5), "1,3-5" (módulos 1, 3, 4, 5)
-                                    </small>
-                                </div>
-                            )}
-                        </div>
 
                         {/* Action Buttons */}
                         <div className="form-actions">
@@ -546,12 +427,7 @@ function GeneradorCursos() {
                             <div className="alert alert-success">
                                 <strong>{successMessage}</strong>
                                 <p style={{ marginTop: '0.5rem' }}>
-                                    Su requerimiento está siendo procesado para generar{' '}
-                                    {contentType === 'theory' ? 'el contenido teórico' :
-                                        contentType === 'labs' ? 'la guía de laboratorios' :
-                                            'el contenido teórico y la guía de laboratorios'}{' '}
-                                    {generateFullCourse ? 'del curso completo' :
-                                        moduleInput.includes(',') || moduleInput.includes('-') ? 'de los módulos solicitados' : 'del módulo'}.
+                                    Su requerimiento está siendo procesado para generar el contenido teórico y la guía de laboratorios del curso completo.
                                     Usted recibirá una notificación a su correo electrónico una vez el proceso haya finalizado.
                                 </p>
                             </div>

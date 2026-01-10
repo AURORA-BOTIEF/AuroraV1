@@ -36,6 +36,32 @@ const slugify = (str = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
 
+// ✅ token robusto
+const getAuthToken = () => {
+  return (
+    localStorage.getItem("id_token") ||
+    sessionStorage.getItem("id_token") ||
+    ""
+  );
+};
+
+// ✅ headers robustos (Bearer + fallback sin Bearer)
+const buildAuthHeaders = (token) => {
+  const h1 = { Authorization: `Bearer ${token}` };
+  const h2 = { Authorization: token };
+  return { h1, h2 };
+};
+
+// ✅ parse seguro (evita romper con 401/HTML)
+const safeJson = async (response) => {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { raw: text };
+  }
+};
+
 function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const [temario, setTemario] = useState(() => ({
     ...temarioInicial,
@@ -43,11 +69,21 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       ? temarioInicial.temario
       : [],
   }));
+
   const [userEmail, setUserEmail] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
+
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
+
+  // ✅ NUEVO: Modal Versiones
+  const [modalVersiones, setModalVersiones] = useState(false);
+  const [cargandoVersiones, setCargandoVersiones] = useState(false);
+  const [versiones, setVersiones] = useState([]);
+
+  const API_VERSIONES =
+    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   useEffect(() => {
     const getUser = async () => {
@@ -78,34 +114,29 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     if (!nuevo.temario[capIndex]) return;
 
     if (subIndex === null) {
-      // 🔹 Estamos modificando un campo del capítulo
       nuevo.temario[capIndex][field] = value;
 
-      // 🔹 Si el usuario edita la duración total manualmente
       if (field === "tiempo_capitulo_min") {
         const nuevoTotal = Math.max(0, parseInt(value, 10) || 0);
         nuevo.temario[capIndex].tiempo_capitulo_min = nuevoTotal;
 
-        // 🟢 Repartir equitativamente entre subcapítulos existentes
         const subcaps = nuevo.temario[capIndex].subcapitulos || [];
         if (subcaps.length > 0) {
-          // ✅ Si el total es 0, reiniciamos todos a 0
           if (nuevoTotal === 0) {
             subcaps.forEach((sub) => (sub.tiempo_subcapitulo_min = 0));
           } else {
-            // 🟢 Distribuimos solo si el total es positivo
             const minutosPorSub = Math.floor(nuevoTotal / subcaps.length);
             const residuo = nuevoTotal % subcaps.length;
 
             subcaps.forEach((sub, idx) => {
-              sub.tiempo_subcapitulo_min =
-                Math.max(0, minutosPorSub + (idx === 0 ? residuo : 0));
+              sub.tiempo_subcapitulo_min = Math.max(
+                0,
+                minutosPorSub + (idx === 0 ? residuo : 0)
+              );
             });
           }
         }
       } else {
-        // 🔹 Si el usuario edita otro campo (nombre, objetivos, etc.)
-        // recalculamos la duración total según los subcapítulos actuales
         nuevo.temario[capIndex].tiempo_capitulo_min = (
           nuevo.temario[capIndex].subcapitulos || []
         ).reduce(
@@ -114,9 +145,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         );
       }
     } else {
-      // 🔹 Estamos modificando un campo de un subcapítulo
       if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
         nuevo.temario[capIndex].subcapitulos = [];
+
       if (typeof nuevo.temario[capIndex].subcapitulos[subIndex] !== "object") {
         nuevo.temario[capIndex].subcapitulos[subIndex] = {
           nombre:
@@ -126,12 +157,14 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
       if (field.includes("tiempo") || field === "sesion") {
         const parsed = parseInt(value, 10) || 0;
-        nuevo.temario[capIndex].subcapitulos[subIndex][field] = Math.max(0, parsed);
+        nuevo.temario[capIndex].subcapitulos[subIndex][field] = Math.max(
+          0,
+          parsed
+        );
       } else {
         nuevo.temario[capIndex].subcapitulos[subIndex][field] = value;
       }
 
-      // 🔹 Al cambiar un subcapítulo, recalculamos la duración total automáticamente
       nuevo.temario[capIndex].tiempo_capitulo_min = (
         nuevo.temario[capIndex].subcapitulos || []
       ).reduce(
@@ -162,15 +195,13 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
   const eliminarCapitulo = (capIndex) => {
     if (
       !window.confirm(
-        `¿Seguro que deseas eliminar el capítulo ${capIndex + 1
-        } y todos sus temas?`
+        `¿Seguro que deseas eliminar el capítulo ${capIndex + 1} y todos sus temas?`
       )
     )
       return;
 
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario.splice(capIndex, 1);
-    // Renumera capítulos restantes
     nuevo.temario = nuevo.temario.map((c, i) => ({
       ...c,
       capitulo: c.capitulo || `Capítulo ${i + 1}`,
@@ -202,7 +233,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
   };
 
-
   // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
@@ -213,6 +243,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       0
     );
     if (totalTemas === 0) return;
+
     const minutosPorTema = Math.floor(minutosTotales / totalTemas);
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario.forEach((cap) => {
@@ -225,20 +256,21 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         0
       );
     });
+
     setTemario(nuevo);
     setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
 
-  // ===== GUARDAR ===== (corregido para evitar 400)
+  // ✅ GUARDAR (POST) — Combina tu lógica con auth robusto
   const handleSaveClick = async () => {
     setGuardando(true);
     setMensaje({ tipo: "", texto: "" });
 
-    const nota =
-      window.prompt("Escribe una nota para esta versión (opcional):") || "";
+    const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
     try {
-      const token = localStorage.getItem("id_token");
+      const token = getAuthToken();
+      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
 
       const bodyData = {
         cursoId:
@@ -255,29 +287,42 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         fecha_creacion: new Date().toISOString(),
       };
 
-      const response = await fetch(
-        "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones",
-        {
+      const { h1, h2 } = buildAuthHeaders(token);
+
+      // 1) Bearer
+      let response = await fetch(API_VERSIONES, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...h1,
+        },
+        body: JSON.stringify(bodyData),
+      });
+
+      // 2) fallback sin Bearer
+      if (response.status === 401 || response.status === 403) {
+        response = await fetch(API_VERSIONES, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            ...h2,
           },
           body: JSON.stringify(bodyData),
-        }
-      );
+        });
+      }
 
-      const data = await response.json();
+      const data = await safeJson(response);
 
-      if (!response.ok || !data.success)
-        throw new Error(data.error || "Error al guardar versión");
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+      }
 
       setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
     } catch (err) {
       console.error("Error al guardar versión:", err);
       setMensaje({
         tipo: "error",
-        texto: "❌ Error al guardar versión (ver consola)",
+        texto: `❌ Error al guardar versión: ${err?.message || "ver consola"}`,
       });
     } finally {
       setGuardando(false);
@@ -285,8 +330,87 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     }
   };
 
-  // ===== EXPORTAR PDF =====
-  const exportarPDF = async () => {
+  // ✅ VER VERSIONES (GET) — Auth robusto + sort seguro
+  const verVersionesGuardadas = async () => {
+    setModalVersiones(true);
+    setCargandoVersiones(true);
+    setVersiones([]);
+    setMensaje({ tipo: "", texto: "" });
+
+    try {
+      const token = getAuthToken();
+      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
+
+      const { h1, h2 } = buildAuthHeaders(token);
+
+      // 1) Bearer
+      let response = await fetch(API_VERSIONES, {
+        method: "GET",
+        headers: { ...h1 },
+      });
+
+      // 2) fallback sin Bearer
+      if (response.status === 401 || response.status === 403) {
+        response = await fetch(API_VERSIONES, {
+          method: "GET",
+          headers: { ...h2 },
+        });
+      }
+
+      const data = await safeJson(response);
+
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+      }
+
+      // Normaliza posibles formas de respuesta
+      const arr =
+        Array.isArray(data) ? data :
+        Array.isArray(data?.items) ? data.items :
+        Array.isArray(data?.versiones) ? data.versiones :
+        Array.isArray(data?.data) ? data.data :
+        [];
+
+      // sort seguro
+      const ordenadas = Array.isArray(arr)
+        ? [...arr].sort(
+            (a, b) =>
+              new Date(b?.fecha_creacion || 0) - new Date(a?.fecha_creacion || 0)
+          )
+        : [];
+
+      setVersiones(ordenadas);
+    } catch (err) {
+      console.error("Error al obtener versiones:", err);
+      setMensaje({
+        tipo: "error",
+        texto: `❌ Error al obtener versiones: ${err?.message || "ver consola"}`,
+      });
+      setVersiones([]);
+    } finally {
+      setCargandoVersiones(false);
+    }
+  };
+
+  const cargarVersionEnEditor = (v) => {
+    const contenido = v?.contenido || v;
+    if (!contenido || typeof contenido !== "object") {
+      setMensaje({ tipo: "error", texto: "❌ Versión inválida (sin contenido)" });
+      return;
+    }
+
+    setTemario({
+      ...contenido,
+      temario: Array.isArray(contenido.temario) ? contenido.temario : [],
+    });
+
+    setModalVersiones(false);
+    setMensaje({ tipo: "ok", texto: "✅ Versión cargada en el editor" });
+    setTimeout(() => setMensaje({ tipo: "", texto: "" }), 3000);
+  };
+
+  // ✅ EXPORTAR PDF (con tus mejoras visuales)
+  const exportarPDFLocal = async () => {
     try {
       if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
         setMensaje({ tipo: "error", texto: "No hay contenido para exportar." });
@@ -298,10 +422,12 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       const negro = "#000000";
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = { top: 230, bottom: 100, left: 60, right: 60 }; // ✅ más margen
+      const margin = { top: 230, bottom: 100, left: 60, right: 60 };
       const contentWidth = pageWidth - margin.left - margin.right;
+
       const encabezado = await toDataURL(encabezadoImagen);
       const pie = await toDataURL(pieDePaginaImagen);
+
       let y = margin.top;
 
       const addPageIfNeeded = (extra = 40) => {
@@ -314,21 +440,24 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
       doc.setTextColor(azul);
+
       const tituloCurso = temario?.nombre_curso || "Temario del Curso";
       const lineasCurso = doc.splitTextToSize(tituloCurso, contentWidth - 40);
       lineasCurso.forEach((linea) => {
         doc.text(linea, pageWidth / 2, y, { align: "center" });
         y += 18;
       });
+
       y += 20;
-      // 🔹 Duración total del curso (estilo visual mejorado)
-      doc.setFont("helvetica", "bolditalic"); // ✅ negrita y cursiva
+
+      // ✅ Duración alineada a la derecha (tu mejora)
+      doc.setFont("helvetica", "bolditalic");
       doc.setFontSize(12);
       doc.setTextColor(azul);
       const duracionTexto = `Duración total del curso: ${temario?.horas_total_curso || 0} horas`;
-      doc.text(duracionTexto, pageWidth - margin.right, y + 10, { align: "right" }); // ✅ alineado derecha
+      doc.text(duracionTexto, pageWidth - margin.right, y + 10, { align: "right" });
       y += 30;
-      // 🔹 Secciones generales
+
       const secciones = [
         { titulo: "Descripción General", texto: temario?.descripcion_general },
         { titulo: "Audiencia", texto: temario?.audiencia },
@@ -344,9 +473,11 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         doc.setTextColor(azul);
         doc.text(s.titulo, margin.left, y);
         y += 18;
+
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         doc.setTextColor(negro);
+
         const lineas = doc.splitTextToSize(s.texto, contentWidth);
         lineas.forEach((linea) => {
           addPageIfNeeded(14);
@@ -356,24 +487,18 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         y += 10;
       });
 
-      // 🔹 Añadimos un espacio antes del divisor
+      // ✅ divisor (tu mejora)
       y += 10;
-
-      // 🔹 Dibujamos una línea divisoria para separar secciones
-      doc.setDrawColor(150, 150, 150); // gris claro
+      doc.setDrawColor(150, 150, 150);
       doc.setLineWidth(0.8);
       doc.line(margin.left, y, pageWidth - margin.right, y);
+      y += 25;
 
-      y += 25; // espacio después de la línea
-
-      // 🔹 Agregamos el título "Temario"
       addPageIfNeeded(70);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
       doc.setTextColor(azul);
       doc.text("Temario", margin.left, y);
-
-      // 🔹 Espacio adicional antes del primer capítulo
       y += 35;
 
       temario.temario.forEach((cap, i) => {
@@ -381,6 +506,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(13);
         doc.setTextColor(azul);
+
         const tituloCap = `Capítulo ${i + 1}: ${cap.capitulo}`;
         const lineasCap = doc.splitTextToSize(tituloCap, contentWidth - 40);
         lineasCap.forEach((linea) => {
@@ -410,33 +536,41 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
           y += 10;
         }
 
-        cap.subcapitulos.forEach((sub, j) => {
+        (cap.subcapitulos || []).forEach((sub, j) => {
           addPageIfNeeded(18);
           const subObj = typeof sub === "object" ? sub : { nombre: sub };
           const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${subObj.sesion || 1}`;
+
           doc.setFont("helvetica", "normal");
           doc.setFontSize(10);
+
           const subTitulo = `${i + 1}.${j + 1} ${subObj.nombre}`;
           const subLineas = doc.splitTextToSize(subTitulo, contentWidth - 120);
+
           subLineas.forEach((linea, idx) => {
             addPageIfNeeded(12);
             doc.text(linea, margin.left + 25, y);
-            if (idx === 0) doc.text(meta, pageWidth - margin.right, y, { align: "right" });
+            if (idx === 0)
+              doc.text(meta, pageWidth - margin.right, y, { align: "right" });
             y += 12;
           });
         });
+
         y += 20;
       });
 
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
+
         const propsEnc = doc.getImageProperties(encabezado);
         const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
         doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+
         const propsPie = doc.getImageProperties(pie);
         const altoPie = (propsPie.height / propsPie.width) * pageWidth;
         doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+
         doc.setFontSize(8);
         doc.setTextColor("#666");
         doc.text(
@@ -472,63 +606,53 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
       {mensaje.texto && <div className={`msg ${mensaje.tipo}`}>{mensaje.texto}</div>}
 
       <h3>Información general del curso</h3>
-      {/* 🔹 Campo: Horas Totales del Curso */}
+
       <label>Duración total del curso (horas)</label>
       <input
         type="number"
         min="0"
         value={temario.horas_total_curso || 0}
-        onChange={(e) =>
-          setTemario({ ...temario, horas_total_curso: e.target.value })
-        }
+        onChange={(e) => setTemario({ ...temario, horas_total_curso: e.target.value })}
         className="input-capitulo"
         placeholder="Ej: 40"
       />
 
-      {/* 🔴 CAMPO AÑADIDO: DESCRIPCIÓN GENERAL */}
       <label>Descripción General</label>
       <textarea
         value={temario.descripcion_general || ""}
-        onChange={(e) =>
-          setTemario({ ...temario, descripcion_general: e.target.value })
-        }
+        onChange={(e) => setTemario({ ...temario, descripcion_general: e.target.value })}
         className="textarea-objetivos-capitulo"
-        placeholder="Ej: Curso introductorio a Scrum, dirigido a desarrolladores con 1 año de experiencia..."
+        placeholder="Ej: Curso introductorio..."
       />
-      {/* 🔴 CAMPO AÑADIDO: AUDIENCIA */}
+
       <label>Audiencia</label>
       <textarea
         value={temario.audiencia || ""}
-        onChange={(e) =>
-          setTemario({ ...temario, audiencia: e.target.value })
-        }
+        onChange={(e) => setTemario({ ...temario, audiencia: e.target.value })}
         className="textarea-objetivos-capitulo"
-        placeholder="Ej: Desarrolladores, líderes de proyecto, gerentes de producto..."
+        placeholder="Ej: Desarrolladores..."
       />
 
-      {/* 🔴 CAMPO AÑADIDO: PRERREQUISITOS */}
       <label>Prerrequisitos</label>
       <textarea
         value={temario.prerrequisitos || ""}
-        onChange={(e) =>
-          setTemario({ ...temario, prerrequisitos: e.target.value })
-        }
+        onChange={(e) => setTemario({ ...temario, prerrequisitos: e.target.value })}
         className="textarea-objetivos-capitulo"
-        placeholder="Ej: Conocimientos básicos de gestión de proyectos..."
+        placeholder="Ej: Conocimientos básicos..."
       />
-      {/* 🔹 CAMPO AÑADIDO: OBJETIVOS */}
+
       <label>Objetivos</label>
       <textarea
         value={temario.objetivos || ""}
-        onChange={(e) =>
-          setTemario({ ...temario, objetivos: e.target.value })
-        }
+        onChange={(e) => setTemario({ ...temario, objetivos: e.target.value })}
         className="textarea-objetivos-capitulo"
-        placeholder="Ej: Al finalizar el curso, los participantes podrán..."
+        placeholder="Ej: Al finalizar..."
       />
+
       <hr style={{ margin: "20px 0" }} />
 
       <h3>Temario Detallado</h3>
+
       {(temario.temario || []).map((cap, i) => (
         <div key={i} className="capitulo-editor">
           <h4>Capítulo {i + 1}</h4>
@@ -546,10 +670,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
               type="number"
               min="0"
               value={cap.tiempo_capitulo_min || 0}
-              onChange={(e) => {
-                const val = Math.max(0, parseInt(e.target.value) || 0);
+              onChange={(e) =>
                 handleFieldChange(i, null, "tiempo_capitulo_min", e.target.value)
-              }}
+              }
               className="input-duracion"
               style={{ width: "80px", textAlign: "center" }}
             />
@@ -572,34 +695,33 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
             placeholder="Un objetivo por línea"
           />
 
-          {/* === SUBCAPÍTULOS === */}
           <ul>
             {(cap.subcapitulos || []).map((sub, j) => (
               <li key={j} className="subcapitulo-item">
                 <span>
                   {i + 1}.{j + 1}
                 </span>
+
                 <input
                   value={sub.nombre || ""}
                   onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
                   type="text"
                   placeholder="Nombre del tema"
                 />
+
                 <input
                   type="number"
                   value={sub.tiempo_subcapitulo_min || 0}
-                  onChange={(e) => {
-                    const val = Math.max(0, parseInt(e.target.value) || 0);
+                  onChange={(e) =>
                     handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
-                  }}
+                  }
                   placeholder="min"
                 />
+
                 <input
                   type="number"
                   value={sub.sesion || 1}
-                  onChange={(e) =>
-                    handleFieldChange(i, j, "sesion", e.target.value)
-                  }
+                  onChange={(e) => handleFieldChange(i, j, "sesion", e.target.value)}
                   placeholder="sesión"
                   className="input-sesion"
                 />
@@ -616,12 +738,12 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
             ))}
           </ul>
 
-          {/* 🔹 Acciones del capítulo */}
           <div className="acciones-capitulo">
             <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
               <Plus size={18} strokeWidth={2} />
               <span>Agregar Tema</span>
             </button>
+
             <button
               className="btn-eliminar-capitulo"
               onClick={() => eliminarCapitulo(i)}
@@ -641,19 +763,88 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         </button>
       </div>
 
-      {/* === Acciones finales === */}
       <div className="acciones-footer">
         <button className="btn-primario" onClick={ajustarTiempos}>
           Ajustar Tiempos
         </button>
+
         <button className="btn-secundario" onClick={handleSaveClick} disabled={guardando}>
           {guardando ? "Guardando..." : "Guardar Versión"}
         </button>
+
+        <button className="btn-secundario" onClick={verVersionesGuardadas}>
+          Ver Versiones Guardadas
+        </button>
+
         <button className="btn-secundario" onClick={() => setModalExportar(true)}>
           Exportar
         </button>
       </div>
 
+      {/* ✅ MODAL VERSIONES */}
+      {modalVersiones && (
+        <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Versiones Guardadas</h3>
+              <button className="modal-close" onClick={() => setModalVersiones(false)}>
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {cargandoVersiones ? (
+                <p>Cargando versiones...</p>
+              ) : versiones.length === 0 ? (
+                <p>No hay versiones disponibles.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {versiones.map((v, idx) => (
+                    <div
+                      key={v?.id || v?._id || v?.cursoId || idx}
+                      style={{
+                        border: "1px solid #ddd",
+                        borderRadius: 10,
+                        padding: 10,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>
+                        {v?.nombre_curso || v?.contenido?.nombre_curso || "Sin nombre"}
+                      </div>
+
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        {v?.fecha_creacion
+                          ? new Date(v.fecha_creacion).toLocaleString()
+                          : "Sin fecha"}
+                        {" • "}
+                        {v?.autor || v?.contenido?.autor || "Sin autor"}
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 13 }}>
+                        {v?.nota_version || "Sin nota"}
+                      </div>
+
+                      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                        <button className="btn-guardar" onClick={() => cargarVersionEnEditor(v)}>
+                          Cargar en editor
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-secundario" onClick={() => setModalVersiones(false)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EXPORTAR */}
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -684,7 +875,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
             <div className="modal-footer">
               <button
                 onClick={() => {
-                  exportTipo === "pdf" ? exportarPDF(temario) : exportarExcel();
+                  exportTipo === "pdf" ? exportarPDFLocal() : exportarExcel();
                   setModalExportar(false);
                 }}
                 className="btn-guardar"
@@ -698,7 +889,9 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     </div>
   );
 }
+
 // ✅ Exportar función exportarPDF para que GeneradorTemarios pueda usar la misma lógica
+// (se deja como la tenías; no afecta a las versiones)
 export const exportarPDF = async (temarioData) => {
   if (!temarioData || !Array.isArray(temarioData.temario)) {
     alert("No hay contenido válido para exportar.");
@@ -706,7 +899,8 @@ export const exportarPDF = async (temarioData) => {
   }
 
   const { jsPDF } = await import("jspdf");
-  const toDataURL = async (url) => {
+
+  const toDataURL2 = async (url) => {
     const res = await fetch(url);
     const blob = await res.blob();
     return new Promise((resolve, reject) => {
@@ -717,8 +911,8 @@ export const exportarPDF = async (temarioData) => {
     });
   };
 
-  const encabezado = await toDataURL("/src/assets/encabezado.png");
-  const pie = await toDataURL("/src/assets/pie_de_pagina.png");
+  const encabezado = await toDataURL2("/src/assets/encabezado.png");
+  const pie = await toDataURL2("/src/assets/pie_de_pagina.png");
 
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
   const azul = "#005A9C";
@@ -736,20 +930,25 @@ export const exportarPDF = async (temarioData) => {
     }
   };
 
-  // 🔹 Título
   doc.setFont("helvetica", "bold");
   doc.setFontSize(22);
   doc.setTextColor(azul);
+
   const tituloCurso = temarioData.nombre_curso || "Temario del Curso";
   const lineasCurso = doc.splitTextToSize(tituloCurso, contentWidth - 40);
   lineasCurso.forEach((linea) => {
     doc.text(linea, pageWidth / 2, y, { align: "center" });
     y += 18;
   });
+
   y += 20;
-  doc.text(`Duración total del curso: ${temarioData.horas_total_curso || 0} horas`, margin.left, y);
+  doc.text(
+    `Duración total del curso: ${temarioData.horas_total_curso || 0} horas`,
+    margin.left,
+    y
+  );
   y += 14;
-  // 🔹 Secciones generales
+
   const secciones = [
     { titulo: "Descripción General", texto: temarioData.descripcion_general },
     { titulo: "Audiencia", texto: temarioData.audiencia },
@@ -765,19 +964,21 @@ export const exportarPDF = async (temarioData) => {
     doc.setTextColor(azul);
     doc.text(s.titulo, margin.left, y);
     y += 18;
+
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.setTextColor(negro);
+
     const lineas = doc.splitTextToSize(s.texto, contentWidth);
     lineas.forEach((linea) => {
       addPageIfNeeded(14);
       doc.text(linea, margin.left, y, { align: "justify" });
       y += 14;
     });
+
     y += 10;
   });
 
-  // 🔹 Temario
   addPageIfNeeded(50);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
@@ -811,6 +1012,7 @@ export const exportarPDF = async (temarioData) => {
       const objetivos = Array.isArray(cap.objetivos_capitulo)
         ? cap.objetivos_capitulo.join(" ")
         : cap.objetivos_capitulo;
+
       const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
       lines.forEach((line) => {
         addPageIfNeeded(12);
@@ -824,31 +1026,36 @@ export const exportarPDF = async (temarioData) => {
       addPageIfNeeded(16);
       const subObj = typeof sub === "object" ? sub : { nombre: sub };
       const meta = `${formatDuration(subObj.tiempo_subcapitulo_min || 0)} • Sesión ${subObj.sesion || 1}`;
+
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
+
       const subTitulo = `${i + 1}.${j + 1} ${subObj.nombre}`;
       const subLineas = doc.splitTextToSize(subTitulo, contentWidth - 120);
+
       subLineas.forEach((linea, idx) => {
         addPageIfNeeded(12);
         doc.text(linea, margin.left + 25, y);
-        if (idx === 0) {
-          doc.text(meta, pageWidth - margin.right, y, { align: "right" });
-        }
+        if (idx === 0) doc.text(meta, pageWidth - margin.right, y, { align: "right" });
         y += 12;
       });
     });
+
     y += 16;
   });
 
   const totalPages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
+
     const propsEnc = doc.getImageProperties(encabezado);
     const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
     doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+
     const propsPie = doc.getImageProperties(pie);
     const altoPie = (propsPie.height / propsPie.width) * pageWidth;
     doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+
     doc.setFontSize(8);
     doc.setTextColor("#666");
     doc.text(
@@ -863,6 +1070,5 @@ export const exportarPDF = async (temarioData) => {
 
   doc.save(`Temario_${temarioData.nombre_curso || "curso"}.pdf`);
 };
-
 
 export default EditorDeTemario;

@@ -510,34 +510,92 @@
     font-weight: 600;
 }
 
-/* Loading & Error States */
-.loading-spinner {
+/* Loading Overlay - Centered with Progress Bar */
+.viewer-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(26, 26, 26, 0.98);
+    z-index: 10000;
+}
+
+.viewer-loading-container {
+    text-align: center;
+    padding: 3rem;
+    background: #2a2a2a;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    min-width: 320px;
+}
+
+.viewer-loading-container h1 {
+    font-size: 2rem;
+    color: #4682B4;
+    margin-bottom: 0.5rem;
+}
+
+.viewer-loading-container p {
+    font-size: 1.1rem;
+    color: #aaa;
+    margin-bottom: 1.5rem;
+}
+
+.viewer-loading-bar-wrapper {
+    width: 100%;
+    height: 8px;
+    background-color: #444;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.viewer-loading-bar {
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(90deg, #4682B4, #003366, #4682B4);
+    background-size: 200% 100%;
+    border-radius: 4px;
+    animation: viewerLoadingSlide 1.5s ease-in-out infinite;
+}
+
+@keyframes viewerLoadingSlide {
+    0% {
+        transform: translateX(-100%);
+        background-position: 0% 0%;
+    }
+
+    50% {
+        background-position: 100% 0%;
+    }
+
+    100% {
+        transform: translateX(250%);
+        background-position: 0% 0%;
+    }
+}
+
+/* Inline loading (for content within viewport) */
+.viewer-inline-loading {
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     height: 100%;
-    color: white;
+    color: #aaa;
+    padding: 2rem;
 }
 
-.spinner {
-    border: 4px solid #444;
-    border-top: 4px solid #4682B4;
-    border-radius: 50%;
-    width: 50px;
-    height: 50px;
-    animation: spin 1s linear infinite;
+.viewer-inline-loading p {
     margin-bottom: 1rem;
+    font-size: 1rem;
 }
 
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
+.viewer-inline-loading .viewer-loading-bar-wrapper {
+    width: 200px;
 }
 
 .error-message {

@@ -139,8 +139,10 @@ def generate_lab_guide(
     
     lab_id = lab_plan['lab_id']
     lab_title = lab_plan['lab_title']
+    target_language = master_context.get('target_language', 'English')
     
     print(f"  🔨 Generating lab guide: [{lab_id}] {lab_title}")
+    print(f"  🌐 Language: {target_language}")
     
     # Build context from master plan
     hw_requirements = master_context.get('hardware_requirements', [])
@@ -155,9 +157,31 @@ def generate_lab_guide(
         else:
             sw_list.append(f"- {sw}")
     
-    # Build prompt
+    # Build prompt with standardized schema
     prompt = f"""
 You are creating a professional, detailed laboratory guide for technical training.
+
+LANGUAGE REQUIREMENT:
+**ALL CONTENT MUST BE WRITTEN IN: {target_language}**
+
+- ALL section titles MUST be in {target_language}
+- ALL instructions, explanations, and descriptions MUST be in {target_language}
+- Code commands can remain in their original language (usually English)
+- Technical terms may remain in English where appropriate
+
+If {target_language} is Spanish, use these section titles:
+- "Metadatos" instead of "Metadata"
+- "Descripción General" instead of "Overview"
+- "Objetivos de Aprendizaje" instead of "Learning Objectives"
+- "Prerrequisitos" instead of "Prerequisites"
+- "Entorno de Laboratorio" instead of "Lab Environment"
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
+- "Paso N:" instead of "Step N:"
+- "Validación y Pruebas" instead of "Validation & Testing"
+- "Solución de Problemas" instead of "Troubleshooting"
+- "Limpieza" instead of "Cleanup"
+- "Resumen" instead of "Summary"
+- "Recursos Adicionales" instead of "Additional Resources"
 
 LAB INFORMATION:
 - Lab ID: {lab_id}
@@ -190,130 +214,279 @@ AVAILABLE SOFTWARE:
 SPECIAL CONSIDERATIONS:
 {chr(10).join(f'- {consideration}' for consideration in special_considerations)}
 
-YOUR TASK:
-Create a complete, professional laboratory guide in Markdown format following this EXACT structure:
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY LAB GUIDE STRUCTURE SCHEMA (FOLLOW EXACTLY)
+═══════════════════════════════════════════════════════════════════════════════
 
 ```markdown
 # Lab {lab_id}: {lab_title}
 
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| **Duration** | {lab_plan['estimated_duration']} minutes |
+| **Complexity** | {lab_plan.get('complexity', 'medium').capitalize()} |
+| **Bloom Level** | {lab_plan['bloom_level']} |
+
 ## Overview
-Brief description of what this lab accomplishes and why it matters.
+
+[2-3 sentences describing what this lab accomplishes]
+[Explain the practical value and real-world relevance]
 
 ## Learning Objectives
-- Objective 1 (copy from above)
-- Objective 2
-- ...
+
+By completing this lab, you will be able to:
+
+- [ ] [Objective 1 - specific and measurable]
+- [ ] [Objective 2 - specific and measurable]
+- [ ] [Objective 3 - specific and measurable]
 
 ## Prerequisites
-- Prerequisite 1 (from above)
-- Prerequisite 2
-- ...
 
-## Estimated Duration
-{lab_plan['estimated_duration']} minutes
+### Required Knowledge
 
-## Lab Environment Setup
+- [Prior concept or skill 1]
+- [Prior concept or skill 2]
+
+### Required Access
+
+- [Account, permission, or credential 1]
+- [Account, permission, or credential 2]
+
+## Lab Environment
 
 ### Hardware Requirements
-- Requirement 1
-- Requirement 2
+
+| Component | Specification |
+|-----------|---------------|
+| [Component 1] | [Spec details] |
+| [Component 2] | [Spec details] |
 
 ### Software Requirements
-- Software 1 (version): purpose
-- Software 2 (version): purpose
 
-### Initial Setup Steps
-1. First setup step with clear command or action
-2. Second setup step
-3. ...
+| Software | Version | Purpose |
+|----------|---------|---------|
+| [Software 1] | [X.Y.Z] | [Why it's needed] |
+| [Software 2] | [X.Y.Z] | [Why it's needed] |
+
+### Initial Setup
+
+```bash
+# Commands to prepare the environment
+[setup_command_1]
+[setup_command_2]
+```
 
 ## Step-by-Step Instructions
 
-### Step 1: [Clear Step Title]
-**Objective:** What this step accomplishes
+### Step 1: [Clear Action Title]
+
+**Objective:** [What this step accomplishes in one sentence]
 
 **Instructions:**
-1. First action with exact command if applicable
+
+1. [First action with specific details]
+   
    ```bash
-   # Example command with explanation
-   command here
+   [exact command to run]
    ```
-2. Second action
-3. Third action
+
+2. [Second action]
+
+3. [Third action]
+
+**Expected Output:**
+
+```
+[What the user should see after completing this step]
+```
 
 **Verification:**
-- How to verify this step worked
-- Expected output or result
 
-**Troubleshooting:**
-- Common issue 1: solution
-- Common issue 2: solution
+- [How to confirm this step succeeded]
+- [What to check or look for]
 
-### Step 2: [Next Step Title]
-[Same structure as Step 1]
+---
 
-### Step 3: [Continue...]
-[Continue for all major steps needed to complete the lab]
+### Step 2: [Next Action Title]
+
+**Objective:** [What this step accomplishes]
+
+**Instructions:**
+
+1. [Action details]
+
+   ```[language]
+   [code or command]
+   ```
+
+2. [Continue with numbered actions]
+
+**Expected Output:**
+
+```
+[Expected result]
+```
+
+**Verification:**
+
+- [Verification criteria]
+
+---
+
+### Step N: [Final Step Title]
+
+[Complete the lab with final configuration or deployment]
 
 ## Validation & Testing
 
 ### Success Criteria
-- Criterion 1: How to verify
-- Criterion 2: How to verify
-- ...
+
+Verify your lab is complete by confirming:
+
+- [ ] [Criterion 1 - specific and testable]
+- [ ] [Criterion 2 - specific and testable]
+- [ ] [Criterion 3 - specific and testable]
 
 ### Testing Procedure
-1. Test step 1
-2. Test step 2
-3. Expected results
 
-## Cleanup (if applicable)
-1. Cleanup action 1
-2. Cleanup action 2
-3. ...
+1. [Test action 1]
+   
+   ```bash
+   [test command]
+   ```
+   
+   **Expected Result:** [what should happen]
 
-## Summary
-Brief recap of what was accomplished and key takeaways.
+2. [Test action 2]
+   
+   **Expected Result:** [what should happen]
 
-## Additional Resources
-- Resource 1: Brief description
-- Resource 2: Brief description
-- ...
+## Troubleshooting
 
-## Common Issues & Solutions
+### Issue 1: [Common Problem Description]
 
-### Issue 1: [Issue Description]
-**Symptoms:** What the user sees
-**Cause:** Why it happens
-**Solution:** How to fix it
+**Symptoms:**
+- [What the user observes]
 
-### Issue 2: [Next Issue]
-[Same structure]
+**Cause:**
+[Why this happens]
 
-## Notes
-- Important note 1
-- Important note 2
+**Solution:**
+
+```bash
+[Command or steps to fix]
 ```
 
-CRITICAL REQUIREMENTS:
-1. Use EXACT commands and file paths - be specific, not generic
-2. Include actual code/commands in code blocks with syntax highlighting
-3. Each step should be clear enough for someone to follow without prior knowledge
-4. Include verification steps after major actions
-5. Anticipate 2-3 common errors and provide solutions
-6. Time estimates should match the {lab_plan['estimated_duration']} minute duration
-7. Difficulty should match "{lab_plan.get('complexity', 'medium')}" complexity
-8. All instructions must be actionable and testable
-9. Use professional technical writing style
-10. Include success criteria that are measurable
+---
 
-Consider the Bloom level "{lab_plan['bloom_level']}":
+### Issue 2: [Another Common Problem]
+
+**Symptoms:**
+- [Observable behavior]
+
+**Cause:**
+[Root cause explanation]
+
+**Solution:**
+
+```bash
+[Fix command]
+```
+
+---
+
+### Issue 3: [Third Common Problem]
+
+[Same structure]
+
+## Cleanup
+
+To reset your environment after completing this lab:
+
+```bash
+# Cleanup commands
+[cleanup_command_1]
+[cleanup_command_2]
+[cleanup_command_3]
+```
+
+> ⚠️ **Warning:** [Any important notes about cleanup]
+
+## Summary
+
+### What You Accomplished
+
+- [Accomplishment 1]
+- [Accomplishment 2]
+- [Accomplishment 3]
+
+### Key Takeaways
+
+- [Important concept or skill learned]
+- [Best practice discovered]
+
+### Next Steps
+
+- [Suggested follow-up lab or lesson]
+- [Additional practice recommendation]
+
+## Additional Resources
+
+- [Resource 1 title] - [Brief description]
+- [Resource 2 title] - [Brief description]
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**HEADING HIERARCHY (MANDATORY):**
+- H1 (#): ONLY for lab title - ONE per document
+- H2 (##): Major sections (Metadata, Overview, Steps, Troubleshooting, etc.)
+- H3 (###): Steps within instructions, subsections, individual issues
+- H4 (####): Details within H3 (if needed)
+- NEVER skip heading levels (H1 → H3 is INVALID)
+
+**REQUIRED SECTIONS (ALL MUST BE PRESENT):**
+1. Metadata (H2) - Table with Duration, Complexity, Bloom Level
+2. Overview (H2) - Brief description
+3. Learning Objectives (H2) - 3-5 checkboxes
+4. Prerequisites (H2) - Knowledge and access requirements
+5. Lab Environment (H2) - Hardware, software, setup
+6. Step-by-Step Instructions (H2) - Numbered steps as H3
+7. Validation & Testing (H2) - Success criteria
+8. Troubleshooting (H2) - At least 2-3 common issues
+9. Cleanup (H2) - Reset commands
+10. Summary (H2) - Accomplishments and takeaways
+
+**STEP STRUCTURE (EVERY STEP MUST HAVE):**
+- Objective - One sentence stating what this step accomplishes
+- Instructions - Numbered list with specific actions
+- Expected Output - Code block showing what user should see
+- Verification - How to confirm success
+- Use `---` horizontal rules between steps
+
+**CODE BLOCKS (ALWAYS SPECIFY LANGUAGE):**
+- Use REAL, EXECUTABLE commands - NO placeholders like <filename> or YOUR_VALUE
+- Specify language: bash, python, yaml, json, etc.
+- Include actual expected output
+
+**COMPLEXITY GUIDELINES:**
+- Beginner: 3-5 steps, heavy guidance, explicit commands
+- Intermediate: 5-10 steps, balanced guidance
+- Advanced: 10+ steps, less hand-holding
+
+**BLOOM LEVEL ADAPTATION:**
 - Remember/Understand: More explanation, guided steps
 - Apply: Balanced guidance and independent work
 - Analyze/Evaluate: More independent problem-solving
-- Create: Less hand-holding, more open-ended challenges
+- Create: Less hand-holding, open-ended challenges
 
-Return ONLY the Markdown content, no additional commentary.
+═══════════════════════════════════════════════════════════════════════════════
+
+Return ONLY the Markdown content following this schema exactly, no additional commentary.
 """
     
     try:
@@ -407,10 +580,24 @@ You are an expert technical instructor creating detailed, professional laborator
 LANGUAGE REQUIREMENT:
 **GENERATE ALL LAB CONTENT IN: {master_context.get('target_language', 'English')}**
 
-- All headings, instructions, explanations must be in {master_context.get('target_language', 'English')}
-- Use proper {master_context.get('target_language', 'English')} terminology and idioms
-- Command outputs can remain in their original language (usually English)
-- Code comments should be in {master_context.get('target_language', 'English')} where appropriate
+- ALL section titles MUST be in {master_context.get('target_language', 'English')}
+- ALL instructions, explanations, descriptions must be in {master_context.get('target_language', 'English')}
+- Code commands can remain in their original language (usually English)
+- Technical terms may remain in English where appropriate
+
+If generating in Spanish, use these section titles:
+- "Metadatos" instead of "Metadata"
+- "Descripción General" instead of "Overview"
+- "Objetivos de Aprendizaje" instead of "Learning Objectives"
+- "Prerrequisitos" instead of "Prerequisites"
+- "Entorno de Laboratorio" instead of "Lab Environment"
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
+- "Paso N:" instead of "Step N:"
+- "Validación y Pruebas" instead of "Validation & Testing"
+- "Solución de Problemas" instead of "Troubleshooting"
+- "Limpieza" instead of "Cleanup"
+- "Resumen" instead of "Summary"
+- "Recursos Adicionales" instead of "Additional Resources"
 
 MASTER CONTEXT:
 Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}
@@ -427,56 +614,219 @@ Special Considerations:
 LABS TO GENERATE ({len(lab_plans)} total):
 {chr(10).join(labs_summary)}
 
-YOUR TASK:
-Generate COMPLETE, DETAILED step-by-step instructions for ALL {len(lab_plans)} labs above in {master_context.get('target_language', 'English')}.
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY LAB GUIDE STRUCTURE SCHEMA (FOLLOW EXACTLY FOR EACH LAB)
+═══════════════════════════════════════════════════════════════════════════════
 
-OUTPUT FORMAT (use delimiters):
----LAB_START---
-LAB_ID: 03-01-01
----MARKDOWN---
-# Lab 03-01-01: Full Title
+Each lab MUST follow this EXACT structure with proper heading hierarchy:
+
+```
+# Lab [LAB_ID]: [Lab Title]
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| **Duration** | XX minutes |
+| **Complexity** | Beginner/Intermediate/Advanced |
+| **Bloom Level** | [Level] |
 
 ## Overview
-...complete markdown content...
+
+[2-3 sentences describing what this lab accomplishes]
+[Explain the practical value and real-world relevance]
+
+## Learning Objectives
+
+By completing this lab, you will be able to:
+
+- [ ] [Objective 1 - specific and measurable]
+- [ ] [Objective 2 - specific and measurable]
+- [ ] [Objective 3 - specific and measurable]
+
+## Prerequisites
+
+### Required Knowledge
+
+- [Prior concept or skill 1]
+- [Prior concept or skill 2]
+
+### Required Access
+
+- [Account, permission, or credential 1]
+
+## Lab Environment
+
+### Hardware Requirements
+
+| Component | Specification |
+|-----------|---------------|
+| [Component] | [Spec] |
+
+### Software Requirements
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| [Software] | [X.Y.Z] | [Why needed] |
+
+### Initial Setup
+
+```bash
+# Setup commands
+```
+
+## Step-by-Step Instructions
+
+### Step 1: [Clear Action Title]
+
+**Objective:** [What this step accomplishes]
+
+**Instructions:**
+
+1. [First action]
+   
+   ```bash
+   [exact command]
+   ```
+
+2. [Second action]
+
+**Expected Output:**
+
+```
+[What user should see]
+```
+
+**Verification:**
+
+- [How to confirm success]
+
+---
+
+### Step 2: [Next Action Title]
+
+[Same structure - Objective, Instructions, Expected Output, Verification]
+
+---
+
+[Continue for all steps needed]
+
+## Validation & Testing
+
+### Success Criteria
+
+- [ ] [Criterion 1 - testable]
+- [ ] [Criterion 2 - testable]
+
+### Testing Procedure
+
+1. [Test action]
+   ```bash
+   [test command]
+   ```
+   **Expected Result:** [result]
+
+## Troubleshooting
+
+### Issue 1: [Problem Description]
+
+**Symptoms:**
+- [What user observes]
+
+**Cause:**
+[Why it happens]
+
+**Solution:**
+```bash
+[fix command]
+```
+
+---
+
+### Issue 2: [Another Problem]
+
+[Same structure]
+
+## Cleanup
+
+```bash
+# Cleanup commands
+```
+
+> ⚠️ **Warning:** [Important notes]
+
+## Summary
+
+### What You Accomplished
+
+- [Accomplishment 1]
+- [Accomplishment 2]
+
+### Key Takeaways
+
+- [Concept learned]
+
+### Next Steps
+
+- [Follow-up recommendation]
+
+## Additional Resources
+
+- [Resource 1] - [Description]
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**HEADING HIERARCHY (MANDATORY):**
+- H1 (#): ONLY for lab title - ONE per lab
+- H2 (##): Major sections
+- H3 (###): Steps, subsections, issues
+- NEVER skip heading levels (H1 → H3 is INVALID)
+
+**REQUIRED SECTIONS (ALL MUST BE PRESENT FOR EACH LAB):**
+1. Metadata (H2) - Table with Duration, Complexity, Bloom Level
+2. Overview (H2)
+3. Learning Objectives (H2) - With checkboxes
+4. Prerequisites (H2)
+5. Lab Environment (H2)
+6. Step-by-Step Instructions (H2) - Steps as H3
+7. Validation & Testing (H2)
+8. Troubleshooting (H2) - At least 2 issues
+9. Cleanup (H2)
+10. Summary (H2)
+
+**STEP STRUCTURE (EVERY STEP MUST HAVE):**
+- Objective, Instructions, Expected Output, Verification
+- Use `---` between steps
+
+**CODE BLOCKS:**
+- REAL, EXECUTABLE commands - NO placeholders like <filename>
+- Always specify language (bash, python, yaml, etc.)
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT (USE DELIMITERS)
+═══════════════════════════════════════════════════════════════════════════════
+
+---LAB_START---
+LAB_ID: [lab_id]
+---MARKDOWN---
+# Lab [lab_id]: [Full Title]
+
+[Complete markdown following the schema above]
 
 ---LAB_END---
 
 ---LAB_START---
-LAB_ID: 03-02-01
+LAB_ID: [next_lab_id]
 ---MARKDOWN---
-# Lab 03-02-01: Next Lab Title
+# Lab [next_lab_id]: [Next Lab Title]
 ...
 ---LAB_END---
 
-For EACH lab, the markdown MUST include:
-
-1. **Header**: Lab ID, title, duration, complexity
-2. **Overview**: Brief description (2-3 sentences)
-3. **Learning Objectives**: 3-5 specific, measurable outcomes
-4. **Prerequisites**: Knowledge/skills/tools needed
-5. **Lab Environment Setup**: 
-   - Hardware/software requirements specific to this lab
-   - Initial configuration steps
-6. **Step-by-Step Instructions** (numbered):
-   - Clear, actionable steps
-   - EXACT commands with syntax highlighting
-   - Expected outputs
-   - Verification steps
-7. **Validation**: How to confirm successful completion
-8. **Troubleshooting**: 3-5 common issues with solutions
-9. **Cleanup**: Steps to reset environment (if needed)
-10. **Next Steps/Additional Resources**: What to explore next
-
-CRITICAL REQUIREMENTS:
-- Use REAL, EXECUTABLE commands - no placeholders like <filename>
-- Include actual code in ```language blocks
-- Each step must be testable and verifiable
-- Match the specified duration and complexity
-- Adapt detail level to Bloom taxonomy level
-- Professional technical writing style
-- Success criteria must be measurable
-
 IMPORTANT: Use the delimiter format exactly as shown. Do NOT use JSON format.
+Generate ALL {len(lab_plans)} labs now:
 """
     
     try:
@@ -536,8 +886,23 @@ IMPORTANT: Use the delimiter format exactly as shown. Do NOT use JSON format.
                     labs_dict[lab_id] = markdown
                     print(f"  ✓ Lab {lab_id}: {len(markdown)} characters (from JSON)")
             except Exception as fallback_error:
-                print(f"❌ Fallback JSON parsing also failed: {fallback_error}")
-                raise ValueError("Could not parse labs from AI response in any format")
+                print(f"⚠️  Fallback JSON parsing also failed: {fallback_error}")
+                
+                # Third fallback: If only ONE lab requested and response looks like markdown, use it directly
+                if len(lab_plans) == 1:
+                    print("🔄 Trying raw markdown fallback for single lab...")
+                    raw_response = response_text if 'response_text' in dir() else ""
+                    # Check if the response looks like valid markdown (starts with # or has markdown patterns)
+                    if raw_response and (raw_response.strip().startswith('#') or 
+                                        raw_response.strip().startswith('```') or
+                                        '##' in raw_response[:500]):
+                        lab_id = lab_plans[0]['lab_id']
+                        labs_dict[lab_id] = raw_response.strip()
+                        print(f"  ✓ Lab {lab_id}: {len(raw_response)} characters (from raw markdown)")
+                    else:
+                        raise ValueError("Could not parse labs from AI response in any format")
+                else:
+                    raise ValueError("Could not parse labs from AI response in any format")
         
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict
@@ -580,12 +945,18 @@ def lambda_handler(event, context):
         master_plan_key = event['master_plan_key']
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
+        
+        # FORCE Bedrock for lab generation (more reliable format compliance)
+        # GPT-5 shows model drift: correct format initially, missing headers later
+        # Claude Sonnet 4.5 consistently generates proper lab headers
+        model_provider = 'bedrock'
+        
         lab_ids_to_process = event.get('lab_ids', [])  # NEW: For batch processing
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📋 Master Plan: {master_plan_key}")
         print(f"📁 Project: {project_folder}")
-        print(f"🤖 Model: {model_provider}")
+        print(f"🤖 Model: {model_provider} (forced to Bedrock for lab reliability)")
         if lab_ids_to_process:
             print(f"🎯 Batch Mode: Processing specific labs: {', '.join(lab_ids_to_process)}")
         else:
@@ -632,27 +1003,26 @@ def lambda_handler(event, context):
             'target_language': target_language  # NEW: Pass language to prompt
         }
         
-        # Step 2: Generate lab guides in BATCHES (1 lab per API call for reliability)
-        BATCH_SIZE = 1
+        # Step 2: Generate lab guides ONE AT A TIME for reliability
+        # Both GPT-5 and Bedrock handle single-lab requests reliably
+        # GPT-5 sometimes skips labs in multi-lab requests
         labs_markdown = {}
         
-        for i in range(0, len(lab_plans), BATCH_SIZE):
-            batch = lab_plans[i:i+BATCH_SIZE]
-            batch_num = (i // BATCH_SIZE) + 1
-            total_batches = (len(lab_plans) + BATCH_SIZE - 1) // BATCH_SIZE
-            
-            print(f"\n📦 Batch {batch_num}/{total_batches}: Generating {len(batch)} labs...")
+        for idx, lab_plan in enumerate(lab_plans, start=1):
+            lab_id = lab_plan['lab_id']
+            print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
             
             try:
+                # Generate ONE lab at a time (pass as single-item list)
                 batch_results = generate_all_labs_batch(
-                    lab_plans=batch,
+                    lab_plans=[lab_plan],  # Always single lab for reliability
                     master_context=master_context,
                     model_provider=model_provider
                 )
                 labs_markdown.update(batch_results)
             except Exception as e:
-                print(f"❌ Batch {batch_num} generation failed: {e}")
-                # Continue with next batch instead of failing completely
+                print(f"❌ Lab {lab_id} generation failed: {e}")
+                # Continue with next lab instead of failing completely
                 continue
         
         # Step 3: Save each lab guide to S3

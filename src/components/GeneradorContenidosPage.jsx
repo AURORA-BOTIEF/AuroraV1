@@ -9,7 +9,7 @@ import BotonVersionesTemario from './BotonVersionesTemario';
 function GeneradorContenidosPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const mostrarMenu = location.pathname === '/generador-contenidos';
+  const mostrarMenu = location.pathname.startsWith('/generador-contenidos')
 
   const handleRegresar = () => {
     navigate('/generador-contenidos'); // Navega de vuelta al menú principal
@@ -69,6 +69,16 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
+          <Link to="plantilla-temario" className="opcion-menu">
+            <div className="icono">📝</div>
+            <div className="texto">
+              <h3>Plantilla de Temario</h3>
+              <p>
+                Da formato Netec a un temario existente mediante una plantilla estandarizada, sin generación con IA.
+              </p>
+            </div>
+          </Link>
+
           <Link to="/presentaciones" className="opcion-menu">
             <div className="icono">📊</div>
             <div className="texto">
@@ -95,10 +105,15 @@ function GeneradorContenidosPage() {
 
         </div>
       ) : (
-        // Si no se muestra el menú, mostramos el botón de regresar
-        <button onClick={handleRegresar} className="btn-regresar-menu">
-          &larr; Volver al menú de contenidos
-        </button>
+        // Si no se muestra el menú, mostramos los botones de navegación con iconos
+        <div className="nav-buttons-container">
+          <button onClick={() => navigate('/')} className="nav-icon-btn" title="Inicio">
+            🏠
+          </button>
+          <button onClick={handleRegresar} className="nav-icon-btn" title="Menú de contenidos">
+            ←
+          </button>
+        </div>
       )}
 
       <div className="contenido-generador">

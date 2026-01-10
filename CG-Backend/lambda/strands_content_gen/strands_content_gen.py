@@ -54,6 +54,28 @@ def get_secret(secret_name: str) -> dict:
         raise
 
 
+def count_existing_visuals(course_bucket: str, project_folder: str) -> int:
+    """Count existing visual prompt files to determine global starting number."""
+    try:
+        prompts_prefix = f"{project_folder}/prompts/"
+        response = s3_client.list_objects_v2(
+            Bucket=course_bucket,
+            Prefix=prompts_prefix
+        )
+        
+        if 'Contents' not in response:
+            return 0
+        
+        # Count .json files
+        json_files = [obj for obj in response['Contents'] if obj['Key'].endswith('.json')]
+        count = len(json_files)
+        print(f"📊 Found {count} existing visual prompts in S3")
+        return count
+    except Exception as e:
+        print(f"⚠️  Error counting visuals (assuming 0): {e}")
+        return 0
+
+
 def format_lesson_filename(module_num: int, lesson_index: int, lesson_title: str) -> str:
     """Format lesson filename."""
     safe_title = lesson_title.lower()
@@ -85,8 +107,8 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
     
     bloom_mult = bloom_multipliers.get(lesson_bloom, 1.1)
     
-    # Base calculation: 15 words per minute (concise content that teacher expands)
-    base_words = lesson_duration * 15
+    # Base calculation: 45 words per minute for deep, academic content (approx 200-250 words per 5 min topic)
+    base_words = lesson_duration * 45
     base_words = int(base_words * bloom_mult)
     
     # Add for topics and labs
@@ -96,7 +118,7 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
     total_words = base_words + (topics_count * 80) + (labs_count * 120)
     
     # Bounds
-    return max(500, min(3000, total_words))
+    return max(1000, min(5000, total_words))
 
 
 def build_course_context(course_data: dict) -> str:
@@ -131,7 +153,9 @@ def generate_batch_single_call(
     module_data: dict,
     course_data: dict,
     model_provider: str = 'bedrock',
-    openai_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None,
+    starting_visual_number: int = 1,
+    lesson_requirements: str = ''
 ) -> List[Dict[str, Any]]:
     """
     Generate a single batch of lessons (3 lessons max) in ONE LLM call.
@@ -162,10 +186,26 @@ def generate_batch_single_call(
         target_words = calculate_target_words(lesson, module_data)
         
         topics_list = lesson.get('topics', [])
-        topics_str = "\n".join([f"      - {topic}" for topic in topics_list])
+        topics_formatted = []
+        for t in topics_list:
+            if isinstance(t, dict):
+                t_title = t.get('title', 'Untitled')
+                t_dur = t.get('duration_minutes', 0)
+                topics_formatted.append(f"      - {t_title} (Duration: {t_dur} min)")
+            else:
+                topics_formatted.append(f"      - {str(t)}")
+        topics_str = "\n".join(topics_formatted)
         
         lab_activities = lesson.get('lab_activities', [])
-        labs_str = "\n".join([f"      - {lab}" for lab in lab_activities])
+        labs_formatted = []
+        for l in lab_activities:
+            if isinstance(l, dict):
+                l_title = l.get('title', 'Untitled')
+                l_dur = l.get('duration_minutes', 0)
+                labs_formatted.append(f"      - {l_title} (Duration: {l_dur} min)")
+            else:
+                labs_formatted.append(f"      - {str(l)}")
+        labs_str = "\n".join(labs_formatted)
         
         spec = f"""
     Lesson {i + 1}: {lesson.get('title', 'Untitled')}
@@ -181,7 +221,16 @@ def generate_batch_single_call(
     
     lessons_specification = "\n".join(lesson_specs)
     
-    # Build the prompt
+    # Build additional requirements section if provided
+    additional_requirements_section = ""
+    if lesson_requirements and lesson_requirements.strip():
+        additional_requirements_section = f"""
+ADDITIONAL REQUIREMENTS (USER-SPECIFIED):
+{lesson_requirements}
+Please incorporate these additional requirements into the lesson content.
+"""
+    
+    # Build the prompt with standardized schema
     prompt = f"""You are an expert technical educator creating lesson content for a professional course.
 
 {course_context}
@@ -193,30 +242,151 @@ Description: {module_description}
 
 LESSONS TO GENERATE:
 {lessons_specification}
+{additional_requirements_section}
 
-REQUIREMENTS:
-1. Generate EXACTLY {num_lessons} complete lesson(s)
-2. Each lesson must be comprehensive, detailed, and ready to teach
-3. Each lesson MUST start with a clear heading: # Lesson N: [Title]
-4. Include all specified topics and activities (if provided)
-5. Use Markdown formatting with proper headings, lists, code blocks
-6. Meet the target word count for each lesson
-8. Maintain technical accuracy and professional tone
-9. Include practical examples where appropriate
-10. **CRITICAL - VISUAL TAGS**: Add visual tags for diagrams, charts, screenshots, or illustrations using EXACTLY this format: [VISUAL: MM-LL-NNNN - description]
-   - Format: [VISUAL: MM-LL-NNNN - description] where:
-     * MM = Module number (2 digits, zero-padded) - USE {module_number:02d}
-     * LL = Lesson number within module (2 digits, zero-padded)
-     * NNNN = Sequential figure number starting at 0001
-     * description = Clear, detailed description for image generation (10-20 words)
-   - Place inline where the image should appear (on its own line for best results)
-   - Number figures sequentially within each lesson (0001, 0002, 0003, etc.)
-   - Examples for Module {module_number}, Lesson 1:
-     * [VISUAL: {module_number:02d}-01-0001 - Diagram showing the MVC architecture flow with models, views, and controllers]
-     * [VISUAL: {module_number:02d}-01-0002 - Screenshot of the IDE debugger panel with breakpoints and variable inspection]
-     * [VISUAL: {module_number:02d}-01-0003 - Flowchart of the authentication process from login to session creation]
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY LESSON STRUCTURE SCHEMA (FOLLOW EXACTLY)
+═══════════════════════════════════════════════════════════════════════════════
 
-OUTPUT FORMAT:
+Each lesson MUST follow this EXACT structure with proper heading hierarchy.
+
+**IMPORTANT: ALL SECTION TITLES MUST BE IN THE SAME LANGUAGE AS THE COURSE OUTLINE.**
+If the course is in Spanish, use Spanish titles (e.g., "Objetivos de Aprendizaje", "Introducción", "Resumen").
+If the course is in English, use English titles.
+Match the language of the course content throughout.
+
+```
+# Lección {module_number}.N: [Título de la Lección]  (or "Lesson" if course is in English)
+
+## Objetivos de Aprendizaje  (or "Learning Objectives" if English)
+
+Al finalizar esta lección, serás capaz de:  (or "By the end of this lesson, you will be able to:" if English)
+
+- [Verbo Bloom] + [resultado medible 1]
+- [Verbo Bloom] + [resultado medible 2]
+- [Verbo Bloom] + [resultado medible 3]
+
+## Introducción  (or "Introduction" if English)
+
+[2-3 paragraphs introducing the lesson topic]
+[Explain the importance and relevance]
+[Preview what will be covered]
+
+## [Título del Tema 1]  (Topic titles in course language)
+
+### Visión General del Concepto  (or "Concept Overview" if English)
+
+[Explain WHAT the concept is]
+[Explain WHY it matters in context]
+
+### Detalles Técnicos  (or "Technical Details" if English)
+
+[Deep dive into mechanics, architecture, or theory]
+[Include specific details appropriate for the Bloom level]
+
+### Aplicación Práctica  (or "Practical Application" if English)
+
+[Real-world example or scenario]
+[Code example if applicable]
+
+[VISUAL: MM-LL-XXXX - Description of diagram/image if needed]
+
+## [Título del Tema 2]
+
+### Visión General del Concepto
+[Same structure as Topic 1]
+
+### Detalles Técnicos
+[Continue pattern]
+
+### Aplicación Práctica
+[Continue pattern]
+
+## Resumen  (or "Summary" if English)
+
+### Puntos Clave  (or "Key Takeaways" if English)
+
+- [Main point 1 from the lesson]
+- [Main point 2 from the lesson]
+- [Main point 3 from the lesson]
+
+### Próximos Pasos  (or "What's Next" if English)
+
+[Brief preview of how this connects to upcoming lessons]
+
+## Recursos Adicionales  (or "Additional Resources" if English)
+
+- [Resource 1 with description]
+- [Resource 2 with description]
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**HEADING HIERARCHY (MANDATORY):**
+- H1 (#): ONLY for lesson title - ONE per lesson
+- H2 (##): Major sections (Learning Objectives, Introduction, Topics, Summary, etc.)
+- H3 (###): Subsections within H2 (Concept Overview, Technical Details, etc.)
+- H4 (####): Details within H3 (if needed)
+- NEVER skip heading levels (H1 → H3 is INVALID, must be H1 → H2 → H3)
+
+**REQUIRED SECTIONS (MUST INCLUDE - USE COURSE LANGUAGE FOR TITLES):**
+1. Learning Objectives / Objetivos de Aprendizaje (H2) - 3-5 bullet points with Bloom verbs
+2. Introduction / Introducción (H2) - 2-3 paragraphs
+3. At least ONE topic section (H2) with subsections (H3)
+4. Summary / Resumen (H2) with Key Takeaways / Puntos Clave (H3)
+5. Additional Resources / Recursos Adicionales (H2) - optional
+
+**DO NOT INCLUDE Review Questions section - this will be handled separately.**
+
+**BLOOM'S TAXONOMY VERBS (USE BASED ON LESSON LEVEL):**
+- Remember: Define, List, Identify, Name, Recall
+- Understand: Describe, Explain, Summarize, Interpret
+- Apply: Implement, Execute, Use, Demonstrate, Solve
+- Analyze: Compare, Differentiate, Examine, Investigate
+- Evaluate: Assess, Critique, Judge, Justify, Recommend
+- Create: Design, Develop, Construct, Produce, Compose
+
+**TABLES (USE NATIVE MARKDOWN):**
+- DO NOT create visual tags for tables
+- Use proper Markdown table formatting:
+  | Column 1 | Column 2 | Column 3 |
+  |----------|----------|----------|
+  | Data 1   | Data 2   | Data 3   |
+
+**CODE BLOCKS (ALWAYS SPECIFY LANGUAGE):**
+- DO NOT create VISUAL tags for code, commands, or config files
+- Use proper markdown code blocks:
+  ```python
+  def example():
+      return "Hello"
+  ```
+  ```bash
+  kubectl apply -f config.yaml
+  ```
+- Supported: python, javascript, java, bash, yaml, json, xml, terraform, etc.
+
+**VISUAL TAGS (FOR DIAGRAMS/IMAGES ONLY):**
+- Format: [VISUAL: MM-LL-XXXX - description]
+- MM = Module number (2 digits): {module_number:02d}
+- LL = Lesson number (2 digits, zero-padded)
+- XXXX = Global counter starting at {starting_visual_number:04d}
+- Description: 10-20 words describing the visual
+- Examples:
+  [VISUAL: {module_number:02d}-01-{starting_visual_number:04d} - Architecture diagram showing client-server communication flow]
+  [VISUAL: {module_number:02d}-02-{(starting_visual_number+1):04d} - Flowchart of the authentication process]
+
+**ACADEMIC DEPTH:**
+- This is an ACADEMIC COURSE for professionals
+- Each topic MUST follow the structure: Concept Overview → Technical Details → Practical Application
+- Match content depth to the Bloom level specified
+- Target word count for each lesson as specified
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
 Generate the lessons separated by this exact delimiter:
 ═══════════════════════════════════════════════════════════════════════
 
@@ -465,6 +635,16 @@ def lambda_handler(event, context):
                 print(f"⚠️  Could not get OpenAI key: {e}")
                 openai_api_key = os.getenv('OPENAI_API_KEY')
         
+        # Count existing visuals to determine global starting number
+        print(f"\n📊 Counting existing visual prompts...")
+        starting_visual_number = count_existing_visuals(course_bucket, project_folder) + 1
+        print(f"✅ Starting visual number for this batch: {starting_visual_number:04d}")
+        
+        # Get lesson requirements if provided
+        lesson_requirements = event.get('lesson_requirements', '')
+        if lesson_requirements:
+            print(f"📝 Additional lesson requirements: {lesson_requirements[:100]}...")
+        
         # GENERATE THIS BATCH
         print(f"\n{'='*70}")
         print(f"📚 GENERATING MODULE {module_num} - BATCH {batch_index}/{total_batches}")
@@ -477,7 +657,9 @@ def lambda_handler(event, context):
             module_data=module_data,
             course_data={'title': course_info.get('title', 'Course'), 'modules': modules},
             model_provider=model_provider,
-            openai_api_key=openai_api_key
+            openai_api_key=openai_api_key,
+            starting_visual_number=starting_visual_number,
+            lesson_requirements=lesson_requirements
         )
         
         # Save lessons to S3

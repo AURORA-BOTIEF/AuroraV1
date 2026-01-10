@@ -63,9 +63,24 @@ def lambda_handler(event, context):
         model_provider = event.get('model_provider', 'bedrock')
         content_source = event.get('content_source')
         image_model = event.get('image_model')
+        lesson_requirements = event.get('lesson_requirements', '')  # Optional additional requirements for lessons
+        lesson_to_generate = event.get('lesson_to_generate')  # Specific lesson to regenerate (e.g., "01-02")
         
         if not all([course_bucket, outline_s3_key, project_folder]):
             raise ValueError("Missing required parameters: course_bucket, outline_s3_key, project_folder")
+        
+        # Parse lesson_to_generate if provided (format: "MM-LL" where MM=module, LL=lesson)
+        specific_module = None
+        specific_lesson_idx = None  # 0-based lesson index
+        if lesson_to_generate:
+            try:
+                parts = lesson_to_generate.split('-')
+                if len(parts) == 2:
+                    specific_module = int(parts[0])
+                    specific_lesson_idx = int(parts[1]) - 1  # Convert to 0-based index
+                    print(f"🎯 Regenerating specific lesson: Module {specific_module}, Lesson {specific_lesson_idx + 1}")
+            except (ValueError, IndexError) as e:
+                print(f"⚠️  Warning: Could not parse lesson_to_generate '{lesson_to_generate}': {e}")
         
         print(f"\n📥 Loading outline from S3...")
         print(f"  Bucket: {course_bucket}")
@@ -99,6 +114,37 @@ def lambda_handler(event, context):
             lessons = module_data.get('lessons', [])
             num_lessons = len(lessons)
             
+            # If regenerating a specific lesson, override to only process that lesson
+            if specific_module is not None and specific_lesson_idx is not None:
+                if module_num != specific_module:
+                    print(f"⚠️  Skipping module {module_num} (looking for specific lesson in module {specific_module})")
+                    continue
+                
+                if specific_lesson_idx >= num_lessons or specific_lesson_idx < 0:
+                    print(f"⚠️  Warning: Lesson index {specific_lesson_idx} out of range for module {module_num} ({num_lessons} lessons)")
+                    continue
+                
+                # Create single batch for the specific lesson only
+                batch_task = {
+                    'module_number': module_num,
+                    'batch_index': 1,
+                    'total_batches': 1,
+                    'batch_start_idx': specific_lesson_idx,  # 0-based index
+                    'batch_end_idx': specific_lesson_idx + 1,  # Python slice style (exclusive)
+                    'course_bucket': course_bucket,
+                    'outline_s3_key': outline_s3_key,
+                    'project_folder': project_folder,
+                    'model_provider': model_provider,
+                    'content_source': content_source,
+                    'image_model': image_model,
+                    'lesson_requirements': lesson_requirements
+                }
+                
+                all_batches.append(batch_task)
+                print(f"\n  Module {module_num}: Regenerating specific lesson {specific_lesson_idx + 1} only")
+                print(f"    Batch 1/1: Lesson {specific_lesson_idx + 1}")
+                continue  # Skip normal batch expansion for this module
+            
             # Calculate number of batches needed
             num_batches = (num_lessons + MAX_LESSONS_PER_BATCH - 1) // MAX_LESSONS_PER_BATCH
             
@@ -120,7 +166,8 @@ def lambda_handler(event, context):
                     'project_folder': project_folder,
                     'model_provider': model_provider,
                     'content_source': content_source,
-                    'image_model': image_model
+                    'image_model': image_model,
+                    'lesson_requirements': lesson_requirements  # Pass additional requirements to content generator
                 }
                 
                 all_batches.append(batch_task)

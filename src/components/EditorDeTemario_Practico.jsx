@@ -247,7 +247,7 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
       window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
     try {
-      const token = localStorage.getItem("id_token");
+      const token = sessionStorage.getItem("id_token");
 
       const bodyData = {
         cursoId:

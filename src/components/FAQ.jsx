@@ -45,11 +45,7 @@ const FAQ = () => {
       questions: [
         {
           q: "¿Por qué el Generador de Temario Estándar y el Aumentado están en el mismo botón y cuáles son sus diferencias?",
-          a: `Ambos generadores comparten características:
-          • Propósito común: crean temarios completos con teoría y práctica.
-          • Proporción: 30% teoría y 70% práctica.
-          • Duración: diseñados para cursos largos.
-          • Elementos incluidos: objetivos, temario, prerrequisitos, público objetivo y guías de laboratorio.`,
+          a: "Ambos generadores comparten características, por eso están agrupados en el mismo botón. El Estándar y el Aumentado manejan proporciones similares entre teoría y práctica y son ideales para cursos técnicos o aplicados.",
         },
         {
           q: "¿Para qué sirve el Generador de Temario Knowledge Transfer?",
@@ -61,7 +57,7 @@ const FAQ = () => {
         },
         {
           q: "¿Cuándo debo usar el Generador de Temario Seminarios?",
-          a: "Está pensado para sesiones cortas, como charlas o conferencias. Su objetivo es transmitir información rápida y clara sin desarrollar un curso completo.",
+          a: "Está pensado para sesiones cortas, como charlas o conferencias, donde se busca transmitir información rápida y clara sin desarrollar un curso completo.",
         },
       ],
     },
@@ -74,46 +70,39 @@ const FAQ = () => {
         },
         {
           q: "¿Cómo influye el nivel de dificultad en el temario generado?",
-          a: `El nivel define los objetivos y actividades según la Taxonomía de Bloom:
-          • Básico: Recordar y Comprender.
-          • Intermedio: Aplicar y Analizar.
-          • Avanzado: Evaluar y Crear.`,
+          a: "Define qué tipo de objetivos y actividades se incluirán, basándose en la Taxonomía de Bloom. Esto afecta la profundidad del aprendizaje y las habilidades que se desarrollarán.",
         },
         {
           q: "¿Qué significa el campo “Sector / Audiencia” y por qué es importante?",
-          a: "Define a quién va dirigido el curso, lo que permite ajustar lenguaje, ejemplos y profundidad.",
+          a: "Indica a quién va dirigido el curso (por ejemplo, desarrolladores, sector financiero). Esto permite adaptar el lenguaje, ejemplos y profundidad del contenido.",
         },
         {
           q: "¿Para qué sirve el campo “Enfoque Adicional”?",
-          a: "Permite agregar detalles específicos, como 'orientado a patrones de diseño', para personalizar el enfoque del temario.",
+          a: "Puedes dar detalles extra, como 'orientado a patrones de diseño'. Esto ayuda a que el temario sea más alineado a tus objetivos específicos.",
         },
         {
           q: "¿Qué es el “Syllabus Base” y cómo ayuda a la IA?",
-          a: "Sirve como referencia para generar un temario más alineado con un esquema oficial.",
+          a: "Permite agregar el contenido de un temario oficial o esquema base para que la IA lo use como referencia al generar uno nuevo.",
         },
         {
           q: "¿Cómo se calcula el total de horas del curso?",
-          a: "Se calcula automáticamente según el número de sesiones y las horas por sesión.",
+          a: "El total se calcula automáticamente según el número de sesiones y las horas por sesión que definas.",
         },
         {
           q: "¿Cuál es la diferencia entre “Saber Hacer” y “Certificación” en el tipo de objetivo?",
-          a: "Saber Hacer: habilidades prácticas. Certificación: preparación para exámenes oficiales.",
-        },
-        {
-          q: "¿Qué pasa si el temario generado no coincide con mis expectativas?",
-          a: "Puedes editarlo libremente. Es solo un punto de partida.",
+          a: "Saber Hacer: habilidades prácticas. Certificación: enfoque en preparación para examen oficial con teoría y práctica.",
         },
         {
           q: "¿Qué pasa si doy clic en “Guardar Versión”?",
-          a: "Guarda una copia del temario para consultarlo después en 'Ver Versiones Guardadas'.",
+          a: "Guarda una copia del temario generado para consultarlo después en 'Ver Versiones Guardadas'.",
         },
         {
           q: "¿Es obligatorio escribir una nota al guardar la versión?",
-          a: "No, la nota es opcional. Úsala para agregar comentarios o identificar versiones fácilmente.",
+          a: "No, la nota es opcional. Puedes usarla para identificar la versión más fácilmente, como 'Versión inicial' o 'Ajustada para curso X'.",
         },
         {
           q: "¿Puedo editar el temario después de guardarlo?",
-          a: "Sí. En 'Ver Versiones Guardadas' puedes abrir y modificar cualquier versión guardada.",
+          a: "Sí, puedes editarlo desde la sección 'Ver Versiones Guardadas'.",
         },
       ],
     },
@@ -121,35 +110,31 @@ const FAQ = () => {
 
   return (
     <div className="faq-container">
-      <div className="faq-header">
-        <Link to="/" className="faq-back">← Volver al menú principal</Link>
-      </div>
       <h2 className="faq-title">Centro de FAQs</h2>
       {data.map((section, sIndex) => (
         <div key={sIndex} className="faq-section">
           <h3 className="faq-section-title">{section.section}</h3>
-          {section.questions.map((item, index) => {
-            const key = `${sIndex}-${index}`;
-            const isActive = activeIndex === key;
-            return (
-              <div key={key} className={`faq-item ${isActive ? "active" : ""}`}>
-                <div
-                  className="faq-question"
-                  onClick={() => toggleFAQ(key)}
+          {section.questions.map((q, index) => (
+            <div key={index} className="faq-item">
+              <div className="faq-question" onClick={() => toggleFAQ(`${sIndex}-${index}`)}>
+                <span>{q.q}</span>
+                <button
+                  className={`faq-toggle ${activeIndex === `${sIndex}-${index}` ? "open" : ""}`}
                 >
-                  <span>{item.q}</span>
-                  <button className="faq-toggle">
-                    {isActive ? "−" : "+"}
-                  </button>
-                </div>
-                {isActive && <p className="faq-answer">{item.a}</p>}
+                  {activeIndex === `${sIndex}-${index}` ? "−" : "+"}
+                </button>
               </div>
-            );
-          })}
+              {activeIndex === `${sIndex}-${index}` && (
+                <div className="faq-answer">
+                  <p>{q.a}</p>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       ))}
     </div>
   );
 };
 
-export default FAQ;
+export default FAQ; 

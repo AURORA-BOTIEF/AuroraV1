@@ -77,14 +77,21 @@ def lambda_handler(event, context):
                 lesson_keys = []
 
         # Normalize image_mappings: if it's a list of dicts, merge them into one dict
+        print(f"DEBUG: image_mappings type: {type(image_mappings)}")
+        print(f"DEBUG: image_mappings value: {json.dumps(image_mappings, default=str)[:500]}")
+        
         if isinstance(image_mappings, list):
-            print(f"Merging {len(image_mappings)} image mapping dictionaries into one")
+            print(f"✓ image_mappings is a list with {len(image_mappings)} items, merging...")
             merged_mappings = {}
-            for mapping_dict in image_mappings:
+            for idx, mapping_dict in enumerate(image_mappings):
+                print(f"  - Batch {idx}: type={type(mapping_dict)}, keys={len(mapping_dict) if isinstance(mapping_dict, dict) else 'N/A'}")
                 if isinstance(mapping_dict, dict):
                     merged_mappings.update(mapping_dict)
             image_mappings = merged_mappings
-            print(f"Merged result: {len(image_mappings)} total image mappings")
+            print(f"✓ Merged result: {len(image_mappings)} total image mappings")
+            print(f"DEBUG: Sample keys: {list(image_mappings.keys())[:5]}")
+        else:
+            print(f"  image_mappings is NOT a list, using as-is with {len(image_mappings) if isinstance(image_mappings, dict) else 0} mappings")
         
         # If no image_mappings provided, scan prompts folder to build correct mappings
         if not image_mappings:
@@ -455,38 +462,40 @@ def replace_visual_tags(content, mappings, bucket):
     """
     processed_content = content
     
+    print(f"DEBUG replace_visual_tags: Processing {len(mappings)} mappings")
+    
     # Detect format: if any value is a dict with 's3_key', it's the new format
     is_new_format = False
     if mappings:
         first_value = next(iter(mappings.values()))
         if isinstance(first_value, dict) and 's3_key' in first_value:
             is_new_format = True
+            print(f"  Using NEW FORMAT (id -> {{s3_key, description}})")
     
     if is_new_format:
         # NEW FORMAT: { "image_id": { "s3_key": "path", "description": "text" } }
         for img_id, img_data in mappings.items():
             s3_key = img_data.get('s3_key', '')
-            description = img_data.get('description', '')
             
             if not s3_key:
                 continue
             
-            # Build potential visual tags to search for
-            # Format 1: [VISUAL: id - description]
-            # Format 2: [VISUAL: id]
-            visual_tags_to_try = []
-            if description:
-                visual_tags_to_try.append(f"[VISUAL: {img_id} - {description}]")
-            visual_tags_to_try.append(f"[VISUAL: {img_id}]")
+            # Use regex to match [VISUAL: img_id - ...] or [VISUAL: img_id]
+            # This ignores the description part which may be truncated
+            import re
+            pattern = rf'\[VISUAL:\s*{re.escape(img_id)}(?:\s*-[^\]]+)?\]'
             
-            # Try to replace any matching visual tag
-            for visual_tag in visual_tags_to_try:
-                if visual_tag in processed_content:
-                    image_url = f"https://{bucket}.s3.amazonaws.com/{s3_key}"
-                    image_markdown = f"\n\n![{img_id}]({image_url})\n\n"
-                    processed_content = processed_content.replace(visual_tag, image_markdown)
+            matches = re.findall(pattern, processed_content)
+            if matches:
+                print(f"  ✓ Found {len(matches)} instance(s) of visual tag for {img_id}")
+                image_url = f"https://{bucket}.s3.amazonaws.com/{s3_key}"
+                image_markdown = f"\n\n![{img_id}]({image_url})\n\n"
+                processed_content = re.sub(pattern, image_markdown, processed_content)
+            else:
+                print(f"  ✗ No visual tag found for {img_id}")
     else:
         # OLD FORMAT: { "visual_tag": "s3_key" }
+        print(f"  Using OLD FORMAT (visual_tag -> s3_key)")
         for visual_tag, image_key in mappings.items():
             if visual_tag in processed_content:
                 # Create markdown image reference

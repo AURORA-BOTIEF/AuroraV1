@@ -1,6 +1,6 @@
 // src/components/InfographicEditor.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBlobUrlForS3Object } from '../utils/s3ImageLoader';
 import './InfographicEditor.css';
 
@@ -9,9 +9,12 @@ const API_BASE = 'https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod';
 function InfographicEditor() {
     const { folder } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const returnTo = searchParams.get('returnTo') || '/presentaciones';
     const [infographic, setInfographic] = useState(null);
     const [selectedSlideIndex, setSelectedSlideIndex] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [loadingSlides, setLoadingSlides] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
     const [hasChanges, setHasChanges] = useState(false);
@@ -103,6 +106,9 @@ function InfographicEditor() {
         if (iframe && iframe.contentDocument && infographic) {
             const doc = iframe.contentDocument;
 
+            // Hide loading overlay after iframe loads
+            setLoadingSlides(false);
+
             // Inject script for handling image updates
             if (!doc.getElementById('image-updater-script')) {
                 const script = doc.createElement('script');
@@ -158,6 +164,7 @@ function InfographicEditor() {
 
     const loadInfographic = async () => {
         setLoading(true);
+        setLoadingSlides(true);
         setError(null);
 
         try {
@@ -168,6 +175,14 @@ function InfographicEditor() {
             }
 
             const data = await response.json();
+
+            // DEBUG: Log loaded structure
+            console.log('=== LOADED INFOGRAPHIC ===');
+            const agendaSlide = data.slides?.find(s => s.title === 'Agenda');
+            if (agendaSlide) {
+                console.log('Agenda slide content_blocks:', JSON.stringify(agendaSlide.content_blocks, null, 2));
+            }
+
             setInfographic(data);
             setHasChanges(false);
         } catch (err) {
@@ -185,6 +200,16 @@ function InfographicEditor() {
         setError(null);
 
         try {
+            // DEBUG: Log the structure being saved
+            console.log('=== SAVING INFOGRAPHIC ===');
+            console.log('Full structure:', JSON.stringify(infographic, null, 2));
+
+            // Check agenda slide specifically
+            const agendaSlide = infographic.slides?.find(s => s.title === 'Agenda');
+            if (agendaSlide) {
+                console.log('Agenda slide content_blocks:', JSON.stringify(agendaSlide.content_blocks, null, 2));
+            }
+
             const response = await fetch(`${API_BASE}/infographic`, {
                 method: 'PUT',
                 headers: {
@@ -208,6 +233,7 @@ function InfographicEditor() {
             // Fetch the updated HTML content to refresh the preview
             if (result.html_url) {
                 try {
+                    setLoadingSlides(true); // Show loading while fetching new HTML
                     const htmlResponse = await fetch(result.html_url);
                     if (htmlResponse.ok) {
                         const newHtmlContent = await htmlResponse.text();
@@ -219,6 +245,7 @@ function InfographicEditor() {
                     }
                 } catch (fetchErr) {
                     console.error('Error fetching updated HTML for preview:', fetchErr);
+                    setLoadingSlides(false);
                 }
             }
 
@@ -250,17 +277,31 @@ function InfographicEditor() {
     const updateBullet = (slideIndex, blockIndex, bulletIndex, newText) => {
         const updated = { ...infographic };
         const block = updated.slides[slideIndex].content_blocks[blockIndex];
-        if (block && block.type === 'bullets') {
+        if (block && (block.type === 'bullets' || block.type === 'nested-bullets')) {
             block.items[bulletIndex] = newText;
             setInfographic(updated);
             setHasChanges(true);
         }
     };
 
+    // Update nested bullet (lesson in a module)
+    const updateNestedBullet = (slideIndex, blockIndex, moduleIndex, lessonIndex, newText) => {
+        const updated = { ...infographic };
+        const block = updated.slides[slideIndex].content_blocks[blockIndex];
+        if (block && block.type === 'nested-bullets') {
+            const module = block.items[moduleIndex];
+            if (module && module.lessons && module.lessons[lessonIndex] !== undefined) {
+                module.lessons[lessonIndex] = newText;
+                setInfographic(updated);
+                setHasChanges(true);
+            }
+        }
+    };
+
     const addBullet = (slideIndex, blockIndex) => {
         const updated = { ...infographic };
         const block = updated.slides[slideIndex].content_blocks[blockIndex];
-        if (block && block.type === 'bullets') {
+        if (block && (block.type === 'bullets' || block.type === 'nested-bullets')) {
             block.items.push('Nueva viñeta');
             setInfographic(updated);
             setHasChanges(true);
@@ -270,7 +311,7 @@ function InfographicEditor() {
     const removeBullet = (slideIndex, blockIndex, bulletIndex) => {
         const updated = { ...infographic };
         const block = updated.slides[slideIndex].content_blocks[blockIndex];
-        if (block && block.type === 'bullets' && block.items.length > 1) {
+        if (block && (block.type === 'bullets' || block.type === 'nested-bullets') && block.items.length > 1) {
             block.items.splice(bulletIndex, 1);
             setInfographic(updated);
             setHasChanges(true);
@@ -286,10 +327,13 @@ function InfographicEditor() {
 
     if (loading) {
         return (
-            <div className="editor-container">
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+            <div className="editor-loading-overlay">
+                <div className="editor-loading-container">
+                    <h1>✏️ Editor</h1>
                     <p>Cargando editor...</p>
+                    <div className="editor-loading-bar-wrapper">
+                        <div className="editor-loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );
@@ -301,8 +345,8 @@ function InfographicEditor() {
                 <div className="error-message">
                     <h2>⚠️ Error</h2>
                     <p>{error}</p>
-                    <button onClick={() => navigate('/presentaciones')}>
-                        Volver a Presentaciones
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
                     </button>
                 </div>
             </div>
@@ -315,8 +359,8 @@ function InfographicEditor() {
                 <div className="error-message">
                     <h2>📭 Sin diapositivas</h2>
                     <p>Esta presentación no tiene diapositivas para editar.</p>
-                    <button onClick={() => navigate('/presentaciones')}>
-                        Volver a Presentaciones
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
                     </button>
                 </div>
             </div>
@@ -331,7 +375,7 @@ function InfographicEditor() {
             {/* ... header ... */}
             <div className="editor-header">
                 {/* ... existing header code ... */}
-                <button onClick={() => navigate('/presentaciones')} className="btn-back">
+                <button onClick={() => navigate(returnTo)} className="btn-back">
                     ← Volver
                 </button>
 
@@ -350,7 +394,7 @@ function InfographicEditor() {
                         {saving ? '💾 Guardando...' : '💾 Guardar Cambios'}
                     </button>
                     <button
-                        onClick={() => navigate(`/presentaciones/viewer/${folder}`)}
+                        onClick={() => navigate(`/presentaciones/viewer/${folder}?returnTo=${encodeURIComponent(returnTo)}`)}
                         className="btn-preview"
                     >
                         👁️ Vista Previa
@@ -405,6 +449,18 @@ function InfographicEditor() {
                             alignItems: 'center',
                             padding: '20px'
                         }}>
+                            {/* Loading overlay */}
+                            {loadingSlides && (
+                                <div className="slides-loading-overlay">
+                                    <div className="slides-loading-content">
+                                        <div className="slides-loading-spinner"></div>
+                                        <p className="slides-loading-text">Cargando diapositivas...</p>
+                                        <div className="slides-loading-bar">
+                                            <div className="slides-loading-bar-fill"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {infographic && infographic.html_content ? (
                                 <div style={{
                                     width: '100%',
@@ -492,35 +548,64 @@ function InfographicEditor() {
                                                     </div>
                                                 )}
                                                 <div className="bullets-list">
-                                                    {block.items.map((bullet, bulletIdx) => (
-                                                        <div key={bulletIdx} className="bullet-item">
-                                                            <span className="bullet-number">{bulletIdx + 1}.</span>
-                                                            <input
-                                                                type="text"
-                                                                value={bullet}
-                                                                onChange={(e) => updateBullet(selectedSlideIndex, blockIdx, bulletIdx, e.target.value)}
-                                                                className="input-bullet"
-                                                            />
-                                                            <button
-                                                                onClick={() => removeBullet(selectedSlideIndex, blockIdx, bulletIdx)}
-                                                                className="btn-remove-bullet"
-                                                                disabled={block.items.length <= 1}
-                                                            >
-                                                                ✕
-                                                            </button>
-                                                        </div>
-                                                    ))}
+                                                    {block.type === 'bullets' ? (
+                                                        // Flat bullets (simple strings)
+                                                        block.items.map((bullet, bulletIdx) => (
+                                                            <div key={bulletIdx} className="bullet-item">
+                                                                <span className="bullet-number">{bulletIdx + 1}.</span>
+                                                                <input
+                                                                    type="text"
+                                                                    value={bullet}
+                                                                    onChange={(e) => updateBullet(selectedSlideIndex, blockIdx, bulletIdx, e.target.value)}
+                                                                    className="input-bullet"
+                                                                />
+                                                                <button
+                                                                    onClick={() => removeBullet(selectedSlideIndex, blockIdx, bulletIdx)}
+                                                                    className="btn-remove-bullet"
+                                                                    disabled={block.items.length <= 1}
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        // Nested bullets (modules with lessons)
+                                                        block.items.map((module, moduleIdx) => (
+                                                            <div key={moduleIdx} className="nested-module">
+                                                                <div className="module-title">
+                                                                    ▸ <strong>{typeof module === 'string' ? module : module.text}</strong>
+                                                                </div>
+                                                                {module.lessons && module.lessons.map((lesson, lessonIdx) => (
+                                                                    <div key={lessonIdx} className="bullet-item nested-lesson">
+                                                                        <span className="bullet-number">&nbsp;&nbsp;○</span>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={lesson}
+                                                                            onChange={(e) => updateNestedBullet(
+                                                                                selectedSlideIndex,
+                                                                                blockIdx,
+                                                                                moduleIdx,
+                                                                                lessonIdx,
+                                                                                e.target.value
+                                                                            )}
+                                                                            className="input-bullet"
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ))
+                                                    )}
                                                 </div>
-                                                <button
-                                                    onClick={() => addBullet(selectedSlideIndex, blockIdx)}
-                                                    className="btn-add-bullet"
-                                                >
-                                                    + Agregar viñeta
-                                                </button>
+                                                {block.type === 'bullets' && (
+                                                    <button
+                                                        onClick={() => addBullet(selectedSlideIndex, blockIdx)}
+                                                        className="btn-add-bullet"
+                                                    >
+                                                        + Agregar viñeta
+                                                    </button>
+                                                )}
                                             </div>
-                                        )}
-
-                                        {block.type === 'image' && (
+                                        )}                                        {block.type === 'image' && (
                                             null
                                         )}
 

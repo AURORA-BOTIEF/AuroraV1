@@ -53,11 +53,63 @@ def resolve_batch_size(requested_batch_size: Optional[int]) -> int:
     return size
 
 
-def load_book_from_s3(course_bucket: str, project_folder: str) -> dict:
-    """Load the course book from S3."""
+def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key: str = None, book_type: str = 'theory') -> dict:
+    """Load the course book from S3.
+    
+    Args:
+        course_bucket: S3 bucket name
+        project_folder: Project folder path
+        book_version_key: Optional specific book version key (full S3 path)
+        book_type: 'theory' or 'lab'
+    """
     try:
-        book_key = f"{project_folder}/book/Generated_Course_Book_data.json"
-        logger.info(f"📚 Loading book from s3://{course_bucket}/{book_key}")
+        if book_version_key:
+            # Use specific version provided
+            book_key = book_version_key
+            logger.info(f"📚 Loading specific book version from s3://{course_bucket}/{book_key}")
+        else:
+            # FIXED: Search ALL folders and pick the NEWEST book by LastModified date
+            # This ensures we always use the most recent version regardless of folder
+            possible_folders = [
+                f"{project_folder}/{book_type}-book/",
+                f"{project_folder}/book/",
+                f"{project_folder}/versions/",
+                f"{project_folder}/"
+            ]
+            
+            all_book_files = []
+            for folder in possible_folders:
+                try:
+                    response = s3_client.list_objects_v2(Bucket=course_bucket, Prefix=folder, Delimiter='/')
+                    for obj in response.get('Contents', []):
+                        key = obj['Key']
+                        if key.endswith('.json') and (
+                            'book' in key.lower() or 
+                            'course' in key.lower()
+                        ) and 'lab' not in key.lower():  # Exclude lab books for theory
+                            all_book_files.append({
+                                'Key': key,
+                                'LastModified': obj.get('LastModified'),
+                                'Size': obj.get('Size', 0)
+                            })
+                            logger.info(f"   Found: {key} (modified: {obj.get('LastModified')}, size: {obj.get('Size', 0)})")
+                except Exception as e:
+                    logger.debug(f"Could not search {folder}: {e}")
+                    continue
+            
+            if not all_book_files:
+                raise ValueError(f"No book found in: {', '.join(possible_folders)}")
+            
+            # Sort by LastModified (newest first) to always use the latest version
+            all_book_files.sort(key=lambda x: x.get('LastModified') or '', reverse=True)
+            
+            logger.info(f"📚 Found {len(all_book_files)} book candidates:")
+            for idx, bf in enumerate(all_book_files[:3]):
+                logger.info(f"   #{idx+1}: {bf['Key']} (modified: {bf.get('LastModified')}, size: {bf.get('Size')})")
+            
+            book_key = all_book_files[0]['Key']
+            logger.info(f"✅ Selected NEWEST book: {book_key}")
+        
         response = s3_client.get_object(Bucket=course_bucket, Key=book_key)
         book_data = json.loads(response['Body'].read().decode('utf-8'))
         return book_data
@@ -94,7 +146,9 @@ def create_ppt_batch_tasks(
     project_folder: str,
     batches: list,
     model_provider: str = 'bedrock',
-    html_first: bool = True
+    html_first: bool = True,
+    book_version_key: str = None,
+    book_type: str = 'theory'
 ) -> list:
     """Create Lambda invocation tasks for each batch."""
     tasks = []
@@ -110,7 +164,9 @@ def create_ppt_batch_tasks(
             'total_lessons': batch['total_lessons'],
             'model_provider': model_provider,
             'html_first': html_first,  # NEW: Enable HTML-first architecture
-            'timeout_seconds': 840  # 14 minutes, leaves 1 min buffer before 900s hard limit
+            'timeout_seconds': 840,  # 14 minutes, leaves 1 min buffer before 900s hard limit
+            'book_version_key': book_version_key,  # Pass specific version to use
+            'book_type': book_type  # 'theory' or 'lab'
         }
         tasks.append(task)
     
@@ -145,6 +201,9 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder')
         model_provider = body.get('model_provider', 'bedrock')
         html_first = body.get('html_first', True)
+        user_email = body.get('user_email')  # Optional: for end-user notifications
+        book_version_key = body.get('book_version_key')  # Specific book version to use
+        book_type = body.get('book_type', 'theory')  # 'theory' or 'lab'
         
         # HTML-first architecture: Skip PPT merging and conversion (HTML is final output)
         # Legacy architecture: Merge batches and convert to PPT
@@ -153,6 +212,12 @@ def lambda_handler(event, context):
         if not course_bucket or not project_folder:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'error': 'Missing required parameters: course_bucket, project_folder'
                 })
@@ -160,20 +225,37 @@ def lambda_handler(event, context):
         
         logger.info(f"🚀 Starting PPT batch orchestration")
         logger.info(f"📚 Course: {project_folder} in {course_bucket}")
+        if book_version_key:
+            logger.info(f"📖 Using specific book version: {book_version_key}")
+        else:
+            logger.info(f"📖 Using auto-discovered book ({book_type})")
         
         # Load book to determine lesson count
-        book_data = load_book_from_s3(course_bucket, project_folder)
+        book_data = load_book_from_s3(course_bucket, project_folder, book_version_key, book_type)
         
-        # Count total lessons across all modules
+        # Count total lessons - prefer top-level 'lessons' array (newer/more reliable format)
+        # Fall back to counting from 'modules' for older books
         total_lessons = 0
-        modules = book_data.get('modules', [])
-        for module in modules:
-            lessons_in_module = len(module.get('lessons', []))
-            total_lessons += lessons_in_module
+        if 'lessons' in book_data and len(book_data.get('lessons', [])) > 0:
+            total_lessons = len(book_data.get('lessons', []))
+            logger.info(f"📖 Found {total_lessons} lessons in top-level array")
+        else:
+            # Fall back to counting from modules
+            modules = book_data.get('modules', [])
+            for module in modules:
+                lessons_in_module = len(module.get('lessons', []))
+                total_lessons += lessons_in_module
+            logger.info(f"📖 Found {total_lessons} lessons across {len(modules)} modules")
         
         if total_lessons == 0:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'error': 'No lessons found in course book'
                 })
@@ -208,7 +290,9 @@ def lambda_handler(event, context):
             project_folder=project_folder,
             batches=batches,
             model_provider=model_provider,
-            html_first=html_first  # Pass html_first to all batches
+            html_first=html_first,  # Pass html_first to all batches
+            book_version_key=book_version_key,  # Pass specific book version
+            book_type=book_type  # 'theory' or 'lab'
         )
         
         # Prepare Step Functions execution input
@@ -220,8 +304,15 @@ def lambda_handler(event, context):
             'ppt_batch_tasks': ppt_batch_tasks,
             'total_batches': num_batches,
             'total_lessons': total_lessons,
-            'max_concurrent_batches': MAX_CONCURRENT_BATCHES
+            'max_concurrent_batches': MAX_CONCURRENT_BATCHES,
+            'book_version_key': book_version_key,  # Pass through for each batch
+            'book_type': book_type  # 'theory' or 'lab'
         }
+        
+        # Add user_email if provided (for notifications)
+        if user_email:
+            state_machine_input['user_email'] = user_email
+            logger.info(f"📧 User email for notifications: {user_email}")
         
         # Start Step Functions execution
         execution_name = f"ppt-orchestration-{project_folder}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -240,6 +331,12 @@ def lambda_handler(event, context):
             
             return {
                 'statusCode': 202,  # Accepted
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                    'Content-Type': 'application/json'
+                },
                 'body': json.dumps({
                     'message': f'PPT batch orchestration started',
                     'execution_arn': execution_arn,
@@ -266,6 +363,12 @@ def lambda_handler(event, context):
         logger.error(f"❌ Error in PPT batch orchestrator: {str(e)}")
         return {
             'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                'Content-Type': 'application/json'
+            },
             'body': json.dumps({
                 'error': str(e)
             })

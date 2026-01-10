@@ -54,6 +54,12 @@ DEFAULT_IMAGE_MODEL = 'models/gemini-2.5-flash-image'
 # Backend hard cap to avoid expensive runs
 BACKEND_MAX = int(os.getenv('IMAGES_BACKEND_MAX', '50'))
 
+# Model-specific batch limits (to prevent Lambda timeout)
+# Gemini 3 Pro: ~25s per image, limit batch to prevent 15-min timeout
+# Gemini 2.5 Flash: ~7s per image, can handle more
+GEMINI3_MAX_BATCH = int(os.getenv('GEMINI3_MAX_BATCH', '4'))  # ~100s + overhead = safe for 15min
+GEMINI25_MAX_BATCH = int(os.getenv('GEMINI25_MAX_BATCH', '15'))  # ~105s + overhead = safe for 15min
+
 # Default max images if not specified
 DEFAULT_MAX_IMAGES = 5
 
@@ -149,17 +155,43 @@ def optimize_prompt_for_gemini(prompt_text: str) -> str:
     Optimize prompt text for better Gemini image generation results.
     
     Key improvements:
-    1. Add explicit style guidance
-    2. Specify technical/professional context
-    3. Add composition and quality keywords
-    4. Remove confusing text-heavy requests that Gemini can't render
+    1. PRESERVE detailed enhanced_prompts (from Visual Planner) - don't simplify them
+    2. Add explicit ENGLISH language enforcement
+    3. For simple descriptions, add style guidance
+    4. Convert text-heavy requests to conceptual illustrations
     
     Args:
         prompt_text: Original prompt description
         
     Returns:
-        str: Optimized prompt
+        str: Optimized prompt with English enforcement
     """
+    # CRITICAL: English enforcement prefix - ALWAYS added
+    # This ensures Gemini generates text in English, not the course's language
+    english_prefix = (
+        "⚠️ CRITICAL INSTRUCTION: ALL TEXT RENDERED IN THE IMAGE MUST BE IN ENGLISH. "
+        "Do NOT use Spanish, Portuguese, or any other language. "
+        "Every label, title, annotation, and text element must be written in English only.\n\n"
+    )
+    
+    # Check if this is already a detailed enhanced_prompt from Visual Planner
+    # These prompts contain specific formatting instructions and should be preserved
+    detailed_prompt_indicators = [
+        'typography:', 'exact on-canvas text', 'layout:', 'colors and styling:',
+        'verification:', 'style notes:', 'alignment and spacing:', 'font:',
+        'spell exactly', 'professional illustration', '#ffffff', '1920x1080'
+    ]
+    
+    is_detailed_prompt = any(indicator in prompt_text.lower() for indicator in detailed_prompt_indicators)
+    
+    if is_detailed_prompt:
+        # This is a detailed enhanced_prompt - preserve it, just add English enforcement
+        logger.info("📝 Detected detailed enhanced_prompt - preserving with English enforcement")
+        return f"{english_prefix}{prompt_text}"
+    
+    # For simple descriptions, apply the template optimization
+    logger.info("📝 Simple description detected - applying template optimization")
+    
     # Keywords that indicate text-heavy content Gemini struggles with
     text_heavy_keywords = ['table', 'screenshot', 'text', 'code snippet', 'terminal', 
                           'command line', 'spreadsheet', 'document', 'form']
@@ -169,15 +201,15 @@ def optimize_prompt_for_gemini(prompt_text: str) -> str:
     
     if is_text_heavy:
         # For text-heavy content, request a conceptual illustration instead
-        prefix = "Create a professional conceptual illustration representing: "
-        suffix = ". Style: clean, modern, minimalist, icon-based design. No text or labels needed."
+        prefix = "Create a professional conceptual illustration IN ENGLISH representing: "
+        suffix = ". Style: clean, modern, minimalist, icon-based design. All labels and text must be in English."
     else:
         # For visual content, enhance with quality keywords
-        prefix = "Create a professional educational illustration: "
-        suffix = ". Style: clean, modern, high-quality, well-composed, professional lighting, clear focus."
+        prefix = "Create a professional educational illustration IN ENGLISH: "
+        suffix = ". Style: clean, modern, high-quality, well-composed. All text, labels, and annotations must be in English only."
     
-    # Build optimized prompt
-    optimized = f"{prefix}{prompt_text}{suffix}"
+    # Build optimized prompt with English enforcement
+    optimized = f"{english_prefix}{prefix}{prompt_text}{suffix}"
     
     return optimized
 
@@ -480,7 +512,16 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         prompts_from_input = exec_input.get('prompts', [])
         prompts_prefix = exec_input.get('prompts_prefix')
         requested_max_images = exec_input.get('max_images')
-        image_model = exec_input.get('image_model', DEFAULT_IMAGE_MODEL).lower()  # 'gemini' or 'imagen'
+        
+        # DEBUG: Log raw image_model parameter before processing
+        raw_image_model = exec_input.get('image_model')
+        logger.info(f"🔍 DEBUG - Raw image_model from input: {repr(raw_image_model)} (type: {type(raw_image_model).__name__})")
+        logger.info(f"🔍 DEBUG - DEFAULT_IMAGE_MODEL: {DEFAULT_IMAGE_MODEL}")
+        logger.info(f"🔍 DEBUG - GEMINI_MODEL: {GEMINI_MODEL}")
+        
+        image_model = (raw_image_model or DEFAULT_IMAGE_MODEL).lower()  # Safe None handling
+        logger.info(f"🔍 DEBUG - Final image_model after processing: {image_model}")
+        
         rate_limit_override = exec_input.get('rate_limit_override')  # For performance testing
         
         # Override rate limit if specified (for testing)
@@ -670,7 +711,16 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             prompts_from_input = prompts_from_input[start_index:]
             num_prompts = len(prompts_from_input)
         
-        effective_max = min(num_prompts, BACKEND_MAX)
+        # Apply model-specific batch limits to prevent Lambda timeout
+        # Gemini 3 Pro is slower (~25s/image) so needs smaller batches
+        if 'gemini-3' in image_model.lower():
+            model_max_batch = GEMINI3_MAX_BATCH
+            logger.info(f"⚙️  Gemini 3 Pro detected: limiting batch to {model_max_batch} images (slower model)")
+        else:
+            model_max_batch = GEMINI25_MAX_BATCH
+            logger.info(f"⚙️  Gemini 2.5 Flash: batch limit {model_max_batch} images")
+        
+        effective_max = min(num_prompts, model_max_batch, BACKEND_MAX)
         
         if num_prompts > BACKEND_MAX:
             logger.info(f"⚠️  Truncating from {num_prompts} to backend cap {BACKEND_MAX}")

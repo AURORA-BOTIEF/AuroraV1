@@ -1,6 +1,6 @@
 // src/components/InfographicViewer.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBlobUrlForS3Object } from '../utils/s3ImageLoader';
 import './InfographicViewer.css';
 
@@ -9,6 +9,8 @@ const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7d
 function InfographicViewer() {
     const { folder } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const returnTo = searchParams.get('returnTo') || '/presentaciones';
     const [infographic, setInfographic] = useState(null);
     const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -271,9 +273,12 @@ function InfographicViewer() {
                                     showSlide(currentSlide);
                                 }
                             } else if (event.data.type === 'UPDATE_IMAGE_SRC') {
-                                const images = document.querySelectorAll('img[src="' + event.data.originalSrc + '"]');
+                                // Use iteration instead of CSS selector to handle special characters in presigned URLs
+                                const images = document.querySelectorAll('img');
                                 images.forEach(img => {
-                                    img.src = event.data.newSrc;
+                                    if (img.src === event.data.originalSrc) {
+                                        img.src = event.data.newSrc;
+                                    }
                                 });
                             } else if (event.data.type === 'SET_VIEW_MODE') {
                                 viewMode = event.data.mode;
@@ -606,10 +611,13 @@ function InfographicViewer() {
 
     if (loading) {
         return (
-            <div className="viewer-container">
-                <div className="loading-spinner">
-                    <div className="spinner"></div>
+            <div className="viewer-loading-overlay">
+                <div className="viewer-loading-container">
+                    <h1>🖼️ Presentación</h1>
                     <p>Cargando presentación...</p>
+                    <div className="viewer-loading-bar-wrapper">
+                        <div className="viewer-loading-bar"></div>
+                    </div>
                 </div>
             </div>
         );
@@ -621,8 +629,8 @@ function InfographicViewer() {
                 <div className="error-message">
                     <h2>⚠️ Error</h2>
                     <p>{error}</p>
-                    <button onClick={() => navigate('/presentaciones')}>
-                        Volver a Presentaciones
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
                     </button>
                 </div>
             </div>
@@ -635,8 +643,8 @@ function InfographicViewer() {
                 <div className="error-message">
                     <h2>📭 Sin diapositivas</h2>
                     <p>Esta presentación no tiene diapositivas.</p>
-                    <button onClick={() => navigate('/presentaciones')}>
-                        Volver a Presentaciones
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
                     </button>
                 </div>
             </div>
@@ -649,7 +657,7 @@ function InfographicViewer() {
         <div ref={containerRef} className={`viewer-container ${isFullscreen ? 'fullscreen-mode' : ''}`}>
             {/* Top Controls */}
             <div className="viewer-controls">
-                <button onClick={() => navigate('/presentaciones')} className="btn-back">
+                <button onClick={() => navigate(returnTo)} className="btn-back">
                     ← Volver
                 </button>
 
@@ -686,7 +694,7 @@ function InfographicViewer() {
                     </button>
 
                     <button
-                        onClick={() => navigate(`/presentaciones/editor/${folder}`)}
+                        onClick={() => navigate(`/presentaciones/editor/${folder}?returnTo=${encodeURIComponent(returnTo)}`)}
                         className="btn-edit"
                     >
                         ✏️ Editar
@@ -725,9 +733,11 @@ function InfographicViewer() {
                             }}
                         />
                     ) : (
-                        <div className="loading-spinner">
-                            <div className="spinner"></div>
-                            <p>Cargando presentación...</p>
+                        <div className="viewer-inline-loading">
+                            <p>Cargando contenido...</p>
+                            <div className="viewer-loading-bar-wrapper">
+                                <div className="viewer-loading-bar"></div>
+                            </div>
                         </div>
                     )}
                 </div>
