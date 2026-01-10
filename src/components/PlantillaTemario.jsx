@@ -8,12 +8,16 @@ import "./PlantillaTemario.css";
 import { Plus, Trash2, Save, Eye, X, Pencil } from "lucide-react";
 
 // ================== CONFIG ==================
-// Stage: versiones
-const API_BASE = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
+const API_ID = "eim01evqg7";
+const API_REGION = "us-east-1";
+const STAGE = "versiones";
 
-const ENDPOINT_GUARDAR = `${API_BASE}/customtemarios`;      // POST
-const ENDPOINT_VERSIONES = `${API_BASE}/customtemarios`;    // GET (lista)
-const ENDPOINT_POR_ID = (id) => `${API_BASE}/customtemarios/${id}`; // GET por id
+// ✅ Base FINAL (incluye stage)
+const API_BASE = `https://${API_ID}.execute-api.${API_REGION}.amazonaws.com/${STAGE}`;
+
+const ENDPOINT_GUARDAR = `${API_BASE}/customtemarios`; // POST
+const ENDPOINT_VERSIONES = `${API_BASE}/customtemarios`; // GET lista
+const ENDPOINT_POR_ID = (id) => `${API_BASE}/customtemarios/${encodeURIComponent(id)}`; // GET item
 
 // ================== Utils ==================
 const formatDuration = (minutos) => {
@@ -53,7 +57,7 @@ const formatFecha = (iso) => {
   }
 };
 
-// ================== Helpers robustos HTTP ==================
+// ================== Helpers HTTP robustos ==================
 const safeJsonParse = (txt, fallback) => {
   try {
     return JSON.parse(txt);
@@ -74,7 +78,7 @@ const parseResponse = async (res) => {
     throw new Error(msg);
   }
 
-  // Proxy: { statusCode, headers, body: "..." }
+  // Proxy: { body: "..." }
   if (typeof parsed === "object" && parsed && "body" in parsed) {
     const b = parsed.body;
     return typeof b === "string" ? safeJsonParse(b, b) : b;
@@ -83,7 +87,7 @@ const parseResponse = async (res) => {
   return parsed;
 };
 
-// ================== JWT helpers ==================
+// ================== JWT/email helpers (más robusto) ==================
 const getIdToken = () => localStorage.getItem("id_token") || "";
 
 const base64UrlToJson = (b64url) => {
@@ -102,10 +106,38 @@ const getEmailFromJwt = (jwt) => {
     if (!jwt) return "";
     const payload = jwt.split(".")[1];
     const json = base64UrlToJson(payload);
-    return json.email || json["cognito:username"] || "";
+
+    // pruebas comunes en Cognito
+    return (
+      json.email ||
+      json["cognito:username"] ||
+      json.username ||
+      json.preferred_username ||
+      ""
+    );
   } catch {
     return "";
   }
+};
+
+// ✅ Toma email de donde sea (para que deje de salir anon)
+const getCurrentUserEmail = () => {
+  // opción 1: guardado explícito
+  const direct = (localStorage.getItem("userEmail") || "").trim();
+  if (direct) return direct;
+
+  // opción 2: profile json
+  try {
+    const profile = JSON.parse(localStorage.getItem("profile") || "{}");
+    if (profile?.email) return String(profile.email).trim();
+  } catch {}
+
+  // opción 3: id_token
+  const token = getIdToken();
+  const fromJwt = getEmailFromJwt(token);
+  if (fromJwt) return fromJwt;
+
+  return "";
 };
 
 // ================== Base ==================
@@ -137,13 +169,12 @@ export default function PlantillaTemario() {
   const [versiones, setVersiones] = useState([]);
   const [versionesError, setVersionesError] = useState("");
 
-  // Filtros
+  // Filtros (✅ solo 1 fecha: desde)
   const [filtros, setFiltros] = useState({
     qCurso: "",
     qAutor: "",
     qNotas: "",
     fechaDesde: "",
-    fechaHasta: "",
   });
 
   // ================== EDICIÓN ==================
@@ -240,18 +271,18 @@ export default function PlantillaTemario() {
     }
   };
 
-  // ================== GET por ID ==================
+  // ================== GET por ID (lápiz) ==================
   const cargarTemarioPorId = async (temarioId) => {
+    const url = ENDPOINT_POR_ID(temarioId);
     try {
-      const res = await fetch(ENDPOINT_POR_ID(temarioId), { method: "GET" });
+      const res = await fetch(url, { method: "GET" });
       const payload = await parseResponse(res);
 
-      // Si te llega el item completo, lo cargas directo
       setTemario(payload);
       setModalVersiones(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
-      alert("No se pudo cargar el temario: " + e.message);
+      alert(`No se pudo cargar el temario: ${e.message}\n\nURL usada:\n${url}`);
     }
   };
 
@@ -269,7 +300,7 @@ export default function PlantillaTemario() {
     setSaving(true);
     try {
       const token = getIdToken();
-      const email = getEmailFromJwt(token);
+      const email = getCurrentUserEmail();
 
       const payloadToSend = {
         ...temario,
@@ -301,14 +332,13 @@ export default function PlantillaTemario() {
     }
   };
 
-  // ================== Filtros (Front) ==================
+  // ================== FILTROS ==================
   const versionesFiltradas = useMemo(() => {
     const qCurso = filtros.qCurso.toLowerCase();
     const qAutor = filtros.qAutor.toLowerCase();
     const qNotas = filtros.qNotas.toLowerCase();
 
     const desdeMs = filtros.fechaDesde ? new Date(filtros.fechaDesde).getTime() : null;
-    const hastaMs = filtros.fechaHasta ? new Date(filtros.fechaHasta).getTime() + (24 * 60 * 60 * 1000 - 1) : null;
 
     return versiones.filter((v) => {
       const cursoOk = (v.nombre_curso || "").toLowerCase().includes(qCurso);
@@ -317,9 +347,8 @@ export default function PlantillaTemario() {
 
       const t = v.createdAt ? new Date(v.createdAt).getTime() : 0;
       const desdeOk = desdeMs ? t >= desdeMs : true;
-      const hastaOk = hastaMs ? t <= hastaMs : true;
 
-      return cursoOk && autorOk && notasOk && desdeOk && hastaOk;
+      return cursoOk && autorOk && notasOk && desdeOk;
     });
   }, [versiones, filtros]);
 
@@ -430,6 +459,34 @@ export default function PlantillaTemario() {
     }
 
     doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
+  };
+
+  // ================== Estilos filtros (mejorados) ==================
+  const filterWrap = {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginBottom: 12,
+    alignItems: "center",
+  };
+
+  const filterInput = {
+    height: 36,
+    padding: "0 10px",
+    borderRadius: 10,
+    border: "1px solid #d9e2ec",
+    outline: "none",
+    minWidth: 190,
+  };
+
+  const filterDate = {
+    ...filterInput,
+    minWidth: 160,
+  };
+
+  const filterHint = {
+    fontSize: 12,
+    color: "#65768a",
   };
 
   // ================== RENDER ==================
@@ -616,33 +673,37 @@ export default function PlantillaTemario() {
                 <p className="pt-err">{versionesError}</p>
               ) : (
                 <>
-                  {/* Filtros */}
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                  {/* Filtros (bonitos + 1 fecha) */}
+                  <div style={filterWrap}>
                     <input
+                      style={filterInput}
                       placeholder="Filtrar por curso"
                       value={filtros.qCurso}
                       onChange={(e) => setFiltros({ ...filtros, qCurso: e.target.value })}
                     />
                     <input
+                      style={filterInput}
                       placeholder="Filtrar por autor"
                       value={filtros.qAutor}
                       onChange={(e) => setFiltros({ ...filtros, qAutor: e.target.value })}
                     />
                     <input
+                      style={filterInput}
                       placeholder="Filtrar por notas"
                       value={filtros.qNotas}
                       onChange={(e) => setFiltros({ ...filtros, qNotas: e.target.value })}
                     />
-                    <input
-                      type="date"
-                      value={filtros.fechaDesde}
-                      onChange={(e) => setFiltros({ ...filtros, fechaDesde: e.target.value })}
-                    />
-                    <input
-                      type="date"
-                      value={filtros.fechaHasta}
-                      onChange={(e) => setFiltros({ ...filtros, fechaHasta: e.target.value })}
-                    />
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <input
+                        style={filterDate}
+                        type="date"
+                        value={filtros.fechaDesde}
+                        onChange={(e) => setFiltros({ ...filtros, fechaDesde: e.target.value })}
+                        title="Desde"
+                      />
+                      <span style={filterHint}>Fecha desde</span>
+                    </div>
                   </div>
 
                   {versionesFiltradas.length === 0 ? (
