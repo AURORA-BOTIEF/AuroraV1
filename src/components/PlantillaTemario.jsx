@@ -48,7 +48,7 @@ const plantillaBase = {
   prerrequisitos: "",
   objetivos: "",
   horas_total_curso: 0,
-  notas_generales: "", // ✅ NUEVO
+  notas_generales: "", // ✅ nuevo
   temario: [],
 };
 
@@ -98,7 +98,7 @@ export default function PlantillaTemario() {
           capitulo: `Nuevo capítulo ${temario.temario.length + 1}`,
           tiempo_capitulo_min: 0,
           objetivos_capitulo: "",
-          notas_capitulo: "", // ✅ NUEVO
+          notas_capitulo: "", // ✅ nuevo
           subcapitulos: [
             { nombre: "Nuevo tema", tiempo_subcapitulo_min: 30, sesion: 1 },
           ],
@@ -175,7 +175,21 @@ export default function PlantillaTemario() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || `Error HTTP ${res.status}`);
 
-      setSaveMsg(`✅ Guardado correctamente (ID: ${data.temarioId})`);
+      // ✅ FIX: a veces el response trae { body: "{...}" }
+      let temarioId = data?.temarioId;
+      if (!temarioId && data?.body) {
+        try {
+          const parsed =
+            typeof data.body === "string" ? JSON.parse(data.body) : data.body;
+          temarioId = parsed?.temarioId;
+        } catch {}
+      }
+
+      setSaveMsg(
+        temarioId
+          ? `✅ Guardado correctamente (ID: ${temarioId})`
+          : "✅ Guardado correctamente"
+      );
     } catch (e) {
       setSaveError(`❌ ${e.message}`);
     } finally {
@@ -211,7 +225,9 @@ export default function PlantillaTemario() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
     doc.setTextColor(azul);
-    doc.text(temario.nombre_curso || "Temario", pageW / 2, y, { align: "center" });
+    doc.text(temario.nombre_curso || "Temario", pageW / 2, y, {
+      align: "center",
+    });
     y += 30;
 
     // ===== SECCIONES GENERALES =====
@@ -220,7 +236,7 @@ export default function PlantillaTemario() {
       { titulo: "Audiencia", texto: temario.audiencia },
       { titulo: "Prerrequisitos", texto: temario.prerrequisitos },
       { titulo: "Objetivos", texto: temario.objetivos },
-      { titulo: "Notas", texto: temario.notas_generales }, // ✅ NUEVO
+      { titulo: "Notas", texto: temario.notas_generales },
     ];
 
     secciones.forEach((s) => {
@@ -274,7 +290,7 @@ export default function PlantillaTemario() {
       );
       y += 14;
 
-      // ✅ Notas por capítulo en PDF (opcional)
+      // Notas por capítulo (si existen)
       if (cap.notas_capitulo && cap.notas_capitulo.trim()) {
         addPageIfNeeded(40);
         doc.setFont("helvetica", "italic");
@@ -298,7 +314,9 @@ export default function PlantillaTemario() {
         doc.text(`${i + 1}.${j + 1} ${sub.nombre}`, margin.left + 25, y);
 
         doc.text(
-          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
+          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${
+            sub.sesion || 1
+          }`,
           pageW - margin.right,
           y,
           { align: "right" }
@@ -328,21 +346,12 @@ export default function PlantillaTemario() {
     <div className="temario-editor-container">
       <h2>Plantilla de Temario</h2>
 
-      {/* ✅ BOTÓN GUARDAR EN BD */}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
-        <button className="btn-primario" onClick={guardarEnBD} disabled={saving}>
-          <Save size={16} style={{ marginRight: 6 }} />
-          {saving ? "Guardando..." : "Guardar en BD"}
-        </button>
-
-        {saveMsg && <span style={{ color: "green" }}>{saveMsg}</span>}
-        {saveError && <span style={{ color: "red" }}>{saveError}</span>}
-      </div>
-
       <label>Nombre del curso</label>
       <input
         value={temario.nombre_curso}
-        onChange={(e) => setTemario({ ...temario, nombre_curso: e.target.value })}
+        onChange={(e) =>
+          setTemario({ ...temario, nombre_curso: e.target.value })
+        }
         className="input-capitulo"
       />
 
@@ -392,7 +401,6 @@ export default function PlantillaTemario() {
         className="textarea-objetivos-capitulo"
       />
 
-      {/* ✅ NOTAS GENERALES */}
       <label>Notas (generales)</label>
       <textarea
         value={temario.notas_generales}
@@ -409,13 +417,16 @@ export default function PlantillaTemario() {
         <div key={i} className="capitulo-editor">
           <input
             value={cap.capitulo}
-            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+            onChange={(e) =>
+              handleFieldChange(i, null, "capitulo", e.target.value)
+            }
             className="input-capitulo"
           />
 
-          <div className="duracion-total">⏱️ {formatDuration(cap.tiempo_capitulo_min)}</div>
+          <div className="duracion-total">
+            ⏱️ {formatDuration(cap.tiempo_capitulo_min)}
+          </div>
 
-          {/* ✅ NOTAS POR CAPÍTULO */}
           <textarea
             value={cap.notas_capitulo || ""}
             onChange={(e) => handleNotasCapitulo(i, e.target.value)}
@@ -428,14 +439,21 @@ export default function PlantillaTemario() {
             <div key={j} className="subcapitulo-item">
               <input
                 value={sub.nombre}
-                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+                onChange={(e) =>
+                  handleFieldChange(i, j, "nombre", e.target.value)
+                }
               />
 
               <input
                 type="number"
                 value={sub.tiempo_subcapitulo_min}
                 onChange={(e) =>
-                  handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                  handleFieldChange(
+                    i,
+                    j,
+                    "tiempo_subcapitulo_min",
+                    e.target.value
+                  )
                 }
                 placeholder="min"
               />
@@ -445,13 +463,21 @@ export default function PlantillaTemario() {
                 min="1"
                 value={sub.sesion || 1}
                 onChange={(e) =>
-                  handleFieldChange(i, j, "sesion", parseInt(e.target.value, 10) || 1)
+                  handleFieldChange(
+                    i,
+                    j,
+                    "sesion",
+                    parseInt(e.target.value, 10) || 1
+                  )
                 }
                 placeholder="sesión"
                 className="input-sesion"
               />
 
-              <button className="btn-eliminar-tema" onClick={() => eliminarTema(i, j)}>
+              <button
+                className="btn-eliminar-tema"
+                onClick={() => eliminarTema(i, j)}
+              >
                 <Trash2 size={16} />
               </button>
             </div>
@@ -462,7 +488,10 @@ export default function PlantillaTemario() {
               <Plus size={16} /> Agregar tema
             </button>
 
-            <button className="btn-eliminar-capitulo" onClick={() => eliminarCapitulo(i)}>
+            <button
+              className="btn-eliminar-capitulo"
+              onClick={() => eliminarCapitulo(i)}
+            >
               <Trash2 size={16} /> Eliminar capítulo
             </button>
           </div>
@@ -475,14 +504,31 @@ export default function PlantillaTemario() {
         </button>
       </div>
 
-      <div className="acciones-footer">
+      {/* ✅ Footer con Guardar al lado de Ajustar tiempos */}
+      <div
+        className="acciones-footer"
+        style={{ display: "flex", gap: 12, flexWrap: "wrap" }}
+      >
         <button className="btn-primario" onClick={ajustarTiempos}>
           Ajustar tiempos
         </button>
-        <button className="btn-secundario" onClick={() => setModalExportar(true)}>
+
+        <button className="btn-primario" onClick={guardarEnBD} disabled={saving}>
+          <Save size={16} style={{ marginRight: 6 }} />
+          {saving ? "Guardando..." : "Guardar"}
+        </button>
+
+        <button
+          className="btn-secundario"
+          onClick={() => setModalExportar(true)}
+        >
           Exportar
         </button>
       </div>
+
+      {/* Mensajes debajo del footer */}
+      {saveMsg && <p style={{ color: "green", marginTop: 10 }}>{saveMsg}</p>}
+      {saveError && <p style={{ color: "red", marginTop: 10 }}>{saveError}</p>}
 
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
@@ -508,7 +554,9 @@ export default function PlantillaTemario() {
             <button
               className="btn-guardar"
               onClick={() => {
-                exportTipo === "pdf" ? exportarPDF() : downloadExcelTemario(temario);
+                exportTipo === "pdf"
+                  ? exportarPDF()
+                  : downloadExcelTemario(temario);
                 setModalExportar(false);
               }}
             >
