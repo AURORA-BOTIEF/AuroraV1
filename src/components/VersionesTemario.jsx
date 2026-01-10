@@ -1,8 +1,7 @@
 // src/components/VersionesTemario.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import "./VersionesTemario.css";
 
-// 🔁 Función incrustada para exportar a CSV (sin import externo)
 function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "version") {
   const lines = [];
   const safe = (v) => {
@@ -11,18 +10,20 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   };
 
   lines.push(["Campo", "Valor"].map(safe).join(","));
-  lines.push(["Nombre del curso", temarioJson?.nombre_curso || ""].map(safe).join(","));  
+  lines.push(["Nombre del curso", temarioJson?.nombre_curso || ""].map(safe).join(","));
   lines.push(["Versión tecnología", temarioJson?.version_tecnologia || ""].map(safe).join(","));
   lines.push(["Horas totales", temarioJson?.horas_totales || ""].map(safe).join(","));
   lines.push(["Número de sesiones", temarioJson?.numero_sesiones || ""].map(safe).join(","));
   lines.push(["EOL", temarioJson?.EOL || ""].map(safe).join(","));
   lines.push(["% Teoría/Práctica general", temarioJson?.porcentaje_teoria_practica_general || ""].map(safe).join(","));
   lines.push([]);
+
   lines.push(["Descripción general", (temarioJson?.descripcion_general || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push(["Audiencia", (temarioJson?.audiencia || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push(["Prerrequisitos", (temarioJson?.prerrequisitos || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push(["Objetivos", (temarioJson?.objetivos || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push([]);
+
   lines.push(["Capítulo", "Subcapítulo", "Duración cap (min)", "Distribución cap", "Tiempo sub (min)", "Sesión"].map(safe).join(","));
   for (const cap of (temarioJson?.temario || [])) {
     const capTitulo = cap?.capitulo || "";
@@ -40,6 +41,7 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
       }
     }
   }
+
   const csv = lines.join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const file = `${cursoId}_${versionId}.csv`;
@@ -52,24 +54,57 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   a.remove();
 }
 
-/**
- * Panel de versiones que lista el historial y permite descargar cada versión en CSV/Excel.
- */
-function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
+const stripTrailingSlash = (s = "") => s.replace(/\/+$/, "");
+const joinUrl = (base, path) => `${stripTrailingSlash(base)}${path.startsWith("/") ? "" : "/"}${path}`;
+
+async function fetchJsonOrThrow(url, options) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+  if (!res.ok) {
+    const msg = data?.error || data?.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function VersionesTemario({ cursoId, apiBase, token = "", visible, onClose, onRestore }) {
   const [versiones, setVersiones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
+  const headers = useMemo(() => {
+    const h = { "Content-Type": "application/json" };
+    if (token) h.Authorization = `Bearer ${token}`;
+    return h;
+  }, [token]);
+
   useEffect(() => {
-    if (!visible || !cursoId) return;
-    setLoading(true);
-    setErr("");
-    fetch(`${apiBase}/temarios?cursoId=${encodeURIComponent(cursoId)}`)
-      .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
-      .then(setVersiones)
-      .catch((e) => setErr(e?.error || "Error cargando versiones"))
-      .finally(() => setLoading(false));
-  }, [visible, cursoId, apiBase]);
+    if (!visible || !apiBase) return;
+
+    const run = async () => {
+      setLoading(true);
+      setErr("");
+
+      // ✅ LISTAR: GET al recurso /versiones (no existe /list)
+      const url = joinUrl(apiBase, "/versiones");
+
+      try {
+        const data = await fetchJsonOrThrow(url, { method: "GET", headers });
+        const items = Array.isArray(data) ? data : [];
+        setVersiones(items);
+      } catch (e) {
+        setVersiones([]);
+        setErr(e?.message || "Error cargando versiones");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    run();
+  }, [visible, apiBase, headers]);
 
   if (!visible) return null;
 
@@ -77,7 +112,7 @@ function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
     <div className="versiones-overlay" role="dialog" aria-modal="true">
       <div className="versiones-card">
         <button className="btn-cerrar" onClick={onClose} aria-label="Cerrar">✖</button>
-        <h3>📑 Versiones de <code>{cursoId}</code></h3>
+        <h3>📑 Versiones {cursoId ? <>de <code>{cursoId}</code></> : null}</h3>
 
         {loading && <p>Cargando…</p>}
         {err && <div className="error-mensaje">{err}</div>}
@@ -85,38 +120,30 @@ function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
         {!loading && !err && (
           <ul className="lista-versiones">
             {versiones.map((v) => (
-              <li key={v.versionId} className="item-version">
+              <li key={v.versionId || v.id || JSON.stringify(v)} className="item-version">
                 <div className="col-info">
-                  <strong>{new Date(v.createdAt).toLocaleString()}</strong>
-                  <div className="nota">{v.nota || "Sin nota"}</div>
-                  <div className="mini">
-                    {v.isLatest ? "Última" : ""} {v.size ? `• ${v.size} bytes` : ""}
-                  </div>
+                  <strong>{new Date(v.createdAt || v.fecha_creacion || Date.now()).toLocaleString()}</strong>
+                  <div className="nota">{v.nota_version || v.nota_usuario || v.nota || "Sin nota"}</div>
                 </div>
+
                 <div className="col-actions">
                   <button
                     className="btn"
-                    onClick={() =>
-                      fetch(`${apiBase}/temarios/${encodeURIComponent(v.versionId)}?cursoId=${encodeURIComponent(cursoId)}`)
-                        .then((r) => r.json())
-                        .then(onRestore)
-                    }
+                    onClick={() => onRestore?.(v.contenido || v)}
                   >
                     Restaurar
                   </button>
+
                   <button
                     className="btn sec"
-                    onClick={() =>
-                      fetch(`${apiBase}/temarios/${encodeURIComponent(v.versionId)}?cursoId=${encodeURIComponent(cursoId)}`)
-                        .then((r) => r.json())
-                        .then((json) => downloadTemarioAsExcel(json, cursoId, v.versionId))
-                    }
+                    onClick={() => downloadTemarioAsExcel(v.contenido || v, cursoId || "curso", v.versionId || "version")}
                   >
                     Excel ⬇️
                   </button>
                 </div>
               </li>
             ))}
+
             {versiones.length === 0 && <li>No hay versiones aún.</li>}
           </ul>
         )}
@@ -126,5 +153,3 @@ function VersionesTemario({ cursoId, apiBase, visible, onClose, onRestore }) {
 }
 
 export default VersionesTemario;
-
-

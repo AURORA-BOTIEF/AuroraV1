@@ -273,9 +273,12 @@ function InfographicViewer() {
                                     showSlide(currentSlide);
                                 }
                             } else if (event.data.type === 'UPDATE_IMAGE_SRC') {
-                                const images = document.querySelectorAll('img[src="' + event.data.originalSrc + '"]');
+                                // Use iteration instead of CSS selector to handle special characters in presigned URLs
+                                const images = document.querySelectorAll('img');
                                 images.forEach(img => {
-                                    img.src = event.data.newSrc;
+                                    if (img.src === event.data.originalSrc) {
+                                        img.src = event.data.newSrc;
+                                    }
                                 });
                             } else if (event.data.type === 'SET_VIEW_MODE') {
                                 viewMode = event.data.mode;

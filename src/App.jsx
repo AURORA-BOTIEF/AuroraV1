@@ -12,6 +12,7 @@ import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.js
 import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
 import EditorDeTemario_Practico from './components/EditorDeTemario_Practico.jsx';
 import EditorDeTemario_KNTR from "./components/EditorDeTemario_KNTR.jsx";
+import PlantillaTemario from "./components/PlantillaTemario.jsx";
 
 // === IMÁGENES ===
 import logoImg from './assets/Netec.png';
@@ -537,6 +538,7 @@ function App() {
                 <Route path="generador-contenido" element={<GeneradorContenido />} />
                 <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
                 <Route path="faq" element={<FAQ />} />
+                <Route path="plantilla-temario" element={<PlantillaTemario />} />
               </Route>
 
               {/* PRESENTACIONES -> accesible a todos autenticados */}

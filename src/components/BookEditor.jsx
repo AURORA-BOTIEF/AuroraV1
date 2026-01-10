@@ -2138,7 +2138,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (moduleNum !== null) {
                 const modulePrefix = String(moduleNum).padStart(2, '0');
                 // Pattern matches normalized format: "lab 05 00 01" (dashes become spaces after normalize)
-                const labIdPattern = new RegExp(`^ lab\\s + ${modulePrefix} \\s +\\d +\\s +\\d + `, 'i');
+                const labIdPattern = new RegExp(`^lab\\s+${modulePrefix}\\s+\\d+\\s+\\d+`, 'i');
 
                 // Look for a header that matches the lab ID pattern AND contains the title
                 const labMatch = headers.find(h => {
@@ -2174,7 +2174,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (h.lineIndex < startLine) return false;
                     const normH = normalize(h.title);
                     // Check for "module <num>" or "modulo <num>" or "capitulo <num>"
-                    if (normH.includes(`module $ { modNumber } `) || normH.includes(`modulo ${modNumber} `) || normH.includes(`capitulo ${modNumber} `)) return true;
+                    if (normH.includes(`module ${modNumber} `) || normH.includes(`modulo ${modNumber} `) || normH.includes(`capitulo ${modNumber} `)) return true;
                     if (normH.includes(`module 0${modNumber} `) || normH.includes(`modulo 0${modNumber} `) || normH.includes(`capitulo 0${modNumber} `)) return true;
                     return false;
                 });
