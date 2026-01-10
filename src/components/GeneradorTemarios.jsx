@@ -1,8 +1,9 @@
 // src/components/GeneradorTemarios.jsx
 import React, { useState, useEffect } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
-import EditorDeTemario, { exportarPDF } from "./EditorDeTemario";
+import EditorDeTemario from "./EditorDeTemario";
 import "./GeneradorTemarios.css";
+import { exportarPDF } from "./EditorDeTemario";
 import { useNavigate } from "react-router-dom";
 
 const asesoresComerciales = [
@@ -23,45 +24,13 @@ const asesoresComerciales = [
   "Vianey Miranda",
 ].sort();
 
+// ✅ Unifica el algoritmo de cursoId (USAR SIEMPRE ESTE)
 const makeCursoId = (tema = "") =>
   tema
     .trim()
     .toLowerCase()
     .replace(/[^\w]+/g, "_")
     .replace(/^_+|_+$/g, "");
-
-const stripTrailingSlash = (s = "") => s.replace(/\/+$/, "");
-const joinUrl = (base, path) => `${stripTrailingSlash(base)}${path.startsWith("/") ? "" : "/"}${path}`;
-
-async function fetchJsonOrThrow(url, options) {
-  const res = await fetch(url, options);
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-  if (!res.ok) {
-    const msg = data?.error || data?.message || `HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
-  return data;
-}
-
-async function tryMany(candidates, options) {
-  let lastErr = null;
-  for (const url of candidates) {
-    try {
-      return await fetchJsonOrThrow(url, options);
-    } catch (e) {
-      lastErr = e;
-      if (e?.status === 401 || e?.status === 403) throw e;
-      continue;
-    }
-  }
-  throw lastErr || new Error("No se pudo conectar a ningún endpoint");
-}
 
 function GeneradorTemarios() {
   const [params, setParams] = useState({
@@ -88,6 +57,7 @@ function GeneradorTemarios() {
   const [versiones, setVersiones] = useState([]);
   const [mostrarModal, setMostrarModal] = useState(false);
 
+  // ✅ incluye filtro por nota
   const [filtros, setFiltros] = useState({
     curso: "",
     asesor: "",
@@ -95,20 +65,19 @@ function GeneradorTemarios() {
     nota: "",
   });
 
-  // ✅ URLs desde env (sin romper otras APIs)
+  // --- URLs ---
+  // (Dejo tus URLs como estaban, SOLO corrijo la de LISTAR porque /list NO existe)
   const generarApiUrl =
-    import.meta.env.VITE_GENERAR_TEMARIO_API_URL ||
     "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
 
-  const pdfApiUrlBase =
-    import.meta.env.VITE_TEMARIO_PDF_API_URL ||
-    "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF";
+  // ✅ TU API real: stage = versiones, resource = /versiones
+  // POST: /versiones/versiones
+  const guardarApiUrl =
+    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
-  // ✅ Base de tu API REST (stage "versiones")
-  // ejemplo: https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones
-  const versionesApiBase =
-    import.meta.env.VITE_VERSIONES_API_BASE ||
-    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
+  // ✅ FIX: NO existe /list → listar debe ser GET al mismo recurso /versiones
+  const listarApiUrl =
+    "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
   useEffect(() => {
     const getUser = async () => {
@@ -123,6 +92,7 @@ function GeneradorTemarios() {
     getUser();
   }, []);
 
+  // ✅ Token helper (Amplify -> fallback storage)
   const getBearerToken = async () => {
     try {
       const session = await fetchAuthSession();
@@ -170,7 +140,9 @@ function GeneradorTemarios() {
 
   const handleGenerar = async () => {
     if (!params.tecnologia || !params.tema_curso || !params.sector) {
-      setError("Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia.");
+      setError(
+        "Completa todos los campos requeridos: Tecnología, Tema del Curso y Sector/Audiencia."
+      );
       return;
     }
 
@@ -188,6 +160,7 @@ function GeneradorTemarios() {
 
     try {
       const payload = { ...params, horas_totales: horasTotales };
+
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
 
       const token = await getBearerToken();
@@ -228,7 +201,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión (fallback entre /versiones y /versiones/versiones)
+  // ✅ Guardar versión (incluye cursoId + nota_version)
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = await getBearerToken();
@@ -248,12 +221,7 @@ function GeneradorTemarios() {
         fecha_creacion: new Date().toISOString(),
       };
 
-      const candidates = [
-        joinUrl(versionesApiBase, "/versiones"),           // stage + /versiones
-        joinUrl(versionesApiBase, "/versiones/versiones"), // por si tu Lambda está colgada así
-      ];
-
-      const data = await tryMany(candidates, {
+      const res = await fetch(guardarApiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -262,22 +230,37 @@ function GeneradorTemarios() {
         body: JSON.stringify(bodyData),
       });
 
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
+
+      if (!res.ok) {
+        console.error("Guardar versión ->", res.status, data);
+        throw new Error(data?.error || `Error HTTP ${res.status}`);
+      }
+
+      // ✅ refresca lista si modal está abierto
       if (mostrarModal) await handleListarVersiones();
 
       return {
         success: true,
-        message: `Versión guardada ✔ (versionId: ${data?.versionId || "ok"})`,
+        message: `Versión guardada ✔ (versionId: ${data.versionId || "ok"})`,
       };
-    } catch (err) {
-      console.error(err);
-      return { success: false, message: err.message };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: error.message };
     }
   };
 
-  // ✅ Listar versiones (fallback entre /list, /versiones/list, /versiones/versiones/list)
+  // ✅ Listar versiones (GET al recurso /versiones, NO /list)
   const handleListarVersiones = async () => {
     try {
       setIsLoading(true);
+
       const token = await getBearerToken();
 
       if (!token) {
@@ -287,14 +270,7 @@ function GeneradorTemarios() {
         return;
       }
 
-      const candidates = [
-        joinUrl(versionesApiBase, "/list"),
-        joinUrl(versionesApiBase, "/versiones/list"),
-        joinUrl(versionesApiBase, "/versiones/versiones/list"),
-        joinUrl(versionesApiBase, "/versiones"), // por si GET /versiones lista
-      ];
-
-      const data = await tryMany(candidates, {
+      const res = await fetch(listarApiUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -302,7 +278,21 @@ function GeneradorTemarios() {
         },
       });
 
-      const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
+
+      if (!res.ok) {
+        console.error("Listar versiones ->", res.status, data);
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
+      const items = Array.isArray(data) ? data : [];
+
       const sortedData = items.sort(
         (a, b) =>
           new Date(b.fecha_guardado || b.fecha_creacion || 0) -
@@ -311,8 +301,8 @@ function GeneradorTemarios() {
 
       setVersiones(sortedData);
       setMostrarModal(true);
-    } catch (err) {
-      console.error("Error al obtener versiones:", err);
+    } catch (error) {
+      console.error("Error al obtener versiones:", error);
       setVersiones([]);
       setMostrarModal(true);
     } finally {
@@ -341,9 +331,11 @@ function GeneradorTemarios() {
       const token = await getBearerToken();
       const cursoId = version.cursoId || makeCursoId(version.nombre_curso || "");
 
-      const url = `${pdfApiUrlBase}?id=${encodeURIComponent(cursoId)}&version=${encodeURIComponent(version.versionId)}`;
+      const apiUrl = `https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/Temario_PDF?id=${encodeURIComponent(
+        cursoId
+      )}&version=${encodeURIComponent(version.versionId)}`;
 
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -396,357 +388,4 @@ function GeneradorTemarios() {
         </div>
 
         <p className="descripcion-practico" style={{ marginTop: "0px" }}>
-          Introduce los detalles para generar una propuesta de temario con Inteligencia artificial.
-        </p>
-
-        {/* ... TU FORM ORIGINAL (no lo toqué) ... */}
-        {/* (lo dejé tal cual para no romper UI) */}
-
-        {/* === FORM GRID === */}
-        <div className="form-grid">
-          <div className="form-group">
-            <label>Nombre Preventa Asociado (Opcional)</label>
-            <input
-              name="nombre_preventa"
-              value={params.nombre_preventa}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Asesor(a) Comercial (Opcional)</label>
-            <select
-              name="asesor_comercial"
-              value={params.asesor_comercial}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            >
-              <option value="">Selecciona un asesor(a)</option>
-              {asesoresComerciales.map((a) => (
-                <option key={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Tecnología *</label>
-            <input
-              name="tecnologia"
-              value={params.tecnologia}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: AWS, React, Python"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Tema Principal del Curso *</label>
-            <input
-              name="tema_curso"
-              value={params.tema_curso}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: Arquitecturas Serverless"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Nivel de Dificultad</label>
-            <select
-              name="nivel_dificultad"
-              value={params.nivel_dificultad}
-              onChange={handleParamChange}
-              disabled={isLoading}
-            >
-              <option value="basico">Básico</option>
-              <option value="intermedio">Intermedio</option>
-              <option value="avanzado">Avanzado</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Número de Sesiones (1-7)</label>
-            <div className="slider-container">
-              <input
-                type="range"
-                min="1"
-                max="7"
-                name="numero_sesiones_por_semana"
-                value={params.numero_sesiones_por_semana}
-                onChange={handleSliderChange}
-                disabled={isLoading}
-              />
-              <span className="slider-value">
-                {params.numero_sesiones_por_semana}{" "}
-                {params.numero_sesiones_por_semana > 1 ? "sesiones" : "sesión"}
-              </span>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Horas por Sesión (4-12)</label>
-            <div className="slider-container">
-              <input
-                type="range"
-                min="4"
-                max="12"
-                name="horas_por_sesion"
-                value={params.horas_por_sesion}
-                onChange={handleSliderChange}
-                disabled={isLoading}
-              />
-              <span className="slider-value">{params.horas_por_sesion} horas</span>
-            </div>
-          </div>
-
-          <div className="form-group total-horas">
-            <label>Total del Curso</label>
-            <div className="total-badge">
-              {params.horas_por_sesion * params.numero_sesiones_por_semana} horas
-            </div>
-          </div>
-        </div>
-
-        <div className="form-group-radio">
-          <label>Tipo de Objetivo</label>
-          <div className="radio-group">
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="saber_hacer"
-                checked={params.objetivo_tipo === "saber_hacer"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />
-              <span>Saber Hacer (Enfocado en habilidades)</span>
-            </label>
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="objetivo_tipo"
-                value="certificacion"
-                checked={params.objetivo_tipo === "certificacion"}
-                onChange={handleParamChange}
-                disabled={isLoading}
-              />
-              <span>Certificación (Enfocado en examen)</span>
-            </label>
-          </div>
-        </div>
-
-        {params.objetivo_tipo === "certificacion" && (
-          <div className="form-group certificacion-field">
-            <label>Código de Certificación *</label>
-            <input
-              name="codigo_certificacion"
-              value={params.codigo_certificacion}
-              onChange={handleParamChange}
-              disabled={isLoading}
-              placeholder="Ej: AWS CLF-C02, AZ-900"
-            />
-          </div>
-        )}
-
-        <div className="form-group">
-          <label>Sector* / Audiencia*</label>
-          <textarea
-            name="sector"
-            value={params.sector}
-            onChange={handleParamChange}
-            disabled={isLoading}
-            rows="3"
-            placeholder="Ej: Sector financiero / Desarrolladores con 1 año de experiencia..."
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Enfoque Adicional (Opcional)</label>
-          <textarea
-            name="enfoque"
-            value={params.enfoque}
-            onChange={handleParamChange}
-            disabled={isLoading}
-            rows="3"
-            placeholder="Ej: Orientado a patrones de diseño, con énfasis en casos prácticos"
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Syllabus Base (Opcional)</label>
-          <textarea
-            name="syllabus_text"
-            value={params.syllabus_text || ""}
-            onChange={handleParamChange}
-            disabled={isLoading}
-            rows="6"
-            placeholder="Copia y pega aquí el contenido del syllabus o temario base (texto plano, sin formato)..."
-          />
-          <small className="hint">
-            💡 Este campo es opcional, pero puede ayudar a la IA a generar un temario más alineado al contenido original.
-          </small>
-        </div>
-
-        <div className="botones">
-          <button className="btn-generar" onClick={handleGenerar} disabled={isLoading}>
-            {isLoading ? "Generando..." : "Generar Propuesta de Temario"}
-          </button>
-          <button className="btn-versiones" onClick={handleListarVersiones} disabled={isLoading}>
-            Ver Versiones Guardadas
-          </button>
-        </div>
-
-        {error && (
-          <div className="error-message">
-            <span>⚠️</span> {error}
-          </div>
-        )}
-      </div>
-
-      {temarioGenerado && (
-        <EditorDeTemario
-          temarioInicial={temarioGenerado}
-          onSave={handleGuardarVersion}
-          onRegenerate={handleGenerar}
-          isLoading={isLoading}
-        />
-      )}
-
-      {mostrarModal && (
-        <div className="modal-overlay" onClick={() => setMostrarModal(false)}>
-          <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Versiones Guardadas</h3>
-              <button className="modal-close" onClick={() => setMostrarModal(false)}>
-                ✕
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="filtros-versiones">
-                <input
-                  type="text"
-                  placeholder="Filtrar por curso"
-                  name="curso"
-                  value={filtros.curso}
-                  onChange={handleFiltroChange}
-                />
-                <select name="asesor" value={filtros.asesor} onChange={handleFiltroChange}>
-                  <option value="">Todos los asesores</option>
-                  {asesoresComerciales.map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  placeholder="Filtrar por tecnología"
-                  name="tecnologia"
-                  value={filtros.tecnologia}
-                  onChange={handleFiltroChange}
-                />
-                <input
-                  type="text"
-                  placeholder="Filtrar por nota"
-                  name="nota"
-                  value={filtros.nota}
-                  onChange={handleFiltroChange}
-                />
-
-                <button className="btn-secundario" onClick={limpiarFiltros}>
-                  Limpiar
-                </button>
-              </div>
-
-              {versionesFiltradas.length === 0 ? (
-                <p className="no-versiones">No hay versiones guardadas.</p>
-              ) : (
-                <table className="tabla-versiones">
-                  <thead>
-                    <tr>
-                      <th>Curso</th>
-                      <th>Tecnología</th>
-                      <th>Asesor</th>
-                      <th>Fecha</th>
-                      <th>Autor</th>
-                      <th>Notas</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {versionesFiltradas.map((v, i) => (
-                      <tr key={v.versionId || i}>
-                        <td>{v.nombre_curso}</td>
-                        <td>{v.tecnologia}</td>
-                        <td>{v.asesor_comercial}</td>
-                        <td>{new Date(v.fecha_creacion).toLocaleString()}</td>
-                        <td>{v.autor}</td>
-                        <td
-                          style={{
-                            maxWidth: 280,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                          title={v.nota_version || v.nota_usuario || ""}
-                        >
-                          {v.nota_version || v.nota_usuario || "Sin nota"}
-                        </td>
-
-                        <td className="acciones-cell">
-                          <button
-                            className="menu-btn"
-                            title="Editar versión"
-                            onClick={() => handleEditarVersion(v)}
-                          >
-                            ✏️
-                          </button>
-
-                          {/* PDF si lo necesitas:
-                          <button
-                            className="menu-btn"
-                            title="Exportar PDF"
-                            onClick={() => handleExportarPDF(v)}
-                            style={{ marginLeft: 8 }}
-                          >
-                            📄
-                          </button>
-                          */}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {mostrandoModalThor && (
-        <div className="modal-overlay-thor">
-          <div className="modal-thor">
-            <h2>THOR está generando tu temario...</h2>
-            <p>
-              Mientras se crea el contenido, recuerda que está siendo generado con inteligencia artificial y está pensado
-              como una propuesta base para ayudarte a estructurar tus ideas.
-            </p>
-            <ul>
-              <li>✅ Verifica la información antes de compartirla con el equipo de Preventa.</li>
-              <li>✏️ Edita y adapta los temas según tus objetivos, el nivel del grupo y el contexto específico.</li>
-              <li>🌍 Revisa y asegúrate de que el contenido sea inclusivo y respetuoso.</li>
-              <li>🔐 Evita ingresar datos personales o sensibles en la plataforma.</li>
-              <li>🧠 Utiliza el contenido como apoyo, no como sustituto de tu criterio pedagógico.</li>
-            </ul>
-            <p className="nota-thor">
-              La IA es una herramienta poderosa, pero requiere tu supervisión como Instructor experto para garantizar
-              calidad, precisión y relevancia educativa.
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default GeneradorTemarios;
+          Introduce los detalles para generar una propuesta de temar
