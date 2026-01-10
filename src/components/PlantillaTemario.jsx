@@ -1,17 +1,16 @@
-// PlantillaTemario.jsx
 import React, { useState } from "react";
 import jsPDF from "jspdf";
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
-import "./PlantillaTemario.css";
+
+import "./PlantillaTemario.css"; // ✅ CSS propio
 import { Plus, Trash2, Save, Eye, X } from "lucide-react";
 
 // ================== CONFIG ==================
 const API_BASE = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com";
-// Stage: "versiones"
-const ENDPOINT_GUARDAR = `${API_BASE}/versiones/customtemarios`; // POST
-const ENDPOINT_VERSIONES = `${API_BASE}/versiones/versiones`; // GET
+const ENDPOINT_GUARDAR = `${API_BASE}/versiones/customtemarios`;   // POST (guardar)
+const ENDPOINT_VERSIONES = `${API_BASE}/versiones/customtemarios`; // GET  (listar) ✅ CORRECTO
 
 // ================== Utils ==================
 const formatDuration = (minutos) => {
@@ -49,37 +48,6 @@ const formatFecha = (iso) => {
   } catch {
     return iso;
   }
-};
-
-// ✅ Soporta: array directo, proxy {body:"[]"}, o string "[]"
-const parseListResponse = (data) => {
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
-
-  // Proxy lambda: { statusCode, body: "..." }
-  if (typeof data === "object" && data.body != null) {
-    if (typeof data.body === "string") {
-      try {
-        const parsed = JSON.parse(data.body);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-    return Array.isArray(data.body) ? data.body : [];
-  }
-
-  // Por si llega string directo
-  if (typeof data === "string") {
-    try {
-      const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
 };
 
 // ================== Base ==================
@@ -123,7 +91,7 @@ export default function PlantillaTemario() {
 
     nuevo.temario[cap].tiempo_capitulo_min =
       nuevo.temario[cap].subcapitulos.reduce(
-        (acc, s) => acc + (parseInt(s.tiempo_subcapitulo_min, 10) || 0),
+        (acc, s) => acc + (parseInt(s.tiempo_subcapitulo_min) || 0),
         0
       );
 
@@ -132,12 +100,12 @@ export default function PlantillaTemario() {
 
   // ================== CAPÍTULOS ==================
   const agregarCapitulo = () =>
-    setTemario((prev) => ({
-      ...prev,
+    setTemario({
+      ...temario,
       temario: [
-        ...prev.temario,
+        ...temario.temario,
         {
-          capitulo: `Nuevo capítulo ${prev.temario.length + 1}`,
+          capitulo: `Nuevo capítulo ${temario.temario.length + 1}`,
           tiempo_capitulo_min: 0,
           objetivos_capitulo: "",
           notas_capitulo: "",
@@ -146,7 +114,7 @@ export default function PlantillaTemario() {
           ],
         },
       ],
-    }));
+    });
 
   const eliminarCapitulo = (i) => {
     if (!window.confirm("¿Eliminar capítulo?")) return;
@@ -170,11 +138,6 @@ export default function PlantillaTemario() {
     if (!window.confirm("¿Eliminar tema?")) return;
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario[i].subcapitulos.splice(j, 1);
-    // recalcula duración capítulo
-    nuevo.temario[i].tiempo_capitulo_min = nuevo.temario[i].subcapitulos.reduce(
-      (acc, s) => acc + (parseInt(s.tiempo_subcapitulo_min, 10) || 0),
-      0
-    );
     setTemario(nuevo);
   };
 
@@ -182,7 +145,7 @@ export default function PlantillaTemario() {
   const ajustarTiempos = () => {
     const totalMin = (parseFloat(temario.horas_total_curso) || 0) * 60;
     const totalTemas = temario.temario.reduce(
-      (a, c) => a + (c.subcapitulos?.length || 0),
+      (a, c) => a + c.subcapitulos.length,
       0
     );
     if (!totalTemas) return;
@@ -213,31 +176,22 @@ export default function PlantillaTemario() {
       const res = await fetch(ENDPOINT_GUARDAR, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...temario,
-          source: "plantilla-temario",
-        }),
+        body: JSON.stringify({ ...temario, source: "plantilla-temario" }),
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || `Error HTTP ${res.status}`);
 
+      // soporta proxy response o directo
       let temarioId = data?.temarioId;
-
-      // Proxy response
       if (!temarioId && data?.body) {
         try {
-          const parsed =
-            typeof data.body === "string" ? JSON.parse(data.body) : data.body;
+          const parsed = typeof data.body === "string" ? JSON.parse(data.body) : data.body;
           temarioId = parsed?.temarioId;
         } catch {}
       }
 
-      setSaveMsg(
-        temarioId
-          ? `✅ Guardado correctamente (ID: ${temarioId})`
-          : "✅ Guardado correctamente"
-      );
+      setSaveMsg(temarioId ? `✅ Guardado correctamente (ID: ${temarioId})` : "✅ Guardado correctamente");
     } catch (e) {
       setSaveError(`❌ ${e.message}`);
     } finally {
@@ -251,21 +205,22 @@ export default function PlantillaTemario() {
     setVersionesError("");
     try {
       const res = await fetch(ENDPOINT_VERSIONES, { method: "GET" });
-      const data = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        const msg =
-          (data && (data.message || data.error)) ||
-          `Error HTTP ${res.status}`;
-        throw new Error(msg);
-      }
+      const data = await res.json().catch(() => ({}));
 
-      const list = parseListResponse(data);
+      // soporta: array directo o proxy { body: "[]" }
+      const list =
+        data?.body && typeof data.body === "string"
+          ? JSON.parse(data.body)
+          : Array.isArray(data)
+          ? data
+          : [];
+
       setVersiones(Array.isArray(list) ? list : []);
     } catch (e) {
       console.error("Error versiones:", e);
       setVersiones([]);
-      setVersionesError(e.message || "No se pudieron cargar las versiones.");
+      setVersionesError("No se pudieron cargar las versiones.");
     } finally {
       setLoadingVersiones(false);
     }
@@ -287,7 +242,6 @@ export default function PlantillaTemario() {
     const pie = await toDataURL(pieDePaginaImagen);
 
     let y = margin.top;
-
     const addPageIfNeeded = (extra = 40) => {
       if (y + extra > pageH - margin.bottom) {
         doc.addPage();
@@ -295,13 +249,10 @@ export default function PlantillaTemario() {
       }
     };
 
-    // Título
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
     doc.setTextColor(azul);
-    doc.text(temario.nombre_curso || "Temario", pageW / 2, y, {
-      align: "center",
-    });
+    doc.text(temario.nombre_curso || "Temario", pageW / 2, y, { align: "center" });
     y += 30;
 
     const secciones = [
@@ -335,7 +286,6 @@ export default function PlantillaTemario() {
       y += 10;
     });
 
-    // Temario
     addPageIfNeeded(60);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
@@ -355,28 +305,19 @@ export default function PlantillaTemario() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(negro);
-      doc.text(
-        `Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`,
-        margin.left + 10,
-        y
-      );
+      doc.text(`Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`, margin.left + 10, y);
       y += 14;
 
       cap.subcapitulos.forEach((sub, j) => {
         addPageIfNeeded(14);
-
         doc.setFontSize(10);
         doc.text(`${i + 1}.${j + 1} ${sub.nombre}`, margin.left + 25, y);
-
         doc.text(
-          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${
-            sub.sesion || 1
-          }`,
+          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
           pageW - margin.right,
           y,
           { align: "right" }
         );
-
         y += 12;
       });
 
@@ -388,9 +329,7 @@ export default function PlantillaTemario() {
       doc.setPage(i);
       doc.addImage(enc, "PNG", 0, 0, pageW, 200);
       doc.addImage(pie, "PNG", 0, pageH - 80, pageW, 80);
-      doc.text(`Página ${i} de ${totalPages}`, pageW / 2, pageH - 55, {
-        align: "center",
-      });
+      doc.text(`Página ${i} de ${totalPages}`, pageW / 2, pageH - 55, { align: "center" });
     }
 
     doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
@@ -398,200 +337,162 @@ export default function PlantillaTemario() {
 
   // ================== RENDER ==================
   return (
-    <div className="plantilla-container">
-      <h2 className="plantilla-title">Plantilla de Temario</h2>
+    <div className="pt-container">
+      <h2 className="pt-title">Plantilla de Temario</h2>
 
       <label>Nombre del curso</label>
       <input
         value={temario.nombre_curso}
-        onChange={(e) =>
-          setTemario({ ...temario, nombre_curso: e.target.value })
-        }
-        className="input"
+        onChange={(e) => setTemario({ ...temario, nombre_curso: e.target.value })}
+        className="input-capitulo"
       />
 
       <label>Duración total (horas)</label>
       <input
         type="number"
         value={temario.horas_total_curso}
-        onChange={(e) =>
-          setTemario({ ...temario, horas_total_curso: e.target.value })
-        }
-        className="input"
+        onChange={(e) => setTemario({ ...temario, horas_total_curso: e.target.value })}
+        className="input-capitulo"
       />
 
-      <hr className="divider" />
-      <h3 className="section-title">Información general del curso</h3>
+      <hr style={{ margin: "20px 0" }} />
+      <h3>Información general del curso</h3>
 
       <label>Descripción General</label>
       <textarea
         value={temario.descripcion_general}
-        onChange={(e) =>
-          setTemario({ ...temario, descripcion_general: e.target.value })
-        }
-        className="textarea"
+        onChange={(e) => setTemario({ ...temario, descripcion_general: e.target.value })}
+        className="textarea-objetivos-capitulo"
       />
 
       <label>Audiencia</label>
       <textarea
         value={temario.audiencia}
         onChange={(e) => setTemario({ ...temario, audiencia: e.target.value })}
-        className="textarea"
+        className="textarea-objetivos-capitulo"
       />
 
       <label>Prerrequisitos</label>
       <textarea
         value={temario.prerrequisitos}
-        onChange={(e) =>
-          setTemario({ ...temario, prerrequisitos: e.target.value })
-        }
-        className="textarea"
+        onChange={(e) => setTemario({ ...temario, prerrequisitos: e.target.value })}
+        className="textarea-objetivos-capitulo"
       />
 
       <label>Objetivos</label>
       <textarea
         value={temario.objetivos}
         onChange={(e) => setTemario({ ...temario, objetivos: e.target.value })}
-        className="textarea"
+        className="textarea-objetivos-capitulo"
       />
 
       <label>Notas (generales)</label>
       <textarea
         value={temario.notas_generales}
-        onChange={(e) =>
-          setTemario({ ...temario, notas_generales: e.target.value })
-        }
-        className="textarea"
+        onChange={(e) => setTemario({ ...temario, notas_generales: e.target.value })}
+        className="textarea-objetivos-capitulo"
         placeholder="Notas internas para preventa / instructores / ajustes..."
       />
 
-      <hr className="divider" />
+      <hr />
 
       {temario.temario.map((cap, i) => (
-        <div key={i} className="capitulo">
+        <div key={i} className="capitulo-editor">
           <input
             value={cap.capitulo}
-            onChange={(e) =>
-              handleFieldChange(i, null, "capitulo", e.target.value)
-            }
-            className="input"
+            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+            className="input-capitulo"
           />
 
           <div className="duracion-total">⏱️ {formatDuration(cap.tiempo_capitulo_min)}</div>
 
           {cap.subcapitulos.map((sub, j) => (
-            <div key={j} className="subcapitulo">
-              <input
-                value={sub.nombre}
-                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
-                className="input small"
-              />
-
+            <div key={j} className="subcapitulo-item">
+              <input value={sub.nombre} onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)} />
               <input
                 type="number"
                 value={sub.tiempo_subcapitulo_min}
-                onChange={(e) =>
-                  handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
-                }
+                onChange={(e) => handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)}
                 placeholder="min"
-                className="input tiny"
               />
-
               <input
                 type="number"
                 min="1"
                 value={sub.sesion || 1}
-                onChange={(e) =>
-                  handleFieldChange(i, j, "sesion", parseInt(e.target.value, 10) || 1)
-                }
+                onChange={(e) => handleFieldChange(i, j, "sesion", parseInt(e.target.value, 10) || 1)}
                 placeholder="sesión"
-                className="input tiny"
+                className="input-sesion"
               />
-
-              <button className="btn-icon danger" onClick={() => eliminarTema(i, j)}>
+              <button className="btn-eliminar-tema" onClick={() => eliminarTema(i, j)}>
                 <Trash2 size={16} />
               </button>
             </div>
           ))}
 
-          <div className="cap-actions">
-            <button className="btn secondary" onClick={() => agregarTema(i)}>
+          <div className="acciones-capitulo">
+            <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
               <Plus size={16} /> Agregar tema
             </button>
 
-            <button className="btn danger" onClick={() => eliminarCapitulo(i)}>
+            <button className="btn-eliminar-capitulo" onClick={() => eliminarCapitulo(i)}>
               <Trash2 size={16} /> Eliminar capítulo
             </button>
           </div>
         </div>
       ))}
 
-      <div className="add-capitulo">
-        <button className="btn primary" onClick={agregarCapitulo}>
+      <div className="btn-agregar-capitulo-container">
+        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
           <Plus size={18} /> Agregar capítulo
         </button>
       </div>
 
       {/* Footer */}
-      <div className="footer-actions">
-        <button className="btn primary" onClick={ajustarTiempos}>
+      <div className="pt-footer">
+        <button className="btn-primario" onClick={ajustarTiempos}>
           Ajustar tiempos
         </button>
 
-        <button className="btn primary" onClick={guardarEnBD} disabled={saving}>
-          <Save size={16} />
+        <button className="btn-primario" onClick={guardarEnBD} disabled={saving}>
+          <Save size={16} style={{ marginRight: 6 }} />
           {saving ? "Guardando..." : "Guardar"}
         </button>
 
-        <button className="btn secondary" onClick={() => setModalExportar(true)}>
+        <button className="btn-secundario" onClick={() => setModalExportar(true)}>
           Exportar
         </button>
 
         <button
-          className="btn secondary"
+          className="btn-secundario"
           onClick={() => {
             setModalVersiones(true);
             cargarVersiones();
           }}
         >
-          <Eye size={16} />
+          <Eye size={16} style={{ marginRight: 6 }} />
           Ver versiones
         </button>
       </div>
 
-      {saveMsg && <p className="msg ok">{saveMsg}</p>}
-      {saveError && <p className="msg error">{saveError}</p>}
+      {saveMsg && <p className="pt-ok">{saveMsg}</p>}
+      {saveError && <p className="pt-err">{saveError}</p>}
 
       {/* Modal Exportar */}
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Exportar</h3>
-
-            <label className="radio">
-              <input
-                type="radio"
-                checked={exportTipo === "pdf"}
-                onChange={() => setExportTipo("pdf")}
-              />{" "}
-              PDF
+            <label>
+              <input type="radio" checked={exportTipo === "pdf"} onChange={() => setExportTipo("pdf")} /> PDF
             </label>
-
-            <label className="radio">
-              <input
-                type="radio"
-                checked={exportTipo === "excel"}
-                onChange={() => setExportTipo("excel")}
-              />{" "}
-              Excel
+            <label>
+              <input type="radio" checked={exportTipo === "excel"} onChange={() => setExportTipo("excel")} /> Excel
             </label>
 
             <button
-              className="btn primary"
+              className="btn-guardar"
               onClick={() => {
-                exportTipo === "pdf"
-                  ? exportarPDF()
-                  : downloadExcelTemario(temario);
+                exportTipo === "pdf" ? exportarPDF() : downloadExcelTemario(temario);
                 setModalExportar(false);
               }}
             >
@@ -604,44 +505,41 @@ export default function PlantillaTemario() {
       {/* Modal Versiones */}
       {modalVersiones && (
         <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
-          <div
-            className="modal modal-wide"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
+          <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pt-modal-header">
               <h3>Versiones Guardadas</h3>
-              <button className="btn-icon" onClick={() => setModalVersiones(false)}>
+              <button className="pt-modal-close" onClick={() => setModalVersiones(false)}>
                 <X />
               </button>
             </div>
 
-            <div className="modal-body">
+            <div className="pt-modal-body">
               {loadingVersiones ? (
                 <p>Cargando...</p>
               ) : versionesError ? (
-                <p className="msg error">{versionesError}</p>
+                <p className="pt-err">{versionesError}</p>
               ) : versiones.length === 0 ? (
                 <p>No hay versiones guardadas.</p>
               ) : (
-                <div className="table-wrap">
-                  <table className="versiones-table">
+                <div className="pt-table-wrap">
+                  <table className="pt-table">
                     <thead>
                       <tr>
-                        <th className="wrap">Curso</th>
-                        <th className="nowrap">Audiencia</th>
-                        <th className="nowrap">Fecha</th>
-                        <th className="wrap">Autor</th>
-                        <th className="wrap">Notas</th>
+                        <th>Curso</th>
+                        <th>Audiencia</th>
+                        <th>Fecha</th>
+                        <th>Autor</th>
+                        <th>Notas</th>
                       </tr>
                     </thead>
                     <tbody>
                       {versiones.map((v, idx) => (
                         <tr key={v.temarioId || idx}>
-                          <td className="wrap">{v.nombre_curso || ""}</td>
-                          <td className="nowrap">{v.audiencia || ""}</td>
-                          <td className="nowrap">{formatFecha(v.createdAt)}</td>
-                          <td className="wrap">{v.createdBy || ""}</td>
-                          <td className="wrap">{v.notas_generales || ""}</td>
+                          <td>{v.nombre_curso || ""}</td>
+                          <td>{v.audiencia || ""}</td>
+                          <td>{formatFecha(v.createdAt)}</td>
+                          <td>{v.createdBy || ""}</td>
+                          <td className="pt-notas">{v.notas_generales || ""}</td>
                         </tr>
                       ))}
                     </tbody>
