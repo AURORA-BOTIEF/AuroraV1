@@ -1,18 +1,19 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 
 import "./PlantillaTemario.css";
-import { Plus, Trash2, Save, Eye, X } from "lucide-react";
+import { Plus, Trash2, Save, Eye, X, Pencil } from "lucide-react";
 
 // ================== CONFIG ==================
-// ✅ Stage confirmado: "versiones"
-// ✅ Recurso real en API Gateway: "/customtemarios" (GET/POST/OPTIONS)
+// Stage: versiones
 const API_BASE = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
-const ENDPOINT_GUARDAR = `${API_BASE}/customtemarios`;   // POST
-const ENDPOINT_VERSIONES = `${API_BASE}/customtemarios`; // GET
+
+const ENDPOINT_GUARDAR = `${API_BASE}/customtemarios`;      // POST
+const ENDPOINT_VERSIONES = `${API_BASE}/customtemarios`;    // GET (lista)
+const ENDPOINT_POR_ID = (id) => `${API_BASE}/customtemarios/${id}`; // GET por id
 
 // ================== Utils ==================
 const formatDuration = (minutos) => {
@@ -52,7 +53,7 @@ const formatFecha = (iso) => {
   }
 };
 
-// ✅ Helpers robustos para API Gateway (evita "res.json()" tragándose errores)
+// ================== Helpers robustos HTTP ==================
 const safeJsonParse = (txt, fallback) => {
   try {
     return JSON.parse(txt);
@@ -61,25 +62,50 @@ const safeJsonParse = (txt, fallback) => {
   }
 };
 
-const parseApiGateway = async (res) => {
-  const raw = await res.text();          // siempre texto primero
-  const data = safeJsonParse(raw, raw);  // si no es JSON, queda string
+const parseResponse = async (res) => {
+  const raw = await res.text();
+  const parsed = safeJsonParse(raw, raw);
 
   if (!res.ok) {
     const msg =
-      typeof data === "object" && data
-        ? (data.message || raw)
+      typeof parsed === "object" && parsed
+        ? (parsed.message || raw || `HTTP ${res.status}`)
         : String(raw || `HTTP ${res.status}`);
     throw new Error(msg);
   }
 
-  // Proxy response típico: { statusCode, headers, body: "..." }
-  if (typeof data === "object" && data && "body" in data) {
-    const b = data.body;
+  // Proxy: { statusCode, headers, body: "..." }
+  if (typeof parsed === "object" && parsed && "body" in parsed) {
+    const b = parsed.body;
     return typeof b === "string" ? safeJsonParse(b, b) : b;
   }
 
-  return data; // si viniera directo
+  return parsed;
+};
+
+// ================== JWT helpers ==================
+const getIdToken = () => localStorage.getItem("id_token") || "";
+
+const base64UrlToJson = (b64url) => {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const jsonStr = decodeURIComponent(
+    atob(b64)
+      .split("")
+      .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+      .join("")
+  );
+  return JSON.parse(jsonStr);
+};
+
+const getEmailFromJwt = (jwt) => {
+  try {
+    if (!jwt) return "";
+    const payload = jwt.split(".")[1];
+    const json = base64UrlToJson(payload);
+    return json.email || json["cognito:username"] || "";
+  } catch {
+    return "";
+  }
 };
 
 // ================== Base ==================
@@ -111,6 +137,15 @@ export default function PlantillaTemario() {
   const [versiones, setVersiones] = useState([]);
   const [versionesError, setVersionesError] = useState("");
 
+  // Filtros
+  const [filtros, setFiltros] = useState({
+    qCurso: "",
+    qAutor: "",
+    qNotas: "",
+    fechaDesde: "",
+    fechaHasta: "",
+  });
+
   // ================== EDICIÓN ==================
   const handleFieldChange = (cap, sub, field, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
@@ -123,7 +158,7 @@ export default function PlantillaTemario() {
 
     nuevo.temario[cap].tiempo_capitulo_min =
       nuevo.temario[cap].subcapitulos.reduce(
-        (acc, s) => acc + (parseInt(s.tiempo_subcapitulo_min) || 0),
+        (acc, s) => acc + (parseInt(s.tiempo_subcapitulo_min, 10) || 0),
         0
       );
 
@@ -141,9 +176,7 @@ export default function PlantillaTemario() {
           tiempo_capitulo_min: 0,
           objetivos_capitulo: "",
           notas_capitulo: "",
-          subcapitulos: [
-            { nombre: "Nuevo tema", tiempo_subcapitulo_min: 30, sesion: 1 },
-          ],
+          subcapitulos: [{ nombre: "Nuevo tema", tiempo_subcapitulo_min: 30, sesion: 1 }],
         },
       ],
     });
@@ -190,32 +223,77 @@ export default function PlantillaTemario() {
     setTemario(nuevo);
   };
 
-  // ================== GUARDAR EN BD (POST) ==================
+  // ================== GET Versiones ==================
+  const cargarVersiones = async () => {
+    setLoadingVersiones(true);
+    setVersionesError("");
+    try {
+      const res = await fetch(ENDPOINT_VERSIONES, { method: "GET" });
+      const payload = await parseResponse(res);
+      setVersiones(Array.isArray(payload) ? payload : []);
+    } catch (e) {
+      console.error(e);
+      setVersiones([]);
+      setVersionesError(e.message || "No se pudieron cargar las versiones.");
+    } finally {
+      setLoadingVersiones(false);
+    }
+  };
+
+  // ================== GET por ID ==================
+  const cargarTemarioPorId = async (temarioId) => {
+    try {
+      const res = await fetch(ENDPOINT_POR_ID(temarioId), { method: "GET" });
+      const payload = await parseResponse(res);
+
+      // Si te llega el item completo, lo cargas directo
+      setTemario(payload);
+      setModalVersiones(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      alert("No se pudo cargar el temario: " + e.message);
+    }
+  };
+
+  // ================== POST Guardar ==================
   const guardarEnBD = async () => {
     setSaveMsg("");
     setSaveError("");
 
-    if (!temario.nombre_curso || !temario.nombre_curso.trim()) {
+    const nombre = String(temario.nombre_curso || "").trim();
+    if (!nombre) {
       setSaveError("El nombre del curso es obligatorio");
       return;
     }
 
     setSaving(true);
     try {
+      const token = getIdToken();
+      const email = getEmailFromJwt(token);
+
+      const payloadToSend = {
+        ...temario,
+        nombre_curso: nombre,
+        source: "plantilla-temario",
+        createdBy: email || "anon",
+      };
+
       const res = await fetch(ENDPOINT_GUARDAR, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...temario, source: "plantilla-temario" }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payloadToSend),
       });
 
-      const payload = await parseApiGateway(res);
-
-      // Tu Lambda POST devuelve: { message:"OK", temarioId }
+      const payload = await parseResponse(res);
       const temarioId = payload?.temarioId;
 
-      setSaveMsg(
-        temarioId ? `✅ Guardado correctamente (ID: ${temarioId})` : "✅ Guardado correctamente"
-      );
+      if (!temarioId) throw new Error("Guardado inválido: no llegó temarioId.");
+
+      setSaveMsg(`✅ Guardado correctamente (ID: ${temarioId})`);
+      await cargarVersiones();
     } catch (e) {
       setSaveError(`❌ ${e.message}`);
     } finally {
@@ -223,27 +301,27 @@ export default function PlantillaTemario() {
     }
   };
 
-  // ================== CARGAR VERSIONES (GET) ==================
-  const cargarVersiones = async () => {
-    setLoadingVersiones(true);
-    setVersionesError("");
+  // ================== Filtros (Front) ==================
+  const versionesFiltradas = useMemo(() => {
+    const qCurso = filtros.qCurso.toLowerCase();
+    const qAutor = filtros.qAutor.toLowerCase();
+    const qNotas = filtros.qNotas.toLowerCase();
 
-    try {
-      const res = await fetch(ENDPOINT_VERSIONES, { method: "GET" });
+    const desdeMs = filtros.fechaDesde ? new Date(filtros.fechaDesde).getTime() : null;
+    const hastaMs = filtros.fechaHasta ? new Date(filtros.fechaHasta).getTime() + (24 * 60 * 60 * 1000 - 1) : null;
 
-      const payload = await parseApiGateway(res);
+    return versiones.filter((v) => {
+      const cursoOk = (v.nombre_curso || "").toLowerCase().includes(qCurso);
+      const autorOk = (v.createdBy || "").toLowerCase().includes(qAutor);
+      const notasOk = (v.notas_generales || "").toLowerCase().includes(qNotas);
 
-      // Tu Lambda GET devuelve un ARRAY en el body: JSON.stringify(output)
-      const list = Array.isArray(payload) ? payload : [];
+      const t = v.createdAt ? new Date(v.createdAt).getTime() : 0;
+      const desdeOk = desdeMs ? t >= desdeMs : true;
+      const hastaOk = hastaMs ? t <= hastaMs : true;
 
-      setVersiones(list);
-    } catch (e) {
-      setVersiones([]);
-      setVersionesError(e.message || "No se pudieron cargar las versiones.");
-    } finally {
-      setLoadingVersiones(false);
-    }
-  };
+      return cursoOk && autorOk && notasOk && desdeOk && hastaOk;
+    });
+  }, [versiones, filtros]);
 
   // ================== EXPORTAR PDF ==================
   const exportarPDF = async () => {
@@ -427,10 +505,7 @@ export default function PlantillaTemario() {
 
           {cap.subcapitulos.map((sub, j) => (
             <div key={j} className="subcapitulo-item">
-              <input
-                value={sub.nombre}
-                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
-              />
+              <input value={sub.nombre} onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)} />
               <input
                 type="number"
                 value={sub.tiempo_subcapitulo_min}
@@ -498,6 +573,7 @@ export default function PlantillaTemario() {
       {saveMsg && <p className="pt-ok">{saveMsg}</p>}
       {saveError && <p className="pt-err">{saveError}</p>}
 
+      {/* Modal Exportar */}
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -506,12 +582,7 @@ export default function PlantillaTemario() {
               <input type="radio" checked={exportTipo === "pdf"} onChange={() => setExportTipo("pdf")} /> PDF
             </label>
             <label>
-              <input
-                type="radio"
-                checked={exportTipo === "excel"}
-                onChange={() => setExportTipo("excel")}
-              />{" "}
-              Excel
+              <input type="radio" checked={exportTipo === "excel"} onChange={() => setExportTipo("excel")} /> Excel
             </label>
 
             <button
@@ -527,6 +598,7 @@ export default function PlantillaTemario() {
         </div>
       )}
 
+      {/* Modal Versiones */}
       {modalVersiones && (
         <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
@@ -542,33 +614,77 @@ export default function PlantillaTemario() {
                 <p>Cargando...</p>
               ) : versionesError ? (
                 <p className="pt-err">{versionesError}</p>
-              ) : versiones.length === 0 ? (
-                <p>No hay versiones guardadas.</p>
               ) : (
-                <div className="pt-table-wrap">
-                  <table className="pt-table">
-                    <thead>
-                      <tr>
-                        <th>Curso</th>
-                        <th>Audiencia</th>
-                        <th>Fecha</th>
-                        <th>Autor</th>
-                        <th>Notas</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {versiones.map((v, idx) => (
-                        <tr key={v.temarioId || idx}>
-                          <td>{v.nombre_curso || ""}</td>
-                          <td>{v.audiencia || ""}</td>
-                          <td>{formatFecha(v.createdAt)}</td>
-                          <td>{v.createdBy || ""}</td>
-                          <td className="pt-notas">{v.notas_generales || ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  {/* Filtros */}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                    <input
+                      placeholder="Filtrar por curso"
+                      value={filtros.qCurso}
+                      onChange={(e) => setFiltros({ ...filtros, qCurso: e.target.value })}
+                    />
+                    <input
+                      placeholder="Filtrar por autor"
+                      value={filtros.qAutor}
+                      onChange={(e) => setFiltros({ ...filtros, qAutor: e.target.value })}
+                    />
+                    <input
+                      placeholder="Filtrar por notas"
+                      value={filtros.qNotas}
+                      onChange={(e) => setFiltros({ ...filtros, qNotas: e.target.value })}
+                    />
+                    <input
+                      type="date"
+                      value={filtros.fechaDesde}
+                      onChange={(e) => setFiltros({ ...filtros, fechaDesde: e.target.value })}
+                    />
+                    <input
+                      type="date"
+                      value={filtros.fechaHasta}
+                      onChange={(e) => setFiltros({ ...filtros, fechaHasta: e.target.value })}
+                    />
+                  </div>
+
+                  {versionesFiltradas.length === 0 ? (
+                    <p>No hay coincidencias con los filtros.</p>
+                  ) : (
+                    <div className="pt-table-wrap">
+                      <table className="pt-table">
+                        <thead>
+                          <tr>
+                            <th>Curso</th>
+                            <th>Audiencia</th>
+                            <th>Fecha</th>
+                            <th>Autor</th>
+                            <th>Notas</th>
+                            <th>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {versionesFiltradas.map((v, idx) => (
+                            <tr key={v.temarioId || idx}>
+                              <td>{v.nombre_curso || ""}</td>
+                              <td>{v.audiencia || ""}</td>
+                              <td>{formatFecha(v.createdAt)}</td>
+                              <td>{v.createdBy || ""}</td>
+                              <td className="pt-notas">{v.notas_generales || ""}</td>
+                              <td>
+                                <button
+                                  className="btn-secundario"
+                                  style={{ padding: "6px 10px" }}
+                                  onClick={() => cargarTemarioPorId(v.temarioId)}
+                                  title="Abrir / Editar"
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
