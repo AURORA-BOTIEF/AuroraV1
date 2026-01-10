@@ -4,13 +4,17 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 
-import "./PlantillaTemario.css"; // ✅ CSS propio
+import "./PlantillaTemario.css";
 import { Plus, Trash2, Save, Eye, X } from "lucide-react";
 
 // ================== CONFIG ==================
-const API_BASE = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com";
-const ENDPOINT_GUARDAR = `${API_BASE}/versiones/customtemarios`;   // POST (guardar)
-const ENDPOINT_VERSIONES = `${API_BASE}/versiones/customtemarios`; // GET  (listar) ✅ CORRECTO
+const API_ID = "eim01evqg7";
+const REGION = "us-east-1";
+const STAGE = "versiones"; // ✅ confirmado por ti
+const API_BASE = `https://${API_ID}.execute-api.${REGION}.amazonaws.com/${STAGE}`;
+
+const ENDPOINT_GUARDAR = `${API_BASE}/versiones/customtemarios`;   // POST
+const ENDPOINT_VERSIONES = `${API_BASE}/versiones/customtemarios`; // GET
 
 // ================== Utils ==================
 const formatDuration = (minutos) => {
@@ -48,6 +52,39 @@ const formatFecha = (iso) => {
   } catch {
     return iso;
   }
+};
+
+// ---- helpers para respuestas API Gateway (robusto) ----
+const safeJsonParse = (value, fallback = null) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const parseApiGatewayResponse = async (res) => {
+  // API Gateway a veces devuelve texto/HTML en errores -> leemos texto siempre
+  const raw = await res.text();
+  const data = safeJsonParse(raw, raw); // si no es JSON, deja string
+
+  if (!res.ok) {
+    const msg =
+      typeof data === "object" && data !== null
+        ? (data.message || `HTTP ${res.status}`)
+        : String(data || `HTTP ${res.status}`);
+    throw new Error(msg);
+  }
+
+  // Si viene proxy: { statusCode, body: "..." }
+  if (typeof data === "object" && data !== null && "body" in data) {
+    const body = data.body;
+    if (typeof body === "string") return safeJsonParse(body, body);
+    return body;
+  }
+
+  // Si viene directo
+  return data;
 };
 
 // ================== Base ==================
@@ -161,7 +198,7 @@ export default function PlantillaTemario() {
     setTemario(nuevo);
   };
 
-  // ================== GUARDAR EN BD ==================
+  // ================== GUARDAR EN BD (POST) ==================
   const guardarEnBD = async () => {
     setSaveMsg("");
     setSaveError("");
@@ -179,19 +216,16 @@ export default function PlantillaTemario() {
         body: JSON.stringify({ ...temario, source: "plantilla-temario" }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.message || `Error HTTP ${res.status}`);
+      const payload = await parseApiGatewayResponse(res);
 
-      // soporta proxy response o directo
-      let temarioId = data?.temarioId;
-      if (!temarioId && data?.body) {
-        try {
-          const parsed = typeof data.body === "string" ? JSON.parse(data.body) : data.body;
-          temarioId = parsed?.temarioId;
-        } catch {}
-      }
+      // Tu Lambda POST devuelve { message: "OK", temarioId }
+      const temarioId = payload?.temarioId;
 
-      setSaveMsg(temarioId ? `✅ Guardado correctamente (ID: ${temarioId})` : "✅ Guardado correctamente");
+      setSaveMsg(
+        temarioId
+          ? `✅ Guardado correctamente (ID: ${temarioId})`
+          : "✅ Guardado correctamente"
+      );
     } catch (e) {
       setSaveError(`❌ ${e.message}`);
     } finally {
@@ -206,21 +240,20 @@ export default function PlantillaTemario() {
     try {
       const res = await fetch(ENDPOINT_VERSIONES, { method: "GET" });
 
-      const data = await res.json().catch(() => ({}));
+      const payload = await parseApiGatewayResponse(res);
 
-      // soporta: array directo o proxy { body: "[]" }
-      const list =
-        data?.body && typeof data.body === "string"
-          ? JSON.parse(data.body)
-          : Array.isArray(data)
-          ? data
-          : [];
+      // Tu Lambda GET devuelve un ARRAY (output) dentro de body
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.items)
+        ? payload.items
+        : [];
 
-      setVersiones(Array.isArray(list) ? list : []);
+      setVersiones(list);
     } catch (e) {
       console.error("Error versiones:", e);
       setVersiones([]);
-      setVersionesError("No se pudieron cargar las versiones.");
+      setVersionesError(e.message || "No se pudieron cargar las versiones.");
     } finally {
       setLoadingVersiones(false);
     }
@@ -408,7 +441,10 @@ export default function PlantillaTemario() {
 
           {cap.subcapitulos.map((sub, j) => (
             <div key={j} className="subcapitulo-item">
-              <input value={sub.nombre} onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)} />
+              <input
+                value={sub.nombre}
+                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+              />
               <input
                 type="number"
                 value={sub.tiempo_subcapitulo_min}
@@ -447,7 +483,6 @@ export default function PlantillaTemario() {
         </button>
       </div>
 
-      {/* Footer */}
       <div className="pt-footer">
         <button className="btn-primario" onClick={ajustarTiempos}>
           Ajustar tiempos
@@ -477,16 +512,25 @@ export default function PlantillaTemario() {
       {saveMsg && <p className="pt-ok">{saveMsg}</p>}
       {saveError && <p className="pt-err">{saveError}</p>}
 
-      {/* Modal Exportar */}
       {modalExportar && (
         <div className="modal-overlay" onClick={() => setModalExportar(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Exportar</h3>
             <label>
-              <input type="radio" checked={exportTipo === "pdf"} onChange={() => setExportTipo("pdf")} /> PDF
+              <input
+                type="radio"
+                checked={exportTipo === "pdf"}
+                onChange={() => setExportTipo("pdf")}
+              />{" "}
+              PDF
             </label>
             <label>
-              <input type="radio" checked={exportTipo === "excel"} onChange={() => setExportTipo("excel")} /> Excel
+              <input
+                type="radio"
+                checked={exportTipo === "excel"}
+                onChange={() => setExportTipo("excel")}
+              />{" "}
+              Excel
             </label>
 
             <button
@@ -502,7 +546,6 @@ export default function PlantillaTemario() {
         </div>
       )}
 
-      {/* Modal Versiones */}
       {modalVersiones && (
         <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
