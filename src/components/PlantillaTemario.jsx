@@ -42,6 +42,15 @@ const slugify = (str = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "temario";
 
+const formatFecha = (iso) => {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+};
+
 // ================== Base ==================
 const plantillaBase = {
   nombre_curso: "",
@@ -220,7 +229,7 @@ export default function PlantillaTemario() {
           ? data
           : [];
 
-      setVersiones(list);
+      setVersiones(Array.isArray(list) ? list : []);
     } catch (e) {
       console.error("Error versiones:", e);
       setVersiones([]);
@@ -571,7 +580,9 @@ export default function PlantillaTemario() {
             <button
               className="btn-guardar"
               onClick={() => {
-                exportTipo === "pdf" ? exportarPDF() : downloadExcelTemario(temario);
+                exportTipo === "pdf"
+                  ? exportarPDF()
+                  : downloadExcelTemario(temario);
                 setModalExportar(false);
               }}
             >
@@ -581,15 +592,29 @@ export default function PlantillaTemario() {
         </div>
       )}
 
-      {/* Modal Versiones */}
+      {/* Modal Versiones (CORREGIDO) */}
       {modalVersiones && (
         <div className="modal-overlay" onClick={() => setModalVersiones(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: "90%", maxWidth: 1100 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "90%", maxWidth: 1100 }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
               <h3 style={{ margin: 0 }}>Versiones Guardadas</h3>
               <button
                 onClick={() => setModalVersiones(false)}
-                style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                }}
               >
                 <X />
               </button>
@@ -604,12 +629,17 @@ export default function PlantillaTemario() {
                 <p>No hay versiones guardadas.</p>
               ) : (
                 <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 10 }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      marginTop: 10,
+                    }}
+                  >
                     <thead>
                       <tr style={{ textAlign: "left" }}>
                         <th>Curso</th>
-                        <th>Tecnología</th>
-                        <th>Asesor</th>
+                        <th>Audiencia</th>
                         <th>Fecha</th>
                         <th>Autor</th>
                         <th>Notas</th>
@@ -617,13 +647,12 @@ export default function PlantillaTemario() {
                     </thead>
                     <tbody>
                       {versiones.map((v, idx) => (
-                        <tr key={idx}>
-                          <td>{v.curso || ""}</td>
-                          <td>{v.tecnologia || ""}</td>
-                          <td>{v.asesor || ""}</td>
-                          <td>{v.fecha || ""}</td>
-                          <td>{v.autor || ""}</td>
-                          <td>{v.notas || ""}</td>
+                        <tr key={v.temarioId || idx}>
+                          <td>{v.nombre_curso || ""}</td>
+                          <td>{v.audiencia || ""}</td>
+                          <td>{formatFecha(v.createdAt)}</td>
+                          <td>{v.createdBy || ""}</td>
+                          <td>{v.notas_generales || ""}</td>
                         </tr>
                       ))}
                     </tbody>
