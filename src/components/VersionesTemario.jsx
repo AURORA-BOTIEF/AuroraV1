@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "./VersionesTemario.css";
 
-// 🔁 Exportar CSV
 function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "version") {
   const lines = [];
   const safe = (v) => {
@@ -18,19 +17,19 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   lines.push(["EOL", temarioJson?.EOL || ""].map(safe).join(","));
   lines.push(["% Teoría/Práctica general", temarioJson?.porcentaje_teoria_practica_general || ""].map(safe).join(","));
   lines.push([]);
+
   lines.push(["Descripción general", (temarioJson?.descripcion_general || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push(["Audiencia", (temarioJson?.audiencia || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push(["Prerrequisitos", (temarioJson?.prerrequisitos || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push(["Objetivos", (temarioJson?.objetivos || "").replace(/\n/g, " ")].map(safe).join(","));
   lines.push([]);
-  lines.push(["Capítulo", "Subcapítulo", "Duración cap (min)", "Distribución cap", "Tiempo sub (min)", "Sesión"].map(safe).join(","));
 
+  lines.push(["Capítulo", "Subcapítulo", "Duración cap (min)", "Distribución cap", "Tiempo sub (min)", "Sesión"].map(safe).join(","));
   for (const cap of (temarioJson?.temario || [])) {
     const capTitulo = cap?.capitulo || "";
     const dur = cap?.tiempo_capitulo_min ?? "";
     const dist = cap?.porcentaje_teoria_practica_capitulo || "";
     const subs = cap?.subcapitulos || [];
-
     if (!subs.length) {
       lines.push([capTitulo, "", dur, dist, "", ""].map(safe).join(","));
     } else {
@@ -55,7 +54,6 @@ function downloadTemarioAsExcel(temarioJson, cursoId = "curso", versionId = "ver
   a.remove();
 }
 
-// Helpers
 const stripTrailingSlash = (s = "") => s.replace(/\/+$/, "");
 const joinUrl = (base, path) => `${stripTrailingSlash(base)}${path.startsWith("/") ? "" : "/"}${path}`;
 
@@ -67,45 +65,11 @@ async function fetchJsonOrThrow(url, options) {
 
   if (!res.ok) {
     const msg = data?.error || data?.message || `HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.status = res.status;
-    err.data = data;
-    throw err;
+    throw new Error(msg);
   }
   return data;
 }
 
-// Intenta varios endpoints hasta que uno funcione (evita adivinar tu path exacto)
-async function tryMany(candidates, options) {
-  let lastErr = null;
-  for (const url of candidates) {
-    try {
-      return await fetchJsonOrThrow(url, options);
-    } catch (e) {
-      lastErr = e;
-      // Si es 401/403, ya no intentes más rutas: es auth, no path
-      if (e?.status === 401 || e?.status === 403) throw e;
-      // Si es 404, prueba el siguiente
-      continue;
-    }
-  }
-  throw lastErr || new Error("No se pudo conectar a ningún endpoint");
-}
-
-/**
- * Modal de versiones:
- * - lista versiones
- * - restaurar
- * - exportar CSV
- *
- * Props:
- * - cursoId: string
- * - apiBase: string (ej: https://.../versiones)
- * - token: string (Bearer token opcional)
- * - visible: bool
- * - onClose: fn
- * - onRestore: fn(json)
- */
 function VersionesTemario({ cursoId, apiBase, token = "", visible, onClose, onRestore }) {
   const [versiones, setVersiones] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -118,27 +82,18 @@ function VersionesTemario({ cursoId, apiBase, token = "", visible, onClose, onRe
   }, [token]);
 
   useEffect(() => {
-    if (!visible || !cursoId || !apiBase) return;
+    if (!visible || !apiBase) return;
 
     const run = async () => {
       setLoading(true);
       setErr("");
 
-      const q = `?cursoId=${encodeURIComponent(cursoId)}`;
-
-      // ✅ Fallback según tu API real (por screenshots):
-      // - /list (raíz) o /versiones/list (dentro) o GET /versiones
-      const candidates = [
-        joinUrl(apiBase, `/list${q}`),
-        joinUrl(apiBase, `/versiones/list${q}`),
-        joinUrl(apiBase, `/versiones${q}`), // por si GET /versiones lista
-      ];
+      // ✅ LISTAR: GET al recurso /versiones (no existe /list)
+      const url = joinUrl(apiBase, "/versiones");
 
       try {
-        const data = await tryMany(candidates, { method: "GET", headers });
-
-        // normaliza a array
-        const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        const data = await fetchJsonOrThrow(url, { method: "GET", headers });
+        const items = Array.isArray(data) ? data : [];
         setVersiones(items);
       } catch (e) {
         setVersiones([]);
@@ -149,31 +104,15 @@ function VersionesTemario({ cursoId, apiBase, token = "", visible, onClose, onRe
     };
 
     run();
-  }, [visible, cursoId, apiBase, headers]);
+  }, [visible, apiBase, headers]);
 
   if (!visible) return null;
-
-  const handleGetOne = async (versionId) => {
-    const q = `?cursoId=${encodeURIComponent(cursoId)}&versionId=${encodeURIComponent(versionId)}`;
-
-    // ✅ Fallback para obtener una versión:
-    // - /get?cursoId&versionId
-    // - /versiones/{id}?cursoId=...
-    // - /versiones/get?...
-    const candidates = [
-      joinUrl(apiBase, `/get${q}`),
-      joinUrl(apiBase, `/versiones/get${q}`),
-      joinUrl(apiBase, `/versiones/${encodeURIComponent(versionId)}?cursoId=${encodeURIComponent(cursoId)}`),
-    ];
-
-    return await tryMany(candidates, { method: "GET", headers });
-  };
 
   return (
     <div className="versiones-overlay" role="dialog" aria-modal="true">
       <div className="versiones-card">
         <button className="btn-cerrar" onClick={onClose} aria-label="Cerrar">✖</button>
-        <h3>📑 Versiones de <code>{cursoId}</code></h3>
+        <h3>📑 Versiones {cursoId ? <>de <code>{cursoId}</code></> : null}</h3>
 
         {loading && <p>Cargando…</p>}
         {err && <div className="error-mensaje">{err}</div>}
@@ -185,37 +124,19 @@ function VersionesTemario({ cursoId, apiBase, token = "", visible, onClose, onRe
                 <div className="col-info">
                   <strong>{new Date(v.createdAt || v.fecha_creacion || Date.now()).toLocaleString()}</strong>
                   <div className="nota">{v.nota_version || v.nota_usuario || v.nota || "Sin nota"}</div>
-                  <div className="mini">
-                    {v.isLatest ? "Última" : ""} {v.size ? `• ${v.size} bytes` : ""}
-                  </div>
                 </div>
 
                 <div className="col-actions">
                   <button
                     className="btn"
-                    onClick={async () => {
-                      try {
-                        const json = await handleGetOne(v.versionId || v.id);
-                        onRestore?.(json?.contenido ?? json); // por si viene envuelto
-                      } catch (e) {
-                        setErr(e?.message || "No se pudo restaurar");
-                      }
-                    }}
+                    onClick={() => onRestore?.(v.contenido || v)}
                   >
                     Restaurar
                   </button>
 
                   <button
                     className="btn sec"
-                    onClick={async () => {
-                      try {
-                        const json = await handleGetOne(v.versionId || v.id);
-                        const payload = json?.contenido ?? json;
-                        downloadTemarioAsExcel(payload, cursoId, v.versionId || v.id || "version");
-                      } catch (e) {
-                        setErr(e?.message || "No se pudo descargar");
-                      }
-                    }}
+                    onClick={() => downloadTemarioAsExcel(v.contenido || v, cursoId || "curso", v.versionId || "version")}
                   >
                     Excel ⬇️
                   </button>
