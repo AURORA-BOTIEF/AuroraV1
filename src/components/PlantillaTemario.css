@@ -1,219 +1,253 @@
-/* ================================
-   CONTENEDOR GENERAL
-   ================================ */
-.temario-editor-container {
-  max-width: 1100px;
+/* PlantillaTemario.css */
+
+.plantilla-container {
+  max-width: 980px;
   margin: 0 auto;
-  padding: 24px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  padding: 22px;
 }
 
-.temario-editor-container h2,
-.temario-editor-container h3 {
-  margin-bottom: 12px;
+.plantilla-title {
+  margin: 0 0 14px;
+  font-size: 22px;
+  font-weight: 700;
 }
 
-/* ================================
-   INPUTS Y TEXTAREAS
-   ================================ */
-.temario-editor-container label {
+.section-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.divider {
+  margin: 18px 0;
+  border: none;
+  border-top: 1px solid #e6e6e6;
+}
+
+label {
   display: block;
-  margin-top: 14px;
-  margin-bottom: 6px;
+  margin: 10px 0 6px;
+  font-size: 13px;
   font-weight: 600;
+  color: #0f172a;
 }
 
-.temario-editor-container input,
-.temario-editor-container textarea {
+.input,
+.textarea {
   width: 100%;
-  padding: 10px 12px;
+  border: 1px solid #d0d5dd;
   border-radius: 8px;
-  border: 1px solid #d1d5db;
+  padding: 10px 12px;
   font-size: 14px;
-  box-sizing: border-box;
+  outline: none;
+  background: #fff;
 }
 
-.temario-editor-container textarea {
+.textarea {
   min-height: 90px;
   resize: vertical;
 }
 
-/* ================================
-   CAPÍTULOS
-   ================================ */
-.capitulo-editor {
-  border: 1px solid #e5e7eb;
+.input:focus,
+.textarea:focus {
+  border-color: #035b6e;
+  box-shadow: 0 0 0 3px rgba(3, 91, 110, 0.15);
+}
+
+.input.small {
+  flex: 1;
+}
+
+.input.tiny {
+  width: 120px;
+}
+
+.capitulo {
+  border: 1px solid #eef2f6;
   border-radius: 12px;
-  padding: 16px;
-  margin-top: 18px;
-  background: #fafafa;
+  padding: 14px;
+  margin: 14px 0;
+  background: #fff;
 }
 
 .duracion-total {
-  font-size: 13px;
-  color: #374151;
-  margin: 6px 0 12px;
+  margin: 8px 0 10px;
+  font-size: 12px;
+  color: #475569;
 }
 
-/* ================================
-   SUBCAPÍTULOS
-   ================================ */
-.subcapitulo-item {
-  display: grid;
-  grid-template-columns: 1fr 90px 80px 40px;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.subcapitulo-item input {
-  font-size: 13px;
-}
-
-.input-sesion {
-  width: 100%;
-}
-
-.btn-eliminar-tema {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: #b91c1c;
-}
-
-/* ================================
-   ACCIONES CAPÍTULO
-   ================================ */
-.acciones-capitulo {
+.subcapitulo {
   display: flex;
   gap: 10px;
-  margin-top: 12px;
+  align-items: center;
+  margin: 8px 0;
+  flex-wrap: wrap;
 }
 
-.btn-agregar-tema,
-.btn-eliminar-capitulo {
-  padding: 6px 10px;
-  border-radius: 6px;
+.cap-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.add-capitulo {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.btn {
   border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
   cursor: pointer;
+  font-weight: 700;
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.btn-agregar-tema {
-  background: #e0f2fe;
-}
-
-.btn-eliminar-capitulo {
-  background: #fee2e2;
-}
-
-/* ================================
-   BOTONES GENERALES
-   ================================ */
-.btn-primario {
+.btn.primary {
   background: #035b6e;
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
-  cursor: pointer;
+  color: #fff;
 }
 
-.btn-secundario {
-  background: #f3f4f6;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
-  cursor: pointer;
+.btn.secondary {
+  background: #e8f2f2;
+  color: #035b6e;
 }
 
-.btn-primario:disabled {
+.btn.danger {
+  background: #930d04;
+  color: #fff;
+}
+
+.btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-/* ================================
-   FOOTER ACCIONES
-   ================================ */
-.acciones-footer {
-  margin-top: 24px;
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+.btn-icon {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
 }
 
-/* ================================
-   MODAL BASE
-   ================================ */
+.btn-icon.danger {
+  background: rgba(147, 13, 4, 0.08);
+  color: #930d04;
+}
+
+.msg {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.msg.ok {
+  color: #15803d;
+}
+
+.msg.error {
+  color: #b91c1c;
+}
+
+/* ================== MODAL ================== */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(15, 23, 42, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  padding: 18px;
+  z-index: 9999;
 }
 
 .modal {
-  background: #ffffff;
+  width: 100%;
+  max-width: 520px;
+  background: #fff;
   border-radius: 14px;
-  padding: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
 }
 
-/* ================================
-   TABLA VERSIONES (CLAVE)
-   ================================ */
+.modal-wide {
+  max-width: 1100px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-body {
+  margin-top: 10px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.radio {
+  display: block;
+  margin: 10px 0;
+  font-weight: 600;
+}
+
+/* ================== TABLE ================== */
+.table-wrap {
+  overflow-x: auto;
+}
+
 .versiones-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed; /* 🔑 evita columnas flotantes */
-  font-size: 14px;
+  margin-top: 10px;
+  font-size: 13px;
 }
 
 .versiones-table th,
 .versiones-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid #e5e7eb;
-  text-align: left;
+  border-bottom: 1px solid #eef2f6;
+  padding: 10px 10px;
   vertical-align: top;
 }
 
-.versiones-table thead th {
-  background: #f9fafb;
-  font-weight: 600;
+.versiones-table th {
+  text-align: left;
+  color: #0f172a;
+  font-weight: 800;
   position: sticky;
   top: 0;
-  z-index: 1;
+  background: #fff;
 }
 
-.versiones-table tr:hover {
-  background: #f3f4f6;
-}
-
-/* Control de texto */
-.versiones-table .nowrap {
+.nowrap {
   white-space: nowrap;
 }
 
-.versiones-table .wrap {
+.wrap {
   white-space: normal;
   word-break: break-word;
 }
 
-/* ================================
-   RESPONSIVE
-   ================================ */
-@media (max-width: 768px) {
-  .subcapitulo-item {
-    grid-template-columns: 1fr 70px 60px 36px;
+/* Responsive */
+@media (max-width: 640px) {
+  .plantilla-container {
+    padding: 14px;
   }
-
-  .acciones-footer {
-    flex-direction: column;
-    align-items: stretch;
+  .input.tiny {
+    width: 100%;
   }
 }
