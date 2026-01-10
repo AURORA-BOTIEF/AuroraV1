@@ -11,7 +11,7 @@ import { Plus, Trash2, Save } from "lucide-react";
 const API_ENDPOINT =
   "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/customtemarios";
 
-// ================= UTILS =================
+// ===== Utils =====
 const formatDuration = (minutos) => {
   if (!minutos || minutos < 0) return "0 min";
   const horas = Math.floor(minutos / 60);
@@ -40,7 +40,7 @@ const slugify = (str = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "temario";
 
-// ================= BASE =================
+// ===== Base =====
 const plantillaBase = {
   nombre_curso: "",
   descripcion_general: "",
@@ -48,7 +48,7 @@ const plantillaBase = {
   prerrequisitos: "",
   objetivos: "",
   horas_total_curso: 0,
-  notas_generales: "",
+  notas_generales: "", // ✅ NUEVO
   temario: [],
 };
 
@@ -57,11 +57,12 @@ export default function PlantillaTemario() {
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
 
+  // ✅ Guardado BD
   const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [saveMsg, setSaveMsg] = useState("");
 
-  // ================= EDICIÓN =================
+  // ===== EDICIÓN =====
   const handleFieldChange = (cap, sub, field, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
 
@@ -80,13 +81,14 @@ export default function PlantillaTemario() {
     setTemario(nuevo);
   };
 
+  // ✅ Notas por capítulo
   const handleNotasCapitulo = (cap, value) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario[cap].notas_capitulo = value;
     setTemario(nuevo);
   };
 
-  // ================= CAPÍTULOS =================
+  // ===== CAPÍTULOS =====
   const agregarCapitulo = () =>
     setTemario({
       ...temario,
@@ -95,7 +97,8 @@ export default function PlantillaTemario() {
         {
           capitulo: `Nuevo capítulo ${temario.temario.length + 1}`,
           tiempo_capitulo_min: 0,
-          notas_capitulo: "",
+          objetivos_capitulo: "",
+          notas_capitulo: "", // ✅ NUEVO
           subcapitulos: [
             { nombre: "Nuevo tema", tiempo_subcapitulo_min: 30, sesion: 1 },
           ],
@@ -110,7 +113,7 @@ export default function PlantillaTemario() {
     setTemario({ ...temario, temario: nuevo });
   };
 
-  // ================= TEMAS =================
+  // ===== TEMAS =====
   const agregarTema = (i) => {
     const nuevo = JSON.parse(JSON.stringify(temario));
     nuevo.temario[i].subcapitulos.push({
@@ -128,9 +131,9 @@ export default function PlantillaTemario() {
     setTemario(nuevo);
   };
 
-  // ================= AJUSTAR TIEMPOS =================
+  // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
-    const totalMin = temario.horas_total_curso * 60;
+    const totalMin = (parseFloat(temario.horas_total_curso) || 0) * 60;
     const totalTemas = temario.temario.reduce(
       (a, c) => a + c.subcapitulos.length,
       0
@@ -148,12 +151,12 @@ export default function PlantillaTemario() {
     setTemario(nuevo);
   };
 
-  // ================= GUARDAR EN BD =================
+  // ✅ GUARDAR EN BD (API Gateway → Lambda → DynamoDB)
   const guardarEnBD = async () => {
-    setSaveMsg("");
     setSaveError("");
+    setSaveMsg("");
 
-    if (!temario.nombre_curso.trim()) {
+    if (!temario.nombre_curso || !temario.nombre_curso.trim()) {
       setSaveError("El nombre del curso es obligatorio");
       return;
     }
@@ -169,19 +172,18 @@ export default function PlantillaTemario() {
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message || "Error al guardar");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `Error HTTP ${res.status}`);
 
       setSaveMsg(`✅ Guardado correctamente (ID: ${data.temarioId})`);
-    } catch (err) {
-      setSaveError(err.message);
+    } catch (e) {
+      setSaveError(`❌ ${e.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  // ================= EXPORTAR PDF =================
+  // ===== EXPORTAR PDF =====
   const exportarPDF = async () => {
     if (!temario.temario.length) return alert("No hay contenido");
 
@@ -195,6 +197,7 @@ export default function PlantillaTemario() {
 
     const enc = await toDataURL(encabezadoImagen);
     const pie = await toDataURL(pieDePaginaImagen);
+
     let y = margin.top;
 
     const addPageIfNeeded = (extra = 40) => {
@@ -204,52 +207,316 @@ export default function PlantillaTemario() {
       }
     };
 
+    // ===== TÍTULO =====
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
     doc.setTextColor(azul);
     doc.text(temario.nombre_curso || "Temario", pageW / 2, y, { align: "center" });
     y += 30;
 
+    // ===== SECCIONES GENERALES =====
     const secciones = [
       { titulo: "Descripción General", texto: temario.descripcion_general },
       { titulo: "Audiencia", texto: temario.audiencia },
       { titulo: "Prerrequisitos", texto: temario.prerrequisitos },
       { titulo: "Objetivos", texto: temario.objetivos },
-      { titulo: "Notas", texto: temario.notas_generales },
+      { titulo: "Notas", texto: temario.notas_generales }, // ✅ NUEVO
     ];
 
     secciones.forEach((s) => {
       if (!s.texto) return;
+
       addPageIfNeeded(60);
-      doc.setFontSize(14).setTextColor(azul);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(azul);
       doc.text(s.titulo, margin.left, y);
       y += 18;
-      doc.setFontSize(11).setTextColor(negro);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(negro);
+
       doc.splitTextToSize(s.texto, contentW).forEach((line) => {
         addPageIfNeeded(14);
         doc.text(line, margin.left, y);
         y += 14;
       });
+
       y += 10;
     });
+
+    // ===== TEMARIO =====
+    addPageIfNeeded(60);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(azul);
+    doc.text("Temario", margin.left, y);
+    y += 25;
+
+    temario.temario.forEach((cap, i) => {
+      addPageIfNeeded(60);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(azul);
+      doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
+      y += 14;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(negro);
+      doc.text(
+        `Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`,
+        margin.left + 10,
+        y
+      );
+      y += 14;
+
+      // ✅ Notas por capítulo en PDF (opcional)
+      if (cap.notas_capitulo && cap.notas_capitulo.trim()) {
+        addPageIfNeeded(40);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(10);
+        doc.text("Notas:", margin.left + 25, y);
+        y += 12;
+
+        doc.setFont("helvetica", "normal");
+        doc.splitTextToSize(cap.notas_capitulo, contentW - 40).forEach((line) => {
+          addPageIfNeeded(14);
+          doc.text(line, margin.left + 25, y);
+          y += 14;
+        });
+        y += 8;
+      }
+
+      cap.subcapitulos.forEach((sub, j) => {
+        addPageIfNeeded(14);
+
+        doc.setFontSize(10);
+        doc.text(`${i + 1}.${j + 1} ${sub.nombre}`, margin.left + 25, y);
+
+        doc.text(
+          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
+          pageW - margin.right,
+          y,
+          { align: "right" }
+        );
+
+        y += 12;
+      });
+
+      y += 12;
+    });
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.addImage(enc, "PNG", 0, 0, pageW, 200);
+      doc.addImage(pie, "PNG", 0, pageH - 80, pageW, 80);
+      doc.text(`Página ${i} de ${totalPages}`, pageW / 2, pageH - 55, {
+        align: "center",
+      });
+    }
 
     doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
   };
 
-  // ================= RENDER =================
+  // ===== RENDER =====
   return (
     <div className="temario-editor-container">
       <h2>Plantilla de Temario</h2>
 
-      <button className="btn-primario" onClick={guardarEnBD} disabled={saving}>
-        <Save size={16} /> {saving ? "Guardando..." : "Guardar en BD"}
-      </button>
+      {/* ✅ BOTÓN GUARDAR EN BD */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
+        <button className="btn-primario" onClick={guardarEnBD} disabled={saving}>
+          <Save size={16} style={{ marginRight: 6 }} />
+          {saving ? "Guardando..." : "Guardar en BD"}
+        </button>
 
-      {saveMsg && <p style={{ color: "green" }}>{saveMsg}</p>}
-      {saveError && <p style={{ color: "red" }}>{saveError}</p>}
+        {saveMsg && <span style={{ color: "green" }}>{saveMsg}</span>}
+        {saveError && <span style={{ color: "red" }}>{saveError}</span>}
+      </div>
 
-      {/* FORMULARIO COMPLETO: reutiliza exactamente el que ya tenías */}
-      {/* (inputs, capítulos, temas, exportar, etc.) */}
+      <label>Nombre del curso</label>
+      <input
+        value={temario.nombre_curso}
+        onChange={(e) => setTemario({ ...temario, nombre_curso: e.target.value })}
+        className="input-capitulo"
+      />
+
+      <label>Duración total (horas)</label>
+      <input
+        type="number"
+        value={temario.horas_total_curso}
+        onChange={(e) =>
+          setTemario({ ...temario, horas_total_curso: e.target.value })
+        }
+        className="input-capitulo"
+      />
+
+      <hr style={{ margin: "20px 0" }} />
+
+      <h3>Información general del curso</h3>
+
+      <label>Descripción General</label>
+      <textarea
+        value={temario.descripcion_general}
+        onChange={(e) =>
+          setTemario({ ...temario, descripcion_general: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+      />
+
+      <label>Audiencia</label>
+      <textarea
+        value={temario.audiencia}
+        onChange={(e) => setTemario({ ...temario, audiencia: e.target.value })}
+        className="textarea-objetivos-capitulo"
+      />
+
+      <label>Prerrequisitos</label>
+      <textarea
+        value={temario.prerrequisitos}
+        onChange={(e) =>
+          setTemario({ ...temario, prerrequisitos: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+      />
+
+      <label>Objetivos</label>
+      <textarea
+        value={temario.objetivos}
+        onChange={(e) => setTemario({ ...temario, objetivos: e.target.value })}
+        className="textarea-objetivos-capitulo"
+      />
+
+      {/* ✅ NOTAS GENERALES */}
+      <label>Notas (generales)</label>
+      <textarea
+        value={temario.notas_generales}
+        onChange={(e) =>
+          setTemario({ ...temario, notas_generales: e.target.value })
+        }
+        className="textarea-objetivos-capitulo"
+        placeholder="Notas internas para preventa / instructores / ajustes..."
+      />
+
+      <hr />
+
+      {temario.temario.map((cap, i) => (
+        <div key={i} className="capitulo-editor">
+          <input
+            value={cap.capitulo}
+            onChange={(e) => handleFieldChange(i, null, "capitulo", e.target.value)}
+            className="input-capitulo"
+          />
+
+          <div className="duracion-total">⏱️ {formatDuration(cap.tiempo_capitulo_min)}</div>
+
+          {/* ✅ NOTAS POR CAPÍTULO */}
+          <textarea
+            value={cap.notas_capitulo || ""}
+            onChange={(e) => handleNotasCapitulo(i, e.target.value)}
+            className="textarea-objetivos-capitulo"
+            placeholder="Notas del capítulo (opcional)"
+            style={{ marginTop: 10 }}
+          />
+
+          {cap.subcapitulos.map((sub, j) => (
+            <div key={j} className="subcapitulo-item">
+              <input
+                value={sub.nombre}
+                onChange={(e) => handleFieldChange(i, j, "nombre", e.target.value)}
+              />
+
+              <input
+                type="number"
+                value={sub.tiempo_subcapitulo_min}
+                onChange={(e) =>
+                  handleFieldChange(i, j, "tiempo_subcapitulo_min", e.target.value)
+                }
+                placeholder="min"
+              />
+
+              <input
+                type="number"
+                min="1"
+                value={sub.sesion || 1}
+                onChange={(e) =>
+                  handleFieldChange(i, j, "sesion", parseInt(e.target.value, 10) || 1)
+                }
+                placeholder="sesión"
+                className="input-sesion"
+              />
+
+              <button className="btn-eliminar-tema" onClick={() => eliminarTema(i, j)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+
+          <div className="acciones-capitulo">
+            <button className="btn-agregar-tema" onClick={() => agregarTema(i)}>
+              <Plus size={16} /> Agregar tema
+            </button>
+
+            <button className="btn-eliminar-capitulo" onClick={() => eliminarCapitulo(i)}>
+              <Trash2 size={16} /> Eliminar capítulo
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <div className="btn-agregar-capitulo-container">
+        <button className="btn-agregar-capitulo" onClick={agregarCapitulo}>
+          <Plus size={18} /> Agregar capítulo
+        </button>
+      </div>
+
+      <div className="acciones-footer">
+        <button className="btn-primario" onClick={ajustarTiempos}>
+          Ajustar tiempos
+        </button>
+        <button className="btn-secundario" onClick={() => setModalExportar(true)}>
+          Exportar
+        </button>
+      </div>
+
+      {modalExportar && (
+        <div className="modal-overlay" onClick={() => setModalExportar(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Exportar</h3>
+            <label>
+              <input
+                type="radio"
+                checked={exportTipo === "pdf"}
+                onChange={() => setExportTipo("pdf")}
+              />{" "}
+              PDF
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={exportTipo === "excel"}
+                onChange={() => setExportTipo("excel")}
+              />{" "}
+              Excel
+            </label>
+
+            <button
+              className="btn-guardar"
+              onClick={() => {
+                exportTipo === "pdf" ? exportarPDF() : downloadExcelTemario(temario);
+                setModalExportar(false);
+              }}
+            >
+              Exportar {exportTipo.toUpperCase()}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
