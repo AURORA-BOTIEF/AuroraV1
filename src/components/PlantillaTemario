@@ -1,0 +1,219 @@
+/* ================================
+   CONTENEDOR GENERAL
+   ================================ */
+.temario-editor-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.temario-editor-container h2,
+.temario-editor-container h3 {
+  margin-bottom: 12px;
+}
+
+/* ================================
+   INPUTS Y TEXTAREAS
+   ================================ */
+.temario-editor-container label {
+  display: block;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.temario-editor-container input,
+.temario-editor-container textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.temario-editor-container textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+/* ================================
+   CAPÍTULOS
+   ================================ */
+.capitulo-editor {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 18px;
+  background: #fafafa;
+}
+
+.duracion-total {
+  font-size: 13px;
+  color: #374151;
+  margin: 6px 0 12px;
+}
+
+/* ================================
+   SUBCAPÍTULOS
+   ================================ */
+.subcapitulo-item {
+  display: grid;
+  grid-template-columns: 1fr 90px 80px 40px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.subcapitulo-item input {
+  font-size: 13px;
+}
+
+.input-sesion {
+  width: 100%;
+}
+
+.btn-eliminar-tema {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #b91c1c;
+}
+
+/* ================================
+   ACCIONES CAPÍTULO
+   ================================ */
+.acciones-capitulo {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.btn-agregar-tema,
+.btn-eliminar-capitulo {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn-agregar-tema {
+  background: #e0f2fe;
+}
+
+.btn-eliminar-capitulo {
+  background: #fee2e2;
+}
+
+/* ================================
+   BOTONES GENERALES
+   ================================ */
+.btn-primario {
+  background: #035b6e;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-secundario {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-primario:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ================================
+   FOOTER ACCIONES
+   ================================ */
+.acciones-footer {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ================================
+   MODAL BASE
+   ================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+/* ================================
+   TABLA VERSIONES (CLAVE)
+   ================================ */
+.versiones-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed; /* 🔑 evita columnas flotantes */
+  font-size: 14px;
+}
+
+.versiones-table th,
+.versiones-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.versiones-table thead th {
+  background: #f9fafb;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.versiones-table tr:hover {
+  background: #f3f4f6;
+}
+
+/* Control de texto */
+.versiones-table .nowrap {
+  white-space: nowrap;
+}
+
+.versiones-table .wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* ================================
+   RESPONSIVE
+   ================================ */
+@media (max-width: 768px) {
+  .subcapitulo-item {
+    grid-template-columns: 1fr 70px 60px 36px;
+  }
+
+  .acciones-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
