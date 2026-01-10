@@ -8,13 +8,11 @@ import "./PlantillaTemario.css";
 import { Plus, Trash2, Save, Eye, X } from "lucide-react";
 
 // ================== CONFIG ==================
-const API_ID = "eim01evqg7";
-const REGION = "us-east-1";
-const STAGE = "versiones"; // ✅ confirmado por ti
-const API_BASE = `https://${API_ID}.execute-api.${REGION}.amazonaws.com/${STAGE}`;
-
-const ENDPOINT_GUARDAR = `${API_BASE}/versiones/customtemarios`;   // POST
-const ENDPOINT_VERSIONES = `${API_BASE}/versiones/customtemarios`; // GET
+// ✅ Stage confirmado: "versiones"
+// ✅ Recurso real en API Gateway: "/customtemarios" (GET/POST/OPTIONS)
+const API_BASE = "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones";
+const ENDPOINT_GUARDAR = `${API_BASE}/customtemarios`;   // POST
+const ENDPOINT_VERSIONES = `${API_BASE}/customtemarios`; // GET
 
 // ================== Utils ==================
 const formatDuration = (minutos) => {
@@ -54,37 +52,34 @@ const formatFecha = (iso) => {
   }
 };
 
-// ---- helpers para respuestas API Gateway (robusto) ----
-const safeJsonParse = (value, fallback = null) => {
+// ✅ Helpers robustos para API Gateway (evita "res.json()" tragándose errores)
+const safeJsonParse = (txt, fallback) => {
   try {
-    return JSON.parse(value);
+    return JSON.parse(txt);
   } catch {
     return fallback;
   }
 };
 
-const parseApiGatewayResponse = async (res) => {
-  // API Gateway a veces devuelve texto/HTML en errores -> leemos texto siempre
-  const raw = await res.text();
-  const data = safeJsonParse(raw, raw); // si no es JSON, deja string
+const parseApiGateway = async (res) => {
+  const raw = await res.text();          // siempre texto primero
+  const data = safeJsonParse(raw, raw);  // si no es JSON, queda string
 
   if (!res.ok) {
     const msg =
-      typeof data === "object" && data !== null
-        ? (data.message || `HTTP ${res.status}`)
-        : String(data || `HTTP ${res.status}`);
+      typeof data === "object" && data
+        ? (data.message || raw)
+        : String(raw || `HTTP ${res.status}`);
     throw new Error(msg);
   }
 
-  // Si viene proxy: { statusCode, body: "..." }
-  if (typeof data === "object" && data !== null && "body" in data) {
-    const body = data.body;
-    if (typeof body === "string") return safeJsonParse(body, body);
-    return body;
+  // Proxy response típico: { statusCode, headers, body: "..." }
+  if (typeof data === "object" && data && "body" in data) {
+    const b = data.body;
+    return typeof b === "string" ? safeJsonParse(b, b) : b;
   }
 
-  // Si viene directo
-  return data;
+  return data; // si viniera directo
 };
 
 // ================== Base ==================
@@ -181,10 +176,7 @@ export default function PlantillaTemario() {
   // ================== AJUSTAR TIEMPOS ==================
   const ajustarTiempos = () => {
     const totalMin = (parseFloat(temario.horas_total_curso) || 0) * 60;
-    const totalTemas = temario.temario.reduce(
-      (a, c) => a + c.subcapitulos.length,
-      0
-    );
+    const totalTemas = temario.temario.reduce((a, c) => a + c.subcapitulos.length, 0);
     if (!totalTemas) return;
 
     const porTema = Math.floor(totalMin / totalTemas);
@@ -216,15 +208,13 @@ export default function PlantillaTemario() {
         body: JSON.stringify({ ...temario, source: "plantilla-temario" }),
       });
 
-      const payload = await parseApiGatewayResponse(res);
+      const payload = await parseApiGateway(res);
 
-      // Tu Lambda POST devuelve { message: "OK", temarioId }
+      // Tu Lambda POST devuelve: { message:"OK", temarioId }
       const temarioId = payload?.temarioId;
 
       setSaveMsg(
-        temarioId
-          ? `✅ Guardado correctamente (ID: ${temarioId})`
-          : "✅ Guardado correctamente"
+        temarioId ? `✅ Guardado correctamente (ID: ${temarioId})` : "✅ Guardado correctamente"
       );
     } catch (e) {
       setSaveError(`❌ ${e.message}`);
@@ -237,21 +227,17 @@ export default function PlantillaTemario() {
   const cargarVersiones = async () => {
     setLoadingVersiones(true);
     setVersionesError("");
+
     try {
       const res = await fetch(ENDPOINT_VERSIONES, { method: "GET" });
 
-      const payload = await parseApiGatewayResponse(res);
+      const payload = await parseApiGateway(res);
 
-      // Tu Lambda GET devuelve un ARRAY (output) dentro de body
-      const list = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.items)
-        ? payload.items
-        : [];
+      // Tu Lambda GET devuelve un ARRAY en el body: JSON.stringify(output)
+      const list = Array.isArray(payload) ? payload : [];
 
       setVersiones(list);
     } catch (e) {
-      console.error("Error versiones:", e);
       setVersiones([]);
       setVersionesError(e.message || "No se pudieron cargar las versiones.");
     } finally {
@@ -517,12 +503,7 @@ export default function PlantillaTemario() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Exportar</h3>
             <label>
-              <input
-                type="radio"
-                checked={exportTipo === "pdf"}
-                onChange={() => setExportTipo("pdf")}
-              />{" "}
-              PDF
+              <input type="radio" checked={exportTipo === "pdf"} onChange={() => setExportTipo("pdf")} /> PDF
             </label>
             <label>
               <input
