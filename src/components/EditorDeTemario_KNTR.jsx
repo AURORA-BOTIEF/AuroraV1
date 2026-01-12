@@ -463,51 +463,91 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   };
 
   const exportarYAML = () => {
-    if (!temario || !Array.isArray(temario.temario)) {
-      setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
-      return;
+  if (!temario || !Array.isArray(temario.temario)) {
+    setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
+    return;
+  }
+
+  // ===============================
+  // 📌 1. Construir objeto OBJETIVO
+  // ===============================
+  const yamlObject = {
+    curso: {
+      nombre: temario.nombre_curso || "",
+      duracion: {
+        horas: temario.horas_total_curso || 0,
+        sesiones: temario.total_sesiones || 0,
+      },
+      descripcion: temario.descripcion_general || "",
+      objetivos: temario.objetivos || "",
+      audiencia: temario.audiencia || "",
+      prerrequisitos: temario.prerrequisitos || "",
+      metodologia: {
+        teoria: temario.porcentaje_teoria_practica
+          ? `${temario.porcentaje_teoria_practica}%`
+          : "",
+        practica: temario.porcentaje_teoria_practica
+          ? `${100 - temario.porcentaje_teoria_practica}%`
+          : "",
+      },
+      temario: temario.temario.map((cap, capIndex) => ({
+        capitulo: cap.capitulo,
+        sesion: capIndex + 1,
+        duracion_min: cap.tiempo_capitulo_min || 0,
+        temas: (cap.subcapitulos || []).map((sub) => ({
+          nombre: sub.nombre,
+          duracion_min: sub.tiempo_subcapitulo_min || 0,
+        })),
+      })),
+    },
+  };
+
+  // ===============================
+  // 📌 2. Serializar a YAML
+  // ===============================
+  const toYAML = (obj, indent = 0) => {
+    const space = "  ".repeat(indent);
+
+    if (Array.isArray(obj)) {
+      return obj
+        .map((item) => `${space}- ${toYAML(item, indent + 1).trimStart()}`)
+        .join("\n");
     }
 
-    // Convertimos el objeto temario a YAML manualmente
-    const toYAML = (obj, indent = 0) => {
-      const space = "  ".repeat(indent);
-      if (Array.isArray(obj)) {
-        return obj
-          .map((item) => `${space}- ${toYAML(item, indent + 1).trimStart()}`)
-          .join("\n");
-      } else if (obj !== null && typeof obj === "object") {
-        return Object.entries(obj)
-          .map(([key, value]) => {
-            if (
-              typeof value === "object" &&
-              value !== null &&
-              (Array.isArray(value) || Object.keys(value).length > 0)
-            ) {
-              return `${space}${key}:\n${toYAML(value, indent + 1)}`;
-            }
-            return `${space}${key}: ${value ?? ""}`;
-          })
-          .join("\n");
-      }
-      return String(obj);
-    };
+    if (obj !== null && typeof obj === "object") {
+      return Object.entries(obj)
+        .map(([key, value]) => {
+          if (typeof value === "object" && value !== null) {
+            return `${space}${key}:\n${toYAML(value, indent + 1)}`;
+          }
+          return `${space}${key}: ${value}`;
+        })
+        .join("\n");
+    }
 
-    const yamlContent = toYAML(temario);
-
-    const blob = new Blob([yamlContent], {
-      type: "text/yaml;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Temario_${slugify(temario.nombre_curso)}.yaml`;
-    a.click();
-
-    URL.revokeObjectURL(url);
-
-    setMensaje({ tipo: "ok", texto: "✅ YAML exportado correctamente" });
+    return `${space}${obj}`;
   };
+
+  const yamlContent = toYAML(yamlObject);
+
+  // ===============================
+  // 📌 3. Descargar archivo
+  // ===============================
+  const blob = new Blob([yamlContent], {
+    type: "text/yaml;charset=utf-8;",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Temario_${slugify(temario.nombre_curso)}.yaml`;
+  a.click();
+
+  URL.revokeObjectURL(url);
+
+  setMensaje({ tipo: "ok", texto: "✅ YAML exportado con formato objetivo" });
+};
+
 
 
   // === RENDER ===
