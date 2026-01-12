@@ -9,7 +9,8 @@ import BotonVersionesTemario from './BotonVersionesTemario';
 function GeneradorContenidosPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const mostrarMenu = location.pathname === '/generador-contenidos' || location.pathname === '/generador-contenidos/';
+  // Show menu by default (original behavior), but hide it specifically for Generador de Cursos
+  const mostrarMenu = location.pathname.startsWith('/generador-contenidos') && !location.pathname.includes('/generador-cursos');
 
   const handleRegresar = () => {
     navigate('/generador-contenidos'); // Navega de vuelta al menú principal
