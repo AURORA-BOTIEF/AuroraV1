@@ -465,76 +465,101 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
 
 
 
- const exportarYAML = () => {
+const exportarYAML = () => {
   if (!temario || !Array.isArray(temario.temario)) {
     setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
     return;
   }
 
-  // ===============================
-  // 📌 Utilidades
-  // ===============================
   const esPractica = (nombre = "") =>
     nombre.startsWith("Práctica:") || nombre.startsWith("Laboratorio:");
 
-  const percentTheoryCurso = temario.porcentaje_teoria_practica || 0;
+  // % teoría/práctica a nivel curso (desde tu campo actual)
+  const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0);
   const percentPracticeCurso = 100 - percentTheoryCurso;
 
-  const hoursTotal = temario.horas_total_curso || 0;
+  // horas a nivel curso
+  const hoursTotal = Number(temario.horas_total_curso || 0);
   const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
   const hoursPractice = +(hoursTotal * percentPracticeCurso / 100).toFixed(2);
 
+  // total minutos del curso (para course.total_duration_minutes)
+  const totalDurationMinutes = (temario.temario || []).reduce(
+    (acc, cap) => acc + (Number(cap.tiempo_capitulo_min) || 0),
+    0
+  );
+
+  // helpers para listas en YAML
+  const toList = (v) => {
+    if (Array.isArray(v)) return v.filter(Boolean);
+    if (typeof v === "string") {
+      // separa por saltos de línea (y/o ; ) para listas
+      return v
+        .split(/\r?\n|;/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
+
   // ===============================
-  // 📌 Construcción YAML según plantilla
+  // 📌 OBJETO YAML SEGÚN PLANTILLA
   // ===============================
   const yamlObject = {
+    course: {
+      title: temario.nombre_curso || "",
+      description: temario.descripcion_general || ".", // si viene vacío, plantilla pide "."
+      level: temario.level || "",                      // si no existe en tu temario, quedará vacío
+      audience: toList(temario.audiencia),
+      prerequisites: toList(temario.prerrequisitos),
+      total_duration_minutes: totalDurationMinutes,
+    },
+
+    // (mantén language como indica la plantilla; aquí lo dejo fijo a "es" como ejemplo)
     language: "es",
+
     learning_outcomes: temario.objetivos || "",
+
     hours_total: hoursTotal,
     hours_theory: hoursTheory,
     hours_practice: hoursPractice,
-    modules: temario.temario.map((cap, capIndex) => {
+
+    modules: (temario.temario || []).map((cap, capIndex) => {
       let theoryMin = 0;
       let practiceMin = 0;
 
       (cap.subcapitulos || []).forEach((sub) => {
-        const dur = sub.tiempo_subcapitulo_min || 0;
-        esPractica(sub.nombre)
-          ? (practiceMin += dur)
-          : (theoryMin += dur);
+        const dur = Number(sub.tiempo_subcapitulo_min || 0);
+        esPractica(sub.nombre) ? (practiceMin += dur) : (theoryMin += dur);
       });
 
       const totalMin = theoryMin + practiceMin || 1;
 
       const module = {
-        title: cap.capitulo,
-        duration_minutes: cap.tiempo_capitulo_min || totalMin,
+        title: cap.capitulo || "",
+        duration_minutes: Number(cap.tiempo_capitulo_min || totalMin),
         percent_theory: Math.round((theoryMin / totalMin) * 100),
         percent_practice: Math.round((practiceMin / totalMin) * 100),
-        lessons: cap.subcapitulos.map((sub, subIndex) => ({
-          title: sub.nombre,
-          duration_minutes: sub.tiempo_subcapitulo_min || 0,
-          topics: [
-            `${capIndex + 1}.${subIndex + 1} ${sub.nombre}`
-          ]
-        }))
+
+        lessons: (cap.subcapitulos || []).map((sub, subIndex) => ({
+          title: sub.nombre || "",
+          duration_minutes: Number(sub.tiempo_subcapitulo_min || 0),
+          topics: [`${capIndex + 1}.${subIndex + 1} ${sub.nombre || ""}`],
+        })),
       };
 
-      // 🔹 lab_activities (solo si aplica)
-      const labs = cap.subcapitulos
+      const labs = (cap.subcapitulos || [])
         .filter((s) => esPractica(s.nombre))
         .map((s) => s.nombre);
 
-      if (labs.length > 0) {
-        module.lab_activities = labs;
-      }
+      if (labs.length > 0) module.lab_activities = labs;
 
       return module;
-    })
+    }),
   };
 
   // ===============================
-  // 📌 Serializador YAML (controlado)
+  // 📌 Serializador YAML (igual que antes)
   // ===============================
   const toYAML = (obj, indent = 0) => {
     const space = "  ".repeat(indent);
@@ -551,23 +576,17 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
           if (typeof value === "object" && value !== null) {
             return `${space}${key}:\n${toYAML(value, indent + 1)}`;
           }
-          return `${space}${key}: ${value}`;
+          return `${space}${key}: ${value ?? ""}`;
         })
         .join("\n");
     }
 
-    return `${space}${obj}`;
+    return `${space}${String(obj)}`;
   };
 
   const yamlContent = toYAML(yamlObject);
 
-  // ===============================
-  // 📌 Descargar archivo
-  // ===============================
-  const blob = new Blob([yamlContent], {
-    type: "text/yaml;charset=utf-8;",
-  });
-
+  const blob = new Blob([yamlContent], { type: "text/yaml;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -575,11 +594,9 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   a.click();
   URL.revokeObjectURL(url);
 
-  setMensaje({
-    tipo: "ok",
-    texto: "✅ YAML generado según plantilla_objetivo.yaml",
-  });
+  setMensaje({ tipo: "ok", texto: "✅ YAML generado según plantilla_objetivo.yaml" });
 };
+
 
 
 
