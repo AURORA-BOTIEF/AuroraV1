@@ -462,58 +462,79 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
     setMensaje({ tipo: "ok", texto: "✅ Excel exportado correctamente" });
   };
 
-  const exportarYAML = () => {
+
+
+
+ const exportarYAML = () => {
   if (!temario || !Array.isArray(temario.temario)) {
     setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
     return;
   }
 
   // ===============================
-  // 📌 Función Bloom
+  // 📌 Utilidades
   // ===============================
-  const calcularBloom = (sub) => {
-    if (sub.tipo === "practice" || sub.tipo === "lab") return "Aplicar";
+  const esPractica = (nombre = "") =>
+    nombre.startsWith("Práctica:") || nombre.startsWith("Laboratorio:");
 
-    const dur = sub.tiempo_subcapitulo_min || 0;
-    if (dur <= 20) return "Recordar";
-    if (dur <= 40) return "Comprender";
-    return "Analizar";
-  };
+  const percentTheoryCurso = temario.porcentaje_teoria_practica || 0;
+  const percentPracticeCurso = 100 - percentTheoryCurso;
+
+  const hoursTotal = temario.horas_total_curso || 0;
+  const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
+  const hoursPractice = +(hoursTotal * percentPracticeCurso / 100).toFixed(2);
 
   // ===============================
-  // 📌 Construcción OBJETIVO (plantillas)
+  // 📌 Construcción YAML según plantilla
   // ===============================
   const yamlObject = {
-    title: temario.nombre_curso || "",
-    description: temario.descripcion_general || "",
-    objectives: temario.objetivos || "",
-    audience: temario.audiencia || "",
-    prerequisites: temario.prerrequisitos || "",
-    duration: {
-      hours: temario.horas_total_curso || 0,
-      sessions: temario.total_sesiones || temario.temario.length || 0,
-    },
-    methodology: {
-      theory_percentage: temario.porcentaje_teoria_practica || 0,
-      practice_percentage: temario.porcentaje_teoria_practica
-        ? 100 - temario.porcentaje_teoria_practica
-        : 0,
-    },
-    syllabus: temario.temario.map((cap, capIndex) => ({
-      chapter: cap.capitulo,
-      session: capIndex + 1,
-      duration_minutes: cap.tiempo_capitulo_min || 0,
-      topics: (cap.subcapitulos || []).map((sub) => ({
-        title: sub.nombre,
-        duration_minutes: sub.tiempo_subcapitulo_min || 0,
-        type: sub.tipo || "theory",
-        bloom_level: calcularBloom(sub),
-      })),
-    })),
+    language: "es",
+    learning_outcomes: temario.objetivos || "",
+    hours_total: hoursTotal,
+    hours_theory: hoursTheory,
+    hours_practice: hoursPractice,
+    modules: temario.temario.map((cap, capIndex) => {
+      let theoryMin = 0;
+      let practiceMin = 0;
+
+      (cap.subcapitulos || []).forEach((sub) => {
+        const dur = sub.tiempo_subcapitulo_min || 0;
+        esPractica(sub.nombre)
+          ? (practiceMin += dur)
+          : (theoryMin += dur);
+      });
+
+      const totalMin = theoryMin + practiceMin || 1;
+
+      const module = {
+        title: cap.capitulo,
+        duration_minutes: cap.tiempo_capitulo_min || totalMin,
+        percent_theory: Math.round((theoryMin / totalMin) * 100),
+        percent_practice: Math.round((practiceMin / totalMin) * 100),
+        lessons: cap.subcapitulos.map((sub, subIndex) => ({
+          title: sub.nombre,
+          duration_minutes: sub.tiempo_subcapitulo_min || 0,
+          topics: [
+            `${capIndex + 1}.${subIndex + 1} ${sub.nombre}`
+          ]
+        }))
+      };
+
+      // 🔹 lab_activities (solo si aplica)
+      const labs = cap.subcapitulos
+        .filter((s) => esPractica(s.nombre))
+        .map((s) => s.nombre);
+
+      if (labs.length > 0) {
+        module.lab_activities = labs;
+      }
+
+      return module;
+    })
   };
 
   // ===============================
-  // 📌 Serializador YAML controlado
+  // 📌 Serializador YAML (controlado)
   // ===============================
   const toYAML = (obj, indent = 0) => {
     const space = "  ".repeat(indent);
@@ -541,7 +562,7 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   const yamlContent = toYAML(yamlObject);
 
   // ===============================
-  // 📌 Descarga
+  // 📌 Descargar archivo
   // ===============================
   const blob = new Blob([yamlContent], {
     type: "text/yaml;charset=utf-8;",
@@ -552,14 +573,14 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   a.href = url;
   a.download = `Temario_${slugify(temario.nombre_curso)}.yaml`;
   a.click();
-
   URL.revokeObjectURL(url);
 
   setMensaje({
     tipo: "ok",
-    texto: "✅ YAML exportado conforme a la plantilla objetivo",
+    texto: "✅ YAML generado según plantilla_objetivo.yaml",
   });
 };
+
 
 
 
