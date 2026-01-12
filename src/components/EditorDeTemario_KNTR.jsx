@@ -469,41 +469,51 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   }
 
   // ===============================
-  // 📌 1. Construir objeto OBJETIVO
+  // 📌 Función Bloom
   // ===============================
-  const yamlObject = {
-    curso: {
-      nombre: temario.nombre_curso || "",
-      duracion: {
-        horas: temario.horas_total_curso || 0,
-        sesiones: temario.total_sesiones || 0,
-      },
-      descripcion: temario.descripcion_general || "",
-      objetivos: temario.objetivos || "",
-      audiencia: temario.audiencia || "",
-      prerrequisitos: temario.prerrequisitos || "",
-      metodologia: {
-        teoria: temario.porcentaje_teoria_practica
-          ? `${temario.porcentaje_teoria_practica}%`
-          : "",
-        practica: temario.porcentaje_teoria_practica
-          ? `${100 - temario.porcentaje_teoria_practica}%`
-          : "",
-      },
-      temario: temario.temario.map((cap, capIndex) => ({
-        capitulo: cap.capitulo,
-        sesion: capIndex + 1,
-        duracion_min: cap.tiempo_capitulo_min || 0,
-        temas: (cap.subcapitulos || []).map((sub) => ({
-          nombre: sub.nombre,
-          duracion_min: sub.tiempo_subcapitulo_min || 0,
-        })),
-      })),
-    },
+  const calcularBloom = (sub) => {
+    if (sub.tipo === "practice" || sub.tipo === "lab") return "Aplicar";
+
+    const dur = sub.tiempo_subcapitulo_min || 0;
+    if (dur <= 20) return "Recordar";
+    if (dur <= 40) return "Comprender";
+    return "Analizar";
   };
 
   // ===============================
-  // 📌 2. Serializar a YAML
+  // 📌 Construcción OBJETIVO (plantillas)
+  // ===============================
+  const yamlObject = {
+    title: temario.nombre_curso || "",
+    description: temario.descripcion_general || "",
+    objectives: temario.objetivos || "",
+    audience: temario.audiencia || "",
+    prerequisites: temario.prerrequisitos || "",
+    duration: {
+      hours: temario.horas_total_curso || 0,
+      sessions: temario.total_sesiones || temario.temario.length || 0,
+    },
+    methodology: {
+      theory_percentage: temario.porcentaje_teoria_practica || 0,
+      practice_percentage: temario.porcentaje_teoria_practica
+        ? 100 - temario.porcentaje_teoria_practica
+        : 0,
+    },
+    syllabus: temario.temario.map((cap, capIndex) => ({
+      chapter: cap.capitulo,
+      session: capIndex + 1,
+      duration_minutes: cap.tiempo_capitulo_min || 0,
+      topics: (cap.subcapitulos || []).map((sub) => ({
+        title: sub.nombre,
+        duration_minutes: sub.tiempo_subcapitulo_min || 0,
+        type: sub.tipo || "theory",
+        bloom_level: calcularBloom(sub),
+      })),
+    })),
+  };
+
+  // ===============================
+  // 📌 Serializador YAML controlado
   // ===============================
   const toYAML = (obj, indent = 0) => {
     const space = "  ".repeat(indent);
@@ -531,7 +541,7 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   const yamlContent = toYAML(yamlObject);
 
   // ===============================
-  // 📌 3. Descargar archivo
+  // 📌 Descarga
   // ===============================
   const blob = new Blob([yamlContent], {
     type: "text/yaml;charset=utf-8;",
@@ -545,7 +555,10 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
 
   URL.revokeObjectURL(url);
 
-  setMensaje({ tipo: "ok", texto: "✅ YAML exportado con formato objetivo" });
+  setMensaje({
+    tipo: "ok",
+    texto: "✅ YAML exportado conforme a la plantilla objetivo",
+  });
 };
 
 
