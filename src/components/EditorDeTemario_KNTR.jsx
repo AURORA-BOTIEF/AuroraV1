@@ -51,7 +51,6 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [modalExportar, setModalExportar] = useState(false);
   const [exportTipo, setExportTipo] = useState("pdf");
-  //const [exportTipo, setExportTipo] = useState("Yaml");
   
 
   useEffect(() => {
@@ -721,7 +720,7 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
                   checked={exportTipo === "yaml"}
                   onChange={() => setExportTipo("yaml")}
                 />{" "}
-                YAML
+                Yaml
               </label>
               <label>
                 <input
