@@ -601,6 +601,183 @@ export default function EditorDeTemario_seminario({
     }
   };
 
+
+  // ===== EXPORTAR YAML =====
+  const exportarYAML = () => {
+    if (!temario || !Array.isArray(temario.temario)) {
+      setMensaje({ tipo: "error", texto: "No hay datos para exportar." });
+      return;
+    }
+
+    const esPractica = (nombre = "") =>
+      nombre.startsWith("Práctica:") || nombre.startsWith("Laboratorio:");
+
+    // Convierte audiencia/prerrequisitos en listas YAML
+    const toList = (v) => {
+      if (Array.isArray(v)) return v.filter(Boolean);
+      if (typeof v === "string") {
+        return v
+          .split(/\r?\n|;/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+
+    // Mapear nivel a basic/intermediate/advanced
+    const normalizarLevel = (raw) => {
+      const v = String(raw || "").trim().toLowerCase();
+      if (["basic", "intermediate", "advanced"].includes(v)) return v;
+
+      // Soporta entradas comunes en español
+      if (["básico", "basico"].includes(v)) return "basic";
+      if (["intermedio"].includes(v)) return "intermediate";
+      if (["avanzado"].includes(v)) return "advanced";
+
+      // Heurística: si no viene, estimamos por duración
+      const horas = Number(temario.horas_total_curso || 0);
+      if (horas <= 16) return "basic";
+      if (horas <= 32) return "intermediate";
+      return "advanced";
+    };
+
+    // Bloom: si es práctica/lab => Aplicar. Si no, por duración.
+    const calcularBloom = (sub) => {
+      if (esPractica(sub.nombre || "")) return "Aplicar";
+      const dur = Number(sub.tiempo_subcapitulo_min || 0);
+      if (dur <= 20) return "Recordar";
+      if (dur <= 40) return "Comprender";
+      return "Analizar";
+    };
+
+    // Porcentaje teoría/práctica a nivel curso
+    // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
+    const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0); //
+    const percentPracticeCurso = 100 - percentTheoryCurso; //  
+    
+    // Horas totales del curso
+    const hoursTotal = Number(temario.horas_total_curso || 0);
+
+    // ✅ Corrección: theory usa percentTheory, practice usa percentPractice
+    const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
+    const hoursPractice = +(hoursTotal * percentPracticeCurso / 100).toFixed(2);
+
+    // ✅ Corrección: total_duration_minutes (suma de capítulos; fallback suma de subcapítulos)
+    const totalDurationMinutesFromCaps = (temario.temario || []).reduce(
+      (acc, cap) => acc + (Number(cap.tiempo_capitulo_min) || 0),
+      0
+    );
+
+    const totalDurationMinutesFromSubs = (temario.temario || []).reduce((acc, cap) => {
+      return (
+        acc +
+        (cap.subcapitulos || []).reduce(
+          (s, sub) => s + (Number(sub.tiempo_subcapitulo_min) || 0),
+          0
+        )
+      );
+    }, 0);
+
+    const totalDurationMinutes =
+      totalDurationMinutesFromCaps > 0
+        ? totalDurationMinutesFromCaps
+        : totalDurationMinutesFromSubs;
+
+    // ===============================
+    // 📌 OBJETO YAML según plantilla_objetivo.yaml
+    // ===============================
+    const yamlObject = {
+      course: {
+        title: temario.nombre_curso || "",
+        description: temario.descripcion_general || ".",
+        level: normalizarLevel(temario.level || temario.nivel),
+        audience: toList(temario.audiencia),
+        prerequisites: toList(temario.prerrequisitos),
+        total_duration_minutes: totalDurationMinutes, // ✅ ahora sí
+      },
+
+      language: "es", // (IDIOMA - si tu plantilla tiene otro valor fijo, cámbialo aquí por ese valor)
+
+      learning_outcomes: temario.objetivos || "",
+
+      hours_total: hoursTotal,
+      hours_theory: hoursTheory,     // ✅ corregido
+      hours_practice: hoursPractice, // ✅ corregido
+
+      modules: (temario.temario || []).map((cap, capIndex) => {
+        let theoryMin = 0;
+        let practiceMin = 0;
+
+        (cap.subcapitulos || []).forEach((sub) => {
+          const dur = Number(sub.tiempo_subcapitulo_min || 0);
+          esPractica(sub.nombre || "") ? (practiceMin += dur) : (theoryMin += dur);
+        });
+
+        const totalMin = theoryMin + practiceMin || 1;
+
+        const module = {
+          title: cap.capitulo || "",
+          duration_minutes: Number(cap.tiempo_capitulo_min || totalMin),
+          percent_theory: Math.round((theoryMin / totalMin) * 100),
+          percent_practice: Math.round((practiceMin / totalMin) * 100),
+
+          lessons: (cap.subcapitulos || []).map((sub, subIndex) => ({
+            title: sub.nombre || "",
+            duration_minutes: Number(sub.tiempo_subcapitulo_min || 0),
+            bloom_level: calcularBloom(sub), // ✅ agregado
+            topics: [`${capIndex + 1}.${subIndex + 1} ${sub.nombre || ""}`],
+          })),
+        };
+
+        // lab_activities (solo si hay Práctica/Laboratorio)
+        const labs = (cap.subcapitulos || [])
+          .filter((s) => esPractica(s.nombre || ""))
+          .map((s) => s.nombre);
+
+        if (labs.length > 0) module.lab_activities = labs;
+
+        return module;
+      }),
+    };
+
+    // Serializador YAML controlado (igual que antes)
+    const toYAML = (obj, indent = 0) => {
+      const space = "  ".repeat(indent);
+
+      if (Array.isArray(obj)) {
+        return obj
+          .map((item) => `${space}- ${toYAML(item, indent + 1).trimStart()}`)
+          .join("\n");
+      }
+
+      if (obj !== null && typeof obj === "object") {
+        return Object.entries(obj)
+          .map(([key, value]) => {
+            if (typeof value === "object" && value !== null) {
+              return `${space}${key}:\n${toYAML(value, indent + 1)}`;
+            }
+            return `${space}${key}: ${value ?? ""}`;
+          })
+          .join("\n");
+      }
+
+      return `${space}${String(obj)}`;
+    };
+
+    const yamlContent = toYAML(yamlObject);
+
+    const blob = new Blob([yamlContent], { type: "text/yaml;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Temario_${slugify(temario.nombre_curso)}.yaml`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setMensaje({ tipo: "ok", texto: "✅ YAML exportado correctamente" });
+  };
+
+
   // === Exportar Excel ===
   const exportarExcel = () => {
     downloadExcelTemario(temarioLimpio);
@@ -844,6 +1021,14 @@ export default function EditorDeTemario_seminario({
               <label>
                 <input
                   type="radio"
+                  checked={exportTipo === "yaml"}
+                  onChange={() => setExportTipo("yaml")}
+                />{" "}
+                Yaml
+              </label>
+              <label>
+                <input
+                  type="radio"
                   checked={exportTipo === "excel"}
                   onChange={() => setExportTipo("excel")}
                 />{" "}
@@ -853,7 +1038,13 @@ export default function EditorDeTemario_seminario({
             <div className="modal-footer">
               <button
                 onClick={() => {
-                  exportTipo === "pdf" ? exportarPDF() : exportarExcel();
+                  if (exportTipo === "pdf") {
+                    exportarPDF(temario);
+                  } else if (exportTipo === "excel") {
+                    exportarExcel();
+                  } else if (exportTipo === "yaml") {
+                    exportarYAML();
+                  }
                   setModalExportar(false);
                 }}
                 className="btn-guardar"
