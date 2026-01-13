@@ -681,6 +681,14 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
               <label>
                 <input
                   type="radio"
+                  checked={exportTipo === "yaml"}
+                  onChange={() => setExportTipo("yaml")}
+                />{" "}
+                Yaml
+              </label>
+              <label>
+                <input
+                  type="radio"
                   checked={exportTipo === "excel"}
                   onChange={() => setExportTipo("excel")}
                 />{" "}
@@ -690,7 +698,13 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
             <div className="modal-footer">
               <button
                 onClick={() => {
-                  exportTipo === "pdf" ? exportarPDF(temario) : exportarExcel();
+                  if (exportTipo === "pdf") {
+                    exportarPDF(temario);
+                  } else if (exportTipo === "excel") {
+                    exportarExcel();
+                  } else if (exportTipo === "yaml") {
+                    exportarYAML();
+                  }
                   setModalExportar(false);
                 }}
                 className="btn-guardar"
