@@ -656,7 +656,7 @@ export default function EditorDeTemario_seminario({
     const percentPracticeCurso = 40//100 - percentTheoryCurso; //  
     
     // Horas totales del curso
-    const hoursTotal = Number(temario.horas_total_curso || 0);
+    const hoursTotal = 2 //Number(temario.horas_total_curso || 0);
 
     // ✅ Corrección: theory usa percentTheory, practice usa percentPractice
     const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
