@@ -474,26 +474,10 @@ const exportarYAML = () => {
   const esPractica = (nombre = "") =>
     nombre.startsWith("Práctica:") || nombre.startsWith("Laboratorio:");
 
-  // % teoría/práctica a nivel curso (desde tu campo actual)
-  const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0);
-  const percentPracticeCurso = 100 - percentTheoryCurso;
-
-  // horas a nivel curso
-  const hoursTotal = Number(temario.horas_total_curso || 0);
-  const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
-  const hoursPractice = +(hoursTotal * percentPracticeCurso / 100).toFixed(2);
-
-  // total minutos del curso (para course.total_duration_minutes)
-  const totalDurationMinutes = (temario.temario || []).reduce(
-    (acc, cap) => acc + (Number(cap.tiempo_capitulo_min) || 0),
-    0
-  );
-
-  // helpers para listas en YAML
+  // Convierte audiencia/prerrequisitos en listas YAML
   const toList = (v) => {
     if (Array.isArray(v)) return v.filter(Boolean);
     if (typeof v === "string") {
-      // separa por saltos de línea (y/o ; ) para listas
       return v
         .split(/\r?\n|;/)
         .map((s) => s.trim())
@@ -502,27 +486,85 @@ const exportarYAML = () => {
     return [];
   };
 
+  // Mapear nivel a basic/intermediate/advanced
+  const normalizarLevel = (raw) => {
+    const v = String(raw || "").trim().toLowerCase();
+    if (["basic", "intermediate", "advanced"].includes(v)) return v;
+
+    // Soporta entradas comunes en español
+    if (["básico", "basico"].includes(v)) return "basic";
+    if (["intermedio"].includes(v)) return "intermediate";
+    if (["avanzado"].includes(v)) return "advanced";
+
+    // Heurística: si no viene, estimamos por duración
+    const horas = Number(temario.horas_total_curso || 0);
+    if (horas <= 16) return "basic";
+    if (horas <= 32) return "intermediate";
+    return "advanced";
+  };
+
+  // Bloom: si es práctica/lab => Aplicar. Si no, por duración.
+  const calcularBloom = (sub) => {
+    if (esPractica(sub.nombre || "")) return "Aplicar";
+    const dur = Number(sub.tiempo_subcapitulo_min || 0);
+    if (dur <= 20) return "Recordar";
+    if (dur <= 40) return "Comprender";
+    return "Analizar";
+  };
+
+  // Porcentaje teoría/práctica a nivel curso
+  // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
+  const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0);
+  const percentPracticeCurso = 100 - percentTheoryCurso;
+
+  // Horas totales del curso
+  const hoursTotal = Number(temario.horas_total_curso || 0);
+
+  // ✅ Corrección: theory usa percentTheory, practice usa percentPractice
+  const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
+  const hoursPractice = +(hoursTotal * percentPracticeCurso / 100).toFixed(2);
+
+  // ✅ Corrección: total_duration_minutes (suma de capítulos; fallback suma de subcapítulos)
+  const totalDurationMinutesFromCaps = (temario.temario || []).reduce(
+    (acc, cap) => acc + (Number(cap.tiempo_capitulo_min) || 0),
+    0
+  );
+
+  const totalDurationMinutesFromSubs = (temario.temario || []).reduce((acc, cap) => {
+    return (
+      acc +
+      (cap.subcapitulos || []).reduce(
+        (s, sub) => s + (Number(sub.tiempo_subcapitulo_min) || 0),
+        0
+      )
+    );
+  }, 0);
+
+  const totalDurationMinutes =
+    totalDurationMinutesFromCaps > 0
+      ? totalDurationMinutesFromCaps
+      : totalDurationMinutesFromSubs;
+
   // ===============================
-  // 📌 OBJETO YAML SEGÚN PLANTILLA
+  // 📌 OBJETO YAML según plantilla_objetivo.yaml
   // ===============================
   const yamlObject = {
     course: {
       title: temario.nombre_curso || "",
-      description: temario.descripcion_general || ".", // si viene vacío, plantilla pide "."
-      level: temario.level || "",                      // si no existe en tu temario, quedará vacío
+      description: temario.descripcion_general || ".",
+      level: normalizarLevel(temario.level || temario.nivel),
       audience: toList(temario.audiencia),
       prerequisites: toList(temario.prerrequisitos),
-      total_duration_minutes: totalDurationMinutes,
+      total_duration_minutes: totalDurationMinutes, // ✅ ahora sí
     },
 
-    // (mantén language como indica la plantilla; aquí lo dejo fijo a "es" como ejemplo)
-    language: "es",
+    language: "es", // (si tu plantilla tiene otro valor fijo, cámbialo aquí por ese valor)
 
     learning_outcomes: temario.objetivos || "",
 
     hours_total: hoursTotal,
-    hours_theory: hoursTheory,
-    hours_practice: hoursPractice,
+    hours_theory: hoursTheory,     // ✅ corregido
+    hours_practice: hoursPractice, // ✅ corregido
 
     modules: (temario.temario || []).map((cap, capIndex) => {
       let theoryMin = 0;
@@ -530,7 +572,7 @@ const exportarYAML = () => {
 
       (cap.subcapitulos || []).forEach((sub) => {
         const dur = Number(sub.tiempo_subcapitulo_min || 0);
-        esPractica(sub.nombre) ? (practiceMin += dur) : (theoryMin += dur);
+        esPractica(sub.nombre || "") ? (practiceMin += dur) : (theoryMin += dur);
       });
 
       const totalMin = theoryMin + practiceMin || 1;
@@ -544,12 +586,14 @@ const exportarYAML = () => {
         lessons: (cap.subcapitulos || []).map((sub, subIndex) => ({
           title: sub.nombre || "",
           duration_minutes: Number(sub.tiempo_subcapitulo_min || 0),
+          bloom_level: calcularBloom(sub), // ✅ agregado
           topics: [`${capIndex + 1}.${subIndex + 1} ${sub.nombre || ""}`],
         })),
       };
 
+      // lab_activities (solo si hay Práctica/Laboratorio)
       const labs = (cap.subcapitulos || [])
-        .filter((s) => esPractica(s.nombre))
+        .filter((s) => esPractica(s.nombre || ""))
         .map((s) => s.nombre);
 
       if (labs.length > 0) module.lab_activities = labs;
@@ -558,9 +602,7 @@ const exportarYAML = () => {
     }),
   };
 
-  // ===============================
-  // 📌 Serializador YAML (igual que antes)
-  // ===============================
+  // Serializador YAML controlado (igual que antes)
   const toYAML = (obj, indent = 0) => {
     const space = "  ".repeat(indent);
 
@@ -594,8 +636,9 @@ const exportarYAML = () => {
   a.click();
   URL.revokeObjectURL(url);
 
-  setMensaje({ tipo: "ok", texto: "✅ YAML generado según plantilla_objetivo.yaml" });
+  setMensaje({ tipo: "ok", texto: "✅ YAML exportado correctamente" });
 };
+
 
 
 
