@@ -564,7 +564,7 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
 
       learning_outcomes: temario.objetivos || "",
 
-      hours_total: hoursTotal,
+      hours_total: (totalDurationMinutes / 60).toFixed(2),
       hours_theory: hoursTheory,     // ✅ corregido
       hours_practice: hoursPractice, // ✅ corregido
 
