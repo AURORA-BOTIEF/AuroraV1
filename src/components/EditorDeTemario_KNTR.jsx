@@ -514,8 +514,8 @@ const exportarYAML = () => {
 
   // Porcentaje teoría/práctica a nivel curso
   // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
-  const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0);
-  const percentPracticeCurso = 100 - percentTheoryCurso;
+  const percentPracticeCurso = Number(temario.porcentaje_teoria_practica || 0); 
+  const percentTheoryCurso =  100 - percentPracticeCurso;
 
   // Horas totales del curso
   const hoursTotal = Number(temario.horas_total_curso || 0);
@@ -558,7 +558,7 @@ const exportarYAML = () => {
       total_duration_minutes: totalDurationMinutes, // ✅ ahora sí
     },
 
-    language: "es", // (si tu plantilla tiene otro valor fijo, cámbialo aquí por ese valor)
+    language: "es", // (IDIOMA - si tu plantilla tiene otro valor fijo, cámbialo aquí por ese valor)
 
     learning_outcomes: temario.objetivos || "",
 
