@@ -516,9 +516,9 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
 
     // Porcentaje teoría/práctica a nivel curso
     // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
-    const percentPracticeCurso = Number(temario.porcentaje_teoria_practica || 0); 
-    const percentTheoryCurso =  100 - percentPracticeCurso;
-
+    const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0); //
+    const percentPracticeCurso = 100 - percentTheoryCurso; //  
+    
     // Horas totales del curso
     const hoursTotal = Number(temario.horas_total_curso || 0);
 
