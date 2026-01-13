@@ -700,7 +700,7 @@ export default function EditorDeTemario_seminario({
 
       learning_outcomes: temario.objetivos || "",
 
-      hours_total: hoursTotal,
+      hours_total: total_duration_minutes/60,
       hours_theory: hoursTheory,     // ✅ corregido
       hours_practice: hoursPractice, // ✅ corregido
 
