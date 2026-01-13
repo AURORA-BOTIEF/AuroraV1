@@ -514,11 +514,11 @@ const exportarYAML = () => {
 
   // Porcentaje teoría/práctica a nivel curso
   // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
-  const percentPracticeCurso = Number(temario.porcentaje_teoria_practica || 0); 
-  const percentTheoryCurso =  100 - percentPracticeCurso;
+  const percentPracticeCurso = 0; 
+  const percentTheoryCurso =  100;
 
   // Horas totales del curso
-  const hoursTotal = Number(temario.horas_total_curso || 0);
+  const hoursTotal = temario?.horas_total_curso || 0; // Number(temario.horas_total_curso || 0);
 
   // ✅ Corrección: theory usa percentTheory, practice usa percentPractice
   const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
@@ -563,8 +563,8 @@ const exportarYAML = () => {
     learning_outcomes: temario.objetivos || "",
 
     hours_total: (totalDurationMinutes / 60).toFixed(2),
-    hours_theory: hoursTheory,     // ✅ corregido
-    hours_practice: hoursPractice, // ✅ corregido
+    hours_theory: hoursTotal,     // ✅ corregido
+    hours_practice: 0, // ✅ corregido
 
     modules: (temario.temario || []).map((cap, capIndex) => {
       let theoryMin = 0;
