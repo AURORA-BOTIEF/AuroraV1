@@ -4753,7 +4753,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 if (editorRef.current) {
                                     editorRef.current.scrollTop = 0;
                                 }
-                                setViewMode(viewMode === 'book' ? 'lab' : 'book');
+                                const newMode = viewMode === 'book' ? 'lab' : 'book';
+                                setViewMode(newMode);
+                                // Update URL to reflect mode change
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('bookType', newMode);
+                                setSearchParams(newParams);
                             }}
                             title={viewMode === 'book' ? 'Ver Guía de Laboratorios' : 'Ver Libro'}
                         >
