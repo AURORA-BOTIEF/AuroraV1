@@ -652,11 +652,11 @@ export default function EditorDeTemario_seminario({
 
     // Porcentaje teoría/práctica a nivel curso
     // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
-    const percentTheoryCurso = 60//Number(temario.porcentaje_teoria_practica || 0); //
-    const percentPracticeCurso = 40//100 - percentTheoryCurso; //  
-    
+    const percentTheoryCurso = 50; //Number(temario.porcentaje_teoria_practica || 0); //
+    const percentPracticeCurso = 50; //100 - percentTheoryCurso; //  
+
     // Horas totales del curso
-    const hoursTotal = 2 //Number(temario.horas_total_curso || 0);
+    const hoursTotal = temarioLimpio.horas_totales; //Number(temario.horas_total_curso || 0);
 
     // ✅ Corrección: theory usa percentTheory, practice usa percentPractice
     const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);

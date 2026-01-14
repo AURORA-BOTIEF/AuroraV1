@@ -516,11 +516,11 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
 
     // Porcentaje teoría/práctica a nivel curso
     // (en tu UI el campo es "Porcentaje de teoría y práctica", normalmente representa teoría)
-    const percentTheoryCurso = Number(temario.porcentaje_teoria_practica || 0); //
-    const percentPracticeCurso = 100 - percentTheoryCurso; //  
+    const percentTheoryCurso = 0; // Number(temario.porcentaje_teoria_practica || 0);
+    const percentPracticeCurso = 100; // 100 - percentTheoryCurso; 
     
     // Horas totales del curso
-    const hoursTotal = Number(temario.horas_total_curso || 0);
+    const hoursTotal = temario?.horas_total_curso || 0; // Number(temario.horas_total_curso || 0);
 
     // ✅ Corrección: theory usa percentTheory, practice usa percentPractice
     const hoursTheory = +(hoursTotal * percentTheoryCurso / 100).toFixed(2);
@@ -565,8 +565,8 @@ function EditorDeTemario_Practico({ temarioInicial, onSave, isLoading }) {
       learning_outcomes: temario.objetivos || "",
 
       hours_total: (totalDurationMinutes / 60).toFixed(2),
-      hours_theory: hoursTheory,     // ✅ corregido
-      hours_practice: hoursPractice, // ✅ corregido
+      hours_theory: 0,     // ✅ corregido
+      hours_practice: hoursTotal, // ✅ corregido
 
       modules: (temario.temario || []).map((cap, capIndex) => {
         let theoryMin = 0;
