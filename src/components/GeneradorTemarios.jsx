@@ -66,18 +66,39 @@ function GeneradorTemarios() {
   });
 
   // --- URLs ---
-  // (Dejo tus URLs como estaban, SOLO corrijo la de LISTAR porque /list NO existe)
   const generarApiUrl =
     "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
 
-  // ✅ TU API real: stage = versiones, resource = /versiones
-  // POST: /versiones/versiones
   const guardarApiUrl =
     "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
-  // ✅ FIX: NO existe /list → listar debe ser GET al mismo recurso /versiones
   const listarApiUrl =
     "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
+
+  // ✅ MATA EL BOTÓN FLOTANTE "DOCUMENTO" SOLO EN ESTA PANTALLA
+  useEffect(() => {
+    const removeDocFab = () => {
+      // Busca botones que contengan un icono tipo "file" de lucide y los elimina
+      const candidates = Array.from(document.querySelectorAll("button"));
+      candidates.forEach((btn) => {
+        const svg = btn.querySelector(
+          'svg[data-lucide="file-text"], svg[data-lucide="file"], svg[data-lucide="file-code"], svg[data-lucide="file-output"], svg[data-lucide="file-down"]'
+        );
+        if (svg) {
+          btn.remove();
+        }
+      });
+    };
+
+    // intenta inmediato
+    removeDocFab();
+
+    // y también si se monta después (React render / lazy)
+    const obs = new MutationObserver(() => removeDocFab());
+    obs.observe(document.body, { childList: true, subtree: true });
+
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     const getUser = async () => {
@@ -201,7 +222,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión (incluye cursoId + nota_version)
+  // ✅ Guardar versión
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = await getBearerToken();
@@ -243,7 +264,6 @@ function GeneradorTemarios() {
         throw new Error(data?.error || `Error HTTP ${res.status}`);
       }
 
-      // ✅ refresca lista si modal está abierto
       if (mostrarModal) await handleListarVersiones();
 
       return {
@@ -256,7 +276,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Listar versiones (GET al recurso /versiones, NO /list)
+  // ✅ Listar versiones
   const handleListarVersiones = async () => {
     try {
       setIsLoading(true);
