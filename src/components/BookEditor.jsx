@@ -1489,7 +1489,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             initializeContent();
         }
-    }, [projectFolder]);
+    }, [projectFolder, bookType]);
 
     // ReactQuill removed; lexical is preferred
 
@@ -1867,6 +1867,51 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             console.log('Files found in book folder:', response.Contents.map(c => c.Key));
+
+            // 1.5 Look for Lab Guide JSON first (Priority)
+            const labGuideJsonFile = response.Contents.find(obj =>
+                obj.Key && obj.Key.includes('_LabGuide_data.json')
+            );
+
+            if (labGuideJsonFile) {
+                console.log('Found Lab Guide JSON:', labGuideJsonFile.Key);
+                try {
+                    const jsonResp = await s3.send(new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: labGuideJsonFile.Key
+                    }));
+                    const jsonText = await jsonResp.Body.transformToString();
+                    let parsed = JSON.parse(jsonText);
+
+                    // Convert modules to lessons if needed
+                    if (!parsed.lessons && parsed.modules && Array.isArray(parsed.modules)) {
+                        console.log('Converting Lab JSON modules to lessons...');
+                        const lessons = [];
+                        parsed.modules.forEach((module, moduleIdx) => {
+                            const items = module.lessons || module.labs;
+                            if (items && Array.isArray(items)) {
+                                items.forEach((item, itemIdx) => {
+                                    lessons.push({
+                                        ...item,
+                                        moduleNumber: moduleIdx + 1,
+                                        lessonNumberInModule: itemIdx + 1,
+                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                        filename: item.filename || `lab_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                    });
+                                });
+                            }
+                        });
+                        parsed = { ...parsed, lessons };
+                    }
+
+                    setLabGuideData(parsed);
+                    console.log('✅ Lab guide loaded from JSON (fallback path)');
+                    loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
+                    return;
+                } catch (e) {
+                    console.warn('Failed to load/parse Lab Guide JSON:', e);
+                }
+            }
 
             // Look for lab guide file (_LabGuide_complete)
             const labGuideFile = response.Contents.find(obj =>
