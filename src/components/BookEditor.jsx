@@ -1907,10 +1907,17 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         parsed = { ...parsed, lessons };
                     }
 
-                    setLabGuideData(parsed);
-                    console.log('✅ Lab guide loaded from JSON (fallback path)');
-                    loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
-                    return;
+                    // LEGACY COMPATIBILITY: Check for "Hollow" JSON (No Content)
+                    const hasContent = parsed.lessons?.some(l => l.content || l.markdown);
+                    if (!hasContent) {
+                        console.warn('⚠️ Legacy "Hollow" JSON detected (no content). Falling back to Markdown parsing.');
+                        // Fall through to Markdown loader below
+                    } else {
+                        setLabGuideData(parsed);
+                        console.log('✅ Lab guide loaded from JSON (fallback path)');
+                        loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
+                        return;
+                    }
                 } catch (e) {
                     console.warn('Failed to load/parse Lab Guide JSON:', e);
                 }
