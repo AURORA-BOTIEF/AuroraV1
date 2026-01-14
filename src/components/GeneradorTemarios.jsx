@@ -75,29 +75,59 @@ function GeneradorTemarios() {
   const listarApiUrl =
     "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
-  // ✅ MATA EL BOTÓN FLOTANTE "DOCUMENTO" SOLO EN ESTA PANTALLA
+  // ✅ FIX DEFINITIVO: elimina el botón flotante SOLO en /generador-contenidos/curso-estandar
   useEffect(() => {
-    const removeDocFab = () => {
-      // Busca botones que contengan un icono tipo "file" de lucide y los elimina
-      const candidates = Array.from(document.querySelectorAll("button"));
-      candidates.forEach((btn) => {
-        const svg = btn.querySelector(
-          'svg[data-lucide="file-text"], svg[data-lucide="file"], svg[data-lucide="file-code"], svg[data-lucide="file-output"], svg[data-lucide="file-down"]'
-        );
-        if (svg) {
-          btn.remove();
+    const path = window.location.pathname || "";
+    if (!path.includes("/generador-contenidos/curso-estandar")) return;
+
+    const isChatOrLogout = (el) => {
+      if (!el) return false;
+      if (el.id === "abrirChat" || el.id === "logout") return true;
+      if (el.closest && (el.closest("#modalChat") || el.closest("#abrirChat")))
+        return true;
+      return false;
+    };
+
+    const killFloatingDocButton = () => {
+      // 1) Si es un ícono lucide file-text
+      const lucideTargets = Array.from(
+        document.querySelectorAll('svg.lucide-file-text, svg[data-lucide="file-text"]')
+      );
+
+      lucideTargets.forEach((svg) => {
+        const host = svg.closest("button, a, div");
+        if (host && !isChatOrLogout(host)) host.remove();
+      });
+
+      // 2) Plan B: cualquier FIXED en esquina inferior derecha (menos chat/logout)
+      const all = Array.from(document.querySelectorAll("button, a, div"));
+      all.forEach((el) => {
+        if (isChatOrLogout(el)) return;
+
+        const st = window.getComputedStyle(el);
+        if (st.position !== "fixed") return;
+
+        const rect = el.getBoundingClientRect();
+        const nearBottomRight =
+          rect.bottom > window.innerHeight - 120 &&
+          rect.right > window.innerWidth - 160;
+
+        const highZ = (parseInt(st.zIndex || "0", 10) || 0) >= 9000;
+
+        if (nearBottomRight && highZ) {
+          el.remove();
         }
       });
     };
 
-    // intenta inmediato
-    removeDocFab();
+    killFloatingDocButton();
+    const i1 = setInterval(killFloatingDocButton, 400);
+    const t = setTimeout(() => clearInterval(i1), 8000);
 
-    // y también si se monta después (React render / lazy)
-    const obs = new MutationObserver(() => removeDocFab());
-    obs.observe(document.body, { childList: true, subtree: true });
-
-    return () => obs.disconnect();
+    return () => {
+      clearInterval(i1);
+      clearTimeout(t);
+    };
   }, []);
 
   useEffect(() => {
@@ -147,7 +177,7 @@ function GeneradorTemarios() {
     }
 
     if (name === "horas_por_sesion" || name === "numero_sesiones_por_semana") {
-      setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+      setParams((prev) => ({ ...prev, [name]: parseInt(value, 10) }));
       return;
     }
 
@@ -156,7 +186,7 @@ function GeneradorTemarios() {
 
   const handleSliderChange = (e) => {
     const { name, value } = e.target;
-    setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+    setParams((prev) => ({ ...prev, [name]: parseInt(value, 10) }));
   };
 
   const handleGenerar = async () => {
@@ -181,7 +211,6 @@ function GeneradorTemarios() {
 
     try {
       const payload = { ...params, horas_totales: horasTotales };
-
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
 
       const token = await getBearerToken();
@@ -222,7 +251,7 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Guardar versión
+  // ✅ Guardar versión (incluye cursoId + nota_version)
   const handleGuardarVersion = async (temarioParaGuardar, nota) => {
     try {
       const token = await getBearerToken();
@@ -276,13 +305,12 @@ function GeneradorTemarios() {
     }
   };
 
-  // ✅ Listar versiones
+  // ✅ Listar versiones (GET al recurso /versiones, NO /list)
   const handleListarVersiones = async () => {
     try {
       setIsLoading(true);
 
       const token = await getBearerToken();
-
       if (!token) {
         console.error("⚠️ No hay token. Revisa Amplify o storage.");
         setVersiones([]);
@@ -312,7 +340,6 @@ function GeneradorTemarios() {
       }
 
       const items = Array.isArray(data) ? data : [];
-
       const sortedData = items.sort(
         (a, b) =>
           new Date(b.fecha_guardado || b.fecha_creacion || 0) -
@@ -708,6 +735,17 @@ function GeneradorTemarios() {
                           >
                             ✏️
                           </button>
+
+                          {/* Si quieres el botón PDF en la tabla, descomenta esto:
+                          <button
+                            className="menu-btn"
+                            title="Exportar PDF"
+                            onClick={() => handleExportarPDF(v)}
+                            style={{ marginLeft: 8 }}
+                          >
+                            📄
+                          </button>
+                          */}
                         </td>
                       </tr>
                     ))}
@@ -746,3 +784,4 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+
