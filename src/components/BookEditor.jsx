@@ -1307,9 +1307,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             bookVersionLoaded = true;
                             console.log('✅ Book content loaded (loading first lesson images before showing...)');
 
-                            // Load images progressively - setLoading(false) happens after first lesson
-                            await loadImagesProgressively(parsed.lessons, setBookData, 'book');
-                            setLoading(false); // Now ready to show!
+                            // Load images progressively (non-blocking)
+                            loadImagesProgressively(parsed.lessons, setBookData, 'book');
+                            setLoading(false); // Show content immediately
                         }
                     } catch (e) {
                         console.warn('Could not load latest book version, falling back to original:', e);
