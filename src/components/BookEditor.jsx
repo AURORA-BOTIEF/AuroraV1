@@ -60,7 +60,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [originalLabGuideData, setOriginalLabGuideData] = useState(null); // Store original for "Original" version
     const [originalLabGuideMarkdown, setOriginalLabGuideMarkdown] = useState(null); // Store raw markdown for structure preservation
     const [showLabGuide, setShowLabGuide] = useState(false);
-    const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
+    const [viewMode, setViewMode] = useState(bookType === 'lab' ? 'lab' : 'book'); // 'book' or 'lab'
     // PPT Generation states
     const [showPPTModal, setShowPPTModal] = useState(false);
     const [pptGenerating, setPptGenerating] = useState(false);
