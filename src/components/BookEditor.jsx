@@ -1281,6 +1281,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // OPTIMIZED: Sequential Strategy
             const initializeContent = async () => {
+                console.log('🚀🚀🚀 INITIALIZE CONTENT STARTED 🚀🚀🚀');
                 setLoadingStage('versions');
                 console.log('🔍 Checking for book versions for project:', projectFolder);
 
