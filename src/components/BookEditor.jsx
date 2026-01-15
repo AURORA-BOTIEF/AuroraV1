@@ -1849,9 +1849,19 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                     // LEGACY COMPATIBILITY: Check for "Hollow" JSON (No Content)
                     const hasContent = parsed.lessons?.some(l => l.content || l.markdown);
+
+                    // NEW: Also check if content contains placeholder errors (from previous buggy parsing)
+                    const hasPlaceholderErrors = parsed.lessons?.some(l =>
+                        l.content?.includes('No se encontró el contenido para esta actividad') ||
+                        l.content?.includes('Error:') && l.content?.includes('archivo markdown')
+                    );
+
                     if (!hasContent) {
                         console.warn('⚠️ Legacy "Hollow" JSON detected (no content). Falling back to Markdown parsing.');
                         // Fall through to Markdown loader below
+                    } else if (hasPlaceholderErrors) {
+                        console.warn('⚠️ JSON contains placeholder errors from buggy parsing. Falling back to fresh Markdown parsing.');
+                        // Fall through to Markdown loader below  
                     } else {
                         setLabGuideData(parsed);
                         console.log('✅ Lab guide loaded from JSON (fallback path)');
