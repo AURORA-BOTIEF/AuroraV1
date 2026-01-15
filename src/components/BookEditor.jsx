@@ -1325,35 +1325,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         await loadBook();
                     }
 
-                    // 3. Check Lab Versions (Sequential to avoid race conditions context switching)
-                    const labVersions = await loadLabGuideVersions(session);
-                    if (labVersions.length > 0) {
-                        console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
-                        const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                        const resp = await s3.send(new GetObjectCommand({
-                            Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
-                            Key: labVersions[0].key
-                        }));
-                        const text = await resp.Body.transformToString();
-                        let parsed;
-                        if (labVersions[0].isJson) {
-                            parsed = JSON.parse(text);
-                            setLabGuideData(parsed);
-                            loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
-                        } else {
-                            // Fallback to standard load for markdown versions
-                            await loadLabGuide();
-                        }
-
-                        // ALWAYS load fresh lab guide in background for "View Original" feature
-                        // This re-parses the markdown with our fixed matching code
-                        console.log('📋 Loading original lab guide in background (for View Original)...');
-                        loadLabGuide().catch(e => console.warn('Background original lab guide load failed:', e));
-                    } else {
-                        // No versions - load lab guide directly (also serves as the original)
-                        console.log('📋 Loading lab guide (no versions found)...');
-                        loadLabGuide().catch(e => console.warn('Background lab guide load failed:', e));
-                    }
+                    // 3. Load Lab Guide - ALWAYS parse fresh from markdown
+                    // (Temporarily skipping saved versions to ensure fresh parsing with fixed code)
+                    console.log('📋 Loading lab guide fresh from markdown (bypassing saved versions)...');
+                    await loadLabGuide();
 
                 } catch (e) {
                     console.error("Init error:", e);
