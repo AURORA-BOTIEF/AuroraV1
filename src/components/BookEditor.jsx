@@ -1674,16 +1674,40 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     fetchedJson = convertModulesToLessons(fetchedJson);
                 }
 
-                // Ensure lessons exists and is an array
                 if (!fetchedJson.lessons || !Array.isArray(fetchedJson.lessons)) {
                     console.error('Fetched JSON lessons is not valid:', fetchedJson);
                     throw new Error('El formato del libro no es válido: lessons no es un array');
                 }
-                // Process images
-                for (let lesson of fetchedJson.lessons) {
-                    if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
-                }
+
+                // Set initial data immediately WITHOUT images
                 bookToSet = { ...fetchedJson, outlineKey };
+                setBookData(bookToSet);
+                setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
+                setLoading(false); // Show UI immediately
+
+                // Process images in background
+                console.log('Loading images progressively in background...');
+                setLoadingImages(true);
+
+                (async () => {
+                    try {
+                        for (let lesson of bookToSet.lessons) {
+                            if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                        }
+                        // Update state after all images loaded (or could do progressively like above)
+                        if (!versionLoadedRef.current) {
+                            setBookData({ ...bookToSet });
+                            setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
+                        }
+                        console.log('All images loaded (JSON source)');
+                    } catch (err) {
+                        console.error('Error loading images (JSON source):', err);
+                    } finally {
+                        setLoadingImages(false);
+                    }
+                })();
+
+                return; // Exit early
             } else if (data.bookMdUrl) {
                 // Fetch markdown via presigned URL and parse
                 console.log('Fetching book markdown from presigned URL...');
@@ -2253,9 +2277,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (outModule.lab_activities) {
                 outModule.lab_activities.forEach(lab => {
                     moduleItems.push({
-                        title: lab.title,
+                        title: typeof lab === 'string' ? lab : lab.title,
                         type: 'lab',
-                        original: lab
+                        original: typeof lab === 'string' ? { title: lab } : lab
                     });
                 });
             }
@@ -2275,9 +2299,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (outLesson.lab_activities) {
                         outLesson.lab_activities.forEach(lab => {
                             moduleItems.push({
-                                title: lab.title,
+                                title: typeof lab === 'string' ? lab : lab.title,
                                 type: 'lab',
-                                original: lab
+                                original: typeof lab === 'string' ? { title: lab } : lab
                             });
                         });
                     }
