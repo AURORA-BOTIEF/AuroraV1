@@ -1809,12 +1809,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             console.log('Files found in book folder:', response.Contents.map(c => c.Key));
 
             // 1.5 Look for Lab Guide JSON first (Priority)
+            // TEMPORARILY DISABLED: Force markdown parsing to bypass broken cached JSON
             // Match files ending with _data.json that contain Lab_Guide or LabGuide
             // (consistent with backend load_book.py pattern matching)
+            const labGuideJsonFile = false; // FORCE SKIP JSON
+            /*
             const labGuideJsonFile = response.Contents.find(obj =>
                 obj.Key && obj.Key.endsWith('_data.json') &&
                 (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
             );
+            */
 
             if (labGuideJsonFile) {
                 console.log('Found Lab Guide JSON:', labGuideJsonFile.Key);
