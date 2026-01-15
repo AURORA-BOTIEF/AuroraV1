@@ -2174,6 +2174,31 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     console.log(`  Found lab by module - specific ID: "${labMatch.title}" for module ${moduleNum}`);
                     return labMatch;
                 }
+                if (labMatch) {
+                    console.log(`  Found lab by module - specific ID: "${labMatch.title}" for module ${moduleNum}`);
+                    return labMatch;
+                }
+            }
+
+            // NEW: Match by "Lab X" or "Práctica X" prefix ONLY
+            // This handles cases where the descriptive text differs (e.g. "Configurar..." vs "Configura...")
+            // extract number from title
+            const labNumMatch = normTitle.match(/^lab\s+(\d+)/);
+            if (labNumMatch) {
+                const labNum = labNumMatch[1];
+                // Look for header starting with "lab <num>" with boundary
+                const prefixMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+                    // Match "lab 7" followed by space or end of string. Prevent "lab 70"
+                    // Regex: ^lab 7(?![0-9])
+                    const regex = new RegExp(`^lab\\s+${labNum}(?![0-9])`);
+                    return regex.test(normH);
+                });
+                if (prefixMatch) {
+                    console.log(`  Found match by Lab prefix: "${title}" -> "${prefixMatch.title}"`);
+                    return prefixMatch;
+                }
             }
 
             // 1. Exact match (case insensitive, normalized)
