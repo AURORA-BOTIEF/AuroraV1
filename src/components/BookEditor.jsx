@@ -1279,227 +1279,78 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         if (projectFolder) {
 
 
-            // OPTIMIZED: Load original content IN PARALLEL with version check
-            // This eliminates the "Verificando versiones" bottleneck
+            // OPTIMIZED: Sequential Strategy
             const initializeContent = async () => {
-                console.log('🚀 Starting parallel loading for project:', projectFolder);
                 setLoadingStage('versions');
+                console.log('🔍 Checking for book versions for project:', projectFolder);
 
-                // Start loading original book AND checking versions IN PARALLEL
-                const originalBookPromise = loadBook();
-                const bookVersionsPromise = loadVersions();
+                try {
+                    const session = await fetchAuthSession();
+                    if (!session || !session.credentials) throw new Error("No session");
 
-                // Wait for version check (usually faster than loading full book)
-                const bookVersions = await bookVersionsPromise;
-                console.log('📦 Book versions found:', bookVersions.length, bookVersions.map(v => v.name));
+                    // 1. Check Book Versions
+                    const bookVersions = await loadVersions(session);
 
-                let bookVersionLoaded = false;
-                if (bookVersions.length > 0) {
-                    console.log('📚 Found book versions, loading latest directly:', bookVersions[0].name);
-                    versionLoadedRef.current = true; // Mark immediately to prevent async overwrites
-                    try {
+                    if (bookVersions.length > 0) {
+                        // 2a. Versions exist -> Load latest
+                        console.log('📚 Found book versions, loading latest:', bookVersions[0].name);
+                        versionLoadedRef.current = true;
                         setLoadingStage('content');
-                        const session = await fetchAuthSession();
-                        if (session && session.credentials) {
-                            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                            const resp = await s3.send(new GetObjectCommand({
-                                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
-                                Key: bookVersions[0].key
-                            }));
-                            const jsonText = await resp.Body.transformToString();
-                            const parsed = JSON.parse(jsonText);
 
-                            // Set book data and show content immediately
-                            setBookData(parsed);
-                            bookVersionLoaded = true;
-                            setLoading(false); // Show content immediately
-                            console.log('✅ Book version loaded, showing content');
+                        const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                        const resp = await s3.send(new GetObjectCommand({
+                            Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                            Key: bookVersions[0].key
+                        }));
+                        const jsonText = await resp.Body.transformToString();
+                        const parsed = JSON.parse(jsonText);
 
-                            // Load images progressively (non-blocking)
-                            loadImagesProgressively(parsed.lessons, setBookData, 'book');
-                        }
-                    } catch (e) {
-                        console.warn('Could not load latest book version, falling back to original:', e);
-                        versionLoadedRef.current = false;
+                        setBookData(parsed);
+                        setLoading(false);
+
+                        loadImagesProgressively(parsed.lessons, setBookData, 'book');
+
+                        // Background load of original data for "View Original" feature
+                        // We do this silently without updating main bookData
+                        (async () => {
+                            try {
+                                const originalData = await loadBookDataFromAPI(bookType); // Uses fallback load logic
+                                if (originalData) setOriginalBookData(originalData);
+                            } catch (e) { console.warn("Background original load failed", e); }
+                        })();
+
+                    } else {
+                        // 2b. No versions -> Load original
+                        console.log('📖 No versions found, loading original book...');
+                        await loadBook();
                     }
-                }
 
-                // If version was loaded, let original book load finish in background for "View Original"
-                // If no version, the original book load is already in progress and will complete
-                if (!bookVersionLoaded) {
-                    console.log('📖 No versions, waiting for original book...');
-                    await originalBookPromise; // Already loading in parallel, just wait for it
-                } else {
-                    // Load original in background for "View Original" feature
-                    // Important: Only set originalBookData, do NOT touch bookData
-                    setLoadingOriginal(true);
-                    (async () => {
-                        try {
-                            console.log('📖 Loading original book in background for "View Original" feature...');
-                            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`);
-                            if (response.ok) {
-                                const data = await response.json();
-                                let originalBook = null;
-
-                                // Helper to convert modules structure to lessons
-                                const convertModulesToLessonsLocal = (bookData) => {
-                                    if (bookData.modules && Array.isArray(bookData.modules)) {
-                                        console.log('Converting modules structure to lessons array (background)...');
-                                        const lessons = [];
-                                        bookData.modules.forEach((module, moduleIdx) => {
-                                            const items = module.lessons || module.labs;
-                                            if (items && Array.isArray(items)) {
-                                                items.forEach((item, itemIdx) => {
-                                                    lessons.push({
-                                                        ...item,
-                                                        moduleNumber: moduleIdx + 1,
-                                                        lessonNumberInModule: itemIdx + 1,
-                                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
-                                                        filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
-                                                    });
-                                                });
-                                            }
-                                        });
-                                        return { ...bookData, lessons };
-                                    }
-                                    return bookData;
-                                };
-
-                                // Handle all API response formats (same as loadBook)
-                                if (data.bookData) {
-                                    let bookData = data.bookData;
-                                    // Check if we have modules structure instead of lessons
-                                    if (!bookData.lessons && bookData.modules) {
-                                        bookData = convertModulesToLessonsLocal(bookData);
-                                    }
-                                    if (bookData.lessons && Array.isArray(bookData.lessons)) {
-                                        originalBook = bookData;
-                                    }
-                                } else if (data.bookContent) {
-                                    // Parse markdown content to book
-                                    originalBook = parseMarkdownToBook(data.bookContent);
-                                } else if (data.bookJsonUrl) {
-                                    // Fetch JSON from presigned URL
-                                    const jsonResp = await fetch(data.bookJsonUrl);
-                                    if (jsonResp.ok) {
-                                        let fetchedJson = await jsonResp.json();
-                                        if (!fetchedJson.lessons && fetchedJson.modules) {
-                                            fetchedJson = convertModulesToLessonsLocal(fetchedJson);
-                                        }
-                                        if (fetchedJson.lessons && Array.isArray(fetchedJson.lessons)) {
-                                            originalBook = fetchedJson;
-                                        }
-                                    }
-                                } else if (data.bookMdUrl) {
-                                    // Fetch markdown from presigned URL and parse
-                                    const mdResp = await fetch(data.bookMdUrl);
-                                    if (mdResp.ok) {
-                                        const markdown = await mdResp.text();
-                                        originalBook = parseMarkdownToBook(markdown);
-                                    }
-                                }
-
-                                if (originalBook && originalBook.lessons && Array.isArray(originalBook.lessons)) {
-                                    setOriginalBookData(JSON.parse(JSON.stringify(originalBook)));
-                                    console.log('📖 Original book stored for "View Original" (did not overwrite current content)');
-                                } else {
-                                    console.warn('📖 Background original load: Could not parse book data');
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Background original load failed:', e);
-                        } finally {
-                            setLoadingOriginal(false);
-                        }
-                    })();
-                }
-
-                // Check for lab guide versions IN PARALLEL with lab guide loading
-                const labGuidePromise = loadLabGuide();
-                const labVersionsPromise = loadLabGuideVersions();
-
-                const labVersions = await labVersionsPromise;
-                let labVersionLoaded = false;
-                if (labVersions.length > 0) {
-                    console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
-                    try {
-                        const session = await fetchAuthSession();
-                        if (session && session.credentials) {
-                            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                            const resp = await s3.send(new GetObjectCommand({
-                                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
-                                Key: labVersions[0].key
-                            }));
-                            const text = await resp.Body.transformToString();
-                            let parsed;
-                            if (labVersions[0].isJson || labVersions[0].key.endsWith('.json')) {
-                                parsed = JSON.parse(text);
-                            } else {
-                                parsed = parseMarkdownToBook(text);
-                            }
-
-                            // OPTIMIZED: Show content IMMEDIATELY (no images yet)
+                    // 3. Check Lab Versions (Sequential to avoid race conditions context switching)
+                    const labVersions = await loadLabGuideVersions(session);
+                    if (labVersions.length > 0) {
+                        console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
+                        const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                        const resp = await s3.send(new GetObjectCommand({
+                            Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                            Key: labVersions[0].key
+                        }));
+                        const text = await resp.Body.transformToString();
+                        let parsed;
+                        if (labVersions[0].isJson) {
+                            parsed = JSON.parse(text);
                             setLabGuideData(parsed);
-                            labVersionLoaded = true;
-                            console.log('✅ Lab guide content loaded (images loading in background)');
-
-                            // Load images progressively in background
                             loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
+                        } else {
+                            // Fallback to standard load for markdown versions
+                            if (viewMode === 'lab') await loadLabGuide();
                         }
-                    } catch (e) {
-                        console.warn('Could not load latest lab version:', e);
+                    } else {
+                        if (viewMode === 'lab') await loadLabGuide();
                     }
-                }
 
-                // If version was loaded, let original lab guide load finish in background for "View Original"
-                // If no version, the original lab guide load is already in progress
-                if (!labVersionLoaded) {
-                    console.log('🔬 No lab versions, waiting for original lab guide...');
-                    await labGuidePromise; // Already loading in parallel, just wait for it
-                } else {
-                    // Load original in background for "View Original" feature
-                    // Important: Only set originalLabGuideData, do NOT touch labGuideData
-                    (async () => {
-                        try {
-                            console.log('🔬 Loading original lab guide in background for "View Original" feature...');
-                            const session = await fetchAuthSession();
-                            if (session && session.credentials) {
-                                const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                                const labGuidePrefix = `${projectFolder}/book/`;
-
-                                const response = await s3.send(new ListObjectsV2Command({
-                                    Bucket: bucketName,
-                                    Prefix: labGuidePrefix,
-                                    MaxKeys: 50
-                                }));
-
-                                const labGuideFile = response.Contents?.find(obj =>
-                                    obj.Key && obj.Key.includes('_LabGuide_complete')
-                                );
-
-                                if (labGuideFile) {
-                                    const labGuideResponse = await s3.send(new GetObjectCommand({
-                                        Bucket: bucketName,
-                                        Key: labGuideFile.Key
-                                    }));
-                                    const labGuideContent = await labGuideResponse.Body.transformToString();
-                                    const parsedBook = parseMarkdownToBook(labGuideContent);
-
-                                    // Only set originalLabGuideData, not labGuideData
-                                    setOriginalLabGuideData({
-                                        ...parsedBook,
-                                        filename: labGuideFile.Key.split('/').pop(),
-                                        lastModified: labGuideFile.LastModified
-                                    });
-                                    setOriginalLabGuideMarkdown(labGuideContent);
-                                    console.log('🔬 Original lab guide stored for "View Original" (did not overwrite current content)');
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Background lab guide load failed:', e);
-                        }
-                    })();
+                } catch (e) {
+                    console.error("Init error:", e);
+                    await loadBook(); // Fallback
                 }
             };
 
@@ -1553,6 +1404,73 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         };
         loadLogo();
     }, []);
+
+    const loadBookDataFromAPI = async (type) => {
+        try {
+            console.log(`📡 Fetching ${type} data from API (background)...`);
+            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${type}`);
+            if (!response.ok) {
+                console.warn(`API error loading ${type}:`, response.status);
+                return null;
+            }
+
+            const data = await response.json();
+
+            // Helper to convert modules structure to lessons (local scope)
+            const convertModulesToLessons = (bookData) => {
+                if (bookData.modules && Array.isArray(bookData.modules)) {
+                    const lessons = [];
+                    bookData.modules.forEach((module, moduleIdx) => {
+                        const items = module.lessons || module.labs;
+                        if (items && Array.isArray(items)) {
+                            items.forEach((item, itemIdx) => {
+                                lessons.push({
+                                    ...item,
+                                    moduleNumber: moduleIdx + 1,
+                                    lessonNumberInModule: itemIdx + 1,
+                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                    filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                });
+                            });
+                        }
+                    });
+                    return { ...bookData, lessons };
+                }
+                return bookData;
+            };
+
+            let bookData = null;
+
+            if (data.bookData) {
+                bookData = data.bookData;
+                if (!bookData.lessons && bookData.modules) {
+                    bookData = convertModulesToLessons(bookData);
+                }
+            } else if (data.bookContent) {
+                bookData = parseMarkdownToBook(data.bookContent);
+            } else if (data.bookJsonUrl) {
+                const jsonResp = await fetch(data.bookJsonUrl);
+                if (jsonResp.ok) {
+                    let fetchedJson = await jsonResp.json();
+                    if (!fetchedJson.lessons && fetchedJson.modules) {
+                        fetchedJson = convertModulesToLessons(fetchedJson);
+                    }
+                    bookData = fetchedJson;
+                }
+            } else if (data.bookMdUrl) {
+                const mdResp = await fetch(data.bookMdUrl);
+                if (mdResp.ok) {
+                    const markdown = await mdResp.text();
+                    bookData = parseMarkdownToBook(markdown);
+                }
+            }
+
+            return bookData;
+        } catch (error) {
+            console.warn('Error in loadBookDataFromAPI:', error);
+            return null;
+        }
+    };
 
     const loadBook = async () => {
         try {
@@ -2192,11 +2110,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         const flatLessons = [];
 
         // Helper to normalize strings for comparison
-        const normalize = (str) => str.toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-            .replace(/[^\w\s]/g, ' ') // Replace non-word chars with space
-            .replace(/\s+/g, ' ')
-            .trim();
+        const normalize = (str) => {
+            let n = str.toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+                .replace(/[^\w\s]/g, ' ') // Replace non-word chars with space
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            // KEY FIX: Treat "practica" and "lab" as equivalent for matching
+            return n.replace(/\bpractica\b/g, 'lab');
+        };
 
         // Helper to find best matching header
         // moduleNum is optional - if provided, prioritize headers that match the module number
@@ -2920,16 +2843,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         return out;
     };
 
-    const loadVersions = async () => {
+    const loadVersions = async (cachedSession = null) => {
         try {
             // Load version files from S3 under projectFolder/versions/
-            const session = await fetchAuthSession();
+            // Reuse cached session if provided to avoid redundant auth calls
+            const session = cachedSession || await fetchAuthSession();
             if (!session || !session.credentials) return [];
             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
             const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const prefix = `${projectFolder}/versions/`;
 
-            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            // Use MaxKeys to limit results and speed up listing
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 20 }));
             const items = resp.Contents || [];
             const vers = items
                 .filter(i => i.Key && i.Key.endsWith('.json'))
@@ -2944,16 +2869,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         }
     };
 
-    const loadLabGuideVersions = async () => {
+    const loadLabGuideVersions = async (cachedSession = null) => {
         try {
             // Load lab guide version files from S3 under projectFolder/lab-versions/
-            const session = await fetchAuthSession();
+            // Reuse cached session if provided to avoid redundant auth calls
+            const session = cachedSession || await fetchAuthSession();
             if (!session || !session.credentials) return [];
             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
             const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const prefix = `${projectFolder}/lab-versions/`;
 
-            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            // Use MaxKeys to limit results and speed up listing
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 20 }));
             const items = resp.Contents || [];
             const vers = items
                 .filter(i => i.Key && (i.Key.endsWith('.md') || i.Key.endsWith('.json')))
