@@ -2192,8 +2192,37 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     return normH === normTitle;
                 }
 
-                // Check inclusion
-                return normH.includes(normTitle) || normTitle.includes(normH);
+                // Check inclusion with WORD BOUNDARY protection
+                // This prevents "Lab 1" from matching "Lab 11"
+
+                // Case A: Header contains Title
+                if (normH.includes(normTitle)) {
+                    // Check if match is a whole word suffix
+                    // If title ends in a digit, we must ensure the next char in header is NOT a digit
+                    const idx = normH.indexOf(normTitle);
+                    if (idx !== -1) {
+                        const charAfter = normH[idx + normTitle.length];
+                        // If char after exists and is a letter or number, it's a partial match (BAD)
+                        if (charAfter && /[a-z0-9]/.test(charAfter)) {
+                            return false;
+                        }
+                        return true;
+                    }
+                }
+
+                // Case B: Title contains Header (Header is shorter/truncated)
+                if (normTitle.includes(normH)) {
+                    const idx = normTitle.indexOf(normH);
+                    if (idx !== -1) {
+                        const charAfter = normTitle[idx + normH.length];
+                        if (charAfter && /[a-z0-9]/.test(charAfter)) {
+                            return false;
+                        }
+                        return true;
+                    }
+                }
+
+                return false;
             });
             if (match) {
                 console.log(`  Found fuzzy match for "${title}" -> "${match.title}"`);
