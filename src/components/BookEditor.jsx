@@ -2180,6 +2180,26 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             let match = headers.find(h => h.lineIndex >= startLine && normalize(h.title) === normTitle);
             if (match) return match;
 
+            // 1b. Fuzzy / Substring match (NEW)
+            // If exact match fails, try to see if one contains the other
+            // This handles cases with extra punctuation, spacing, or truncation
+            match = headers.find(h => {
+                if (h.lineIndex < startLine) return false;
+                const normH = normalize(h.title);
+
+                // If the Title is very short (e.g. "Lab 1"), be strict to avoid matching "Lab 10"
+                if (normTitle.length < 10) {
+                    return normH === normTitle;
+                }
+
+                // Check inclusion
+                return normH.includes(normTitle) || normTitle.includes(normH);
+            });
+            if (match) {
+                console.log(`  Found fuzzy match for "${title}" -> "${match.title}"`);
+                return match;
+            }
+
             // 2. Try "Module X" / "Módulo X" / "Capítulo X" match for modules
             // Matches "Module 1", "Módulo 1", "Capítulo 1", "Module 01", etc.
             const modMatch = title.match(/(?:Module|Módulo|Capitulo|Capítulo)\s+(\d+)/i);
