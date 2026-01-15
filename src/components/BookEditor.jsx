@@ -2211,6 +2211,30 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 }
             }
 
+            // NEW: Match by "Práctica X" pattern
+            // This handles outline titles like "Práctica 4: Crear VPC..." matching to 
+            // markdown headers like "Lab 02-09-01: Práctica 4: Crear VPC..."
+            const practicaMatch = normTitle.match(/^practica\s+(\d+)/);
+            if (practicaMatch) {
+                const practicaNum = practicaMatch[1];
+                console.log(`[DEBUG] Looking for Práctica ${practicaNum} in headers from line ${startLine}`);
+                // Look for header containing "practica <num>" with boundary
+                const practicaPrefixMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    if (usedHeaders.has(h.lineIndex)) return false; // Don't reuse headers
+                    const normH = normalize(h.title);
+                    // Match "practica 4" followed by non-digit (to prevent practica 4 matching practica 40)
+                    const regex = new RegExp(`practica\\s+${practicaNum}(?![0-9])`);
+                    return regex.test(normH);
+                });
+                if (practicaPrefixMatch) {
+                    console.log(`  Found match by Práctica prefix: "${title}" -> "${practicaPrefixMatch.title}"`);
+                    return practicaPrefixMatch;
+                } else {
+                    console.log(`[DEBUG] No Práctica prefix match found for Práctica ${practicaNum}`);
+                }
+            }
+
             // 1. Exact match (case insensitive, normalized)
             let match = headers.find(h => h.lineIndex >= startLine && normalize(h.title) === normTitle);
             if (match) return match;
