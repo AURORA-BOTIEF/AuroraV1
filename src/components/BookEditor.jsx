@@ -2153,7 +2153,29 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (!title) return null;
             const normTitle = normalize(title);
 
-            // NEW: If moduleNum is provided, first try to find a header with matching Lab ID prefix
+            // PRIORITY 1: Match by specific "Práctica X" or "Lab X" number in the title
+            // This is the most specific match - find headers containing the exact práctica/lab number
+            const practicaMatch = normTitle.match(/^lab\s+(\d+)/); // After normalize, "práctica" becomes "lab"
+            if (practicaMatch) {
+                const practicaNum = practicaMatch[1];
+                // Look for header that contains "práctica <num>" or "lab <ID>: práctica <num>"
+                // with proper word boundary to prevent práctica 4 matching práctica 40
+                const specificMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    if (usedHeaders.has(h.lineIndex)) return false; // Don't reuse headers
+                    const normH = normalize(h.title);
+                    // Check for "lab <num>" with word boundary (after normalize "práctica" -> "lab")
+                    // This matches both "Práctica 11: ..." and "Lab 04-07-01: Práctica 11: ..."
+                    const regex = new RegExp(`lab\\s+${practicaNum}(?![0-9])`);
+                    return regex.test(normH);
+                });
+                if (specificMatch) {
+                    console.log(`  Found match by specific Lab/Práctica ${practicaNum}: "${title}" -> "${specificMatch.title}"`);
+                    return specificMatch;
+                }
+            }
+
+            // PRIORITY 2: If moduleNum is provided, try to find a header with matching Lab ID prefix
             // Lab ID format: "Lab MM-00-NN: Title" where MM is the module number
             // After normalization, dashes become spaces: "lab 05 00 01 title"
             if (moduleNum !== null) {
@@ -2164,6 +2186,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Look for a header that matches the lab ID pattern AND contains the title
                 const labMatch = headers.find(h => {
                     if (h.lineIndex < startLine) return false;
+                    if (usedHeaders.has(h.lineIndex)) return false; // Don't reuse headers
                     const normH = normalize(h.title);
                     // Check if header starts with the right lab ID pattern (e.g., "lab 05 00 01")
                     if (labIdPattern.test(normH)) {
@@ -2172,10 +2195,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     }
                     return false;
                 });
-                if (labMatch) {
-                    console.log(`  Found lab by module - specific ID: "${labMatch.title}" for module ${moduleNum}`);
-                    return labMatch;
-                }
                 if (labMatch) {
                     console.log(`  Found lab by module - specific ID: "${labMatch.title}" for module ${moduleNum}`);
                     return labMatch;
@@ -2208,30 +2227,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     return prefixMatch;
                 } else {
                     console.log(`[DEBUG] No prefix match found for Lab ${labNum}`);
-                }
-            }
-
-            // NEW: Match by "Práctica X" pattern
-            // This handles outline titles like "Práctica 4: Crear VPC..." matching to 
-            // markdown headers like "Lab 02-09-01: Práctica 4: Crear VPC..."
-            const practicaMatch = normTitle.match(/^practica\s+(\d+)/);
-            if (practicaMatch) {
-                const practicaNum = practicaMatch[1];
-                console.log(`[DEBUG] Looking for Práctica ${practicaNum} in headers from line ${startLine}`);
-                // Look for header containing "practica <num>" with boundary
-                const practicaPrefixMatch = headers.find(h => {
-                    if (h.lineIndex < startLine) return false;
-                    if (usedHeaders.has(h.lineIndex)) return false; // Don't reuse headers
-                    const normH = normalize(h.title);
-                    // Match "practica 4" followed by non-digit (to prevent practica 4 matching practica 40)
-                    const regex = new RegExp(`practica\\s+${practicaNum}(?![0-9])`);
-                    return regex.test(normH);
-                });
-                if (practicaPrefixMatch) {
-                    console.log(`  Found match by Práctica prefix: "${title}" -> "${practicaPrefixMatch.title}"`);
-                    return practicaPrefixMatch;
-                } else {
-                    console.log(`[DEBUG] No Práctica prefix match found for Práctica ${practicaNum}`);
                 }
             }
 
