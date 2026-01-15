@@ -1,6 +1,6 @@
 // src/components/BookEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoader';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { fetchAuthSession } from 'aws-amplify/auth';
@@ -29,6 +29,7 @@ const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
 function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = false }) {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [bookData, setBookData] = useState(null);
     const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
     const [loadingOriginal, setLoadingOriginal] = useState(false); // Track if original is being loaded in background
@@ -1938,9 +1939,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 }
             }
 
-            // Look for lab guide file (_LabGuide_complete)
+            // Look for lab guide file (matches Lab_Guide or LabGuide pattern)
             const labGuideFile = response.Contents.find(obj =>
-                obj.Key && obj.Key.includes('_LabGuide_complete')
+                obj.Key && obj.Key.endsWith('_complete.md') &&
+                (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
             );
 
             if (!labGuideFile) {
