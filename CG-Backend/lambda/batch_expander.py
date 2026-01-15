@@ -42,7 +42,7 @@ s3_client = boto3.client('s3')
 # Maximum lessons per batch (reduced to 3 to prevent Lambda timeouts)
 # Large courses with complex lessons can take 15+ minutes for 5 lessons
 # Batch size of 3 ensures completion within Lambda's 900s timeout
-MAX_LESSONS_PER_BATCH = 3
+MAX_LESSONS_PER_BATCH = 1
 
 
 def lambda_handler(event, context):
@@ -137,7 +137,9 @@ def lambda_handler(event, context):
                     'model_provider': model_provider,
                     'content_source': content_source,
                     'image_model': image_model,
-                    'lesson_requirements': lesson_requirements
+                    'image_model': image_model,
+                    'lesson_requirements': lesson_requirements,
+                    'force_regenerate': True  # Always true for specific regeneration
                 }
                 
                 all_batches.append(batch_task)
@@ -167,7 +169,11 @@ def lambda_handler(event, context):
                     'model_provider': model_provider,
                     'content_source': content_source,
                     'image_model': image_model,
-                    'lesson_requirements': lesson_requirements  # Pass additional requirements to content generator
+                    'content_source': content_source,
+                    'image_model': image_model,
+                    'lesson_requirements': lesson_requirements,  # Pass additional requirements to content generator
+                    # Safeguard: Force regeneration ONLY if a specific lesson was requested
+                    'force_regenerate': bool(lesson_to_generate)
                 }
                 
                 all_batches.append(batch_task)

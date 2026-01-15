@@ -644,8 +644,68 @@ def lambda_handler(event, context):
         lesson_requirements = event.get('lesson_requirements', '')
         if lesson_requirements:
             print(f"📝 Additional lesson requirements: {lesson_requirements[:100]}...")
+            
+        # ------------------------------------------------------------------
+        # IDEMPOTENCY CHECK: Skip generation if lessons already exist
+        # ------------------------------------------------------------------
+        force_regenerate = event.get('force_regenerate', False)
         
+        if not force_regenerate:
+            try:
+                all_lessons_exist = True
+                existing_lesson_keys = []
+                existing_total_words = 0
+                
+                # Predict filenames for this batch
+                current_batch_lessons = module_lessons[batch_start_idx:batch_end_idx]
+                
+                for i, lesson_data in enumerate(current_batch_lessons):
+                    lesson_idx = batch_start_idx + i
+                    title = lesson_data.get('title', f'Lesson {lesson_idx + 1}')
+                    filename = format_lesson_filename(module_num, lesson_idx, title)
+                    key = f"{project_folder}/lessons/{filename}"
+                    
+                    try:
+                        s3_client.head_object(Bucket=course_bucket, Key=key)
+                        print(f"⏩ Lesson already exists: {key}")
+                        existing_lesson_keys.append({
+                            "s3_key": key,
+                            "module_number": module_num,
+                            "lesson_number": lesson_idx + 1,
+                            "lesson_title": title
+                        })
+                        # Estimate words (optional, or read object if needed, but 0 is fine for resume)
+                        existing_total_words += 1000 
+                    except:
+                        all_lessons_exist = False
+                        break
+                
+                if all_lessons_exist and len(existing_lesson_keys) == len(current_batch_lessons):
+                    print(f"\n{'='*70}")
+                    print(f"⏩ SMART RESUME: All {len(existing_lesson_keys)} lessons in batch already exist.")
+                    print(f"{'='*70}")
+                    return {
+                        'statusCode': 200,
+                        'message': f'Batch {batch_index}/{total_batches} skipped (already exists)',
+                        'lesson_keys': existing_lesson_keys,
+                        'bucket': course_bucket,
+                        'project_folder': project_folder,
+                        'module_number': module_num,
+                        'batch_index': batch_index,
+                        'total_batches': total_batches,
+                        'lessons_generated': 0,
+                        'total_words': existing_total_words,
+                        'model_provider': model_provider,
+                        'skipped': True
+                    }
+            except Exception as e:
+                print(f"⚠️  Idempotency check failed: {e} (proceeding with generation)")
+        else:
+            print(f"⚠️  Force regenerate requested: Skipping idempotency check.")
+            
+        # ------------------------------------------------------------------
         # GENERATE THIS BATCH
+        # ------------------------------------------------------------------
         print(f"\n{'='*70}")
         print(f"📚 GENERATING MODULE {module_num} - BATCH {batch_index}/{total_batches}")
         print(f"{'='*70}")

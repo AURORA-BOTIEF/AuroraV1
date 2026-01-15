@@ -6,16 +6,25 @@ import { NodeGlobalsPolyfillPlugin } from '@esbuild-plugins/node-globals-polyfil
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/', // importante para rutas relativas en Amplify
+  base: '/', 
 
-  // 🔧 Evitar que Vite/ESBuild inserte top-level await en el bundle
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://h6ysn7u0t1.execute-api.us-east-1.amazonaws.com/dev2',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: false
+      }
+    }
+  },
+
   build: {
     target: 'es2020',
     modulePreload: {
-      polyfill: false, // no generar preloads que requieran TLA
+      polyfill: false, 
     },
-    // Increase the chunk size warning limit and add manualChunks for large deps
-    chunkSizeWarningLimit: 2000, // kB
+    chunkSizeWarningLimit: 2000, 
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -34,7 +43,7 @@ export default defineConfig({
     esbuildOptions: {
       target: 'es2020',
       define: {
-        global: 'globalThis', // 👈 esto soluciona tu error de "global"
+        global: 'globalThis', 
       },
       plugins: [
         NodeGlobalsPolyfillPlugin({

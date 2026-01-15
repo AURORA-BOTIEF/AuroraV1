@@ -1342,10 +1342,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
                         } else {
                             // Fallback to standard load for markdown versions
-                            if (viewMode === 'lab') await loadLabGuide();
+                            await loadLabGuide();
                         }
                     } else {
-                        if (viewMode === 'lab') await loadLabGuide();
+                        // ALWAYS load lab guide in background so the button appears
+                        // This ensures the lab button is available even when viewing theory book
+                        console.log('📋 Loading lab guide in background for button availability...');
+                        loadLabGuide().catch(e => console.warn('Background lab guide load failed:', e));
                     }
 
                 } catch (e) {
@@ -2184,8 +2187,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // This handles cases where the descriptive text differs (e.g. "Configurar..." vs "Configura...")
             // extract number from title
             const labNumMatch = normTitle.match(/^lab\s+(\d+)/);
+            console.log(`[DEBUG] findHeader: title="${title}", normTitle="${normTitle}", labNumMatch=`, labNumMatch);
             if (labNumMatch) {
                 const labNum = labNumMatch[1];
+                console.log(`[DEBUG] Looking for Lab ${labNum} prefix in ${headers.length} headers from line ${startLine}`);
                 // Look for header starting with "lab <num>" with boundary
                 const prefixMatch = headers.find(h => {
                     if (h.lineIndex < startLine) return false;
@@ -2193,11 +2198,17 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     // Match "lab 7" followed by space or end of string. Prevent "lab 70"
                     // Regex: ^lab 7(?![0-9])
                     const regex = new RegExp(`^lab\\s+${labNum}(?![0-9])`);
-                    return regex.test(normH);
+                    const matches = regex.test(normH);
+                    if (normH.startsWith('lab ' + labNum)) {
+                        console.log(`[DEBUG]   Header "${h.title}" -> normH="${normH}", regex=${regex}, matches=${matches}`);
+                    }
+                    return matches;
                 });
                 if (prefixMatch) {
                     console.log(`  Found match by Lab prefix: "${title}" -> "${prefixMatch.title}"`);
                     return prefixMatch;
+                } else {
+                    console.log(`[DEBUG] No prefix match found for Lab ${labNum}`);
                 }
             }
 
