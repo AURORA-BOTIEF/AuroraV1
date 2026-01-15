@@ -1278,12 +1278,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         if (projectFolder) {
 
 
-            // OPTIMIZED: Check for versions FIRST, only load original if no versions
+            // OPTIMIZED: Load original content IN PARALLEL with version check
+            // This eliminates the "Verificando versiones" bottleneck
             const initializeContent = async () => {
-                // Check for book versions first (fast ListObjects call)
+                console.log('🚀 Starting parallel loading for project:', projectFolder);
                 setLoadingStage('versions');
-                console.log('🔍 Checking for book versions for project:', projectFolder);
-                const bookVersions = await loadVersions();
+
+                // Start loading original book AND checking versions IN PARALLEL
+                const originalBookPromise = loadBook();
+                const bookVersionsPromise = loadVersions();
+
+                // Wait for version check (usually faster than loading full book)
+                const bookVersions = await bookVersionsPromise;
                 console.log('📦 Book versions found:', bookVersions.length, bookVersions.map(v => v.name));
 
                 let bookVersionLoaded = false;
@@ -1302,14 +1308,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             const jsonText = await resp.Body.transformToString();
                             const parsed = JSON.parse(jsonText);
 
-                            // Set book data but KEEP loading=true until first lesson images are ready
+                            // Set book data and show content immediately
                             setBookData(parsed);
                             bookVersionLoaded = true;
-                            console.log('✅ Book content loaded (loading first lesson images before showing...)');
+                            setLoading(false); // Show content immediately
+                            console.log('✅ Book version loaded, showing content');
 
                             // Load images progressively (non-blocking)
                             loadImagesProgressively(parsed.lessons, setBookData, 'book');
-                            setLoading(false); // Show content immediately
                         }
                     } catch (e) {
                         console.warn('Could not load latest book version, falling back to original:', e);
@@ -1317,10 +1323,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     }
                 }
 
-                // Only load original book if no version was loaded
+                // If version was loaded, let original book load finish in background for "View Original"
+                // If no version, the original book load is already in progress and will complete
                 if (!bookVersionLoaded) {
-                    console.log('📖 Loading original book (no versions found or version failed)');
-                    await loadBook();
+                    console.log('📖 No versions, waiting for original book...');
+                    await originalBookPromise; // Already loading in parallel, just wait for it
                 } else {
                     // Load original in background for "View Original" feature
                     // Important: Only set originalBookData, do NOT touch bookData
@@ -1406,8 +1413,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     })();
                 }
 
-                // Check for lab guide versions
-                const labVersions = await loadLabGuideVersions();
+                // Check for lab guide versions IN PARALLEL with lab guide loading
+                const labGuidePromise = loadLabGuide();
+                const labVersionsPromise = loadLabGuideVersions();
+
+                const labVersions = await labVersionsPromise;
                 let labVersionLoaded = false;
                 if (labVersions.length > 0) {
                     console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
@@ -1440,9 +1450,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     }
                 }
 
-                // Only load original lab guide if no version was loaded
+                // If version was loaded, let original lab guide load finish in background for "View Original"
+                // If no version, the original lab guide load is already in progress
                 if (!labVersionLoaded) {
-                    await loadLabGuide();
+                    console.log('🔬 No lab versions, waiting for original lab guide...');
+                    await labGuidePromise; // Already loading in parallel, just wait for it
                 } else {
                     // Load original in background for "View Original" feature
                     // Important: Only set originalLabGuideData, do NOT touch labGuideData
@@ -1872,8 +1884,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             console.log('Files found in book folder:', response.Contents.map(c => c.Key));
 
             // 1.5 Look for Lab Guide JSON first (Priority)
+            // Match files ending with _data.json that contain Lab_Guide or LabGuide
+            // (consistent with backend load_book.py pattern matching)
             const labGuideJsonFile = response.Contents.find(obj =>
-                obj.Key && obj.Key.includes('_LabGuide_data.json')
+                obj.Key && obj.Key.endsWith('_data.json') &&
+                (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
             );
 
             if (labGuideJsonFile) {
