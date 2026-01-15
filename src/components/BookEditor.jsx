@@ -1344,10 +1344,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             // Fallback to standard load for markdown versions
                             await loadLabGuide();
                         }
+
+                        // ALWAYS load fresh lab guide in background for "View Original" feature
+                        // This re-parses the markdown with our fixed matching code
+                        console.log('📋 Loading original lab guide in background (for View Original)...');
+                        loadLabGuide().catch(e => console.warn('Background original lab guide load failed:', e));
                     } else {
-                        // ALWAYS load lab guide in background so the button appears
-                        // This ensures the lab button is available even when viewing theory book
-                        console.log('📋 Loading lab guide in background for button availability...');
+                        // No versions - load lab guide directly (also serves as the original)
+                        console.log('📋 Loading lab guide (no versions found)...');
                         loadLabGuide().catch(e => console.warn('Background lab guide load failed:', e));
                     }
 
@@ -2132,6 +2136,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             debugLog.push(`First 5 headers: ${headers.slice(0, 5).map(h => h.title).join(', ')} `);
         }
 
+        // CRITICAL DEBUG: Print all headers found so we can see what's in the markdown
+        console.log('=== parseMarkdownWithOutline DEBUG ===');
+        console.log(`Total headers found: ${headers.length}`);
+        console.log('All headers:', headers.map(h => `[L${h.lineIndex}] ${h.title}`).join('\n'));
+
         // 2. Map outline items to headers
         const modules = [];
         const flatLessons = [];
@@ -2409,6 +2418,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             moduleItems.forEach((item, idx) => {
                 // Pass module number (modIdx + 1) to help match lab headers with Lab ID prefix
                 const currentModuleNum = modIdx + 1;
+
+                // DEBUG: Log what we're searching for
+                console.log(`[SEARCH] Looking for: "${item.title}" (Module ${currentModuleNum})`);
 
                 // 1. Try to find header within module boundaries (or after previous lesson)
                 let header = findHeader(item.title, Math.max(moduleStartLine, lastLineIndex), currentModuleNum);
