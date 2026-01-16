@@ -6,6 +6,8 @@ import { Hub } from 'aws-amplify/utils';
 import './App.css';
 import './amplify';
 import { Toaster } from 'react-hot-toast';
+import { ensureOnboardingOnce } from "./utils/ensureOnboardingOnce";
+
 
 // === EDITORES ===
 import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
@@ -353,6 +355,11 @@ function App() {
 
         setUser({ attributes, groups });
         setLoading(false);
+
+        // 👇 Ejecutar onboarding UNA sola vez por usuario
+        ensureOnboardingOnce().catch((err) => {
+          console.error("Onboarding error:", err);
+        });
       })
       .catch((err) => {
         // Caso típico: usuario aún no ha iniciado sesión

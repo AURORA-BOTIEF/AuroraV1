@@ -1,5 +1,7 @@
 // src/amplify.js
 import { Amplify } from 'aws-amplify';
+import { cognitoUserPoolsTokenProvider } from "aws-amplify/auth/cognito";
+import { sessionStorage } from "aws-amplify/utils";
 /**
  * AWS Amplify v6 Configuration
  * Uses environment variables:
@@ -64,6 +66,9 @@ const sessionStorageWrapper = (typeof window !== 'undefined' && window.sessionSt
   clear: () => window.sessionStorage.clear()
 } : undefined;
 
+// 👇 Tokens Cognito usan sessionStorage (sin tocar storage wrapper)
+cognitoUserPoolsTokenProvider.setKeyValueStorage(sessionStorage);
+
 // === ✅ AWS Amplify v6 configuration ===
 Amplify.configure({
   Auth: {
@@ -92,6 +97,12 @@ Amplify.configure({
       // 👇 Nueva API registrada (HTTP API Gateway)
       SeminariosAPI: {
         endpoint: import.meta.env.VITE_HTTP_API_URL || "https://rvyg5dnnh4.execute-api.us-east-1.amazonaws.com/dev",
+        region: region
+
+      },
+      // 👇 API Panel Admin
+      AdminPlatformAPI: {
+        endpoint: "https://bnq58d43dh.execute-api.us-east-1.amazonaws.com/dev2",
         region: region
       }
     }
