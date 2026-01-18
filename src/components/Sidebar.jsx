@@ -301,15 +301,15 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         )}
 
         <a
-          href="https://quizmaster-v2-online-633674590122.us-west1.run.app/"
+          href="https://nethoot-v2-online-956580209772.us-west1.run.app/"
           target="_blank"
           rel="noopener noreferrer"
           className="nav-link"
-          title="Nehoot"
+          title="Nethoot"
         >
           <div className="step">
             <div className="circle">🎮</div>
-            {!colapsado && <span>Nehoot</span>}
+            {!colapsado && <span>Nethoot</span>}
           </div>
         </a>
 
