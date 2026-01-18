@@ -9,7 +9,10 @@ import BotonVersionesTemario from './BotonVersionesTemario';
 function GeneradorContenidosPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  // Show menu by default, but hide it for "Generador de Cursos" AND "Editor de Libros" (Book Builder)
   const mostrarMenu = location.pathname.startsWith('/generador-contenidos')
+    && !location.pathname.includes('/generador-cursos')
+    && !location.pathname.includes('/book-builder');
 
   const handleRegresar = () => {
     navigate('/generador-contenidos'); // Navega de vuelta al menú principal
@@ -122,7 +125,7 @@ function GeneradorContenidosPage() {
 
       {location.pathname.includes('/curso-estandar') && (
         <BotonVersionesTemario
-          apiBase="https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2"
+          apiBase={import.meta.env.VITE_GENERAR_TEMARIO_API_URL}
         />
       )}
     </div>

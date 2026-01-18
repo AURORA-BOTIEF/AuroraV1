@@ -315,7 +315,15 @@ def lambda_handler(event, context):
             logger.info(f"📧 User email for notifications: {user_email}")
         
         # Start Step Functions execution
-        execution_name = f"ppt-orchestration-{project_folder}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        # AWS Step Functions execution name max length: 80 characters
+        # Format: "ppt-orchestration-{project}-{timestamp}"
+        # Reserve: 18 (prefix) + 1 (dash) + 15 (timestamp) + 1 (dash) = 35 chars
+        # Available for project folder: 80 - 35 = 45 chars
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        max_project_length = 45
+        truncated_project = project_folder[:max_project_length] if len(project_folder) > max_project_length else project_folder
+        execution_name = f"ppt-orchestration-{truncated_project}-{timestamp}"
+        
         
         try:
             sf_response = stepfunctions_client.start_execution(

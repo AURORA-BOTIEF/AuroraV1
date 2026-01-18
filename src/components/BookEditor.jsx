@@ -1,6 +1,6 @@
 // src/components/BookEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoader';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { fetchAuthSession } from 'aws-amplify/auth';
@@ -29,6 +29,7 @@ const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
 function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = false }) {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [bookData, setBookData] = useState(null);
     const [originalBookData, setOriginalBookData] = useState(null); // Store original for "Original" version
     const [loadingOriginal, setLoadingOriginal] = useState(false); // Track if original is being loaded in background
@@ -60,7 +61,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [originalLabGuideData, setOriginalLabGuideData] = useState(null); // Store original for "Original" version
     const [originalLabGuideMarkdown, setOriginalLabGuideMarkdown] = useState(null); // Store raw markdown for structure preservation
     const [showLabGuide, setShowLabGuide] = useState(false);
-    const [viewMode, setViewMode] = useState('book'); // 'book' or 'lab'
+    const [viewMode, setViewMode] = useState(bookType === 'lab' ? 'lab' : 'book'); // 'book' or 'lab'
     // PPT Generation states
     const [showPPTModal, setShowPPTModal] = useState(false);
     const [pptGenerating, setPptGenerating] = useState(false);
@@ -87,6 +88,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [loadingProgress, setLoadingProgress] = useState(0); // 0-100
     const [totalImagesToLoad, setTotalImagesToLoad] = useState(0);
     const [imagesLoaded, setImagesLoaded] = useState(0);
+    // NEW: Verified Outline Key state
+    const [verifiedOutlineKey, setVerifiedOutlineKey] = useState(null);
     // Saving state
     const [isSaving, setIsSaving] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
@@ -143,46 +146,53 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
                 const outlinePrefix = `${projectFolder}/outline/`;
 
-                const outlineResponse = await s3.send(new ListObjectsV2Command({
-                    Bucket: bucketName,
-                    Prefix: outlinePrefix,
-                    MaxKeys: 10
-                }));
+                // Use verified key if available, otherwise try to discover
+                let outlineKeyToUse = verifiedOutlineKey;
 
-                if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
-                    let outlineFile = outlineResponse.Contents.find(obj =>
-                        obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
-                    );
+                if (!outlineKeyToUse) {
+                    const outlineResponse = await s3.send(new ListObjectsV2Command({
+                        Bucket: bucketName,
+                        Prefix: outlinePrefix,
+                        MaxKeys: 10
+                    }));
 
-                    if (!outlineFile) {
-                        outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                    if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                        let outlineFile = outlineResponse.Contents.find(obj =>
+                            obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                        );
+                        if (!outlineFile) {
+                            outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                        }
+                        if (outlineFile) {
+                            outlineKeyToUse = outlineFile.Key;
+                        }
+                    }
+                }
+
+                if (outlineKeyToUse) {
+                    const outlineObj = await s3.send(new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: outlineKeyToUse
+                    }));
+                    const outlineContent = await outlineObj.Body.transformToString();
+
+                    let outlineData;
+                    if (outlineKeyToUse.endsWith('.json')) {
+                        outlineData = JSON.parse(outlineContent);
+                    } else {
+                        outlineData = loadYaml(outlineContent);
                     }
 
-                    if (outlineFile) {
-                        const outlineObj = await s3.send(new GetObjectCommand({
-                            Bucket: bucketName,
-                            Key: outlineFile.Key
-                        }));
-                        const outlineContent = await outlineObj.Body.transformToString();
+                    // Handle nested course structure
+                    const courseData = outlineData.course || outlineData;
+                    courseTitle = courseData.course_title || courseData.title || 'Curso';
 
-                        let outlineData;
-                        if (outlineFile.Key.endsWith('.json')) {
-                            outlineData = JSON.parse(outlineContent);
-                        } else {
-                            outlineData = loadYaml(outlineContent);
-                        }
-
-                        // Handle nested course structure
-                        const courseData = outlineData.course || outlineData;
-                        courseTitle = courseData.course_title || courseData.title || 'Curso';
-
-                        // Extract module titles
-                        const modulesArray = courseData.modules || outlineData.modules;
-                        if (modulesArray && Array.isArray(modulesArray)) {
-                            modulesArray.forEach((module, idx) => {
-                                moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
-                            });
-                        }
+                    // Extract module titles
+                    const modulesArray = courseData.modules || outlineData.modules;
+                    if (modulesArray && Array.isArray(modulesArray)) {
+                        modulesArray.forEach((module, idx) => {
+                            moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
+                        });
                     }
                 }
             } catch (error) {
@@ -1192,303 +1202,205 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         });
     };
 
+    // Helper: Load images progressively with first lesson priority
+    const loadImagesProgressively = async (lessons, setDataFn, dataType = 'book') => {
+        if (!lessons || lessons.length === 0) return;
+
+        // Count total images to load (matches HTTPS S3 URLs)
+        const countImages = (content) => {
+            if (!content) return 0;
+            // Match: ![alt](https://bucket.s3.amazonaws.com/path)
+            const matches = content.match(/!\[+[^\]]*\]+\(https:\/\/[^\/]+\.s3\.amazonaws\.com\/[^)]+\)/g);
+            return matches ? matches.length : 0;
+        };
+
+        let totalImages = 0;
+        lessons.forEach(lesson => {
+            totalImages += countImages(lesson.content);
+        });
+
+        if (totalImages === 0) {
+            console.log(`📷 No S3 images to load for ${dataType}`);
+            return;
+        }
+
+        setTotalImagesToLoad(prev => prev + totalImages);
+        setLoadingStage('images');
+        setLoadingImages(true);
+        console.log(`📷 Loading ${totalImages} images progressively for ${dataType}...`);
+
+        let loadedCount = 0;
+
+        // PRIORITY: Load first lesson images first (currently visible)
+        if (lessons[0]?.content) {
+            try {
+                const firstLessonImgCount = countImages(lessons[0].content);
+                const updatedContent = await replaceS3UrlsWithDataUrls(lessons[0].content);
+                lessons[0].content = updatedContent;
+                loadedCount += firstLessonImgCount;
+                setImagesLoaded(firstLessonImgCount);
+                setLoadingProgress(Math.round((loadedCount / totalImages) * 100));
+                // Update state to show first lesson with images
+                setDataFn(prev => {
+                    const updated = { ...prev };
+                    updated.lessons = [...lessons];
+                    return updated;
+                });
+                console.log(`✅ First lesson images loaded for ${dataType}`);
+            } catch (e) {
+                console.warn(`Error loading first lesson images: `, e);
+            }
+        }
+
+        // IMPORTANT: Return here so the caller can setLoading(false)
+        // Then continue loading remaining lessons in background (non-blocking)
+        (async () => {
+            for (let i = 1; i < lessons.length; i++) {
+                if (lessons[i]?.content) {
+                    try {
+                        const imgCount = countImages(lessons[i].content);
+                        if (imgCount > 0) {
+                            lessons[i].content = await replaceS3UrlsWithDataUrls(lessons[i].content);
+                            loadedCount += imgCount;
+                            setImagesLoaded(prev => prev + imgCount);
+                            setLoadingProgress(Math.round((loadedCount / totalImages) * 100));
+                            // Update state after each lesson
+                            setDataFn(prev => {
+                                const updated = { ...prev };
+                                updated.lessons = [...lessons];
+                                return updated;
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`Error loading images for lesson ${i}: `, e);
+                    }
+                }
+            }
+
+            setLoadingImages(false);
+            setLoadingStage('');
+            console.log(`✅ All ${dataType} images loaded`);
+        })();
+    };
+
+
     useEffect(() => {
         if (projectFolder) {
-            // Helper: Load images progressively with first lesson priority
-            const loadImagesProgressively = async (lessons, setDataFn, dataType = 'book') => {
-                if (!lessons || lessons.length === 0) return;
 
-                // Count total images to load (matches HTTPS S3 URLs)
-                const countImages = (content) => {
-                    if (!content) return 0;
-                    // Match: ![alt](https://bucket.s3.amazonaws.com/path)
-                    const matches = content.match(/!\[+[^\]]*\]+\(https:\/\/[^\/]+\.s3\.amazonaws\.com\/[^)]+\)/g);
-                    return matches ? matches.length : 0;
-                };
 
-                let totalImages = 0;
-                lessons.forEach(lesson => {
-                    totalImages += countImages(lesson.content);
-                });
-
-                if (totalImages === 0) {
-                    console.log(`📷 No S3 images to load for ${dataType}`);
-                    return;
-                }
-
-                setTotalImagesToLoad(prev => prev + totalImages);
-                setLoadingStage('images');
-                setLoadingImages(true);
-                console.log(`📷 Loading ${totalImages} images progressively for ${dataType}...`);
-
-                let loadedCount = 0;
-
-                // PRIORITY: Load first lesson images first (currently visible)
-                if (lessons[0]?.content) {
-                    try {
-                        const firstLessonImgCount = countImages(lessons[0].content);
-                        const updatedContent = await replaceS3UrlsWithDataUrls(lessons[0].content);
-                        lessons[0].content = updatedContent;
-                        loadedCount += firstLessonImgCount;
-                        setImagesLoaded(firstLessonImgCount);
-                        setLoadingProgress(Math.round((loadedCount / totalImages) * 100));
-                        // Update state to show first lesson with images
-                        setDataFn(prev => {
-                            const updated = { ...prev };
-                            updated.lessons = [...lessons];
-                            return updated;
-                        });
-                        console.log(`✅ First lesson images loaded for ${dataType}`);
-                    } catch (e) {
-                        console.warn(`Error loading first lesson images: `, e);
-                    }
-                }
-
-                // IMPORTANT: Return here so the caller can setLoading(false)
-                // Then continue loading remaining lessons in background (non-blocking)
-                (async () => {
-                    for (let i = 1; i < lessons.length; i++) {
-                        if (lessons[i]?.content) {
-                            try {
-                                const imgCount = countImages(lessons[i].content);
-                                if (imgCount > 0) {
-                                    lessons[i].content = await replaceS3UrlsWithDataUrls(lessons[i].content);
-                                    loadedCount += imgCount;
-                                    setImagesLoaded(prev => prev + imgCount);
-                                    setLoadingProgress(Math.round((loadedCount / totalImages) * 100));
-                                    // Update state after each lesson
-                                    setDataFn(prev => {
-                                        const updated = { ...prev };
-                                        updated.lessons = [...lessons];
-                                        return updated;
-                                    });
-                                }
-                            } catch (e) {
-                                console.warn(`Error loading images for lesson ${i}: `, e);
-                            }
-                        }
-                    }
-
-                    setLoadingImages(false);
-                    setLoadingStage('');
-                    console.log(`✅ All ${dataType} images loaded`);
-                })();
-            };
-
-            // OPTIMIZED: Check for versions FIRST, only load original if no versions
+            // OPTIMIZED: Sequential Strategy
             const initializeContent = async () => {
-                // Check for book versions first (fast ListObjects call)
+                console.log('🚀🚀🚀 INITIALIZE CONTENT STARTED 🚀🚀🚀');
                 setLoadingStage('versions');
                 console.log('🔍 Checking for book versions for project:', projectFolder);
-                const bookVersions = await loadVersions();
-                console.log('📦 Book versions found:', bookVersions.length, bookVersions.map(v => v.name));
 
-                let bookVersionLoaded = false;
-                if (bookVersions.length > 0) {
-                    console.log('📚 Found book versions, loading latest directly:', bookVersions[0].name);
-                    versionLoadedRef.current = true; // Mark immediately to prevent async overwrites
-                    try {
+                try {
+                    const session = await fetchAuthSession();
+                    if (!session || !session.credentials) throw new Error("No session");
+
+                    // 1. Check Book Versions
+                    const bookVersions = await loadVersions(session);
+
+                    if (bookVersions.length > 0) {
+                        // 2a. Versions exist -> Load latest
+                        console.log('📚 Found book versions, loading latest:', bookVersions[0].name);
+                        versionLoadedRef.current = true;
                         setLoadingStage('content');
-                        const session = await fetchAuthSession();
-                        if (session && session.credentials) {
-                            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                            const resp = await s3.send(new GetObjectCommand({
-                                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
-                                Key: bookVersions[0].key
-                            }));
-                            const jsonText = await resp.Body.transformToString();
-                            const parsed = JSON.parse(jsonText);
 
-                            // Set book data but KEEP loading=true until first lesson images are ready
-                            setBookData(parsed);
-                            bookVersionLoaded = true;
-                            console.log('✅ Book content loaded (loading first lesson images before showing...)');
+                        const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                        const resp = await s3.send(new GetObjectCommand({
+                            Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
+                            Key: bookVersions[0].key
+                        }));
+                        const jsonText = await resp.Body.transformToString();
+                        const parsed = JSON.parse(jsonText);
 
-                            // Load images progressively - setLoading(false) happens after first lesson
-                            await loadImagesProgressively(parsed.lessons, setBookData, 'book');
-                            setLoading(false); // Now ready to show!
-                        }
-                    } catch (e) {
-                        console.warn('Could not load latest book version, falling back to original:', e);
-                        versionLoadedRef.current = false;
+                        setBookData(parsed);
+                        setLoading(false);
+
+                        loadImagesProgressively(parsed.lessons, setBookData, 'book');
+
+                        // Background load of original data for "View Original" feature
+                        // We do this silently without updating main bookData
+                        (async () => {
+                            try {
+                                const originalData = await loadBookDataFromAPI(bookType); // Uses fallback load logic
+                                if (originalData) setOriginalBookData(originalData);
+                            } catch (e) { console.warn("Background original load failed", e); }
+                        })();
+
+                    } else {
+                        // 2b. No versions -> Load original
+                        console.log('📖 No versions found, loading original book...');
+                        await loadBook();
                     }
-                }
 
-                // Only load original book if no version was loaded
-                if (!bookVersionLoaded) {
-                    console.log('📖 Loading original book (no versions found or version failed)');
-                    await loadBook();
-                } else {
-                    // Load original in background for "View Original" feature
-                    // Important: Only set originalBookData, do NOT touch bookData
-                    setLoadingOriginal(true);
-                    (async () => {
-                        try {
-                            console.log('📖 Loading original book in background for "View Original" feature...');
-                            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`);
-                            if (response.ok) {
-                                const data = await response.json();
-                                let originalBook = null;
-
-                                // Helper to convert modules structure to lessons
-                                const convertModulesToLessonsLocal = (bookData) => {
-                                    if (bookData.modules && Array.isArray(bookData.modules)) {
-                                        console.log('Converting modules structure to lessons array (background)...');
-                                        const lessons = [];
-                                        bookData.modules.forEach((module, moduleIdx) => {
-                                            const items = module.lessons || module.labs;
-                                            if (items && Array.isArray(items)) {
-                                                items.forEach((item, itemIdx) => {
-                                                    lessons.push({
-                                                        ...item,
-                                                        moduleNumber: moduleIdx + 1,
-                                                        lessonNumberInModule: itemIdx + 1,
-                                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
-                                                        filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
-                                                    });
-                                                });
-                                            }
-                                        });
-                                        return { ...bookData, lessons };
-                                    }
-                                    return bookData;
-                                };
-
-                                // Handle all API response formats (same as loadBook)
-                                if (data.bookData) {
-                                    let bookData = data.bookData;
-                                    // Check if we have modules structure instead of lessons
-                                    if (!bookData.lessons && bookData.modules) {
-                                        bookData = convertModulesToLessonsLocal(bookData);
-                                    }
-                                    if (bookData.lessons && Array.isArray(bookData.lessons)) {
-                                        originalBook = bookData;
-                                    }
-                                } else if (data.bookContent) {
-                                    // Parse markdown content to book
-                                    originalBook = parseMarkdownToBook(data.bookContent);
-                                } else if (data.bookJsonUrl) {
-                                    // Fetch JSON from presigned URL
-                                    const jsonResp = await fetch(data.bookJsonUrl);
-                                    if (jsonResp.ok) {
-                                        let fetchedJson = await jsonResp.json();
-                                        if (!fetchedJson.lessons && fetchedJson.modules) {
-                                            fetchedJson = convertModulesToLessonsLocal(fetchedJson);
-                                        }
-                                        if (fetchedJson.lessons && Array.isArray(fetchedJson.lessons)) {
-                                            originalBook = fetchedJson;
-                                        }
-                                    }
-                                } else if (data.bookMdUrl) {
-                                    // Fetch markdown from presigned URL and parse
-                                    const mdResp = await fetch(data.bookMdUrl);
-                                    if (mdResp.ok) {
-                                        const markdown = await mdResp.text();
-                                        originalBook = parseMarkdownToBook(markdown);
-                                    }
-                                }
-
-                                if (originalBook && originalBook.lessons && Array.isArray(originalBook.lessons)) {
-                                    setOriginalBookData(JSON.parse(JSON.stringify(originalBook)));
-                                    console.log('📖 Original book stored for "View Original" (did not overwrite current content)');
-                                } else {
-                                    console.warn('📖 Background original load: Could not parse book data');
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Background original load failed:', e);
-                        } finally {
-                            setLoadingOriginal(false);
-                        }
-                    })();
-                }
-
-                // Check for lab guide versions
-                const labVersions = await loadLabGuideVersions();
-                let labVersionLoaded = false;
-                if (labVersions.length > 0) {
-                    console.log('🔬 Found lab versions, loading latest:', labVersions[0].name);
-                    try {
-                        const session = await fetchAuthSession();
-                        if (session && session.credentials) {
-                            const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                            const resp = await s3.send(new GetObjectCommand({
-                                Bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
-                                Key: labVersions[0].key
-                            }));
-                            const text = await resp.Body.transformToString();
-                            let parsed;
-                            if (labVersions[0].isJson || labVersions[0].key.endsWith('.json')) {
-                                parsed = JSON.parse(text);
-                            } else {
-                                parsed = parseMarkdownToBook(text);
-                            }
-
-                            // OPTIMIZED: Show content IMMEDIATELY (no images yet)
-                            setLabGuideData(parsed);
-                            labVersionLoaded = true;
-                            console.log('✅ Lab guide content loaded (images loading in background)');
-
-                            // Load images progressively in background
-                            loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
-                        }
-                    } catch (e) {
-                        console.warn('Could not load latest lab version:', e);
-                    }
-                }
-
-                // Only load original lab guide if no version was loaded
-                if (!labVersionLoaded) {
+                    // 3. Load Lab Guide - ALWAYS parse fresh from markdown
+                    // (Temporarily skipping saved versions to ensure fresh parsing with fixed code)
+                    console.log('📋 Loading lab guide fresh from markdown (bypassing saved versions)...');
                     await loadLabGuide();
-                } else {
-                    // Load original in background for "View Original" feature
-                    // Important: Only set originalLabGuideData, do NOT touch labGuideData
-                    (async () => {
-                        try {
-                            console.log('🔬 Loading original lab guide in background for "View Original" feature...');
-                            const session = await fetchAuthSession();
-                            if (session && session.credentials) {
-                                const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
-                                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                                const labGuidePrefix = `${projectFolder}/book/`;
 
-                                const response = await s3.send(new ListObjectsV2Command({
-                                    Bucket: bucketName,
-                                    Prefix: labGuidePrefix,
-                                    MaxKeys: 50
-                                }));
-
-                                const labGuideFile = response.Contents?.find(obj =>
-                                    obj.Key && obj.Key.includes('_LabGuide_complete')
-                                );
-
-                                if (labGuideFile) {
-                                    const labGuideResponse = await s3.send(new GetObjectCommand({
-                                        Bucket: bucketName,
-                                        Key: labGuideFile.Key
-                                    }));
-                                    const labGuideContent = await labGuideResponse.Body.transformToString();
-                                    const parsedBook = parseMarkdownToBook(labGuideContent);
-
-                                    // Only set originalLabGuideData, not labGuideData
-                                    setOriginalLabGuideData({
-                                        ...parsedBook,
-                                        filename: labGuideFile.Key.split('/').pop(),
-                                        lastModified: labGuideFile.LastModified
-                                    });
-                                    setOriginalLabGuideMarkdown(labGuideContent);
-                                    console.log('🔬 Original lab guide stored for "View Original" (did not overwrite current content)');
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Background lab guide load failed:', e);
-                        }
-                    })();
+                } catch (e) {
+                    console.error("Init error:", e);
+                    await loadBook(); // Fallback
                 }
             };
 
             initializeContent();
         }
+    }, [projectFolder, bookType]);
+
+    // NEW: Robustly discover the outline key on mount
+    useEffect(() => {
+        const discoverOutlineKey = async () => {
+            if (!projectFolder) return;
+
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                const outlinePrefix = `${projectFolder}/outline/`;
+
+                console.log('🔍 Discovering outline key for:', outlinePrefix);
+
+                const response = await s3.send(new ListObjectsV2Command({
+                    Bucket: bucketName,
+                    Prefix: outlinePrefix,
+                    MaxKeys: 10
+                }));
+
+                if (response.Contents && response.Contents.length > 0) {
+                    // Find first YAML
+                    let foundKey = null;
+                    const yamlFile = response.Contents.find(obj =>
+                        obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                    );
+
+                    if (yamlFile) {
+                        foundKey = yamlFile.Key;
+                    } else {
+                        // Fallback to JSON
+                        const jsonFile = response.Contents.find(obj => obj.Key.endsWith('.json'));
+                        if (jsonFile) foundKey = jsonFile.Key;
+                    }
+
+                    if (foundKey) {
+                        console.log('✅ Verified Outline Key found:', foundKey);
+                        setVerifiedOutlineKey(foundKey);
+                    } else {
+                        console.warn('⚠️ No outline file found in', outlinePrefix);
+                    }
+                }
+            } catch (err) {
+                console.error('❌ Error discovering outline key:', err);
+            }
+        };
+
+        discoverOutlineKey();
     }, [projectFolder]);
 
     // ReactQuill removed; lexical is preferred
@@ -1537,6 +1449,73 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         };
         loadLogo();
     }, []);
+
+    const loadBookDataFromAPI = async (type) => {
+        try {
+            console.log(`📡 Fetching ${type} data from API (background)...`);
+            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${type}`);
+            if (!response.ok) {
+                console.warn(`API error loading ${type}:`, response.status);
+                return null;
+            }
+
+            const data = await response.json();
+
+            // Helper to convert modules structure to lessons (local scope)
+            const convertModulesToLessons = (bookData) => {
+                if (bookData.modules && Array.isArray(bookData.modules)) {
+                    const lessons = [];
+                    bookData.modules.forEach((module, moduleIdx) => {
+                        const items = module.lessons || module.labs;
+                        if (items && Array.isArray(items)) {
+                            items.forEach((item, itemIdx) => {
+                                lessons.push({
+                                    ...item,
+                                    moduleNumber: moduleIdx + 1,
+                                    lessonNumberInModule: itemIdx + 1,
+                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                    filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                });
+                            });
+                        }
+                    });
+                    return { ...bookData, lessons };
+                }
+                return bookData;
+            };
+
+            let bookData = null;
+
+            if (data.bookData) {
+                bookData = data.bookData;
+                if (!bookData.lessons && bookData.modules) {
+                    bookData = convertModulesToLessons(bookData);
+                }
+            } else if (data.bookContent) {
+                bookData = parseMarkdownToBook(data.bookContent);
+            } else if (data.bookJsonUrl) {
+                const jsonResp = await fetch(data.bookJsonUrl);
+                if (jsonResp.ok) {
+                    let fetchedJson = await jsonResp.json();
+                    if (!fetchedJson.lessons && fetchedJson.modules) {
+                        fetchedJson = convertModulesToLessons(fetchedJson);
+                    }
+                    bookData = fetchedJson;
+                }
+            } else if (data.bookMdUrl) {
+                const mdResp = await fetch(data.bookMdUrl);
+                if (mdResp.ok) {
+                    const markdown = await mdResp.text();
+                    bookData = parseMarkdownToBook(markdown);
+                }
+            }
+
+            return bookData;
+        } catch (error) {
+            console.warn('Error in loadBookDataFromAPI:', error);
+            return null;
+        }
+    };
 
     const loadBook = async () => {
         try {
@@ -1740,16 +1719,40 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     fetchedJson = convertModulesToLessons(fetchedJson);
                 }
 
-                // Ensure lessons exists and is an array
                 if (!fetchedJson.lessons || !Array.isArray(fetchedJson.lessons)) {
                     console.error('Fetched JSON lessons is not valid:', fetchedJson);
                     throw new Error('El formato del libro no es válido: lessons no es un array');
                 }
-                // Process images
-                for (let lesson of fetchedJson.lessons) {
-                    if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
-                }
+
+                // Set initial data immediately WITHOUT images
                 bookToSet = { ...fetchedJson, outlineKey };
+                setBookData(bookToSet);
+                setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
+                setLoading(false); // Show UI immediately
+
+                // Process images in background
+                console.log('Loading images progressively in background...');
+                setLoadingImages(true);
+
+                (async () => {
+                    try {
+                        for (let lesson of bookToSet.lessons) {
+                            if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                        }
+                        // Update state after all images loaded (or could do progressively like above)
+                        if (!versionLoadedRef.current) {
+                            setBookData({ ...bookToSet });
+                            setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
+                        }
+                        console.log('All images loaded (JSON source)');
+                    } catch (err) {
+                        console.error('Error loading images (JSON source):', err);
+                    } finally {
+                        setLoadingImages(false);
+                    }
+                })();
+
+                return; // Exit early
             } else if (data.bookMdUrl) {
                 // Fetch markdown via presigned URL and parse
                 console.log('Fetching book markdown from presigned URL...');
@@ -1868,9 +1871,79 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             console.log('Files found in book folder:', response.Contents.map(c => c.Key));
 
-            // Look for lab guide file (_LabGuide_complete)
+            // 1.5 Look for Lab Guide JSON first (Priority)
+            // TEMPORARILY DISABLED: Force markdown parsing to bypass broken cached JSON
+            // Match files ending with _data.json that contain Lab_Guide or LabGuide
+            // (consistent with backend load_book.py pattern matching)
+            const labGuideJsonFile = false; // FORCE SKIP JSON
+            /*
+            const labGuideJsonFile = response.Contents.find(obj =>
+                obj.Key && obj.Key.endsWith('_data.json') &&
+                (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
+            );
+            */
+
+            if (labGuideJsonFile) {
+                console.log('Found Lab Guide JSON:', labGuideJsonFile.Key);
+                try {
+                    const jsonResp = await s3.send(new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: labGuideJsonFile.Key
+                    }));
+                    const jsonText = await jsonResp.Body.transformToString();
+                    let parsed = JSON.parse(jsonText);
+
+                    // Convert modules to lessons if needed
+                    if (!parsed.lessons && parsed.modules && Array.isArray(parsed.modules)) {
+                        console.log('Converting Lab JSON modules to lessons...');
+                        const lessons = [];
+                        parsed.modules.forEach((module, moduleIdx) => {
+                            const items = module.lessons || module.labs;
+                            if (items && Array.isArray(items)) {
+                                items.forEach((item, itemIdx) => {
+                                    lessons.push({
+                                        ...item,
+                                        moduleNumber: moduleIdx + 1,
+                                        lessonNumberInModule: itemIdx + 1,
+                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                        filename: item.filename || `lab_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                    });
+                                });
+                            }
+                        });
+                        parsed = { ...parsed, lessons };
+                    }
+
+                    // LEGACY COMPATIBILITY: Check for "Hollow" JSON (No Content)
+                    const hasContent = parsed.lessons?.some(l => l.content || l.markdown);
+
+                    // NEW: Also check if content contains placeholder errors (from previous buggy parsing)
+                    const hasPlaceholderErrors = parsed.lessons?.some(l =>
+                        l.content?.includes('No se encontró el contenido para esta actividad') ||
+                        l.content?.includes('Error:') && l.content?.includes('archivo markdown')
+                    );
+
+                    if (!hasContent) {
+                        console.warn('⚠️ Legacy "Hollow" JSON detected (no content). Falling back to Markdown parsing.');
+                        // Fall through to Markdown loader below
+                    } else if (hasPlaceholderErrors) {
+                        console.warn('⚠️ JSON contains placeholder errors from buggy parsing. Falling back to fresh Markdown parsing.');
+                        // Fall through to Markdown loader below  
+                    } else {
+                        setLabGuideData(parsed);
+                        console.log('✅ Lab guide loaded from JSON (fallback path)');
+                        loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
+                        return;
+                    }
+                } catch (e) {
+                    console.warn('Failed to load/parse Lab Guide JSON:', e);
+                }
+            }
+
+            // Look for lab guide file (matches Lab_Guide or LabGuide pattern)
             const labGuideFile = response.Contents.find(obj =>
-                obj.Key && obj.Key.includes('_LabGuide_complete')
+                obj.Key && obj.Key.endsWith('_complete.md') &&
+                (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
             );
 
             if (!labGuideFile) {
@@ -2115,16 +2188,26 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             debugLog.push(`First 5 headers: ${headers.slice(0, 5).map(h => h.title).join(', ')} `);
         }
 
+        // CRITICAL DEBUG: Print all headers found so we can see what's in the markdown
+        console.log('=== parseMarkdownWithOutline DEBUG ===');
+        console.log(`Total headers found: ${headers.length}`);
+        console.log('All headers:', headers.map(h => `[L${h.lineIndex}] ${h.title}`).join('\n'));
+
         // 2. Map outline items to headers
         const modules = [];
         const flatLessons = [];
 
         // Helper to normalize strings for comparison
-        const normalize = (str) => str.toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-            .replace(/[^\w\s]/g, ' ') // Replace non-word chars with space
-            .replace(/\s+/g, ' ')
-            .trim();
+        const normalize = (str) => {
+            let n = str.toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+                .replace(/[^\w\s]/g, ' ') // Replace non-word chars with space
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            // KEY FIX: Treat "practica" and "lab" as equivalent for matching
+            return n.replace(/\bpractica\b/g, 'lab');
+        };
 
         // Helper to find best matching header
         // moduleNum is optional - if provided, prioritize headers that match the module number
@@ -2132,7 +2215,29 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (!title) return null;
             const normTitle = normalize(title);
 
-            // NEW: If moduleNum is provided, first try to find a header with matching Lab ID prefix
+            // PRIORITY 1: Match by specific "Práctica X" or "Lab X" number in the title
+            // This is the most specific match - find headers containing the exact práctica/lab number
+            const practicaMatch = normTitle.match(/^lab\s+(\d+)/); // After normalize, "práctica" becomes "lab"
+            if (practicaMatch) {
+                const practicaNum = practicaMatch[1];
+                // Look for header that contains "práctica <num>" or "lab <ID>: práctica <num>"
+                // with proper word boundary to prevent práctica 4 matching práctica 40
+                const specificMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    if (usedHeaders.has(h.lineIndex)) return false; // Don't reuse headers
+                    const normH = normalize(h.title);
+                    // Check for "lab <num>" with word boundary (after normalize "práctica" -> "lab")
+                    // This matches both "Práctica 11: ..." and "Lab 04-07-01: Práctica 11: ..."
+                    const regex = new RegExp(`lab\\s+${practicaNum}(?![0-9])`);
+                    return regex.test(normH);
+                });
+                if (specificMatch) {
+                    console.log(`  Found match by specific Lab/Práctica ${practicaNum}: "${title}" -> "${specificMatch.title}"`);
+                    return specificMatch;
+                }
+            }
+
+            // PRIORITY 2: If moduleNum is provided, try to find a header with matching Lab ID prefix
             // Lab ID format: "Lab MM-00-NN: Title" where MM is the module number
             // After normalization, dashes become spaces: "lab 05 00 01 title"
             if (moduleNum !== null) {
@@ -2143,6 +2248,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Look for a header that matches the lab ID pattern AND contains the title
                 const labMatch = headers.find(h => {
                     if (h.lineIndex < startLine) return false;
+                    if (usedHeaders.has(h.lineIndex)) return false; // Don't reuse headers
                     const normH = normalize(h.title);
                     // Check if header starts with the right lab ID pattern (e.g., "lab 05 00 01")
                     if (labIdPattern.test(normH)) {
@@ -2157,9 +2263,87 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 }
             }
 
+            // NEW: Match by "Lab X" or "Práctica X" prefix ONLY
+            // This handles cases where the descriptive text differs (e.g. "Configurar..." vs "Configura...")
+            // extract number from title
+            const labNumMatch = normTitle.match(/^lab\s+(\d+)/);
+            console.log(`[DEBUG] findHeader: title="${title}", normTitle="${normTitle}", labNumMatch=`, labNumMatch);
+            if (labNumMatch) {
+                const labNum = labNumMatch[1];
+                console.log(`[DEBUG] Looking for Lab ${labNum} prefix in ${headers.length} headers from line ${startLine}`);
+                // Look for header starting with "lab <num>" with boundary
+                const prefixMatch = headers.find(h => {
+                    if (h.lineIndex < startLine) return false;
+                    const normH = normalize(h.title);
+                    // Match "lab 7" followed by space or end of string. Prevent "lab 70"
+                    // Regex: ^lab 7(?![0-9])
+                    const regex = new RegExp(`^lab\\s+${labNum}(?![0-9])`);
+                    const matches = regex.test(normH);
+                    if (normH.startsWith('lab ' + labNum)) {
+                        console.log(`[DEBUG]   Header "${h.title}" -> normH="${normH}", regex=${regex}, matches=${matches}`);
+                    }
+                    return matches;
+                });
+                if (prefixMatch) {
+                    console.log(`  Found match by Lab prefix: "${title}" -> "${prefixMatch.title}"`);
+                    return prefixMatch;
+                } else {
+                    console.log(`[DEBUG] No prefix match found for Lab ${labNum}`);
+                }
+            }
+
             // 1. Exact match (case insensitive, normalized)
             let match = headers.find(h => h.lineIndex >= startLine && normalize(h.title) === normTitle);
             if (match) return match;
+
+            // 1b. Fuzzy / Substring match (NEW)
+            // If exact match fails, try to see if one contains the other
+            // This handles cases with extra punctuation, spacing, or truncation
+            match = headers.find(h => {
+                if (h.lineIndex < startLine) return false;
+                const normH = normalize(h.title);
+
+                // If the Title is very short (e.g. "Lab 1"), be strict to avoid matching "Lab 10"
+                if (normTitle.length < 10) {
+                    return normH === normTitle;
+                }
+
+                // Check inclusion with WORD BOUNDARY protection
+                // This prevents "Lab 1" from matching "Lab 11"
+
+                // Case A: Header contains Title
+                if (normH.includes(normTitle)) {
+                    // Check if match is a whole word suffix
+                    // If title ends in a digit, we must ensure the next char in header is NOT a digit
+                    const idx = normH.indexOf(normTitle);
+                    if (idx !== -1) {
+                        const charAfter = normH[idx + normTitle.length];
+                        // If char after exists and is a letter or number, it's a partial match (BAD)
+                        if (charAfter && /[a-z0-9]/.test(charAfter)) {
+                            return false;
+                        }
+                        return true;
+                    }
+                }
+
+                // Case B: Title contains Header (Header is shorter/truncated)
+                if (normTitle.includes(normH)) {
+                    const idx = normTitle.indexOf(normH);
+                    if (idx !== -1) {
+                        const charAfter = normTitle[idx + normH.length];
+                        if (charAfter && /[a-z0-9]/.test(charAfter)) {
+                            return false;
+                        }
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+            if (match) {
+                console.log(`  Found fuzzy match for "${title}" -> "${match.title}"`);
+                return match;
+            }
 
             // 2. Try "Module X" / "Módulo X" / "Capítulo X" match for modules
             // Matches "Module 1", "Módulo 1", "Capítulo 1", "Module 01", etc.
@@ -2258,9 +2442,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             if (outModule.lab_activities) {
                 outModule.lab_activities.forEach(lab => {
                     moduleItems.push({
-                        title: lab.title,
+                        title: typeof lab === 'string' ? lab : lab.title,
                         type: 'lab',
-                        original: lab
+                        original: typeof lab === 'string' ? { title: lab } : lab
                     });
                 });
             }
@@ -2280,9 +2464,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     if (outLesson.lab_activities) {
                         outLesson.lab_activities.forEach(lab => {
                             moduleItems.push({
-                                title: lab.title,
+                                title: typeof lab === 'string' ? lab : lab.title,
                                 type: 'lab',
-                                original: lab
+                                original: typeof lab === 'string' ? { title: lab } : lab
                             });
                         });
                     }
@@ -2305,6 +2489,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             moduleItems.forEach((item, idx) => {
                 // Pass module number (modIdx + 1) to help match lab headers with Lab ID prefix
                 const currentModuleNum = modIdx + 1;
+
+                // DEBUG: Log what we're searching for
+                console.log(`[SEARCH] Looking for: "${item.title}" (Module ${currentModuleNum})`);
 
                 // 1. Try to find header within module boundaries (or after previous lesson)
                 let header = findHeader(item.title, Math.max(moduleStartLine, lastLineIndex), currentModuleNum);
@@ -2848,16 +3035,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         return out;
     };
 
-    const loadVersions = async () => {
+    const loadVersions = async (cachedSession = null) => {
         try {
             // Load version files from S3 under projectFolder/versions/
-            const session = await fetchAuthSession();
+            // Reuse cached session if provided to avoid redundant auth calls
+            const session = cachedSession || await fetchAuthSession();
             if (!session || !session.credentials) return [];
             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
             const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const prefix = `${projectFolder}/versions/`;
 
-            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            // Use MaxKeys to limit results and speed up listing
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 20 }));
             const items = resp.Contents || [];
             const vers = items
                 .filter(i => i.Key && i.Key.endsWith('.json'))
@@ -2872,16 +3061,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         }
     };
 
-    const loadLabGuideVersions = async () => {
+    const loadLabGuideVersions = async (cachedSession = null) => {
         try {
             // Load lab guide version files from S3 under projectFolder/lab-versions/
-            const session = await fetchAuthSession();
+            // Reuse cached session if provided to avoid redundant auth calls
+            const session = cachedSession || await fetchAuthSession();
             if (!session || !session.credentials) return [];
             const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
             const bucket = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
             const prefix = `${projectFolder}/lab-versions/`;
 
-            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
+            // Use MaxKeys to limit results and speed up listing
+            const resp = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 20 }));
             const items = resp.Contents || [];
             const vers = items
                 .filter(i => i.Key && (i.Key.endsWith('.md') || i.Key.endsWith('.json')))
@@ -4561,15 +4752,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         );
     }
 
-    if (!bookData) {
+    // If in Lab Mode and we have Lab Data, we can render even without Book Data
+    if (viewMode === 'lab' && labGuideData) {
+        // Proceed to render
+    } else if (!bookData) {
         return <div className="book-editor-error">No se encontraron datos del libro para este proyecto.</div>;
-    }
-
-    if (!bookData.lessons || !Array.isArray(bookData.lessons)) {
+    } else if (!bookData.lessons || !Array.isArray(bookData.lessons)) {
         return <div className="book-editor-error">El libro no tiene un formato válido (lessons no es un array).</div>;
-    }
-
-    if (bookData.lessons.length === 0) {
+    } else if (bookData.lessons.length === 0) {
         return <div className="book-editor-error">Este libro no contiene lecciones.</div>;
     }
 
@@ -4706,7 +4896,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 if (editorRef.current) {
                                     editorRef.current.scrollTop = 0;
                                 }
-                                setViewMode(viewMode === 'book' ? 'lab' : 'book');
+                                const newMode = viewMode === 'book' ? 'lab' : 'book';
+                                setViewMode(newMode);
+                                // Update URL to reflect mode change
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('bookType', newMode);
+                                setSearchParams(newParams);
                             }}
                             title={viewMode === 'book' ? 'Ver Guía de Laboratorios' : 'Ver Libro'}
                         >
@@ -5170,7 +5365,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             {showRegenerateLabModal && viewMode === 'lab' && labGuideData && (
                 <RegenerateLab
                     projectFolder={projectFolder}
-                    outlineKey={labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                    outlineKey={verifiedOutlineKey || labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
                     currentLabId={(() => {
                         const currentLesson = labGuideData.lessons?.[currentLabLessonIndex];
                         if (!currentLesson) return '';
@@ -5217,7 +5412,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 return (
                     <RegenerateLesson
                         projectFolder={projectFolder}
-                        outlineKey={bookData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                        outlineKey={verifiedOutlineKey || bookData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
                         currentLessonId={`${String(moduleInfo.moduleNumber).padStart(2, '0')}-${String(moduleInfo.lessonNumber).padStart(2, '0')}`}
                         currentLessonTitle={currentLesson?.title || ''}
                         moduleNumber={moduleInfo.moduleNumber}

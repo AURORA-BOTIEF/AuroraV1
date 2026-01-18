@@ -477,3 +477,32 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* ===========================================
+   🚫 OCULTAR BOTÓN FLOTANTE "DOCUMENTO"
+   (solo en esta pantalla /generador-temarios)
+   No toca el chat (#abrirChat) ni logout (#logout)
+=========================================== */
+
+/* Si el ícono es de lucide "file-text" */
+button:has(svg.lucide-file-text),
+a:has(svg.lucide-file-text),
+div:has(svg.lucide-file-text) {
+  display: none !important;
+}
+
+/* Si el SVG trae data-lucide="file-text" */
+button:has(svg[data-lucide="file-text"]),
+a:has(svg[data-lucide="file-text"]),
+div:has(svg[data-lucide="file-text"]) {
+  display: none !important;
+}
+
+/* Plan B: ocultar cualquier botón fijo abajo-derecha (menos chat y logout) */
+button:not(#abrirChat):not(#logout) {
+  /* si es flotante (fixed) */
+}
+button:not(#abrirChat):not(#logout)[style*="position: fixed"] {
+  display: none !important;
+}
+

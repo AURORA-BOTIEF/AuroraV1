@@ -300,6 +300,19 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           </Link>
         )}
 
+        <a
+          href="https://quizmaster-v2-online-633674590122.us-west1.run.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="nav-link"
+          title="Nehoot"
+        >
+          <div className="step">
+            <div className="circle">🎮</div>
+            {!colapsado && <span>Nehoot</span>}
+          </div>
+        </a>
+
         {/* Estudiantes Portal - visible to estudiantes */}
         {esEstudiante && (
           <Link to="/mis-cursos" className="nav-link" title="Mis Cursos">

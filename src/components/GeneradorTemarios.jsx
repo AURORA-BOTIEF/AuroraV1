@@ -52,18 +52,69 @@ function GeneradorTemarios() {
   });
 
   // --- URLs ---
-  // (Dejo tus URLs como estaban, SOLO corrijo la de LISTAR porque /list NO existe)
   const generarApiUrl =
     "https://h6ysn7u0tl.execute-api.us-east-1.amazonaws.com/dev2/PruebadeTEMAR";
 
-  // ✅ TU API real: stage = versiones, resource = /versiones
-  // POST: /versiones/versiones
   const guardarApiUrl =
     "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
 
-  // ✅ FIX: NO existe /list → listar debe ser GET al mismo recurso /versiones
   const listarApiUrl =
     "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones";
+
+  // ✅ FIX DEFINITIVO: elimina el botón flotante SOLO en /generador-contenidos/curso-estandar
+  useEffect(() => {
+    const path = window.location.pathname || "";
+    if (!path.includes("/generador-contenidos/curso-estandar")) return;
+
+    const isChatOrLogout = (el) => {
+      if (!el) return false;
+      if (el.id === "abrirChat" || el.id === "logout") return true;
+      if (el.closest && (el.closest("#modalChat") || el.closest("#abrirChat")))
+        return true;
+      return false;
+    };
+
+    const killFloatingDocButton = () => {
+      // 1) Si es un ícono lucide file-text
+      const lucideTargets = Array.from(
+        document.querySelectorAll('svg.lucide-file-text, svg[data-lucide="file-text"]')
+      );
+
+      lucideTargets.forEach((svg) => {
+        const host = svg.closest("button, a, div");
+        if (host && !isChatOrLogout(host)) host.remove();
+      });
+
+      // 2) Plan B: cualquier FIXED en esquina inferior derecha (menos chat/logout)
+      const all = Array.from(document.querySelectorAll("button, a, div"));
+      all.forEach((el) => {
+        if (isChatOrLogout(el)) return;
+
+        const st = window.getComputedStyle(el);
+        if (st.position !== "fixed") return;
+
+        const rect = el.getBoundingClientRect();
+        const nearBottomRight =
+          rect.bottom > window.innerHeight - 120 &&
+          rect.right > window.innerWidth - 160;
+
+        const highZ = (parseInt(st.zIndex || "0", 10) || 0) >= 9000;
+
+        if (nearBottomRight && highZ) {
+          el.remove();
+        }
+      });
+    };
+
+    killFloatingDocButton();
+    const i1 = setInterval(killFloatingDocButton, 400);
+    const t = setTimeout(() => clearInterval(i1), 8000);
+
+    return () => {
+      clearInterval(i1);
+      clearTimeout(t);
+    };
+  }, []);
 
   useEffect(() => {
     const getUser = async () => {
@@ -112,7 +163,7 @@ function GeneradorTemarios() {
     }
 
     if (name === "horas_por_sesion" || name === "numero_sesiones_por_semana") {
-      setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+      setParams((prev) => ({ ...prev, [name]: parseInt(value, 10) }));
       return;
     }
 
@@ -121,7 +172,7 @@ function GeneradorTemarios() {
 
   const handleSliderChange = (e) => {
     const { name, value } = e.target;
-    setParams((prev) => ({ ...prev, [name]: parseInt(value) }));
+    setParams((prev) => ({ ...prev, [name]: parseInt(value, 10) }));
   };
 
   const handleGenerar = async () => {
@@ -146,7 +197,6 @@ function GeneradorTemarios() {
 
     try {
       const payload = { ...params, horas_totales: horasTotales };
-
       if (payload.objetivo_tipo !== "certificacion") delete payload.codigo_certificacion;
 
       const token = await getBearerToken();
@@ -229,7 +279,6 @@ function GeneradorTemarios() {
         throw new Error(data?.error || `Error HTTP ${res.status}`);
       }
 
-      // ✅ refresca lista si modal está abierto
       if (mostrarModal) await handleListarVersiones();
 
       return {
@@ -248,7 +297,6 @@ function GeneradorTemarios() {
       setIsLoading(true);
 
       const token = await getBearerToken();
-
       if (!token) {
         console.error("⚠️ No hay token. Revisa Amplify o storage.");
         setVersiones([]);
@@ -278,7 +326,6 @@ function GeneradorTemarios() {
       }
 
       const items = Array.isArray(data) ? data : [];
-
       const sortedData = items.sort(
         (a, b) =>
           new Date(b.fecha_guardado || b.fecha_creacion || 0) -
@@ -674,6 +721,17 @@ function GeneradorTemarios() {
                           >
                             ✏️
                           </button>
+
+                          {/* Si quieres el botón PDF en la tabla, descomenta esto:
+                          <button
+                            className="menu-btn"
+                            title="Exportar PDF"
+                            onClick={() => handleExportarPDF(v)}
+                            style={{ marginLeft: 8 }}
+                          >
+                            📄
+                          </button>
+                          */}
                         </td>
                       </tr>
                     ))}
@@ -712,3 +770,4 @@ function GeneradorTemarios() {
 }
 
 export default GeneradorTemarios;
+

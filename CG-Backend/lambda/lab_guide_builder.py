@@ -269,7 +269,9 @@ This lab guide was automatically generated to accompany the course material. It 
                             'duration': lab['metadata'].get('duration', 'N/A'),
                             'complexity': lab['metadata'].get('complexity', 'N/A'),
                             'bloom_level': lab['metadata'].get('bloom_level', 'N/A'),
-                            'word_count': lab['word_count']
+                            'bloom_level': lab['metadata'].get('bloom_level', 'N/A'),
+                            'word_count': lab['word_count'],
+                            'content': lab.get('content', '')
                         }
                         for lab in module_data['labs']
                     ]

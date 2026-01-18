@@ -777,6 +777,31 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 skipped_images.append(error_detail)
                 continue
             
+                # Check if image already exists (Resume capability)
+                image_filename = f"{prompt_id}.png"
+                images_key = f"{project_folder}/images/{image_filename}"
+                
+                # OPTIMIZATION: Check HEAD object to avoid re-generating existing images
+                try:
+                    s3_client.head_object(Bucket=course_bucket, Key=images_key)
+                    logger.info(f"⏩ Image already exists: {images_key} (Skipping generation)")
+                    
+                    success_detail = {
+                        'id': prompt_id,
+                        'filename': image_filename,
+                        's3_key': images_key,
+                        'status': 'ok',
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'skipped': True  # Mark as skipped/existing
+                    }
+                    generated_images.append(success_detail)
+                    successful_images.append(prompt_id)
+                    processed_count += 1
+                    continue
+                except Exception:
+                    # Object does not exist, proceed with generation
+                    pass
+
             try:
                 # Generate image using the selected model
                 logger.info(f"📸 Generating image for {prompt_id} using {image_model}")
@@ -873,55 +898,63 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 }
         
         # Also include mappings for existing images in the project
+        # CRITICAL: Only scan if we didn't process new prompts.
+        # In batch processing, scanning all images every time causes O(N^2) data growth
+        # and hits Step Functions 256KB payload limit.
         images_prefix = f"{project_folder}/images/"
         prompts_prefix = f"{project_folder}/prompts/"
-        try:
-            # First, load all prompt files to get descriptions
-            prompts_dict = {}
+        
+        # Only scan if specifically requested or if we are not in a generation batch
+        scan_all = exec_input.get('scan_all_images', False)
+        
+        if scan_all or not prompts_to_process:
             try:
-                prompts_response = s3_client.list_objects_v2(
+                # First, load all prompt files to get descriptions
+                prompts_dict = {}
+                try:
+                    prompts_response = s3_client.list_objects_v2(
+                        Bucket=course_bucket,
+                        Prefix=prompts_prefix
+                    )
+                    if 'Contents' in prompts_response:
+                        for prompt_obj in prompts_response['Contents']:
+                            if prompt_obj['Key'].endswith('.json'):
+                                try:
+                                    prompt_data_response = s3_client.get_object(Bucket=course_bucket, Key=prompt_obj['Key'])
+                                    prompt_json = json.loads(prompt_data_response['Body'].read().decode('utf-8'))
+                                    prompt_id = prompt_json.get('id', '')
+                                    prompt_desc = prompt_json.get('description', '')
+                                    if prompt_id and prompt_desc:
+                                        prompts_dict[prompt_id] = prompt_desc
+                                except Exception as e:
+                                    logger.info(f"Could not load prompt {prompt_obj['Key']}: {e}")
+                except Exception as e:
+                    logger.info(f"Could not scan prompts folder: {e}")
+                
+                # Now scan images and create mappings with descriptions
+                images_response = s3_client.list_objects_v2(
                     Bucket=course_bucket,
-                    Prefix=prompts_prefix
+                    Prefix=images_prefix
                 )
-                if 'Contents' in prompts_response:
-                    for prompt_obj in prompts_response['Contents']:
-                        if prompt_obj['Key'].endswith('.json'):
-                            try:
-                                prompt_data_response = s3_client.get_object(Bucket=course_bucket, Key=prompt_obj['Key'])
-                                prompt_json = json.loads(prompt_data_response['Body'].read().decode('utf-8'))
-                                prompt_id = prompt_json.get('id', '')
-                                prompt_desc = prompt_json.get('description', '')
-                                if prompt_id and prompt_desc:
-                                    prompts_dict[prompt_id] = prompt_desc
-                            except Exception as e:
-                                logger.info(f"Could not load prompt {prompt_obj['Key']}: {e}")
+                if 'Contents' in images_response:
+                    for img_obj in images_response['Contents']:
+                        img_key = img_obj['Key']
+                        if img_key.endswith('.png'):
+                            # Extract ID from filename (e.g., "01-01-0001.png" -> "01-01-0001")
+                            img_filename = img_key.split('/')[-1]
+                            img_id = img_filename.replace('.png', '')
+                            
+                            # Only add if not already in mappings (newly generated take precedence)
+                            if img_id not in image_mappings:
+                                # Get description from prompts_dict
+                                description = prompts_dict.get(img_id, '')
+                                image_mappings[img_id] = {
+                                    's3_key': img_key,
+                                    'description': description if description else ''
+                                }
+                                logger.info(f"✅ Included existing image mapping: {img_id} -> {img_key}")
             except Exception as e:
-                logger.info(f"Could not scan prompts folder: {e}")
-            
-            # Now scan images and create mappings with descriptions
-            images_response = s3_client.list_objects_v2(
-                Bucket=course_bucket,
-                Prefix=images_prefix
-            )
-            if 'Contents' in images_response:
-                for img_obj in images_response['Contents']:
-                    img_key = img_obj['Key']
-                    if img_key.endswith('.png'):
-                        # Extract ID from filename (e.g., "01-01-0001.png" -> "01-01-0001")
-                        img_filename = img_key.split('/')[-1]
-                        img_id = img_filename.replace('.png', '')
-                        
-                        # Only add if not already in mappings (newly generated take precedence)
-                        if img_id not in image_mappings:
-                            # Get description from prompts_dict
-                            description = prompts_dict.get(img_id, '')
-                            image_mappings[img_id] = {
-                                's3_key': img_key,
-                                'description': description if description else ''
-                            }
-                            logger.info(f"✅ Included existing image mapping: {img_id} -> {img_key}")
-        except Exception as e:
-            logger.info(f"Warning: Could not scan existing images: {e}")
+                logger.info(f"Warning: Could not scan existing images: {e}")
         
         # Summary with detailed statistics
         successful_count = len(successful_images)

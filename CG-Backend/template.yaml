@@ -177,7 +177,7 @@ Resources:
         - arm64
       Environment:
         Variables:
-          MAX_LESSONS_PER_BATCH: '3'
+          MAX_LESSONS_PER_BATCH: '1'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -885,6 +885,13 @@ Resources:
           Type: Api
           Properties:
             Path: /build-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        BuildLabGuideOptions:
+          Type: Api
+          Properties:
+            Path: /build-lab-guide
             Method: options
             Auth:
               Authorizer: NONE

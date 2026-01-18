@@ -1166,8 +1166,12 @@ def generate_complete_course(
     for module in outline_modules:
         for lesson in module.get('lessons', []):
             # Add lab_activities titles to skip list
+            # Handle both string format (from EditorDeTemario) and dict format
             for lab in lesson.get('lab_activities', []):
-                lab_title = lab.get('title', '').lower().strip()
+                if isinstance(lab, str):
+                    lab_title = lab.lower().strip()
+                else:
+                    lab_title = lab.get('title', '').lower().strip()
                 if lab_title:
                     lab_titles.add(lab_title)
                     

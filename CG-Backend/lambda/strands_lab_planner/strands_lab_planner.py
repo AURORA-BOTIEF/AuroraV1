@@ -452,14 +452,26 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
             
             # Aggregate results from this batch
             # IMPORTANT: Override AI-generated titles with exact titles from outline
+            # AND extract module_number from lab_id (format: "MM-LL-NN")
             for lab_plan in batch_plan.get('lab_plans', []):
                 lab_id = lab_plan.get('lab_id')
-                # Find the original lab from outline to get exact title
+                # Find the original lab from outline to get exact title and module number
                 original_lab = next((l for l in batch_labs if l['lab_id'] == lab_id), None)
                 if original_lab:
                     # Override with exact outline title
                     lab_plan['lab_title'] = original_lab['lab_title']
-                    print(f"  ✓ Lab {lab_id}: Enforced outline title '{original_lab['lab_title']}'")
+                    # Add module_number from original lab or extract from lab_id
+                    lab_plan['module_number'] = original_lab.get('module_number')
+                    print(f"  ✓ Lab {lab_id}: Module {lab_plan['module_number']}, Title '{original_lab['lab_title']}'")
+                elif lab_id:
+                    # Fallback: Extract module number from lab_id (format: MM-LL-NN)
+                    try:
+                        module_num = int(lab_id.split('-')[0])
+                        lab_plan['module_number'] = module_num
+                        print(f"  ⚠️ Lab {lab_id}: Extracted module {module_num} from ID (not found in outline)")
+                    except (ValueError, IndexError):
+                        lab_plan['module_number'] = None
+                        print(f"  ❌ Lab {lab_id}: Could not extract module number")
                     
             all_lab_plans.extend(batch_plan.get('lab_plans', []))
             all_hardware_reqs.update(batch_plan.get('hardware_requirements', []))
@@ -619,6 +631,10 @@ def lambda_handler(event, context):
             additional_requirements=lab_requirements,
             model_provider=model_provider
         )
+        
+        # CRITICAL: Add total_labs to root level for State Machine validation
+        # The ValidateLabPlanExists choice state needs this at root level
+        master_plan['total_labs'] = len(labs)
         
         # Add metadata (including language for LabWriter)
         course_language = course_info.get('language', 'en')
