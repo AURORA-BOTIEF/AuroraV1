@@ -88,6 +88,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [loadingProgress, setLoadingProgress] = useState(0); // 0-100
     const [totalImagesToLoad, setTotalImagesToLoad] = useState(0);
     const [imagesLoaded, setImagesLoaded] = useState(0);
+    // NEW: Verified Outline Key state
+    const [verifiedOutlineKey, setVerifiedOutlineKey] = useState(null);
     // Saving state
     const [isSaving, setIsSaving] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
@@ -144,46 +146,53 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
                 const outlinePrefix = `${projectFolder}/outline/`;
 
-                const outlineResponse = await s3.send(new ListObjectsV2Command({
-                    Bucket: bucketName,
-                    Prefix: outlinePrefix,
-                    MaxKeys: 10
-                }));
+                // Use verified key if available, otherwise try to discover
+                let outlineKeyToUse = verifiedOutlineKey;
 
-                if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
-                    let outlineFile = outlineResponse.Contents.find(obj =>
-                        obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
-                    );
+                if (!outlineKeyToUse) {
+                    const outlineResponse = await s3.send(new ListObjectsV2Command({
+                        Bucket: bucketName,
+                        Prefix: outlinePrefix,
+                        MaxKeys: 10
+                    }));
 
-                    if (!outlineFile) {
-                        outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                    if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
+                        let outlineFile = outlineResponse.Contents.find(obj =>
+                            obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                        );
+                        if (!outlineFile) {
+                            outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
+                        }
+                        if (outlineFile) {
+                            outlineKeyToUse = outlineFile.Key;
+                        }
+                    }
+                }
+
+                if (outlineKeyToUse) {
+                    const outlineObj = await s3.send(new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: outlineKeyToUse
+                    }));
+                    const outlineContent = await outlineObj.Body.transformToString();
+
+                    let outlineData;
+                    if (outlineKeyToUse.endsWith('.json')) {
+                        outlineData = JSON.parse(outlineContent);
+                    } else {
+                        outlineData = loadYaml(outlineContent);
                     }
 
-                    if (outlineFile) {
-                        const outlineObj = await s3.send(new GetObjectCommand({
-                            Bucket: bucketName,
-                            Key: outlineFile.Key
-                        }));
-                        const outlineContent = await outlineObj.Body.transformToString();
+                    // Handle nested course structure
+                    const courseData = outlineData.course || outlineData;
+                    courseTitle = courseData.course_title || courseData.title || 'Curso';
 
-                        let outlineData;
-                        if (outlineFile.Key.endsWith('.json')) {
-                            outlineData = JSON.parse(outlineContent);
-                        } else {
-                            outlineData = loadYaml(outlineContent);
-                        }
-
-                        // Handle nested course structure
-                        const courseData = outlineData.course || outlineData;
-                        courseTitle = courseData.course_title || courseData.title || 'Curso';
-
-                        // Extract module titles
-                        const modulesArray = courseData.modules || outlineData.modules;
-                        if (modulesArray && Array.isArray(modulesArray)) {
-                            modulesArray.forEach((module, idx) => {
-                                moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
-                            });
-                        }
+                    // Extract module titles
+                    const modulesArray = courseData.modules || outlineData.modules;
+                    if (modulesArray && Array.isArray(modulesArray)) {
+                        modulesArray.forEach((module, idx) => {
+                            moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
+                        });
                     }
                 }
             } catch (error) {
@@ -1340,6 +1349,59 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             initializeContent();
         }
     }, [projectFolder, bookType]);
+
+    // NEW: Robustly discover the outline key on mount
+    useEffect(() => {
+        const discoverOutlineKey = async () => {
+            if (!projectFolder) return;
+
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({
+                    region: AWS_REGION,
+                    credentials: session.credentials
+                });
+
+                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+                const outlinePrefix = `${projectFolder}/outline/`;
+
+                console.log('🔍 Discovering outline key for:', outlinePrefix);
+
+                const response = await s3.send(new ListObjectsV2Command({
+                    Bucket: bucketName,
+                    Prefix: outlinePrefix,
+                    MaxKeys: 10
+                }));
+
+                if (response.Contents && response.Contents.length > 0) {
+                    // Find first YAML
+                    let foundKey = null;
+                    const yamlFile = response.Contents.find(obj =>
+                        obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
+                    );
+
+                    if (yamlFile) {
+                        foundKey = yamlFile.Key;
+                    } else {
+                        // Fallback to JSON
+                        const jsonFile = response.Contents.find(obj => obj.Key.endsWith('.json'));
+                        if (jsonFile) foundKey = jsonFile.Key;
+                    }
+
+                    if (foundKey) {
+                        console.log('✅ Verified Outline Key found:', foundKey);
+                        setVerifiedOutlineKey(foundKey);
+                    } else {
+                        console.warn('⚠️ No outline file found in', outlinePrefix);
+                    }
+                }
+            } catch (err) {
+                console.error('❌ Error discovering outline key:', err);
+            }
+        };
+
+        discoverOutlineKey();
+    }, [projectFolder]);
 
     // ReactQuill removed; lexical is preferred
 
@@ -5303,7 +5365,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             {showRegenerateLabModal && viewMode === 'lab' && labGuideData && (
                 <RegenerateLab
                     projectFolder={projectFolder}
-                    outlineKey={labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                    outlineKey={verifiedOutlineKey || labGuideData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
                     currentLabId={(() => {
                         const currentLesson = labGuideData.lessons?.[currentLabLessonIndex];
                         if (!currentLesson) return '';
@@ -5350,7 +5412,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 return (
                     <RegenerateLesson
                         projectFolder={projectFolder}
-                        outlineKey={bookData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
+                        outlineKey={verifiedOutlineKey || bookData.outlineKey || `${projectFolder}/outline/${projectFolder}.yaml`}
                         currentLessonId={`${String(moduleInfo.moduleNumber).padStart(2, '0')}-${String(moduleInfo.lessonNumber).padStart(2, '0')}`}
                         currentLessonTitle={currentLesson?.title || ''}
                         moduleNumber={moduleInfo.moduleNumber}
