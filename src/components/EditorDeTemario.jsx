@@ -1062,7 +1062,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
               <button
                 onClick={() => {
                   if (exportTipo === "pdf") {
-                    exportarPDF(temario);
+                    exportarPDFLocal();
                   } else if (exportTipo === "excel") {
                     exportarExcel();
                   } else if (exportTipo === "yaml") {
