@@ -265,34 +265,64 @@ function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) 
     setGuardando(true);
     setMensaje({ tipo: "", texto: "" });
 
-    const nota =
-      window.prompt("Escribe una nota para esta versión (opcional):") || "";
+    const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
     try {
-      if (!onSave) {
-        throw new Error("onSave no está definido");
+      const token = getAuthToken();
+      if (!token) throw new Error("No hay id_token");
+
+      const bodyData = {
+        cursoId:
+          temario?.nombre_curso?.trim() ||
+          `curso_${Date.now()}`,
+        contenido: temario,
+        autor: userEmail || "sin-correo",
+        nombre_curso: temario?.nombre_curso || "",
+        nota_version: nota,
+        fecha_creacion: new Date().toISOString(),
+      };
+
+      const { h1, h2 } = buildAuthHeaders(token);
+
+      let response = await fetch(API_VERSIONES, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...h1,
+        },
+        body: JSON.stringify(bodyData),
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        response = await fetch(API_VERSIONES, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...h2,
+          },
+          body: JSON.stringify(bodyData),
+        });
       }
 
-      await onSave(
-        {
-          ...temario,
-          autor: userEmail,
-        },
-        nota
-      );
+      const data = await safeJson(response);
+
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || "Error al guardar");
+      }
 
       setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
     } catch (err) {
-      console.error(err);
+      console.error("Error al guardar:", err);
       setMensaje({
         tipo: "error",
-        texto: "❌ Error al guardar la versión",
+        texto: `❌ Error al guardar versión: ${err.message}`,
       });
     } finally {
       setGuardando(false);
       setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
     }
   };
+
 
   // ✅ VER VERSIONES (GET) — Auth robusto + sort seguro
   const verVersionesGuardadas = async () => {
