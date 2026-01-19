@@ -62,7 +62,7 @@ const safeJson = async (response) => {
   }
 };
 
-function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
+function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) {
   const [temario, setTemario] = useState(() => ({
     ...temarioInicial,
     temario: Array.isArray(temarioInicial?.temario)
@@ -261,7 +261,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
     setMensaje({ tipo: "ok", texto: `⏱️ Tiempos ajustados a ${horas}h` });
   };
 
-  // ✅ GUARDAR (POST) — Combina tu lógica con auth robusto
   const handleSaveClick = async () => {
     setGuardando(true);
     setMensaje({ tipo: "", texto: "" });
@@ -270,26 +269,21 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
     try {
       const token = getAuthToken();
-      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
+      if (!token) throw new Error("No hay id_token");
 
       const bodyData = {
         cursoId:
           temario?.nombre_curso?.trim() ||
-          temario?.tema_curso?.trim() ||
           `curso_${Date.now()}`,
         contenido: temario,
         autor: userEmail || "sin-correo",
         nombre_curso: temario?.nombre_curso || "",
-        tecnologia: temario?.tecnologia || "",
-        asesor_comercial: temario?.asesor_comercial || "",
-        nombre_preventa: temario?.nombre_preventa || "",
         nota_version: nota,
         fecha_creacion: new Date().toISOString(),
       };
 
       const { h1, h2 } = buildAuthHeaders(token);
 
-      // 1) Bearer
       let response = await fetch(API_VERSIONES, {
         method: "POST",
         headers: {
@@ -299,7 +293,6 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
         body: JSON.stringify(bodyData),
       });
 
-      // 2) fallback sin Bearer
       if (response.status === 401 || response.status === 403) {
         response = await fetch(API_VERSIONES, {
           method: "POST",
@@ -313,22 +306,23 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
 
       const data = await safeJson(response);
 
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || "Error al guardar");
       }
 
       setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
     } catch (err) {
-      console.error("Error al guardar versión:", err);
+      console.error("Error al guardar:", err);
       setMensaje({
         tipo: "error",
-        texto: `❌ Error al guardar versión: ${err?.message || "ver consola"}`,
+        texto: `❌ Error al guardar versión: ${err.message}`,
       });
     } finally {
       setGuardando(false);
       setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
     }
   };
+
 
   // ✅ VER VERSIONES (GET) — Auth robusto + sort seguro
   const verVersionesGuardadas = async () => {
@@ -1062,7 +1056,7 @@ function EditorDeTemario({ temarioInicial, onSave, isLoading }) {
               <button
                 onClick={() => {
                   if (exportTipo === "pdf") {
-                    exportarPDF(temario);
+                    exportarPDFLocal();
                   } else if (exportTipo === "excel") {
                     exportarExcel();
                   } else if (exportTipo === "yaml") {
