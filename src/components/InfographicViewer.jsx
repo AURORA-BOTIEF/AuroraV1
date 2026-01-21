@@ -706,39 +706,31 @@ function InfographicViewer() {
                                 const btn = document.querySelector('.btn-download');
                                 if (btn) {
                                     btn.disabled = true;
-                                    btn.textContent = '⏳...';
+                                    btn.textContent = '⏳ Generando...';
                                 }
 
                                 const response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, {
                                     method: 'GET',
                                     headers: {
-                                        'Accept': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                                        'Accept': 'application/json'
                                     }
                                 });
 
                                 if (!response.ok) {
-                                    throw new Error(`Error: ${response.status}`);
+                                    const errorData = await response.json().catch(() => ({}));
+                                    throw new Error(errorData.error || `Error: ${response.status}`);
                                 }
 
-                                // API Gateway returns base64-encoded text, need to decode it
-                                const base64Text = await response.text();
-                                const binaryString = atob(base64Text);
-                                const bytes = new Uint8Array(binaryString.length);
-                                for (let i = 0; i < binaryString.length; i++) {
-                                    bytes[i] = binaryString.charCodeAt(i);
-                                }
-                                const blob = new Blob([bytes], {
-                                    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-                                });
+                                // API returns JSON with presigned download URL
+                                const data = await response.json();
 
-                                const url = window.URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${folder}.pptx`;
-                                document.body.appendChild(a);
-                                a.click();
-                                window.URL.revokeObjectURL(url);
-                                document.body.removeChild(a);
+                                if (data.download_url) {
+                                    // Redirect to presigned S3 URL to download
+                                    window.location.href = data.download_url;
+                                    console.log(`PPT download started: ${data.filename} (${Math.round(data.size_bytes / 1024)} KB)`);
+                                } else {
+                                    throw new Error('No download URL in response');
+                                }
 
                                 if (btn) {
                                     btn.disabled = false;
