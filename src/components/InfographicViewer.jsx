@@ -701,6 +701,15 @@ function InfographicViewer() {
                     </button>
 
                     <button
+                        onClick={() => window.open(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, '_blank')}
+                        className="btn-download"
+                        title="Descargar PPT"
+                        style={{ backgroundColor: '#FF8C00', marginLeft: '0.5rem' }}
+                    >
+                        📥 PPT
+                    </button>
+
+                    <button
                         onClick={() => loadInfographic(true)}
                         className="btn-reload"
                         title="Recargar presentación"

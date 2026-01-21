@@ -761,6 +761,41 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  ExportPptFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Exports infographic as PowerPoint
+      Handler: export_ppt.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/ppt_merger/
+      Layers:
+        - !Ref PPTLayer
+        - !Ref StrandsAgentsLayer
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          PYTHONPATH: /opt/python
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        ExportPptApi:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}/ppt
+            Method: get
+            Auth:
+              Authorizer: NONE
+
   LoadBookFunction:
     Type: AWS::Serverless::Function
     Properties:

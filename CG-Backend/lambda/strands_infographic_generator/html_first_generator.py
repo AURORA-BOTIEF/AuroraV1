@@ -420,10 +420,11 @@ def create_group_presentation_slide(is_spanish: bool, slide_counter: int) -> Dic
 def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: int) -> List[Dict]:
     """
     Create agenda slide(s) showing all course modules and lessons.
-    Automatically splits into multiple slides if content exceeds height limits.
+    Automatically splits into multiple slides based on TOTAL ITEM COUNT (not just module count)
+    to prevent content overflow.
     Returns list of slide dictionaries.
     """
-    # Build full agenda with nested structure
+    # Build full agenda with nested structure AND calculate total items per module
     agenda_items = []
     for idx, module in enumerate(modules, 1):
         module_title = module.get('title', f"Módulo {idx}")
@@ -436,17 +437,28 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             if lesson_title:
                 lesson_titles.append(lesson_title)
         
-        # Add as nested structure
+        # Add as nested structure with item count for height estimation
+        # Each module title = 1 item, each lesson = 1 item
+        item_count = 1 + len(lesson_titles)
         agenda_items.append({
             'text': module_title,
-            'lessons': lesson_titles
+            'lessons': lesson_titles,
+            'item_count': item_count
         })
     
-    # Max modules per slide (each module + lessons counts as ~2-3 bullets worth of space)
-    MAX_MODULES_PER_SLIDE = 3
+    # Max ITEMS per slide (not modules!) - accounts for nested lessons
+    # At ~30px per item, max-height 440px allows ~14 items, but leave margin
+    MAX_ITEMS_PER_SLIDE = 10
+    
+    # Calculate total items across all modules
+    total_items = sum(item['item_count'] for item in agenda_items)
+    
+    logger.info(f"📅 Agenda: {len(agenda_items)} modules, {total_items} total items")
     
     # If agenda fits in one slide, return single slide
-    if len(agenda_items) <= MAX_MODULES_PER_SLIDE:
+    if total_items <= MAX_ITEMS_PER_SLIDE:
+        # Remove item_count before returning (it was just for calculation)
+        clean_items = [{'text': i['text'], 'lessons': i['lessons']} for i in agenda_items]
         return [{
             "slide_number": slide_counter,
             "title": "Agenda" if is_spanish else "Agenda",
@@ -456,21 +468,23 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
                 {
                     "type": "nested-bullets",
                     "heading": "",
-                    "items": agenda_items
+                    "items": clean_items
                 }
             ],
             "notes": "Course agenda with modules and lessons"
         }]
     
-    # Split into multiple slides
+    # Split into multiple slides based on ITEM COUNT
     slides = []
     current_items = []
+    current_item_count = 0
     part_num = 1
     
     for item in agenda_items:
-        current_items.append(item)
-        
-        if len(current_items) >= MAX_MODULES_PER_SLIDE:
+        # Check if adding this module would exceed the limit
+        if current_item_count + item['item_count'] > MAX_ITEMS_PER_SLIDE and current_items:
+            # Finish current slide
+            clean_items = [{'text': i['text'], 'lessons': i['lessons']} for i in current_items]
             slides.append({
                 "slide_number": slide_counter + len(slides),
                 "title": f"Agenda ({part_num})" if is_spanish else f"Agenda ({part_num})",
@@ -480,16 +494,22 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
                     {
                         "type": "nested-bullets",
                         "heading": "",
-                        "items": current_items[:]
+                        "items": clean_items
                     }
                 ],
                 "notes": f"Course agenda part {part_num}"
             })
+            logger.info(f"📅 Agenda slide {part_num}: {len(current_items)} modules, {current_item_count} items")
             current_items = []
+            current_item_count = 0
             part_num += 1
+        
+        current_items.append(item)
+        current_item_count += item['item_count']
     
     # Add remaining items
     if current_items:
+        clean_items = [{'text': i['text'], 'lessons': i['lessons']} for i in current_items]
         slides.append({
             "slide_number": slide_counter + len(slides),
             "title": f"Agenda ({part_num})" if is_spanish else f"Agenda ({part_num})",
@@ -499,12 +519,14 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
                 {
                     "type": "nested-bullets",
                     "heading": "",
-                    "items": current_items[:]
+                    "items": clean_items
                 }
             ],
             "notes": f"Course agenda part {part_num}"
         })
+        logger.info(f"📅 Agenda slide {part_num}: {len(current_items)} modules, {current_item_count} items")
     
+    logger.info(f"📅 Created {len(slides)} agenda slides total")
     return slides
 
 
@@ -770,11 +792,12 @@ TARGET: Create HTML slides by filling pre-defined templates with SMART CONTENT D
    - If bullets are long, use FEWER bullets or SPLIT into more slides
    - NEVER exceed 4 bullets - ALWAYS split if more content exists
 
-3. **BULLET FORMAT RULES** (CRITICAL FOR FITTING):
-   - Each bullet must be ONE SHORT sentence (under 80 characters if possible)
+3. **BULLET FORMAT RULES** (CRITICAL FOR FITTING - ENFORCED BY VALIDATOR!):
+   - MAXIMUM 100 characters per bullet - bullets exceeding this WILL BE TRUNCATED!
+   - Each bullet must be ONE SHORT sentence (under 80 characters ideal)
    - Use concise technical terminology instead of long explanations
    - For image layouts: even shorter bullets (under 50 characters ideal)
-   - Long multi-line bullets will be CUT - keep them brief!
+   - Long multi-line bullets WILL BE CUT with "..." - keep them brief!
 
 4. **CODE LAYOUT RULES** (MAXIMIZE CODE SPACE!):
    - PREFER "code_only" for code blocks - uses FULL slide (17 lines max)
@@ -958,6 +981,13 @@ OUTPUT JSON FORMAT:
             if container['type'] == 'text':
                 if len(bullets) > container['max_bullets']:
                     violations.append(f"Too many bullets: {len(bullets)} > {container['max_bullets']}")
+                
+                # NEW: Check individual bullet length to prevent text overflow
+                # At 16pt font, ~100 chars fits on 2 lines in the content area
+                MAX_BULLET_CHARS = 100
+                for i, bullet in enumerate(bullets):
+                    if len(bullet) > MAX_BULLET_CHARS:
+                        violations.append(f"Bullet {i+1} too long: {len(bullet)} > {MAX_BULLET_CHARS} chars")
             
             if container['type'] == 'code':
                 code = slide.get('content', {}).get('code', {}).get('code', '')
@@ -1045,11 +1075,22 @@ OUTPUT JSON FORMAT:
         return slide
 
     def _force_truncate(self, slide: Dict, layout_spec: Dict):
-        """Hard truncates content to fit limits."""
+        """Hard truncates content to fit limits (both bullet count and bullet length)."""
+        MAX_BULLET_CHARS = 100  # Must match validation constant
+        
         for container in layout_spec['containers']:
              if container['type'] == 'text':
                  bullets = slide.get('content', {}).get('bullets', [])
-                 slide['content']['bullets'] = bullets[:container['max_bullets']]
+                 # First truncate by count
+                 bullets = bullets[:container['max_bullets']]
+                 # Then truncate individual bullets that are too long
+                 truncated_bullets = []
+                 for bullet in bullets:
+                     if len(bullet) > MAX_BULLET_CHARS:
+                         truncated_bullets.append(bullet[:MAX_BULLET_CHARS - 3] + "...")
+                     else:
+                         truncated_bullets.append(bullet)
+                 slide['content']['bullets'] = truncated_bullets
              if container['type'] == 'code':
                  code_obj = slide.get('content', {}).get('code', {})
                  code = code_obj.get('code', '')
