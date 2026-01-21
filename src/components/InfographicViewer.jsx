@@ -720,7 +720,17 @@ function InfographicViewer() {
                                     throw new Error(`Error: ${response.status}`);
                                 }
 
-                                const blob = await response.blob();
+                                // API Gateway returns base64-encoded text, need to decode it
+                                const base64Text = await response.text();
+                                const binaryString = atob(base64Text);
+                                const bytes = new Uint8Array(binaryString.length);
+                                for (let i = 0; i < binaryString.length; i++) {
+                                    bytes[i] = binaryString.charCodeAt(i);
+                                }
+                                const blob = new Blob([bytes], {
+                                    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                                });
+
                                 const url = window.URL.createObjectURL(blob);
                                 const a = document.createElement('a');
                                 a.href = url;
