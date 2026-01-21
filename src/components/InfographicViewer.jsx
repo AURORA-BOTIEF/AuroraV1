@@ -701,7 +701,49 @@ function InfographicViewer() {
                     </button>
 
                     <button
-                        onClick={() => window.open(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, '_blank')}
+                        onClick={async () => {
+                            try {
+                                const btn = document.querySelector('.btn-download');
+                                if (btn) {
+                                    btn.disabled = true;
+                                    btn.textContent = '⏳...';
+                                }
+
+                                const response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, {
+                                    method: 'GET',
+                                    headers: {
+                                        'Accept': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                                    }
+                                });
+
+                                if (!response.ok) {
+                                    throw new Error(`Error: ${response.status}`);
+                                }
+
+                                const blob = await response.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `${folder}.pptx`;
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                document.body.removeChild(a);
+
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 PPT';
+                                }
+                            } catch (err) {
+                                console.error('PPT download error:', err);
+                                alert('Error descargando PPT: ' + err.message);
+                                const btn = document.querySelector('.btn-download');
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 PPT';
+                                }
+                            }
+                        }}
                         className="btn-download"
                         title="Descargar PPT"
                         style={{ backgroundColor: '#FF8C00', marginLeft: '0.5rem' }}
