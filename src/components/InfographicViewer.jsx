@@ -702,32 +702,42 @@ function InfographicViewer() {
 
                     <button
                         onClick={async () => {
+                            const btn = document.querySelector('.btn-download');
                             try {
-                                const btn = document.querySelector('.btn-download');
                                 if (btn) {
                                     btn.disabled = true;
                                     btn.textContent = '⏳ Generando...';
                                 }
 
-                                const response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, {
+                                let response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, {
                                     method: 'GET',
-                                    headers: {
-                                        'Accept': 'application/json'
-                                    }
+                                    headers: { 'Accept': 'application/json' }
                                 });
+
+                                // On server error (often API Gateway timeout), retry with check_only
+                                if (response.status === 500 || response.status === 504) {
+                                    console.log('Generation may have timed out, checking if file exists...');
+                                    if (btn) btn.textContent = '⏳ Verificando...';
+
+                                    // Wait a few seconds for upload to complete
+                                    await new Promise(r => setTimeout(r, 5000));
+
+                                    response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt?check_only=true`, {
+                                        method: 'GET',
+                                        headers: { 'Accept': 'application/json' }
+                                    });
+                                }
 
                                 if (!response.ok) {
                                     const errorData = await response.json().catch(() => ({}));
                                     throw new Error(errorData.error || `Error: ${response.status}`);
                                 }
 
-                                // API returns JSON with presigned download URL
                                 const data = await response.json();
 
                                 if (data.download_url) {
-                                    // Redirect to presigned S3 URL to download
                                     window.location.href = data.download_url;
-                                    console.log(`PPT download started: ${data.filename} (${Math.round(data.size_bytes / 1024)} KB)`);
+                                    console.log(`PPT download started: ${data.filename} (${Math.round(data.size_bytes / 1024)} KB)${data.cached ? ' [cached]' : ''}`);
                                 } else {
                                     throw new Error('No download URL in response');
                                 }
@@ -739,7 +749,6 @@ function InfographicViewer() {
                             } catch (err) {
                                 console.error('PPT download error:', err);
                                 alert('Error descargando PPT: ' + err.message);
-                                const btn = document.querySelector('.btn-download');
                                 if (btn) {
                                     btn.disabled = false;
                                     btn.textContent = '📥 PPT';
