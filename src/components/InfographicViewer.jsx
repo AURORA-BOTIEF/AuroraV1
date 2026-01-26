@@ -701,6 +701,68 @@ function InfographicViewer() {
                     </button>
 
                     <button
+                        onClick={async () => {
+                            const btn = document.querySelector('.btn-download');
+                            try {
+                                if (btn) {
+                                    btn.disabled = true;
+                                    btn.textContent = '⏳ Generando...';
+                                }
+
+                                let response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, {
+                                    method: 'GET',
+                                    headers: { 'Accept': 'application/json' }
+                                });
+
+                                // On server error (often API Gateway timeout), retry with check_only
+                                if (response.status === 500 || response.status === 504) {
+                                    console.log('Generation may have timed out, checking if file exists...');
+                                    if (btn) btn.textContent = '⏳ Verificando...';
+
+                                    // Wait a few seconds for upload to complete
+                                    await new Promise(r => setTimeout(r, 5000));
+
+                                    response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt?check_only=true`, {
+                                        method: 'GET',
+                                        headers: { 'Accept': 'application/json' }
+                                    });
+                                }
+
+                                if (!response.ok) {
+                                    const errorData = await response.json().catch(() => ({}));
+                                    throw new Error(errorData.error || `Error: ${response.status}`);
+                                }
+
+                                const data = await response.json();
+
+                                if (data.download_url) {
+                                    window.location.href = data.download_url;
+                                    console.log(`PPT download started: ${data.filename} (${Math.round(data.size_bytes / 1024)} KB)${data.cached ? ' [cached]' : ''}`);
+                                } else {
+                                    throw new Error('No download URL in response');
+                                }
+
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 PPT';
+                                }
+                            } catch (err) {
+                                console.error('PPT download error:', err);
+                                alert('Error descargando PPT: ' + err.message);
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 PPT';
+                                }
+                            }
+                        }}
+                        className="btn-download"
+                        title="Descargar PPT"
+                        style={{ backgroundColor: '#FF8C00', marginLeft: '0.5rem' }}
+                    >
+                        📥 PPT
+                    </button>
+
+                    <button
                         onClick={() => loadInfographic(true)}
                         className="btn-reload"
                         title="Recargar presentación"

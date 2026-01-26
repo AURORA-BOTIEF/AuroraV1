@@ -515,9 +515,12 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             if lesson_title:
                 agenda_items.append(f"      ○ {lesson_title}")  # Indented with circle bullet
     
-    # Estimate height: Each bullet ≈ 48px (BULLET_HEIGHT)
-    # Max bullets per slide with subtitle: ~9 bullets (460px / 48px ≈ 9.5)
-    MAX_BULLETS_PER_SLIDE = 9
+    # Estimate height: Each bullet ≈ 50px (BULLET_HEIGHT)
+    # Max bullets per slide with subtitle: ~8 bullets (440px / 50px ≈ 8.8)
+    # Using 8 to leave margin for long titles
+    MAX_BULLETS_PER_SLIDE = 8
+    
+    logger.info(f"📅 Agenda: {len(modules)} modules, {len(agenda_items)} total items")
     
     # If agenda fits in one slide, return single slide
     if len(agenda_items) <= MAX_BULLETS_PER_SLIDE:
