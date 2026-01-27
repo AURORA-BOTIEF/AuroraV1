@@ -23,17 +23,17 @@ try {
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        // 2. Nuclear Density Check (First Pass)
-        const originalAmpCount = (cleaned.match(/&/g) || []).length;
-        if (originalAmpCount > 3 && originalAmpCount > cleaned.length * 0.1) {
-            console.log('cleanString: Nuclear cleanup triggered (High Density)', {
-                text: cleaned.substring(0, 50),
-                density: (originalAmpCount / cleaned.length).toFixed(2)
-            });
+        // 2. Count Ampersands
+        const ampCount = (cleaned.match(/&/g) || []).length;
+
+        // 3. Aggressive "Nuclear" Cleanup
+        // If there are more than 4 ampersands in a single string, it's almost certainly corrupted.
+        if (ampCount > 4) {
+            console.log('🔥 CORRUPTION DETECTED: Stripping all & from text:', cleaned.substring(0, 50) + '...');
             return cleaned.replace(/&/g, '');
         }
 
-        // 3. Smart Ampersand Cleaning (Second Pass)
+        // 4. Fallback for shorter corruption strings (e.g. "&S&e")
         cleaned = cleaned.replace(/&(?=\S)/g, '');
 
         return cleaned;
