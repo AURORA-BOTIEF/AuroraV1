@@ -238,16 +238,34 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // Helper function to clean text for PDF (remove encoding artifacts)
             const cleanPdfText = (text) => {
                 if (!text) return '';
+
                 // 1. Remove control characters (0-31) except newline (10)
+                // Also explicitly remove null bytes (0x00) just in case
                 let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-                // 2. Fix Double Escaping / Encoding Artifacts like &S&e&l&e&c...
-                // Only apply if we detect a high density of ampersands
+                const originalLength = cleaned.length;
                 const ampersandCount = (cleaned.match(/&/g) || []).length;
-                if (ampersandCount > 3 && ampersandCount > cleaned.length / 3) {
-                    // Pattern: & followed by a word character
-                    const testClean = cleaned.replace(/&([a-zA-Z0-9\s.,:;"'])/g, '$1');
-                    if (testClean.length < cleaned.length * 0.8) {
+
+                // Debug log for specific known corrupted strings or high corruption
+                if (ampersandCount > 3 && (text.includes("Selecciona") || text.includes("&S&e"))) {
+                    console.log('cleanPdfText DEBUG:', {
+                        original: text,
+                        ampersandCount,
+                        length: originalLength,
+                        ratio: ampersandCount / originalLength
+                    });
+                }
+
+                // 2. Fix Double Escaping / Encoding Artifacts like &S&e&l&e&c...
+                // Trigger if > 20% of characters are ampersands (lowered from 33% to be safer)
+                if (ampersandCount > 3 && ampersandCount > cleaned.length / 5) {
+                    // Pattern: & followed by ANY character (using dot .)
+                    // This catches &S, &e, &!, &", &<space>, etc.
+                    const testClean = cleaned.replace(/&([\s\S])/g, '$1');
+
+                    // If the length reduced significanly (by at least 15%), assume it was corrupted
+                    if (testClean.length < cleaned.length * 0.85) {
+                        console.log('cleanPdfText APPLIED FIX:', { from: cleaned.substring(0, 50), to: testClean.substring(0, 50) });
                         return testClean;
                     }
                 }
