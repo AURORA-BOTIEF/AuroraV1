@@ -94,6 +94,51 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [isSaving, setIsSaving] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
+    // Helper function to clean text (remove encoding artifacts)
+    const cleanString = (text) => {
+        if (typeof text !== 'string') return text;
+        if (!text) return '';
+
+        // 1. Remove control characters (0-31) except newline (10)
+        let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
+
+        const ampersandCount = (cleaned.match(/&/g) || []).length;
+
+        // 2. Fix Double Escaping / Encoding Artifacts
+        if (ampersandCount > 3 && ampersandCount > cleaned.length / 5) {
+            const testClean = cleaned.replace(/&([\s\S])/g, '$1');
+            if (testClean.length < cleaned.length * 0.85) {
+                return testClean;
+            }
+        }
+        return cleaned;
+    };
+
+    // Helper function to scrub entire book data object
+    const scrubBookData = (data) => {
+        if (!data) return data;
+
+        console.log('🧹 Scrubbing book data for encoding artifacts...');
+        const start = performance.now();
+
+        const scrubValue = (val) => {
+            if (typeof val === 'string') return cleanString(val);
+            if (Array.isArray(val)) return val.map(scrubValue);
+            if (val && typeof val === 'object') {
+                const newVal = {};
+                for (const key in val) {
+                    newVal[key] = scrubValue(val[key]);
+                }
+                return newVal;
+            }
+            return val;
+        };
+
+        const cleaned = scrubValue(data);
+        console.log(`🧹 Scrubbing complete in ${(performance.now() - start).toFixed(2)}ms`);
+        return cleaned;
+    };
+
     // Helper function to show alert modal
     const showModal = (message, title = 'Aviso') => {
         setModalConfig({
@@ -234,43 +279,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const lineHeight = 7;
             const maxWidth = pageWidth - 2 * margin;
             let yPosition = margin;
-
-            // Helper function to clean text for PDF (remove encoding artifacts)
-            const cleanPdfText = (text) => {
-                if (!text) return '';
-
-                // 1. Remove control characters (0-31) except newline (10)
-                // Also explicitly remove null bytes (0x00) just in case
-                let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
-
-                const originalLength = cleaned.length;
-                const ampersandCount = (cleaned.match(/&/g) || []).length;
-
-                // Debug log for specific known corrupted strings or high corruption
-                if (ampersandCount > 3 && (text.includes("Selecciona") || text.includes("&S&e"))) {
-                    console.log('cleanPdfText DEBUG:', {
-                        original: text,
-                        ampersandCount,
-                        length: originalLength,
-                        ratio: ampersandCount / originalLength
-                    });
-                }
-
-                // 2. Fix Double Escaping / Encoding Artifacts like &S&e&l&e&c...
-                // Trigger if > 20% of characters are ampersands (lowered from 33% to be safer)
-                if (ampersandCount > 3 && ampersandCount > cleaned.length / 5) {
-                    // Pattern: & followed by ANY character (using dot .)
-                    // This catches &S, &e, &!, &", &<space>, etc.
-                    const testClean = cleaned.replace(/&([\s\S])/g, '$1');
-
-                    // If the length reduced significanly (by at least 15%), assume it was corrupted
-                    if (testClean.length < cleaned.length * 0.85) {
-                        console.log('cleanPdfText APPLIED FIX:', { from: cleaned.substring(0, 50), to: testClean.substring(0, 50) });
-                        return testClean;
-                    }
-                }
-                return cleaned;
-            };
 
             // Helper function to add header with design
             const addHeader = (pageNum) => {
@@ -801,7 +809,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             pdf.rect(cellX, tableY, colWidths[i], cellHeight, 'S');
 
                                             // Draw cell text
-                                            const cellText = cleanPdfText(row[i] || '');
+                                            const cellText = cleanString(row[i] || '');
                                             const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
                                             pdf.text(truncatedText, cellX + cellPadding, tableY + cellHeight - 2);
 
@@ -835,7 +843,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             if (/^#\s+/.test(trimmedLine)) {
                                                 checkNewPage(150); // Prevent orphan - need half page for content after title
                                                 lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = cleanPdfText(trimmedLine.replace(/^#\s+/, ''));
+                                                const headerText = cleanString(trimmedLine.replace(/^#\s+/, ''));
                                                 pdf.setFontSize(16);
                                                 pdf.setFont('helvetica', 'bold');
                                                 pdf.setTextColor(0, 82, 147); // Blue color
@@ -855,7 +863,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             if (/^##\s+/.test(trimmedLine)) {
                                                 checkNewPage(150); // Prevent orphan - need half page for content after title
                                                 lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = cleanPdfText(trimmedLine.replace(/^##\s+/, ''));
+                                                const headerText = cleanString(trimmedLine.replace(/^##\s+/, ''));
                                                 pdf.setFontSize(14);
                                                 pdf.setFont('helvetica', 'bold');
                                                 pdf.setTextColor(0, 82, 147); // Blue color
@@ -875,7 +883,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             if (/^#{3,6}\s+/.test(trimmedLine)) {
                                                 checkNewPage(130); // Prevent orphan - need substantial content after title
                                                 lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = cleanPdfText(trimmedLine.replace(/^#{3,6}\s+/, ''));
+                                                const headerText = cleanString(trimmedLine.replace(/^#{3,6}\s+/, ''));
                                                 pdf.setFontSize(12);
                                                 pdf.setFont('helvetica', 'bold');
                                                 pdf.setTextColor(0, 102, 153); // Lighter blue
@@ -915,7 +923,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                                 const hasBold = /\*\*(.+?)\*\*/.test(itemContent);
 
                                                 // Clean markdown formatting
-                                                let cleanText = cleanPdfText(itemContent
+                                                let cleanText = cleanString(itemContent
                                                     .replace(/\*\*(.+?)\*\*/g, '$1')
                                                     .replace(/\*(.+?)\*/g, '$1')
                                                     .replace(/`(.+?)`/g, '$1'));
@@ -967,7 +975,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                                 const textIndent = bulletIndent + 6; // More space for numbers
                                                 const availableWidth = maxWidth - (level * 6) - 8;
 
-                                                let cleanText = cleanPdfText(itemContent
+                                                let cleanText = cleanString(itemContent
                                                     .replace(/\*\*(.+?)\*\*/g, '$1')
                                                     .replace(/\*(.+?)\*/g, '$1')
                                                     .replace(/`(.+?)`/g, '$1'));
@@ -992,7 +1000,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             }
 
                                             // Regular paragraph text
-                                            let cleanText = cleanPdfText(trimmedLine
+                                            let cleanText = cleanString(trimmedLine
                                                 .replace(/\*\*(.+?)\*\*/g, '$1')
                                                 .replace(/\*(.+?)\*/g, '$1')
                                                 .replace(/\[VISUAL:.*?\]/g, '')
@@ -1547,7 +1555,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 }
             }
 
-            return bookData;
+            // Scrub encoding artifacts from loaded data
+            return scrubBookData(bookData);
         } catch (error) {
             console.warn('Error in loadBookDataFromAPI:', error);
             return null;
@@ -1675,7 +1684,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Ensure lessons is an array
                 if (data.bookData.lessons && Array.isArray(data.bookData.lessons)) {
                     // Set book data immediately WITHOUT waiting for images
-                    bookToSet = { ...data.bookData, outlineKey }; // Include outlineKey for regeneration
+                    bookToSet = scrubBookData({ ...data.bookData, outlineKey }); // Include outlineKey for regeneration
                     setBookData(bookToSet);
                     setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
                     setLoading(false); // Show UI immediately
@@ -1720,7 +1729,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             } else if (data.bookContent) {
                 // Parse book content immediately without waiting for images
                 console.log('Parsing book content (images will load in background)...');
-                const parsedBook = { ...parseMarkdownToBook(data.bookContent), outlineKey };
+                const parsedBook = scrubBookData({ ...parseMarkdownToBook(data.bookContent), outlineKey });
 
                 // Set book data immediately for fast UI display
                 setBookData(parsedBook);
@@ -1735,7 +1744,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         console.log('Skipping image update - version already loaded');
                         return;
                     }
-                    const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
+                    const parsedBookWithImages = scrubBookData({ ...parseMarkdownToBook(contentWithImages), outlineKey });
                     setBookData(parsedBookWithImages);
                     setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
                     console.log('Images loaded successfully');
