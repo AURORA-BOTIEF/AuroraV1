@@ -24,12 +24,21 @@ try {
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
         // 2. Fix Double Escaping / Encoding Artifacts
+        const ampersandCount = (cleaned.match(/&/g) || []).length;
+        const density = ampersandCount / cleaned.length;
+
+        // Strategy A: Sequence Matching (Precision)
         if (cleaned.includes('&')) {
             cleaned = cleaned.replace(/(?:&[\s\S]){2,}/g, (match) => {
-                const fixed = match.replace(/&/g, '');
-                console.log('cleanPdfText fixed sequence:', { from: match, to: fixed });
-                return fixed;
+                return match.replace(/&/g, '');
             });
+        }
+
+        // Strategy B: Density Fallback (Brute Force)
+        const currentAmpersandCount = (cleaned.match(/&/g) || []).length;
+        if (currentAmpersandCount > 3 && density > 0.15) {
+            console.log('cleanString: High density detected, stripping all &');
+            cleaned = cleaned.replace(/&/g, '');
         }
         return cleaned;
     };

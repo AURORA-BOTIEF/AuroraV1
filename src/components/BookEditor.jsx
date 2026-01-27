@@ -103,18 +103,23 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
         // 2. Fix Double Escaping / Encoding Artifacts
-        // Pattern: Detect SEQUENCES of &char&char (at least 2 in a row)
-        // This avoids matching single " & " usage like "Ben & Jerry"
-        // Regex explanation: (?:&[\s\S]) groups "&" plus "any char"
-        // {2,} matches 2 or more consecutive groups (e.g. &A&B)
-        // We replace the matches by stripping the & from them
+        const ampersandCount = (cleaned.match(/&/g) || []).length;
+        const density = ampersandCount / cleaned.length;
+
+        // Strategy A: Sequence Matching (Precision)
+        // Detects &A&B&C sequences. Good for heavy corruption.
         if (cleaned.includes('&')) {
             cleaned = cleaned.replace(/(?:&[\s\S]){2,}/g, (match) => {
-                // For the matched sequence, remove all ampersands
-                const fixed = match.replace(/&/g, '');
-                // console.log('cleanString fixed sequence:', { from: match, to: fixed });
-                return fixed;
+                return match.replace(/&/g, '');
             });
+        }
+
+        // Strategy B: Density Fallback (Brute Force)
+        // If text is still heavily infested (>15% &), just strip ALL ampersands.
+        // This handles cases where sequences were broken (e.g. "&A &B") but corruption is obvious.
+        if ((cleaned.match(/&/g) || []).length > 3 && density > 0.15) {
+            console.log('cleanString: High density detected, stripping all &', { text: cleaned });
+            cleaned = cleaned.replace(/&/g, '');
         }
 
         return cleaned;
