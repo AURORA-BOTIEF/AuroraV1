@@ -235,6 +235,25 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const maxWidth = pageWidth - 2 * margin;
             let yPosition = margin;
 
+            // Helper function to clean text for PDF (remove encoding artifacts)
+            const cleanPdfText = (text) => {
+                if (!text) return '';
+                // 1. Remove control characters (0-31) except newline (10)
+                let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
+
+                // 2. Fix Double Escaping / Encoding Artifacts like &S&e&l&e&c...
+                // Only apply if we detect a high density of ampersands
+                const ampersandCount = (cleaned.match(/&/g) || []).length;
+                if (ampersandCount > 3 && ampersandCount > cleaned.length / 3) {
+                    // Pattern: & followed by a word character
+                    const testClean = cleaned.replace(/&([a-zA-Z0-9\s.,:;"'])/g, '$1');
+                    if (testClean.length < cleaned.length * 0.8) {
+                        return testClean;
+                    }
+                }
+                return cleaned;
+            };
+
             // Helper function to add header with design
             const addHeader = (pageNum) => {
                 if (pageNum === 1) return;
@@ -764,7 +783,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             pdf.rect(cellX, tableY, colWidths[i], cellHeight, 'S');
 
                                             // Draw cell text
-                                            const cellText = row[i] || '';
+                                            const cellText = cleanPdfText(row[i] || '');
                                             const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
                                             pdf.text(truncatedText, cellX + cellPadding, tableY + cellHeight - 2);
 
@@ -798,7 +817,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             if (/^#\s+/.test(trimmedLine)) {
                                                 checkNewPage(150); // Prevent orphan - need half page for content after title
                                                 lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = trimmedLine.replace(/^#\s+/, '');
+                                                const headerText = cleanPdfText(trimmedLine.replace(/^#\s+/, ''));
                                                 pdf.setFontSize(16);
                                                 pdf.setFont('helvetica', 'bold');
                                                 pdf.setTextColor(0, 82, 147); // Blue color
@@ -818,7 +837,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             if (/^##\s+/.test(trimmedLine)) {
                                                 checkNewPage(150); // Prevent orphan - need half page for content after title
                                                 lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = trimmedLine.replace(/^##\s+/, '');
+                                                const headerText = cleanPdfText(trimmedLine.replace(/^##\s+/, ''));
                                                 pdf.setFontSize(14);
                                                 pdf.setFont('helvetica', 'bold');
                                                 pdf.setTextColor(0, 82, 147); // Blue color
@@ -838,7 +857,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             if (/^#{3,6}\s+/.test(trimmedLine)) {
                                                 checkNewPage(130); // Prevent orphan - need substantial content after title
                                                 lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = trimmedLine.replace(/^#{3,6}\s+/, '');
+                                                const headerText = cleanPdfText(trimmedLine.replace(/^#{3,6}\s+/, ''));
                                                 pdf.setFontSize(12);
                                                 pdf.setFont('helvetica', 'bold');
                                                 pdf.setTextColor(0, 102, 153); // Lighter blue
@@ -878,10 +897,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                                 const hasBold = /\*\*(.+?)\*\*/.test(itemContent);
 
                                                 // Clean markdown formatting
-                                                let cleanText = itemContent
+                                                let cleanText = cleanPdfText(itemContent
                                                     .replace(/\*\*(.+?)\*\*/g, '$1')
                                                     .replace(/\*(.+?)\*/g, '$1')
-                                                    .replace(/`(.+?)`/g, '$1');
+                                                    .replace(/`(.+?)`/g, '$1'));
 
                                                 // Bullet symbols matching HTML viewer: disc (level 0), circle (level 1), square (level 2+)
                                                 let bulletSymbol;
@@ -930,10 +949,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                                 const textIndent = bulletIndent + 6; // More space for numbers
                                                 const availableWidth = maxWidth - (level * 6) - 8;
 
-                                                let cleanText = itemContent
+                                                let cleanText = cleanPdfText(itemContent
                                                     .replace(/\*\*(.+?)\*\*/g, '$1')
                                                     .replace(/\*(.+?)\*/g, '$1')
-                                                    .replace(/`(.+?)`/g, '$1');
+                                                    .replace(/`(.+?)`/g, '$1'));
 
                                                 pdf.setFontSize(10);
                                                 pdf.setTextColor(51, 51, 51);
@@ -955,11 +974,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                             }
 
                                             // Regular paragraph text
-                                            let cleanText = trimmedLine
+                                            let cleanText = cleanPdfText(trimmedLine
                                                 .replace(/\*\*(.+?)\*\*/g, '$1')
                                                 .replace(/\*(.+?)\*/g, '$1')
                                                 .replace(/\[VISUAL:.*?\]/g, '')
-                                                .replace(/`(.+?)`/g, '$1');
+                                                .replace(/`(.+?)`/g, '$1'));
 
                                             if (cleanText) {
                                                 pdf.setFontSize(10);

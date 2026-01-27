@@ -8,6 +8,10 @@ Globals:
       AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
       AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
       AllowOrigin: "'*'"
+    BinaryMediaTypes:
+      - "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      - "application/octet-stream"
+      - "*/*"
     Auth:
       ApiKeyRequired: false
       DefaultAuthorizer: AWS_IAM
@@ -771,8 +775,8 @@ Resources:
       Layers:
         - !Ref PPTLayer
         - !Ref StrandsAgentsLayer
-      MemorySize: 1024
-      Timeout: 60
+      MemorySize: 2048
+      Timeout: 120
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
@@ -783,6 +787,7 @@ Resources:
         - Effect: Allow
           Action:
             - s3:GetObject
+            - s3:PutObject
             - s3:ListBucket
           Resource:
           - arn:aws:s3:::crewai-course-artifacts

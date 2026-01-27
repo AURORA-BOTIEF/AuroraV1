@@ -78,6 +78,9 @@ FUNCTIONS_WITH_DEPS=(
     "UpdateInfographicFunction"     # Updates and regenerates presentations (uses StrandsAgentsLayer)
     "StrandsNotification"           # Sends email notifications (standard lib)
     "GetStudentCoursesFunction"     # Needs: pyyaml (for parsing outline.yaml)
+    "ExportPptFunction"             # Needs: python-pptx, Pillow, beautifulsoup4 (NEW - PPT export)
+    "LabGuideBuilder"               # Needs: pyyaml (builds lab guides)
+    "LoadBookFunction"              # Needs: pyyaml (loads book content)
 )
 
 echo ""
