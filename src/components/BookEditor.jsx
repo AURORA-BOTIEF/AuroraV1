@@ -102,25 +102,22 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        // 2. Fix Double Escaping / Encoding Artifacts
-        const ampersandCount = (cleaned.match(/&/g) || []).length;
-        const density = ampersandCount / cleaned.length;
-
-        // Strategy A: Sequence Matching (Precision)
-        // Detects &A&B&C sequences. Good for heavy corruption.
-        if (cleaned.includes('&')) {
-            cleaned = cleaned.replace(/(?:&[\s\S]){2,}/g, (match) => {
-                return match.replace(/&/g, '');
+        // 2. Nuclear Density Check (First Pass)
+        // Check density BEFORE removing anything. The corruption makes text ~50% ampersands.
+        // Valid usage like "Dungeons & Dragons" is very low density (< 5%).
+        const originalAmpCount = (cleaned.match(/&/g) || []).length;
+        if (originalAmpCount > 3 && originalAmpCount > cleaned.length * 0.1) {
+            console.log('cleanString: Nuclear cleanup triggered (High Density)', {
+                text: cleaned.substring(0, 50),
+                density: (originalAmpCount / cleaned.length).toFixed(2)
             });
+            return cleaned.replace(/&/g, '');
         }
 
-        // Strategy B: Density Fallback (Brute Force)
-        // If text is still heavily infested (>15% &), just strip ALL ampersands.
-        // This handles cases where sequences were broken (e.g. "&A &B") but corruption is obvious.
-        if ((cleaned.match(/&/g) || []).length > 3 && density > 0.15) {
-            console.log('cleanString: High density detected, stripping all &', { text: cleaned });
-            cleaned = cleaned.replace(/&/g, '');
-        }
+        // 3. Smart Ampersand Cleaning (Second Pass)
+        // If density is low but we stil have artifacts (e.g. isolated "&S"), 
+        // remove '&' if followed by non-whitespace.
+        cleaned = cleaned.replace(/&(?=\S)/g, '');
 
         return cleaned;
     };

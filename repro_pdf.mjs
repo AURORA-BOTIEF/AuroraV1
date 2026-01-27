@@ -23,23 +23,19 @@ try {
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        // 2. Fix Double Escaping / Encoding Artifacts
-        const ampersandCount = (cleaned.match(/&/g) || []).length;
-        const density = ampersandCount / cleaned.length;
-
-        // Strategy A: Sequence Matching (Precision)
-        if (cleaned.includes('&')) {
-            cleaned = cleaned.replace(/(?:&[\s\S]){2,}/g, (match) => {
-                return match.replace(/&/g, '');
+        // 2. Nuclear Density Check (First Pass)
+        const originalAmpCount = (cleaned.match(/&/g) || []).length;
+        if (originalAmpCount > 3 && originalAmpCount > cleaned.length * 0.1) {
+            console.log('cleanString: Nuclear cleanup triggered (High Density)', {
+                text: cleaned.substring(0, 50),
+                density: (originalAmpCount / cleaned.length).toFixed(2)
             });
+            return cleaned.replace(/&/g, '');
         }
 
-        // Strategy B: Density Fallback (Brute Force)
-        const currentAmpersandCount = (cleaned.match(/&/g) || []).length;
-        if (currentAmpersandCount > 3 && density > 0.15) {
-            console.log('cleanString: High density detected, stripping all &');
-            cleaned = cleaned.replace(/&/g, '');
-        }
+        // 3. Smart Ampersand Cleaning (Second Pass)
+        cleaned = cleaned.replace(/&(?=\S)/g, '');
+
         return cleaned;
     };
 
