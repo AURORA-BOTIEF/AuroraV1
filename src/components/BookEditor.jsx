@@ -99,6 +99,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         if (typeof text !== 'string') return text;
         if (!text) return '';
 
+        // DEBUG: Targeted logging for the problematic string
+        if (text.includes('Selecciona') || text.includes('&S&e')) {
+            console.log('🔍 [v99-DEBUG] cleanString input:', text);
+            console.log('   Hex preview:', Array.from(text.substring(0, 10)).map(c => c.charCodeAt(0).toString(16)).join(' '));
+        }
+
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
@@ -125,7 +131,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // e.g. "S&e&l&e..." (length ~20, count & ~10 -> 50%) -> STRIP
                 if (count > 4 && count > len * 0.1) {
                     const charCode = char.charCodeAt(0);
-                    console.warn(`🔥 CLEANER: Detected noise char '${char}' (Code: ${charCode}). Occurrences: ${count}. STRIPPING.`);
+                    console.warn(`🔥 [v99] CLEANER: Detected noise char '${char}' (Code: ${charCode}). Occurrences: ${count}. STRIPPING.`);
 
                     // Escape special regex characters to prevent crashes
                     const safeChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -138,6 +144,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         // 3. Legacy Fallback (keeping just in case of low-density & artifacts)
         // Remove & if followed immediately by a non-whitespace character
         cleaned = cleaned.replace(/&(?=\S)/g, '');
+
+        // DEBUG: Log output
+        if (text.includes('Selecciona') || text.includes('&S&e')) {
+            console.log('✅ [v99-DEBUG] cleanString output:', cleaned);
+        }
 
         return cleaned;
     };
@@ -1038,7 +1049,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                                 pdf.setTextColor(0, 0, 0);
 
                                                 const wrappedLines = pdf.splitTextToSize(cleanText, maxWidth);
-                                                for (const wl of wrappedLines) {
+                                                for (let wl of wrappedLines) {
+                                                    // LAST MILE CLEAN: Ensure no artifacts slipped through splitTextToSize
+                                                    if (wl.includes('&') && (wl.match(/&/g) || []).length > 2) {
+                                                        wl = cleanString(wl);
+                                                    }
+
                                                     checkNewPage();
                                                     pdf.text(wl, margin, yPosition);
                                                     yPosition += lineHeight;
