@@ -23,19 +23,29 @@ try {
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        // 2. Count Ampersands
-        const ampCount = (cleaned.match(/&/g) || []).length;
+        // 2. Generic Frequency Sanitizer
+        const charCounts = {};
+        const len = cleaned.length;
+        if (len > 10) {
+            for (let i = 0; i < len; i++) {
+                const char = cleaned[i];
+                if (/[a-zA-Z0-9\s.,;:'"()áéíóúÁÉÍÓÚñÑ-]/.test(char)) continue;
+                charCounts[char] = (charCounts[char] || 0) + 1;
+            }
 
-        // 3. Aggressive "Nuclear" Cleanup
-        // If there are more than 4 ampersands in a single string, it's almost certainly corrupted.
-        if (ampCount > 4) {
-            console.log('🔥 CORRUPTION DETECTED: Stripping all & from text:', cleaned.substring(0, 50) + '...');
-            return cleaned.replace(/&/g, '');
+            for (const [char, count] of Object.entries(charCounts)) {
+                if (count > 4 && count > len * 0.1) {
+                    const charCode = char.charCodeAt(0);
+                    console.log(`🔥 CLEANER: Detected noise char '${char}' (Code: ${charCode}). Occurrences: ${count}. STRIPPING.`);
+                    const safeChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(safeChar, 'g');
+                    cleaned = cleaned.replace(regex, '');
+                }
+            }
         }
 
-        // 4. Fallback for shorter corruption strings (e.g. "&S&e")
+        // 3. Last resort fallback
         cleaned = cleaned.replace(/&(?=\S)/g, '');
-
         return cleaned;
     };
 
@@ -47,6 +57,13 @@ try {
     const cleanedText = cleanPdfText(corruptedText);
     console.log(`Original: "${corruptedText}"`);
     console.log(`Cleaned:  "${cleanedText}"`);
+
+    // Test 5: Generic corruption (e.g. pipes)
+    console.log("Test: Generic Pipe corruption");
+    const pipeText = "|S|e|l|e|c|c|i|o|n|a| |P|r|u|e|b|a|";
+    const cleanedPipe = cleanPdfText(pipeText);
+    console.log(`Original Pipe: "${pipeText}"`);
+    console.log(`Cleaned Pipe:  "${cleanedPipe}"`);
 
     pdf.text("Cleaned Text Check:", margin, yPosition);
     yPosition += 7;

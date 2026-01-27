@@ -102,20 +102,41 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        // 2. Count Ampersands
-        const ampCount = (cleaned.match(/&/g) || []).length;
+        // 2. Generic Frequency Sanitizer (The "No Guessing" Fix)
+        // Instead of targeting "&", we look for ANY non-alphanumeric character 
+        // that appears suspiciously often (high density).
 
-        // 3. Aggressive "Nuclear" Cleanup
-        // If there are more than 4 ampersands in a single string, it's almost certainly corrupted.
-        // Valid usage (e.g. "Laws & Regulations & Compliance & Safety") is rare in this context.
-        if (ampCount > 4) {
-            console.warn('🔥 CORRUPTION DETECTED: Stripping all & from text:', cleaned.substring(0, 50) + '...');
-            return cleaned.replace(/&/g, '');
+        // Count char frequencies
+        const charCounts = {};
+        const len = cleaned.length;
+        if (len > 10) { // Only analyze strings with enough content
+            for (let i = 0; i < len; i++) {
+                const char = cleaned[i];
+                // Ignore letters, numbers, and standard prose punctuation
+                // We want to catch artifacts like &, |, *, ~, nulls, tags, etc.
+                if (/[a-zA-Z0-9\s.,;:'"()áéíóúÁÉÍÓÚñÑ-]/.test(char)) continue;
+
+                charCounts[char] = (charCounts[char] || 0) + 1;
+            }
+
+            // Identify "Noise" characters
+            for (const [char, count] of Object.entries(charCounts)) {
+                // Criteria: More than 4 occurrences AND > 10% density
+                // e.g. "S&e&l&e..." (length ~20, count & ~10 -> 50%) -> STRIP
+                if (count > 4 && count > len * 0.1) {
+                    const charCode = char.charCodeAt(0);
+                    console.warn(`🔥 CLEANER: Detected noise char '${char}' (Code: ${charCode}). Occurrences: ${count}. STRIPPING.`);
+
+                    // Escape special regex characters to prevent crashes
+                    const safeChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(safeChar, 'g');
+                    cleaned = cleaned.replace(regex, '');
+                }
+            }
         }
 
-        // 4. Fallback for shorter corruption strings (e.g. "&S&e")
-        // Remove & if followed immediately by a non-whitespace character (e.g. "&C")
-        // Preserves " & " (e.g. "Ben & Jerry")
+        // 3. Legacy Fallback (keeping just in case of low-density & artifacts)
+        // Remove & if followed immediately by a non-whitespace character
         cleaned = cleaned.replace(/&(?=\S)/g, '');
 
         return cleaned;
@@ -126,7 +147,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         if (!data) return data;
 
         console.log('🧹 Scrubbing book data for encoding artifacts...');
-        const start = performance.now();
+        // const start = performance.now(); // Perf log removed for cleanliness
 
         const scrubValue = (val) => {
             if (typeof val === 'string') return cleanString(val);
@@ -141,9 +162,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             return val;
         };
 
-        const cleaned = scrubValue(data);
-        console.log(`🧹 Scrubbing complete in ${(performance.now() - start).toFixed(2)}ms`);
-        return cleaned;
+        return scrubValue(data);
     };
 
     // Helper function to show alert modal
