@@ -102,15 +102,21 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        const ampersandCount = (cleaned.match(/&/g) || []).length;
-
         // 2. Fix Double Escaping / Encoding Artifacts
-        if (ampersandCount > 3 && ampersandCount > cleaned.length / 5) {
-            const testClean = cleaned.replace(/&([\s\S])/g, '$1');
-            if (testClean.length < cleaned.length * 0.85) {
-                return testClean;
-            }
+        // Pattern: Detect SEQUENCES of &char&char (at least 2 in a row)
+        // This avoids matching single " & " usage like "Ben & Jerry"
+        // Regex explanation: (?:&[\s\S]) groups "&" plus "any char"
+        // {2,} matches 2 or more consecutive groups (e.g. &A&B)
+        // We replace the matches by stripping the & from them
+        if (cleaned.includes('&')) {
+            cleaned = cleaned.replace(/(?:&[\s\S]){2,}/g, (match) => {
+                // For the matched sequence, remove all ampersands
+                const fixed = match.replace(/&/g, '');
+                // console.log('cleanString fixed sequence:', { from: match, to: fixed });
+                return fixed;
+            });
         }
+
         return cleaned;
     };
 

@@ -23,20 +23,13 @@ try {
         // 1. Remove control characters (0-31) except newline (10)
         let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
 
-        const ampersandCount = (cleaned.match(/&/g) || []).length;
-
         // 2. Fix Double Escaping / Encoding Artifacts
-        // Trigger if > 20% of characters are ampersands (lowered from 33% to be safer)
-        if (ampersandCount > 3 && ampersandCount > cleaned.length / 5) {
-            // Pattern: & followed by ANY character (using dot .)
-            // This catches &S, &e, &!, &", &<space>, etc.
-            const testClean = cleaned.replace(/&([\s\S])/g, '$1');
-
-            // If the length reduced significanly (by at least 15%), assume it was corrupted
-            if (testClean.length < cleaned.length * 0.85) {
-                console.log('cleanPdfText APPLIED FIX:', { from: cleaned.substring(0, 50), to: testClean.substring(0, 50) });
-                return testClean;
-            }
+        if (cleaned.includes('&')) {
+            cleaned = cleaned.replace(/(?:&[\s\S]){2,}/g, (match) => {
+                const fixed = match.replace(/&/g, '');
+                console.log('cleanPdfText fixed sequence:', { from: match, to: fixed });
+                return fixed;
+            });
         }
         return cleaned;
     };
