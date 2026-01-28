@@ -396,6 +396,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     contentDiv.className = 'pdf-content';
                     let rawContent = (lesson.content || '').replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
 
+                    // TEST: STRIP IMAGES to verify if they are crashing html2canvas
+                    rawContent = rawContent.replace(/!\[.*?\]\(.*?\)/g, '<div style="border:1px solid red; padding:5px; color:red; font-weight:bold;">[IMAGE REMOVED FOR DEBUGGING]</div>');
+
                     // Use marked to convert MD to HTML
                     try {
                         const htmlContent = marked.parse(rawContent);
