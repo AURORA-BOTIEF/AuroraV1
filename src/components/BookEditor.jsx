@@ -322,28 +322,39 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             console.log('🔍 [PDF DEBUG] Container attached. InnerHTML length:', container.innerHTML.length);
             console.log('🔍 [PDF DEBUG] First 100 chars:', container.innerHTML.substring(0, 100));
 
-            // Title Page
-            const titlePage = document.createElement('div');
-            titlePage.className = 'pdf-page-break';
-            if (logoDataUrl) {
-                const img = document.createElement('img');
-                img.src = logoDataUrl;
-                img.className = 'pdf-logo';
-                titlePage.appendChild(img);
-            }
-            const titleH1 = document.createElement('h1');
-            titleH1.textContent = viewMode === 'book' ? (data?.title || 'Libro del Curso') : 'Guía de Laboratorios';
-            titleH1.style.fontSize = '32px';
-            titleH1.style.marginTop = '100px';
-            titleH1.style.color = '#003366';
-            titleH1.style.clear = 'both';
-            titlePage.appendChild(titleH1);
-            container.appendChild(titlePage);
+            // --- STEP A: Title Page ---
+            console.log('🔍 [PDF DEBUG] Step A: Creating Title Page');
+            try {
+                const titlePage = document.createElement('div');
+                titlePage.className = 'pdf-page-break';
+                if (logoDataUrl) {
+                    const img = document.createElement('img');
+                    img.src = logoDataUrl;
+                    img.className = 'pdf-logo';
+                    titlePage.appendChild(img);
+                }
+                const titleH1 = document.createElement('h1');
+                titleH1.textContent = viewMode === 'book' ? (data?.title || 'Libro del Curso') : 'Guía de Laboratorios';
+                titleH1.style.fontSize = '32px';
+                titleH1.style.marginTop = '100px';
+                titleH1.style.color = '#003366';
+                titleH1.style.clear = 'both';
+                titlePage.appendChild(titleH1);
+                container.appendChild(titlePage);
+            } catch (err) { console.error('🔥 [PDF DEBUG] Step A Failed:', err); }
 
-            // Organize content
+            // --- STEP B: Grouping ---
+            console.log('🔍 [PDF DEBUG] Step B: Grouping Lessons');
             const lessons = data.lessons || [];
+            if (!Array.isArray(lessons)) {
+                console.error('🔥 [PDF DEBUG] CRITICAL: Lessons is NOT an array:', lessons);
+                throw new Error('Lessons data is corrupted (not an array)');
+            }
+
             const byModule = {};
-            lessons.forEach(l => {
+            console.log(`🔍 [PDF DEBUG] Iterate lessons: ${lessons.length} items`);
+            lessons.forEach((l, idx) => {
+                if (!l) { console.warn(`⚠️ Lesson at index ${idx} is undefined`); return; }
                 const m = l.moduleNumber || 1;
                 if (!byModule[m]) byModule[m] = [];
                 byModule[m].push(l);
@@ -352,7 +363,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // DEBUG: Check module grouping
             console.log('🔍 [PDF DEBUG] byModule keys:', Object.keys(byModule));
 
-            // Process Modules
+            // --- STEP C: Rendering ---
+            console.log('🔍 [PDF DEBUG] Step C: Rendering Modules');
             const sortedModules = Object.keys(byModule).sort((a, b) => Number(a) - Number(b));
             for (const modNum of sortedModules) {
                 const modLessons = byModule[modNum];
