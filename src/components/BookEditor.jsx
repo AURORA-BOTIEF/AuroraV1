@@ -218,7 +218,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         try {
             const data = viewMode === 'book' ? bookData : labGuideData;
 
-            // 1. Prepare Content
+            // DEBUG: Check data availability
+            console.log('🔍 [PDF DEBUG] Starting PDF generation');
+            console.log('🔍 [PDF DEBUG] viewMode:', viewMode);
+            console.log('🔍 [PDF DEBUG] Data object keys:', data ? Object.keys(data) : 'null');
+            console.log('🔍 [PDF DEBUG] Lessons count:', data?.lessons?.length);
+
+            if (!data || !data.lessons || data.lessons.length === 0) {
+                console.error('🔥 [PDF DEBUG] NO LESSONS FOUND! Aborting gracefully (or generating empty container).');
+                alert('Error: No hay lecciones cargadas para generar el PDF.');
+            }
             let logoDataUrl = null;
             try {
                 const session = await fetchAuthSession();
