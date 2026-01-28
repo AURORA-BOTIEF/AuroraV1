@@ -270,16 +270,31 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             `;
             container.appendChild(style);
 
-            // HIDDEN CONTAINER STRATEGY (Improved):
-            // 1. Container: Absolute position, under everything (z-index -9999), UNCONSTRAINED height/overflow.
-            //    This is crucial for html2canvas to render the full document.
+            // HIDDEN CONTAINER STRATEGY REVISED: "VISIBLE CURTAIN"
+            // The browser was optimizing away the paint for z-index -9999, causing blank canvas.
+            // New Strategy:
+            // 1. Container is VISIBLE at z-index 9998 (so browser paints it).
+            // 2. A white "Curtain" div is at z-index 10000 (covers the mess).
+            // 3. Status Banner is at z-index 10001.
+
             container.style.position = 'absolute';
             container.style.top = '0';
             container.style.left = '0';
-            container.style.width = '800px'; // A4 width approx
-            container.style.zIndex = '-9999';
+            container.style.width = '800px';
+            container.style.zIndex = '9998'; // Visible!
             container.style.backgroundColor = '#ffffff';
-            // DO NOT SET HEIGHT or OVERFLOW here - let it expand naturally
+
+            // Create Curtain
+            const curtain = document.createElement('div');
+            curtain.className = 'pdf-export-curtain';
+            curtain.style.position = 'fixed';
+            curtain.style.top = '0';
+            curtain.style.left = '0';
+            curtain.style.width = '100vw';
+            curtain.style.height = '100vh';
+            curtain.style.backgroundColor = '#ffffff';
+            curtain.style.zIndex = '10000'; // Covers everything
+            document.body.appendChild(curtain);
 
             document.body.appendChild(container);
 
@@ -365,14 +380,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // --- STEP C: Rendering ---
             console.log('🔍 [PDF DEBUG] Step C: Rendering Modules');
-            let totalLessonsProcessed = 0; // LIMITER
 
             const sortedModules = Object.keys(byModule).sort((a, b) => Number(a) - Number(b));
             for (const modNum of sortedModules) {
-                if (totalLessonsProcessed >= 3) {
-                    console.warn('⚠️ [PDF DEBUG] TEST LIMIT REACHED: Stopping at 3 lessons.');
-                    break;
-                }
                 const modLessons = byModule[modNum];
 
                 // Module Header
@@ -382,11 +392,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 container.appendChild(modDiv);
 
                 for (const lesson of modLessons) {
-                    if (totalLessonsProcessed >= 3) break;
-
                     // DEBUG: Trace lesson content
-                    if (!lesson.content) console.warn(`⚠️ [PDF DEBUG] Lesson ${lesson.id} has NO CONTENT property!`);
-                    else console.log(`🔍 [PDF DEBUG] Rendering Lesson ${lesson.id}, Length: ${lesson.content.length}`);
+                    if (!lesson.content) console.warn(`⚠️ [PDF DEBUG] Lesson has NO CONTENT property!`);
 
                     const lessonDiv = document.createElement('div');
                     lessonDiv.style.marginTop = '20px';
@@ -394,15 +401,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                     const contentDiv = document.createElement('div');
                     contentDiv.className = 'pdf-content';
+                    // Revert image stripping, standard regex
                     let rawContent = (lesson.content || '').replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
-
-                    // TEST: STRIP IMAGES to verify if they are crashing html2canvas
-                    rawContent = rawContent.replace(/!\[.*?\]\(.*?\)/g, '<div style="border:1px solid red; padding:5px; color:red; font-weight:bold;">[IMAGE REMOVED FOR DEBUGGING]</div>');
 
                     // Use marked to convert MD to HTML
                     try {
                         const htmlContent = marked.parse(rawContent);
-                        if (!htmlContent) console.error('🔥 [PDF DEBUG] Marked returned EMPTY string!');
                         contentDiv.innerHTML = htmlContent;
                     } catch (err) {
                         console.error('🔥 [PDF DEBUG] Marked parse error:', err);
@@ -411,22 +415,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                     lessonDiv.appendChild(contentDiv);
                     container.appendChild(lessonDiv);
-
-                    totalLessonsProcessed++;
                 }
-            }
-
-            // FINAL VERIFICATION
-            console.log('🔍 [PDF DEBUG] Final Container InnerHTML Length:', container.innerHTML.length);
-            if (container.innerHTML.length < 5000) {
-                console.error('🔥 [PDF DEBUG] Container is suspiciously small!');
             }
 
             // Generate PDF
             const opt = {
                 margin: 15,
                 filename: `${viewMode === 'book' ? 'curso' : 'laboratorios'}.pdf`,
-                image: { type: 'jpeg', quality: 0.98 },
                 image: { type: 'jpeg', quality: 0.98 },
                 html2canvas: { scale: 2, useCORS: true, logging: true, windowWidth: 1200 },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
@@ -443,16 +438,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 isOpen: true
             });
         } finally {
-            // Clean up: remove container from DOM
-            const container = document.querySelector('.pdf-export-container');
-            if (container && container.parentNode) {
-                container.parentNode.removeChild(container);
-            }
-            // Clean up: remove banner
-            const banner = document.querySelector('.pdf-export-banner');
-            if (banner && banner.parentNode) {
-                banner.parentNode.removeChild(banner);
-            }
+            // Clean up: remove container, curtain, banner
+            const elementsToRemove = ['.pdf-export-container', '.pdf-export-curtain', '.pdf-export-banner'];
+            elementsToRemove.forEach(selector => {
+                const el = document.querySelector(selector);
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            });
             setDownloadingPDF(false);
         }
     };
