@@ -261,35 +261,38 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             `;
             container.appendChild(style);
 
-            // VISIBLE OVERLAY STRATEGY:
-            // Show the content to the user as an overlay while generating.
-            // This ensures html2canvas allows capture and provides feedback.
-            container.style.position = 'fixed';
+            // HIDDEN CONTAINER STRATEGY (Improved):
+            // 1. Container: Absolute position, under everything (z-index -9999), UNCONSTRAINED height/overflow.
+            //    This is crucial for html2canvas to render the full document.
+            container.style.position = 'absolute';
             container.style.top = '0';
             container.style.left = '0';
-            container.style.width = '100vw'; // Use viewport width
-            container.style.height = '100vh'; // Use viewport height
-            container.style.zIndex = '10000'; // Make it visible on top
+            container.style.width = '800px'; // A4 width approx
+            container.style.zIndex = '-9999';
             container.style.backgroundColor = '#ffffff';
-            container.style.overflow = 'auto'; // Allow scrolling
-
-            // Add a "Generating" banner
-            const banner = document.createElement('div');
-            banner.style.position = 'sticky';
-            banner.style.top = '0';
-            banner.style.left = '0';
-            banner.style.right = '0';
-            banner.style.background = '#e3f2fd';
-            banner.style.color = '#0d47a1';
-            banner.style.padding = '15px';
-            banner.style.textAlign = 'center';
-            banner.style.fontWeight = 'bold';
-            banner.style.zIndex = '10001';
-            banner.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
-            banner.innerHTML = '⏳ Generando PDF visualmente... por favor espere unos segundos.';
-            container.appendChild(banner);
+            // DO NOT SET HEIGHT or OVERFLOW here - let it expand naturally
 
             document.body.appendChild(container);
+
+            // 2. Status Banner: Separate fixed element visible to user
+            const banner = document.createElement('div');
+            banner.className = 'pdf-export-banner'; // Class for easier cleanup
+            banner.style.position = 'fixed';
+            banner.style.top = '30px';
+            banner.style.left = '50%';
+            banner.style.transform = 'translateX(-50%)';
+            banner.style.background = '#e3f2fd';
+            banner.style.color = '#0d47a1';
+            banner.style.padding = '15px 30px';
+            banner.style.borderRadius = '8px';
+            banner.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            banner.style.fontWeight = 'bold';
+            banner.style.zIndex = '10001'; // On top of everything
+            banner.style.display = 'flex';
+            banner.style.alignItems = 'center';
+            banner.style.gap = '10px';
+            banner.innerHTML = '<span>⏳</span> <span>Generando PDF... por favor espere.</span>';
+            document.body.appendChild(banner);
 
             // Allow browser to perform layout/paint
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -376,6 +379,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const container = document.querySelector('.pdf-export-container');
             if (container && container.parentNode) {
                 container.parentNode.removeChild(container);
+            }
+            // Clean up: remove banner
+            const banner = document.querySelector('.pdf-export-banner');
+            if (banner && banner.parentNode) {
+                banner.parentNode.removeChild(banner);
             }
             setDownloadingPDF(false);
         }
