@@ -7,7 +7,7 @@ import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } fr
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { load as loadYaml } from 'js-yaml';
 import { marked } from 'marked';
-import { marked } from 'marked';
+import { jsPDF } from 'jspdf';
 import RegenerateLab from './RegenerateLab';
 import RegenerateLesson from './RegenerateLesson';
 import './BookEditor.css';
