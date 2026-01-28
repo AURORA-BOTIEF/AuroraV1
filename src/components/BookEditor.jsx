@@ -289,8 +289,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const pdf = new jsPDF({
                 orientation: 'portrait',
                 unit: 'mm',
-                format: 'a4'
+                format: 'a4',
+                compress: false // DEBUG: Disable compression to see if it fixes encoding
             });
+
+            // DEBUG: Sanity check to see if jsPDF itself is broken
+            pdf.setFont('times', 'normal'); // Try different font
+            pdf.text("DEBUG SANITY CHECK: Selecciona", 10, 5); // Hardcoded test
+            pdf.setFont('helvetica', 'normal'); // Switch back for rest (or keep times if we want to test that)
 
             // Load logo from S3
             let logoDataUrl = null;
