@@ -285,7 +285,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // 2. Status Banner: Separate fixed element visible to user
             const banner = document.createElement('div');
-            banner.className = 'pdf-export-banner'; // Class for easier cleanup
+            banner.className = 'pdf-export-banner';
             banner.style.position = 'fixed';
             banner.style.top = '30px';
             banner.style.left = '50%';
@@ -295,12 +295,24 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             banner.style.padding = '15px 30px';
             banner.style.borderRadius = '8px';
             banner.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-            banner.style.fontWeight = 'bold';
-            banner.style.zIndex = '10001'; // On top of everything
+            banner.style.zIndex = '10001';
             banner.style.display = 'flex';
+            banner.style.flexDirection = 'column';
             banner.style.alignItems = 'center';
-            banner.style.gap = '10px';
-            banner.innerHTML = '<span>⏳</span> <span>Generando PDF... por favor espere.</span>';
+            banner.style.gap = '5px';
+
+            // DIAGNOSTIC INFO
+            const lessonCount = data?.lessons?.length || 0;
+            const dataKeys = data ? Object.keys(data).join(', ') : 'null';
+            banner.innerHTML = `
+                <div style="font-weight:bold; display:flex; gap:10px; align-items:center;">
+                    <span>⏳</span> <span>Generando PDF...</span>
+                </div>
+                <div style="font-size: 10px; opacity: 0.8; font-family: monospace;">
+                    Data Keys: ${dataKeys}<br/>
+                    Lessons: ${lessonCount} (View: ${viewMode})
+                </div>
+            `;
             document.body.appendChild(banner);
 
             // Allow browser to perform layout/paint
