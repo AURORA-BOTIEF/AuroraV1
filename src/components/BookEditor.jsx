@@ -349,8 +349,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 byModule[m].push(l);
             });
 
+            // DEBUG: Check module grouping
+            console.log('🔍 [PDF DEBUG] byModule keys:', Object.keys(byModule));
+
             // Process Modules
-            for (const modNum of Object.keys(byModule).sort((a, b) => a - b)) {
+            const sortedModules = Object.keys(byModule).sort((a, b) => Number(a) - Number(b));
+            for (const modNum of sortedModules) {
                 const modLessons = byModule[modNum];
 
                 // Module Header
@@ -360,6 +364,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 container.appendChild(modDiv);
 
                 for (const lesson of modLessons) {
+                    // DEBUG: Trace lesson content
+                    if (!lesson.content) console.warn(`⚠️ [PDF DEBUG] Lesson ${lesson.id} has NO CONTENT property!`);
+                    else console.log(`🔍 [PDF DEBUG] Rendering Lesson ${lesson.id}, Length: ${lesson.content.length}`);
+
                     const lessonDiv = document.createElement('div');
                     lessonDiv.style.marginTop = '20px';
                     lessonDiv.innerHTML = `<div class="pdf-lesson-title">${modNum}.${lesson.lessonNumberInModule || '?'} ${lesson.title}</div>`;
@@ -367,8 +375,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     const contentDiv = document.createElement('div');
                     contentDiv.className = 'pdf-content';
                     let rawContent = (lesson.content || '').replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
+
                     // Use marked to convert MD to HTML
-                    contentDiv.innerHTML = marked.parse(rawContent);
+                    try {
+                        const htmlContent = marked.parse(rawContent);
+                        if (!htmlContent) console.error('🔥 [PDF DEBUG] Marked returned EMPTY string!');
+                        contentDiv.innerHTML = htmlContent;
+                    } catch (err) {
+                        console.error('🔥 [PDF DEBUG] Marked parse error:', err);
+                        contentDiv.innerHTML = '<p style="color:red">[Error renderizando contenido]</p>';
+                    }
 
                     lessonDiv.appendChild(contentDiv);
                     container.appendChild(lessonDiv);
