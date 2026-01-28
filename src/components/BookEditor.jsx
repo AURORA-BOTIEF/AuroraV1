@@ -610,7 +610,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     const highlightLine = (codeLine, xStart, y) => {
                                         // Token patterns for syntax highlighting
                                         const keywords = /\b(function|const|let|var|if|else|for|while|return|class|import|export|from|async|await|try|catch|throw|new|this|true|false|null|undefined|def|elif|print|in|not|and|or|lambda|with|as|break|continue|pass|raise|except|finally|global|local|export)\b/g;
-                                        const strings = /(["'`]) (?: (? !\1)[^\\] |\\.)*?\1 / g;
+                                        const strings = /(["'`])(?:(?!\1)[^\\]|\\.)*?\1/g;
                                         const comments = /(#.*$|\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
                                         const numbers = /\b\d+\.?\d*\b/g;
                                         const functions = /\b(\w+)\s*\(/g;
