@@ -365,8 +365,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // --- STEP C: Rendering ---
             console.log('🔍 [PDF DEBUG] Step C: Rendering Modules');
+            let totalLessonsProcessed = 0; // LIMITER
+
             const sortedModules = Object.keys(byModule).sort((a, b) => Number(a) - Number(b));
             for (const modNum of sortedModules) {
+                if (totalLessonsProcessed >= 3) {
+                    console.warn('⚠️ [PDF DEBUG] TEST LIMIT REACHED: Stopping at 3 lessons.');
+                    break;
+                }
                 const modLessons = byModule[modNum];
 
                 // Module Header
@@ -376,6 +382,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 container.appendChild(modDiv);
 
                 for (const lesson of modLessons) {
+                    if (totalLessonsProcessed >= 3) break;
+
                     // DEBUG: Trace lesson content
                     if (!lesson.content) console.warn(`⚠️ [PDF DEBUG] Lesson ${lesson.id} has NO CONTENT property!`);
                     else console.log(`🔍 [PDF DEBUG] Rendering Lesson ${lesson.id}, Length: ${lesson.content.length}`);
@@ -400,7 +408,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                     lessonDiv.appendChild(contentDiv);
                     container.appendChild(lessonDiv);
+
+                    totalLessonsProcessed++;
                 }
+            }
+
+            // FINAL VERIFICATION
+            console.log('🔍 [PDF DEBUG] Final Container InnerHTML Length:', container.innerHTML.length);
+            if (container.innerHTML.length < 5000) {
+                console.error('🔥 [PDF DEBUG] Container is suspiciously small!');
             }
 
             // Generate PDF
