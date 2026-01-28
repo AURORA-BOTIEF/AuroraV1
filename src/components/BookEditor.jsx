@@ -261,18 +261,42 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             `;
             container.appendChild(style);
 
-            // IMPORTANT: Append to body to ensure html2canvas can render styles/layout
-            // Use fixed position with negative z-index to keep it "visible" to the engine but hidden from user
-            // This prevents "blank page" issues caused by elements being too far off-screen
+            // VISIBLE OVERLAY STRATEGY:
+            // Show the content to the user as an overlay while generating.
+            // This ensures html2canvas allows capture and provides feedback.
             container.style.position = 'fixed';
-            container.style.left = '0';
             container.style.top = '0';
-            container.style.zIndex = '-9999';
-            container.style.backgroundColor = '#ffffff'; // Ensure background is white
+            container.style.left = '0';
+            container.style.width = '100vw'; // Use viewport width
+            container.style.height = '100vh'; // Use viewport height
+            container.style.zIndex = '10000'; // Make it visible on top
+            container.style.backgroundColor = '#ffffff';
+            container.style.overflow = 'auto'; // Allow scrolling
+
+            // Add a "Generating" banner
+            const banner = document.createElement('div');
+            banner.style.position = 'sticky';
+            banner.style.top = '0';
+            banner.style.left = '0';
+            banner.style.right = '0';
+            banner.style.background = '#e3f2fd';
+            banner.style.color = '#0d47a1';
+            banner.style.padding = '15px';
+            banner.style.textAlign = 'center';
+            banner.style.fontWeight = 'bold';
+            banner.style.zIndex = '10001';
+            banner.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
+            banner.innerHTML = '⏳ Generando PDF visualmente... por favor espere unos segundos.';
+            container.appendChild(banner);
+
             document.body.appendChild(container);
 
             // Allow browser to perform layout/paint
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // DEBUG: Check if content actually exists
+            console.log('🔍 [PDF DEBUG] Container attached. InnerHTML length:', container.innerHTML.length);
+            console.log('🔍 [PDF DEBUG] First 100 chars:', container.innerHTML.substring(0, 100));
 
             // Title Page
             const titlePage = document.createElement('div');
