@@ -6,7 +6,8 @@ import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoad
 import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { load as loadYaml } from 'js-yaml';
-import jsPDF from 'jspdf';
+import { marked } from 'marked';
+import html2pdf from 'html2pdf.js';
 import RegenerateLab from './RegenerateLab';
 import RegenerateLesson from './RegenerateLesson';
 import './BookEditor.css';
@@ -211,8 +212,134 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         });
     };
 
-    // Download book or lab guide as PDF with logo and footer
+    // NEW: Download book/lab as PDF using html2pdf (DOM Snapshot) to avoid encoding issues
     const downloadAsPDF = async () => {
+        setDownloadingPDF(true);
+        try {
+            const data = viewMode === 'book' ? bookData : labGuideData;
+
+            // 1. Prepare Content
+            let logoDataUrl = null;
+            try {
+                const session = await fetchAuthSession();
+                const s3 = new S3Client({ region: AWS_REGION, credentials: session.credentials });
+                const logoResponse = await s3.send(new GetObjectCommand({
+                    Bucket: 'crewai-course-artifacts',
+                    Key: 'logo/LogoNetec.png'
+                }));
+                const logoBlob = await logoResponse.Body.transformToByteArray();
+                const logoBase64 = btoa(String.fromCharCode(...logoBlob));
+                logoDataUrl = `data:image/png;base64,${logoBase64}`;
+            } catch (error) { console.warn('Logo load failed:', error); }
+
+            // 2. Build HTML Structure
+            const container = document.createElement('div');
+            container.className = 'pdf-export-container';
+            container.style.width = '800px';
+            container.style.padding = '40px';
+            container.style.fontFamily = 'Helvetica, sans-serif';
+
+            // Styles
+            const style = document.createElement('style');
+            style.textContent = `
+                .pdf-page-break { page-break-before: always; }
+                .pdf-module-title { color: #003366; font-size: 24px; font-weight: bold; margin-bottom: 20px; border-bottom: 3px solid #003366; padding-bottom: 10px; }
+                .pdf-lesson-title { color: #005293; font-size: 18px; font-weight: bold; margin-top: 30px; margin-bottom: 15px; }
+                .pdf-content { font-size: 12px; line-height: 1.6; color: #000; }
+                .pdf-content h1 { font-size: 16px; color: #007; margin-top: 15px; }
+                .pdf-content h2 { font-size: 14px; color: #007; border-bottom: 1px solid #eee; margin-top: 10px; }
+                .pdf-content ul, .pdf-content ol { margin-left: 20px; }
+                .pdf-content li { margin-bottom: 5px; }
+                .pdf-content p { margin-bottom: 10px; text-align: justify; }
+                .pdf-content pre { background: #f4f4f4; padding: 10px; border-left: 4px solid #009688; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 10px; }
+                .pdf-content code { background: #f4f4f4; padding: 2px 4px; font-family: monospace; font-size: 11px; }
+                .pdf-content table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 10px; }
+                .pdf-content th { background: #e0e0e0; font-weight: bold; padding: 5px; border: 1px solid #ccc; }
+                .pdf-content td { padding: 5px; border: 1px solid #ccc; }
+                .pdf-content img { max-width: 100%; height: auto; margin: 10px 0; display: block; }
+                .pdf-logo { width: 120px; float: right; margin-bottom: 20px; }
+            `;
+            container.appendChild(style);
+
+            // Title Page
+            const titlePage = document.createElement('div');
+            titlePage.className = 'pdf-page-break';
+            if (logoDataUrl) {
+                const img = document.createElement('img');
+                img.src = logoDataUrl;
+                img.className = 'pdf-logo';
+                titlePage.appendChild(img);
+            }
+            const titleH1 = document.createElement('h1');
+            titleH1.textContent = viewMode === 'book' ? (data?.title || 'Libro del Curso') : 'Guía de Laboratorios';
+            titleH1.style.fontSize = '32px';
+            titleH1.style.marginTop = '100px';
+            titleH1.style.color = '#003366';
+            titleH1.style.clear = 'both';
+            titlePage.appendChild(titleH1);
+            container.appendChild(titlePage);
+
+            // Organize content
+            const lessons = data.lessons || [];
+            const byModule = {};
+            lessons.forEach(l => {
+                const m = l.moduleNumber || 1;
+                if (!byModule[m]) byModule[m] = [];
+                byModule[m].push(l);
+            });
+
+            // Process Modules
+            for (const modNum of Object.keys(byModule).sort((a, b) => a - b)) {
+                const modLessons = byModule[modNum];
+
+                // Module Header
+                const modDiv = document.createElement('div');
+                modDiv.className = 'pdf-page-break';
+                modDiv.innerHTML = `<div class="pdf-module-title">Módulo ${modNum}</div>`;
+                container.appendChild(modDiv);
+
+                for (const lesson of modLessons) {
+                    const lessonDiv = document.createElement('div');
+                    lessonDiv.style.marginTop = '20px';
+                    lessonDiv.innerHTML = `<div class="pdf-lesson-title">${modNum}.${lesson.lessonNumberInModule || '?'} ${lesson.title}</div>`;
+
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'pdf-content';
+                    let rawContent = (lesson.content || '').replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
+                    // Use marked to convert MD to HTML
+                    contentDiv.innerHTML = marked.parse(rawContent);
+
+                    lessonDiv.appendChild(contentDiv);
+                    container.appendChild(lessonDiv);
+                }
+            }
+
+            // Generate PDF
+            const opt = {
+                margin: 15,
+                filename: `${viewMode === 'book' ? 'curso' : 'laboratorios'}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, logging: false },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            await html2pdf().from(container).set(opt).save();
+
+        } catch (error) {
+            console.error('PDF Generation Error:', error);
+            setModalConfig({
+                title: 'Error de PDF',
+                message: 'No se pudo generar el PDF. Hubo un error procesando el contenido: ' + error.message,
+                type: 'alert',
+                isOpen: true
+            });
+        } finally {
+            setDownloadingPDF(false);
+        }
+    };
+
+    // [LEGACY] Download book or lab guide as PDF with logo and footer
+    const downloadAsPDF_LEGACY = async () => {
         setDownloadingPDF(true);
         try {
             const data = viewMode === 'book' ? bookData : labGuideData;
