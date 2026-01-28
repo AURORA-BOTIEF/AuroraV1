@@ -261,6 +261,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             `;
             container.appendChild(style);
 
+            // IMPORTANT: Append to body to ensure html2canvas can render styles/layout
+            // Position off-screen to avoid visual flicker (but NOT display:none)
+            container.style.position = 'absolute';
+            container.style.left = '-10000px';
+            container.style.top = '0';
+            document.body.appendChild(container);
+
             // Title Page
             const titlePage = document.createElement('div');
             titlePage.className = 'pdf-page-break';
@@ -334,6 +341,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 isOpen: true
             });
         } finally {
+            // Clean up: remove container from DOM
+            const container = document.querySelector('.pdf-export-container');
+            if (container && container.parentNode) {
+                container.parentNode.removeChild(container);
+            }
             setDownloadingPDF(false);
         }
     };
