@@ -262,11 +262,17 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             container.appendChild(style);
 
             // IMPORTANT: Append to body to ensure html2canvas can render styles/layout
-            // Position off-screen to avoid visual flicker (but NOT display:none)
-            container.style.position = 'absolute';
-            container.style.left = '-10000px';
+            // Use fixed position with negative z-index to keep it "visible" to the engine but hidden from user
+            // This prevents "blank page" issues caused by elements being too far off-screen
+            container.style.position = 'fixed';
+            container.style.left = '0';
             container.style.top = '0';
+            container.style.zIndex = '-9999';
+            container.style.backgroundColor = '#ffffff'; // Ensure background is white
             document.body.appendChild(container);
+
+            // Allow browser to perform layout/paint
+            await new Promise(resolve => setTimeout(resolve, 500));
 
             // Title Page
             const titlePage = document.createElement('div');
@@ -326,7 +332,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 margin: 15,
                 filename: `${viewMode === 'book' ? 'curso' : 'laboratorios'}.pdf`,
                 image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, logging: false },
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, logging: true, windowWidth: 1200 },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
             };
 
