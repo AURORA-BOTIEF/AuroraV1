@@ -145,6 +145,8 @@ Resources:
       Runtime: python3.12
       Handler: content_validator.lambda_handler
       CodeUri: ./lambda/content_validator/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 120
       MemorySize: 256
       Architectures:
@@ -1031,6 +1033,8 @@ Resources:
       Handler: starter_api.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 256
       Timeout: 30
       Environment:
