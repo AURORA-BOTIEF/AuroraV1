@@ -157,6 +157,18 @@ def lambda_handler(event, context):
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
+        # 0. Handle CORS Preflight (OPTIONS)
+        if event.get('httpMethod') == 'OPTIONS':
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'OPTIONS,POST',
+                    'Access-Control-Allow-Headers': 'Content-Type,Authorization'
+                },
+                'body': ''
+            }
+
         # 1. Parse Input (expecting s3Key inside body)
         body = json.loads(event.get('body', '{}'))
         s3_key = body.get('s3Key')

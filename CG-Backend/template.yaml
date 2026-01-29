@@ -840,6 +840,13 @@ Resources:
             Method: post
             Auth:
               Authorizer: NONE
+        BuildPdfApiOptions:
+          Type: Api
+          Properties:
+            Path: /build-pdf
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   LoadBookFunction:
     Type: AWS::Serverless::Function
