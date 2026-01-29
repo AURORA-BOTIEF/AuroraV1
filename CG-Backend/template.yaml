@@ -177,6 +177,8 @@ Resources:
       Runtime: python3.12
       Handler: batch_expander.lambda_handler
       CodeUri: ./lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 60
       MemorySize: 256
       Architectures:
@@ -205,6 +207,8 @@ Resources:
       Runtime: python3.12
       Handler: lab_batch_expander.lambda_handler
       CodeUri: ./lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 60
       MemorySize: 256
       Architectures:
@@ -611,6 +615,8 @@ Resources:
       Handler: lab_guide_builder.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 512
       Timeout: 300
       Policies:
@@ -842,6 +848,8 @@ Resources:
       Handler: load_book.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 256
       Timeout: 30
       Environment:
@@ -1298,6 +1306,8 @@ Resources:
       Runtime: python3.12
       Handler: get_student_courses.lambda_handler
       CodeUri: lambda/assignments/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 30
       MemorySize: 256
       Environment:
