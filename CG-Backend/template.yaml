@@ -79,15 +79,17 @@ Resources:
         - arm64
 
   PPTLayer:
-    Type: AWS::Lambda::LayerVersion
+    Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: ppt-dependencies
       Description: PowerPoint generation dependencies (python-pptx)
-      Content: ./lambda-layers/ppt-layer.zip
+      ContentUri: ./lambda-layers/ppt_layer/
       CompatibleRuntimes:
         - python3.12
       CompatibleArchitectures:
         - arm64
+    Metadata:
+      BuildMethod: python3.12
 
   PdfLayer:
     Type: AWS::Serverless::LayerVersion
@@ -796,6 +798,8 @@ Resources:
       Layers:
         - !Ref PPTLayer
         - !Ref StrandsAgentsLayer
+      Architectures:
+        - arm64
       MemorySize: 2048
       Timeout: 120
       Environment:
