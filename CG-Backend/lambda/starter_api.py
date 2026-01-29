@@ -305,10 +305,16 @@ def lambda_handler(event, context):
         
         # Method 6: Check body for user_email (explicitly passed from frontend)
         # Parse request body first to check for email
-        if isinstance(event.get('body'), str):
-            body_for_email = json.loads(event['body'])
-        else:
-            body_for_email = event.get('body', {})
+        body_for_email = {}
+        try:
+            if isinstance(event.get('body'), str):
+                if event['body'].strip():  # Check for non-empty string
+                    body_for_email = json.loads(event['body'])
+            else:
+                body_for_email = event.get('body', {}) or {}
+        except Exception as e:
+            print(f"⚠️ Error parsing body for email extraction: {e}")
+            body_for_email = {}
             
         if body_for_email.get('user_email'):
             user_email = body_for_email.get('user_email')
@@ -324,11 +330,30 @@ def lambda_handler(event, context):
 
         print(f"Final user identification: {user_email} ({user_id})")
 
-        # Parse request body
-        if isinstance(event.get('body'), str):
-            body = json.loads(event['body'])
-        else:
-            body = event.get('body', {})
+        # Parse request body (MAIN PARSING)
+        try:
+            if isinstance(event.get('body'), str):
+                if event['body'].strip():
+                    body = json.loads(event['body'])
+                else:
+                    body = {}
+            else:
+                body = event.get('body', {}) or {}
+        except json.JSONDecodeError as e:
+            print(f"❌ Error parsing request body JSON: {e}")
+            print(f"Raw body: {event.get('body')}")
+            return {
+                "statusCode": 400,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "Access-Control-Allow-Methods": "OPTIONS,POST"
+                },
+                "body": json.dumps({
+                    "error": "Invalid JSON in request body"
+                })
+            }
 
         print(f"Request body: {json.dumps(body, indent=2)}")
 
