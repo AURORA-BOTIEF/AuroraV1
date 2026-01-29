@@ -296,26 +296,45 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             const statusData = await statusRes.json();
                             console.log(`[Job ${jobId}] Status:`, statusData.status);
 
-                            if (statusData.status === 'completed' && statusData.downloadUrl) {
-                                clearInterval(interval);
-                                setModalConfig(prev => ({ ...prev, isOpen: false }));
-                                window.open(statusData.downloadUrl, '_blank');
-                                resolve();
-                            } else if (statusData.status === 'failed') {
-                                clearInterval(interval);
-                                reject(new Error(statusData.error || 'Generación fallida en el servidor'));
-                            }
-                        }
+                            if (statusRes.ok) {
+                                const statusData = await statusRes.json();
+                                console.log(`[Job ${jobId}] Status:`, statusData.status);
 
-                        if (attempts >= maxAttempts) {
-                            clearInterval(interval);
-                            reject(new Error('Tiempo de espera agotado (Timeout). El PDF es demasiado grande.'));
+                                if (statusData.status === 'completed' && statusData.downloadUrl) {
+                                    clearInterval(interval);
+                                    // Modificar el modal para mostrar botón de descarga (evitar popup blocker)
+                                    setModalConfig({
+                                        isOpen: true,
+                                        type: 'confirm', // Usamos confirm para tener botones
+                                        title: '¡PDF Listo!',
+                                        message: 'El documento ha sido generado correctamente.',
+                                        confirmText: 'Descargar PDF',
+                                        cancelText: 'Cerrar',
+                                        onConfirm: () => {
+                                            window.open(statusData.downloadUrl, '_blank');
+                                            setModalConfig(prev => ({ ...prev, isOpen: false }));
+                                            resolve();
+                                        },
+                                        onCancel: () => {
+                                            setModalConfig(prev => ({ ...prev, isOpen: false }));
+                                            resolve();
+                                        }
+                                    });
+                                } else if (statusData.status === 'failed') {
+                                    clearInterval(interval);
+                                    reject(new Error(statusData.error || 'Generación fallida en el servidor'));
+                                }
+                            }
+
+                            if (attempts >= maxAttempts) {
+                                clearInterval(interval);
+                                reject(new Error('Tiempo de espera agotado (Timeout). El PDF es demasiado grande.'));
+                            }
+                        } catch (e) {
+                            // Ignore transient network errors during polling
+                            console.warn('Polling check failed', e);
                         }
-                    } catch (e) {
-                        // Ignore transient network errors during polling
-                        console.warn('Polling check failed', e);
-                    }
-                }, 3000);
+                    }, 3000);
             });
 
         } catch (error) {
