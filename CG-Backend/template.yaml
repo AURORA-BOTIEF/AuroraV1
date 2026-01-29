@@ -837,8 +837,8 @@ Resources:
         - !Ref PdfLayer
       Architectures:
         - arm64
-      MemorySize: 2048
-      Timeout: 120
+      MemorySize: 3008
+      Timeout: 300
       Policies:
       - Version: '2012-10-17'
         Statement:
@@ -853,6 +853,10 @@ Resources:
           - arn:aws:s3:::crewai-course-artifacts/*
           - arn:aws:s3:::netec-course-generator-content
           - arn:aws:s3:::netec-course-generator-content/*
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-BookToPdfFunction-*"
       Events:
         BuildPdfApi:
           Type: Api
