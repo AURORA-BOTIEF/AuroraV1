@@ -89,6 +89,19 @@ Resources:
       CompatibleArchitectures:
         - arm64
 
+  PdfLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: pdf-dependencies
+      Description: PDF generation dependencies (xhtml2pdf, jinja2)
+      ContentUri: ./lambda-layers/pdf_layer/
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+    Metadata:
+      BuildMethod: python3.12
+
   # ======================================
   # STRANDS AGENTS - COURSE GENERATION
   # ======================================
@@ -816,6 +829,10 @@ Resources:
       Handler: book_to_pdf.lambda_handler
       Runtime: python3.12
       CodeUri: ./lambda/book_to_pdf/
+      Layers:
+        - !Ref PdfLayer
+      Architectures:
+        - arm64
       MemorySize: 2048
       Timeout: 120
       Policies:
