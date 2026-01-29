@@ -332,14 +332,21 @@ def lambda_handler(event, context):
 
         # Parse request body (MAIN PARSING)
         try:
-            if isinstance(event.get('body'), str):
-                if event['body'].strip():
-                    body = json.loads(event['body'])
+            raw_body = event.get('body')
+            
+            # handle base64 encoding
+            if event.get('isBase64Encoded') and raw_body:
+                import base64
+                raw_body = base64.b64decode(raw_body).decode('utf-8')
+
+            if isinstance(raw_body, str):
+                if raw_body.strip():
+                    body = json.loads(raw_body)
                 else:
                     body = {}
             else:
-                body = event.get('body', {}) or {}
-        except json.JSONDecodeError as e:
+                body = raw_body or {}
+        except Exception as e:
             print(f"❌ Error parsing request body JSON: {e}")
             print(f"Raw body: {event.get('body')}")
             return {
