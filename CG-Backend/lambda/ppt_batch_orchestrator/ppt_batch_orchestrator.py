@@ -191,10 +191,25 @@ def lambda_handler(event, context):
         logger.info("=" * 80)
         
         # Parse event - handle both API Gateway format and direct invocation
-        if 'body' in event:
-            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
-        else:
-            body = event
+        body = {}
+        try:
+            raw_body = event.get('body')
+            
+            # handle base64 encoding
+            if event.get('isBase64Encoded') and raw_body:
+                import base64
+                raw_body = base64.b64decode(raw_body).decode('utf-8')
+
+            if isinstance(raw_body, str):
+                if raw_body.strip():
+                    body = json.loads(raw_body)
+                else:
+                    body = {}
+            else:
+                body = raw_body or event
+        except Exception as e:
+            logger.error(f"❌ Error parsing request body: {e}")
+            body = {}
         
         # Parse input
         course_bucket = body.get('course_bucket')
