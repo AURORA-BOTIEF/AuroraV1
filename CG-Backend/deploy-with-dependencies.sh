@@ -81,6 +81,7 @@ FUNCTIONS_WITH_DEPS=(
     "ExportPptFunction"             # Needs: python-pptx, Pillow, beautifulsoup4 (NEW - PPT export)
     "LabGuideBuilder"               # Needs: pyyaml (builds lab guides)
     "LoadBookFunction"              # Needs: pyyaml (loads book content)
+    "BookToPdfFunction"             # Needs: xhtml2pdf, jinja2 (Server-side PDF generation)
 )
 
 echo ""
@@ -116,7 +117,7 @@ if [ "$MODE" == "template-only" ]; then
     
     echo ""
     echo "🚀 Deploying template changes..."
-    sam deploy --no-confirm-changeset
+    sam deploy -t template.yaml --no-confirm-changeset
     
     echo ""
     echo "✅ Template deployed successfully"

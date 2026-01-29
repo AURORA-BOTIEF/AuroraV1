@@ -801,6 +801,38 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  BookToPdfFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Generates PDF from book data (Server-Side) using xhtml2pdf
+      Handler: book_to_pdf.lambda_handler
+      Runtime: python3.12
+      CodeUri: ./lambda/book_to_pdf/
+      MemorySize: 2048
+      Timeout: 120
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        BuildPdfApi:
+          Type: Api
+          Properties:
+            Path: /build-pdf
+            Method: post
+            Auth:
+              Authorizer: NONE
+
   LoadBookFunction:
     Type: AWS::Serverless::Function
     Properties:
