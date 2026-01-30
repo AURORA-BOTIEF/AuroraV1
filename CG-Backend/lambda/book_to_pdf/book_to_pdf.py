@@ -26,20 +26,39 @@ PDF_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
-        @page ip_page {
+        @page {
             size: a4 portrait;
             margin: 2cm;
-            @frame footer_frame {
-                -pdf-frame-content: footerContent;
-                bottom: 1cm;
-                height: 1cm;
-            }
         }
 
-        /* ... existing styles ... */
-        
-        /* Date Styling */
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        /* Title Page */
+        .title-page {
+            text-align: center;
+            padding-top: 5cm;
+            page-break-after: always;
+        }
+
+        .logo-large {
+            max-width: 200px;
+            margin-bottom: 2cm;
+        }
+
+        .course-title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1a237e;
+            margin-bottom: 1cm;
+        }
+
         .date-section {
             margin-top: 5cm;
             color: #555;
@@ -47,16 +66,103 @@ PDF_TEMPLATE = """
             font-weight: bold;
         }
 
-        /* IP Page Styling */
-        .ip-content {
-             margin-top: 5cm;
-             text-align: justify;
-             font-size: 11px;
-             line-height: 2;
+        /* About/Meta Pages */
+        .about-page {
+            page-break-after: always;
         }
 
-    /* ... */
-    
+        .about-page h1 {
+            color: #1a237e;
+            border-bottom: 2px solid #1a237e;
+            padding-bottom: 0.3cm;
+        }
+
+        .meta-section {
+            margin-bottom: 1cm;
+        }
+
+        .meta-label {
+            font-weight: bold;
+            color: #1a237e;
+            display: block;
+            margin-bottom: 0.2cm;
+        }
+
+        /* IP Page */
+        .ip-content {
+            margin-top: 5cm;
+            text-align: justify;
+            font-size: 11px;
+            line-height: 2;
+        }
+
+        /* Content */
+        .module-break {
+            page-break-before: always;
+        }
+
+        h1 {
+            color: #1a237e;
+            font-size: 20px;
+            -pdf-keep-with-next: true;
+        }
+
+        h2 {
+            color: #303f9f;
+            font-size: 16px;
+            -pdf-keep-with-next: true;
+        }
+
+        h3, h4, h5, h6 {
+            -pdf-keep-with-next: true;
+        }
+
+        .lesson-content {
+            margin-bottom: 1cm;
+        }
+
+        .lesson-content img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        code, pre {
+            background-color: #f5f5f5;
+            padding: 2px 4px;
+            font-family: monospace;
+            font-size: 10px;
+        }
+
+        pre {
+            padding: 10px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1cm 0;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #1a237e;
+            color: white;
+        }
+
+        ul, ol {
+            margin-left: 1cm;
+        }
+
+    </style>
+</head>
+<body>
     <!-- Title Page -->
     <div class="title-page">
         {% if logo_path %}
@@ -96,7 +202,7 @@ PDF_TEMPLATE = """
     </div>
     {% endif %}
 
-    <!-- Objectives Page (New) -->
+    <!-- Objectives Page -->
     {% if objectives %}
     <div class="about-page">
         <h1>Objetivos de Aprendizaje</h1>
@@ -108,7 +214,7 @@ PDF_TEMPLATE = """
     </div>
     {% endif %}
 
-    <!-- IP Page (New) -->
+    <!-- IP Page -->
     <div style="page-break-before: always;">
         <div class="ip-content">
             <p><strong>Material didáctico preparado por la empresa Global K, S.A. de C.V. Registrado en Derechos de Autor.</strong></p>
@@ -133,120 +239,72 @@ PDF_TEMPLATE = """
             <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;"/>
         {% endfor %}
     </div>
-    {% endfor %}"""
+    {% endfor %}
+</body>
+</html>
+"""
 
+# Updated Handler for Step Functions Execution
 def lambda_handler(event, context):
+    logger.info(f"Received event: {json.dumps(event)}")
+    
+    # Extract parameters from Step Function input
+    # Expected format: { "s3Key": "...", "book_data": {...}, "action": "generate" }
+    
     try:
-        logger.info(f"Received event: {json.dumps(event)}")
-
-        # ----------------------------------------
-        # 0. HANDLE WORKER MODE (Async Execution)
-        # ----------------------------------------
-        if event.get('mode') == 'worker':
-            return handle_worker(event)
-
-        # ----------------------------------------
-        # 1. HANDLE API GATEWAY REQUESTS
-        # ----------------------------------------
+        # Default to 'generate' if not specified, compatible with direct invoke test
+        action = event.get('action', 'generate')
         
-        # A. CORS Preflight (OPTIONS)
-        if event.get('httpMethod') == 'OPTIONS':
-            return cors_response(200, '')
-
-        # B. Parse Body (Handle Base64)
-        is_base64 = event.get('isBase64Encoded', False)
-        raw_body = event.get('body', '{}')
-        if is_base64 and raw_body:
-            raw_body = base64.b64decode(raw_body).decode('utf-8')
-        
-        body = json.loads(raw_body)
-        action = body.get('action', 'start') # Default to start
-        
-        if action == 'check':
-            return handle_check(body)
+        if action == 'generate':
+            return generate_pdf_task(event)
         else:
-            return handle_start(body, context)
+            raise ValueError(f"Unknown action: {action}")
 
     except Exception as e:
-        logger.error(f"Error in dispatcher: {str(e)}", exc_info=True)
-        return cors_response(500, json.dumps({'error': str(e)}))
+        logger.error(f"Error in PDF Task: {str(e)}", exc_info=True)
+        # return error to Step Function Catch block
+        raise e
 
-def cors_response(status_code, body):
-    return {
-        'statusCode': status_code,
-        'headers': {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'OPTIONS,POST',
-            'Access-Control-Allow-Headers': 'Content-Type,Authorization'
-        },
-        'body': body
-    }
-
-def handle_start(body, context):
-    s3_key = body.get('s3Key')
-    bucket_name = os.environ.get('COURSE_BUCKET', 'crewai-course-artifacts')
+def generate_pdf_task(payload):
+    s3_key = payload.get('s3Key')
+    bucket_name = payload.get('course_bucket') or os.environ.get('COURSE_BUCKET', 'crewai-course-artifacts')
     
     if not s3_key:
-        return cors_response(400, json.dumps({'error': 'Missing s3Key'}))
+        raise ValueError("Missing s3Key")
 
-    # Generate Job ID
-    job_id = str(uuid.uuid4())
-    status_key = os.path.dirname(s3_key) + f"/JOB_{job_id}.json"
-
-    # Init Status
-    status_data = {
-        'jobId': job_id,
-        'status': 'processing',
-        'startTime': str(datetime.datetime.now()),
-        's3Key': s3_key # Original input
-    }
-    s3.put_object(
-        Bucket=bucket_name,
-        Key=status_key,
-        Body=json.dumps(status_data),
-        ContentType='application/json'
-    )
-
-    # Invoke Worker (Self)
-    payload = {
-        'mode': 'worker',
+    # Create a compatible event for handle_worker
+    # handle_worker expects: jobId, s3Key, statusKey, bucketName
+    # We create synthetic values since we're running in Step Functions mode
+    job_id = f"sf-job-{uuid.uuid4()}"
+    status_key = s3_key.replace('.json', '_sf_status.json')  # Dummy key, SF tracks status
+    
+    worker_event = {
         'jobId': job_id,
         's3Key': s3_key,
         'statusKey': status_key,
         'bucketName': bucket_name
     }
     
-    function_name = context.function_name
+    logger.info(f"Calling handle_worker with: {json.dumps(worker_event)}")
     
-    logger.info(f"Invoking worker {function_name} for Job {job_id}")
-    lambda_client.invoke(
-        FunctionName=function_name,
-        InvocationType='Event', # Async
-        Payload=json.dumps(payload)
-    )
-
-    return cors_response(202, json.dumps({
-        'jobId': job_id,
-        'message': 'PDF generation started',
-        'statusKey': status_key 
-    }))
-
-def handle_check(body):
-    bucket_name = os.environ.get('COURSE_BUCKET', 'crewai-course-artifacts')
-    job_id = body.get('jobId')
-    status_key = body.get('statusKey')
+    # Call the existing worker logic
+    result = handle_worker(worker_event)
     
-    if not status_key:
-         return cors_response(400, json.dumps({'error': 'Missing statusKey'}))
+    # handle_worker returns {'status': 'success'} and writes to S3
+    # We need to read back the status to get the downloadUrl
+    status_response = s3.get_object(Bucket=bucket_name, Key=status_key)
+    status_data = json.loads(status_response['Body'].read().decode('utf-8'))
+    
+    return {
+        'statusCode': 200,
+        'status': status_data.get('status', 'completed'),
+        's3Key': s3_key.replace('.json', '.pdf'),
+        'downloadUrl': status_data.get('downloadUrl'),
+        'metadata': {}
+    }
 
-    try:
-        response = s3.get_object(Bucket=bucket_name, Key=status_key)
-        status_data = json.loads(response['Body'].read().decode('utf-8'))
-        return cors_response(200, json.dumps(status_data))
-    except Exception as e:
-        logger.warning(f"Status check failed: {str(e)}")
-        # If file missing, maybe job failed or never started
-        return cors_response(404, json.dumps({'error': 'Job not found', 'details': str(e)}))
+# Deprecated/Removed: handle_start, handle_check, cors_response
+
 
 def handle_worker(event):
     job_id = event.get('jobId')
@@ -401,12 +459,13 @@ def handle_worker(event):
             clean_html = re.sub(r'^\s*<h[1-6]>.*?</h[1-6]>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
             
             # Orphan Fix: Add keep-with-next to:
-            # 1. Paragraphs ending in ':'
-            # 2. Paragraphs containing bold text (likely subheaders) - STRICTER
+            # 1. HEADERS (Handled via CSS h1-h6)
+            # We removed all regex-based paragraph heuristics (bold text, ends-with-colon) 
+            # because they caused improper infinite loops in xhtml2pdf when content overflowed a page.
             
             def add_keep_with_next(match):
+                # Utility kept if needed for future, but currently unused for paragraphs
                 tag = match.group(0)
-                # Check if it already has style
                 if 'style="' in tag:
                     if '-pdf-keep-with-next' not in tag:
                         return tag.replace('style="', 'style="-pdf-keep-with-next: true; ')
@@ -414,15 +473,11 @@ def handle_worker(event):
                 else:
                     return tag.replace('<p', '<p style="-pdf-keep-with-next: true;"')
 
-            # 1. Ends with :
-            clean_html = re.sub(r'<p[^>]*>.*?:(?:<[^>]+>)*</p>', add_keep_with_next, clean_html, flags=re.DOTALL)
+            # 1. Ends with :  <-- REMOVED to prevent infinite loops
+            # clean_html = re.sub(r'<p[^>]*>.*?:(?:<[^>]+>)*</p>', add_keep_with_next, clean_html, flags=re.DOTALL)
             
-            # 2. Contains bold (strong/b) or color spans - typical for "Aplicación Práctica"
-            # STRICTER LIMIT: < 80 chars, AND must NOT end in '.' (avoids normal sentences)
-            # Matches <p ...> ... <strong> ... </p>
-            clean_html = re.sub(r'<p(?![^>]*keep-with-next)(?:[^>]*?)>(?:<[^>]+>)*\s*(?:<strong|<b|<span style="color)[^>]*>.*?(?<!\.)</p>', 
-                                lambda m: add_keep_with_next(m) if len(m.group(0)) < 80 else m.group(0), 
-                                clean_html, flags=re.DOTALL)
+            # Removed aggressive "bold text" heuristic to prevent pagination infinite loops.
+            # Relying on H1-H6 and colon-ending paragraphs is safer.
 
             modules_map[mod_num]['lessons'].append({
                 'number': lesson.get('lessonNumberInModule', idx + 1),

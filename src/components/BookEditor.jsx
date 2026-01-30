@@ -270,7 +270,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 throw new Error(`Server returned ${startResponse.status}: ${errText}`);
             }
 
-            const { jobId, statusKey } = await startResponse.json();
+            const { executionArn } = await startResponse.json();
 
             // 4. Poll Status
             showModal('Renderizando PDF (Esto puede tomar 1-2 minutos)...', 'Generando PDF');
@@ -289,19 +289,20 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${token}`
                             },
-                            body: JSON.stringify({ action: 'check', jobId, statusKey })
+                            body: JSON.stringify({ action: 'check', executionArn })
                         });
 
                         if (statusRes.ok) {
                             const statusData = await statusRes.json();
-                            console.log(`[Job ${jobId}] Status:`, statusData.status);
+                            const { status, output } = statusData; // SF status: RUNNING, SUCCEEDED, FAILED
+                            console.log(`[SF Execution] Status:`, status);
 
-                            if (statusData.status === 'completed' && statusData.downloadUrl) {
+                            // Check SUCCESS
+                            if (status === 'SUCCEEDED' && statusData.downloadUrl) {
                                 clearInterval(interval);
-                                // Modificar el modal para mostrar botón de descarga (evitar popup blocker)
                                 setModalConfig({
                                     isOpen: true,
-                                    type: 'confirm', // Usamos confirm para tener botones
+                                    type: 'confirm',
                                     title: '¡PDF Listo!',
                                     message: 'El documento ha sido generado correctamente.',
                                     confirmText: 'Descargar PDF',
@@ -316,9 +317,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                         resolve();
                                     }
                                 });
-                            } else if (statusData.status === 'failed') {
+                            }
+                            // Check FAILURE
+                            else if (status === 'FAILED' || status === 'TIMED_OUT' || status === 'ABORTED') {
                                 clearInterval(interval);
-                                reject(new Error(statusData.error || 'Generación fallida en el servidor'));
+                                reject(new Error(`La generación falló con estado: ${status}`));
                             }
 
                             if (attempts >= maxAttempts) {
@@ -332,6 +335,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     }
                 }, 3000);
             });
+
 
         } catch (error) {
             console.error('PDF Generation Error:', error);
