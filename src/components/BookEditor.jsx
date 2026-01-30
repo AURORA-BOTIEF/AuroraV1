@@ -275,10 +275,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             // 4. Poll Status
             showModal('Renderizando PDF (Esto puede tomar 1-2 minutos)...', 'Generando PDF');
 
-            // Poll every 3 seconds, timeout after 2 minutes
+            // Poll every 3 seconds, timeout after 15 minutes
             await new Promise((resolve, reject) => {
                 let attempts = 0;
-                const maxAttempts = 60; // 60 * 3s = 3 minutes
+                const maxAttempts = 300; // 300 * 3s = 15 minutes
 
                 const interval = setInterval(async () => {
                     attempts++;

@@ -27,195 +27,36 @@ PDF_TEMPLATE = """
 <html>
 <head>
     <style>
-        @page {
+        @page ip_page {
             size: a4 portrait;
             margin: 2cm;
-            margin-top: 3cm; /* More space for header */
-            
-            @frame header_frame {
-                -pdf-frame-content: headerContent;
-                top: 1cm;
-                margin-left: 1cm;
-                margin-right: 1cm;
-                height: 1.5cm;
-            }
-            
             @frame footer_frame {
                 -pdf-frame-content: footerContent;
                 bottom: 1cm;
-                margin-left: 1cm;
-                margin-right: 1cm;
                 height: 1cm;
             }
         }
+
+        /* ... existing styles ... */
         
-        body {
-            font-family: Helvetica, sans-serif;
-            font-size: 12px;
-            line-height: 1.5;
-            color: #333333;
-        }
-
-        h1 {
-            color: #003366;
-            font-size: 24px;
-            border-bottom: 2px solid #003366;
-            padding-bottom: 5px;
-            margin-top: 30px;
-            -pdf-keep-with-next: true;
-        }
-
-        h2 {
-            color: #005293;
-            font-size: 18px;
-            margin-top: 20px;
-            border-bottom: 1px solid #ccc;
-            -pdf-keep-with-next: true;
-        }
-
-        h3 {
-            color: #0066cc;
-            font-size: 14px;
-            margin-top: 15px;
-            -pdf-keep-with-next: true;
-        }
-
-        p {
-            margin-bottom: 10px;
-            text-align: justify;
-        }
-
-        ul, ol {
-            margin-left: 20px;
-            margin-bottom: 10px;
-        }
-
-        li {
-            margin-bottom: 5px;
-        }
-
-        code {
-            background-color: #f4f4f4;
-            padding: 2px 4px;
-            font-family: Courier, monospace;
-            font-size: 11px;
-        }
-
-        pre {
-            background-color: #f4f4f4;
-            padding: 10px;
-            border: 1px solid #ddd;
-            font-family: Courier, monospace;
-            font-size: 10px;
-            white-space: pre-wrap;
-            margin-bottom: 15px;
-        }
-
-        img {
-            max-width: 100%;
-            height: auto;
-            margin: 10px 0;
-        }
-        
-        /* Table Styling */
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-bottom: 15px;
-        }
-        
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        
-        th {
-            background-color: #f2f2f2;
-            color: #003366;
-            font-weight: bold;
-        }
-        
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-
-        /* Title Page */
-        .title-page {
-            text-align: center;
-            padding-top: 4cm;
-            page-break-after: always;
-        }
-
-        .logo-large {
-            width: 200px;
-            margin-bottom: 2cm;
-        }
-
-        .course-title {
-            font-size: 32px;
-            color: #003366;
-            font-weight: bold;
-            margin-bottom: 1cm;
-        }
-        
-        .course-subtitle {
-            font-size: 18px;
+        /* Date Styling */
+        .date-section {
+            margin-top: 5cm;
             color: #555;
-            margin-bottom: 3cm;
-        }
-        
-        /* About Page */
-        .about-page {
-            page-break-after: always;
-        }
-        
-        .meta-section {
-            margin-bottom: 20px;
-        }
-        
-        .meta-label {
-            color: #003366;
-            font-weight: bold;
-            display: block;
-            margin-bottom: 5px;
             font-size: 14px;
+            font-weight: bold;
         }
 
-        .module-break {
-            page-break-before: always;
+        /* IP Page Styling */
+        .ip-content {
+             margin-top: 5cm;
+             text-align: justify;
+             font-size: 11px;
+             line-height: 2;
         }
 
-        #footerContent {
-            text-align: center;
-            font-size: 9px;
-            color: #777;
-            padding-top: 5px;
-            border-top: 1px solid #eee;
-        }
-        
-        #headerContent {
-            text-align: right;
-        }
-        
-        .logo-small {
-            height: 30px;
-        }
-    </style>
-</head>
-<body>
-    <div id="headerContent">
-        {% if logo_path %}
-        <img src="{{ logo_path }}" class="logo-small" />
-        {% endif %}
-    </div>
-
-    <div id="footerContent">
-        Contenido generado por IA, revisado por Netec
-        <br/>
-        Página <pdf:pagenumber />
-    </div>
-
+    /* ... */
+    
     <!-- Title Page -->
     <div class="title-page">
         {% if logo_path %}
@@ -224,7 +65,7 @@ PDF_TEMPLATE = """
         
         <div class="course-title">{{ title }}</div>
         
-        <p style="margin-top: 5cm; color: #888;">{{ date }}</p>
+        <div class="date-section">{{ date }}</div>
     </div>
     
     <!-- About Page (Metadata) -->
@@ -255,6 +96,29 @@ PDF_TEMPLATE = """
     </div>
     {% endif %}
 
+    <!-- Objectives Page (New) -->
+    {% if objectives %}
+    <div class="about-page">
+        <h1>Objetivos de Aprendizaje</h1>
+        <ul>
+        {% for obj in objectives %}
+            <li>{{ obj }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- IP Page (New) -->
+    <div style="page-break-before: always;">
+        <div class="ip-content">
+            <p><strong>Material didáctico preparado por la empresa Global K, S.A. de C.V. Registrado en Derechos de Autor.</strong></p>
+            
+            <p>Todos los contenidos de este Sitio (incluyendo, pero no limitado a: texto, logotipos, contenido, fotografías, audio, botones, nombres comerciales y videos) están sujetos a derechos de propiedad por las leyes de Derechos de Autor de la empresa Global K, S.A. de C.V.</p>
+            
+            <p>Queda prohibido copiar, reproducir, distribuir, publicar, transmitir, difundir, o en cualquier modo explotar cualquier parte de este documento sin la autorización previa por escrito de Global K, S.A. de C.V. o de los titulares correspondientes.</p>
+        </div>
+    </div>
+
     <!-- Content -->
     {% for module in modules %}
     <div class="module-break">
@@ -269,10 +133,7 @@ PDF_TEMPLATE = """
             <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;"/>
         {% endfor %}
     </div>
-    {% endfor %}
-</body>
-</html>
-"""
+    {% endfor %}"""
 
 def lambda_handler(event, context):
     try:
@@ -426,6 +287,7 @@ def handle_worker(event):
         
         try:
             # List objects in the outline folder to find the file
+            # SEARCH STRATEGY 1: outline/ subdirectory
             outline_prefix = f"{project_folder}/outline/"
             logger.info(f"Searching for outline in s3://{bucket_name}/{outline_prefix}")
             
@@ -434,28 +296,81 @@ def handle_worker(event):
             
             if 'Contents' in list_resp:
                 for obj in list_resp['Contents']:
-                    key = obj['Key']
-                    if key.lower().endswith(('.yaml', '.yml')):
-                        outline_key = key
+                    if obj['Key'].lower().endswith(('.yaml', '.yml')):
+                        outline_key = obj['Key']
                         break
             
+            # SEARCH STRATEGY 2: Project root (fallback)
+            if not outline_key:
+                logger.info(f"Not found in outline/. Searching root: s3://{bucket_name}/{project_folder}/")
+                list_resp_root = s3.list_objects_v2(Bucket=bucket_name, Prefix=f"{project_folder}/")
+                if 'Contents' in list_resp_root:
+                    for obj in list_resp_root['Contents']:
+                        if obj['Key'].lower().endswith(('.yaml', '.yml')):
+                            outline_key = obj['Key']
+                            break
+
             if outline_key:
                 logger.info(f"Found outline file: {outline_key}")
                 outline_res = s3.get_object(Bucket=bucket_name, Key=outline_key)
                 outline_data = yaml.safe_load(outline_res['Body'].read())
                 
-                # Extract fields with multiple fallbacks
-                course_meta['title'] = outline_data.get('course_title', 
-                                         outline_data.get('title', 
-                                           outline_data.get('name', 'Curso Netec')))
-                                           
-                course_meta['description'] = outline_data.get('description', '')
-                course_meta['audience'] = outline_data.get('target_audience', '')
-                course_meta['prerequisites'] = outline_data.get('prerequisites', '')
+                # Helper to look deeply
+                course_section = outline_data.get('course', {})
+                if not isinstance(course_section, dict):
+                     course_section = {}
+
+                # 1. Title (Clean it)
+                raw_title = (
+                    outline_data.get('course_title') or
+                    outline_data.get('title') or
+                    outline_data.get('name') or
+                    course_section.get('title') or
+                    course_section.get('course_title') or
+                    'Curso Netec'
+                )
+                # Remove "CURSO:" prefix if present (case insensitive)
+                course_meta['title'] = re.sub(r'^CURSO:\s*', '', raw_title, flags=re.IGNORECASE)
+
+                # 2. Description
+                course_meta['description'] = (
+                    outline_data.get('description') or
+                    course_section.get('description') or
+                    ''
+                )
+
+                # 3. Audience
+                course_meta['audience'] = (
+                    outline_data.get('target_audience') or
+                    outline_data.get('audience') or
+                    course_section.get('target_audience') or
+                    course_section.get('audience') or
+                    ''
+                )
+
+                # 4. Prerequisites
+                course_meta['prerequisites'] = (
+                    outline_data.get('prerequisites') or
+                    course_section.get('prerequisites') or
+                    ''
+                )
                 
+                # 5. Objectives (New)
+                course_meta['objectives'] = (
+                    outline_data.get('learning_outcomes') or
+                    outline_data.get('learning_objectives') or
+                    outline_data.get('objectives') or
+                    course_section.get('learning_outcomes') or
+                    course_section.get('learning_objectives') or
+                    course_section.get('objectives') or
+                    []
+                )
+                if isinstance(course_meta['objectives'], str):
+                     course_meta['objectives'] = [course_meta['objectives']]
+                        
                 logger.info(f"Metadata extracted: {course_meta['title']}")
             else:
-                logger.warning("No outline .yaml/.yml file found in outline/ folder")
+                logger.warning("No outline .yaml/.yml file found in project or outline/ folder")
 
         except Exception as e:
             logger.warning(f"Failed to fetch/parse outline: {e}")
@@ -487,8 +402,7 @@ def handle_worker(event):
             
             # Orphan Fix: Add keep-with-next to:
             # 1. Paragraphs ending in ':'
-            # 2. Paragraphs containing bold text (likely subheaders)
-            # 3. Headers (already handled by CSS, but enforcing here too)
+            # 2. Paragraphs containing bold text (likely subheaders) - STRICTER
             
             def add_keep_with_next(match):
                 tag = match.group(0)
@@ -501,12 +415,13 @@ def handle_worker(event):
                     return tag.replace('<p', '<p style="-pdf-keep-with-next: true;"')
 
             # 1. Ends with :
-            clean_html = re.sub(r'<p>(?:<[^>]+>)*.*?:(?:<[^>]+>)*</p>', add_keep_with_next, clean_html, flags=re.DOTALL)
+            clean_html = re.sub(r'<p[^>]*>.*?:(?:<[^>]+>)*</p>', add_keep_with_next, clean_html, flags=re.DOTALL)
             
             # 2. Contains bold (strong/b) or color spans - typical for "Aplicación Práctica"
-            # We limit this to short paragraphs (< 200 chars) to avoid tagging long text blocks
-            clean_html = re.sub(r'<p(?![^>]*keep-with-next)(?:[^>]*?)>(?:<[^>]+>)*\s*(?:<strong|<b|<span style="color)[^>]*>.*?</p>', 
-                                lambda m: add_keep_with_next(m) if len(m.group(0)) < 300 else m.group(0), 
+            # STRICTER LIMIT: < 80 chars, AND must NOT end in '.' (avoids normal sentences)
+            # Matches <p ...> ... <strong> ... </p>
+            clean_html = re.sub(r'<p(?![^>]*keep-with-next)(?:[^>]*?)>(?:<[^>]+>)*\s*(?:<strong|<b|<span style="color)[^>]*>.*?(?<!\.)</p>', 
+                                lambda m: add_keep_with_next(m) if len(m.group(0)) < 80 else m.group(0), 
                                 clean_html, flags=re.DOTALL)
 
             modules_map[mod_num]['lessons'].append({

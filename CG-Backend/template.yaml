@@ -838,7 +838,7 @@ Resources:
       Architectures:
         - arm64
       MemorySize: 3008
-      Timeout: 300
+      Timeout: 900
       Policies:
       - Version: '2012-10-17'
         Statement:
