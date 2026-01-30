@@ -228,7 +228,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const rawData = viewMode === 'book' ? bookData : labGuideData;
 
             // 1. Scrub Data
-            showModal('Limpiando caracteres extraños... (Paso 1/4)', 'Generando PDF');
+            showModal('Preparando contenido... (Paso 1/4)', 'Generando PDF');
             await new Promise(r => setTimeout(r, 100)); // UI refresh
             const data = scrubBookData(rawData);
 
