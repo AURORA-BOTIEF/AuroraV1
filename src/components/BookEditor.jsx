@@ -1,3 +1,4 @@
+
 // src/components/BookEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -5,10 +6,13 @@ import { replaceS3UrlsWithDataUrls, uploadImageToS3 } from '../utils/s3ImageLoad
 import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { load as loadYaml } from 'js-yaml';
-import jsPDF from 'jspdf';
+import { marked } from 'marked';
+import { jsPDF } from 'jspdf';
 import RegenerateLab from './RegenerateLab';
 import RegenerateLesson from './RegenerateLesson';
 import './BookEditor.css';
+
+console.log("🔥 [v100] BookEditor MODULE LOADED - Fixes applied");
 
 // Prism.js for syntax highlighting
 import Prism from 'prismjs';
@@ -94,6 +98,88 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [isSaving, setIsSaving] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
+    // Helper function to clean text (remove encoding artifacts)
+    const cleanString = (text) => {
+        if (typeof text !== 'string') return text;
+        if (!text) return '';
+
+        // DEBUG: Targeted logging for the problematic string
+        if (text.includes('Selecciona') || text.includes('&S&e')) {
+            console.log('🔍 [v99-DEBUG] cleanString input:', text);
+            console.log('   Hex preview:', Array.from(text.substring(0, 10)).map(c => c.charCodeAt(0).toString(16)).join(' '));
+        }
+
+        // 1. Remove control characters (0-31) except newline (10)
+        let cleaned = text.replace(/[\x00-\x09\x0B-\x1F]/g, '');
+
+        // 2. Generic Frequency Sanitizer (The "No Guessing" Fix)
+        // Instead of targeting "&", we look for ANY non-alphanumeric character 
+        // that appears suspiciously often (high density).
+
+        // Count char frequencies
+        const charCounts = {};
+        const len = cleaned.length;
+        if (len > 10) { // Only analyze strings with enough content
+            for (let i = 0; i < len; i++) {
+                const char = cleaned[i];
+                // Ignore letters, numbers, and standard prose punctuation
+                // We want to catch artifacts like &, |, *, ~, nulls, tags, etc.
+                if (/[a-zA-Z0-9\s.,;:'"()áéíóúÁÉÍÓÚñÑ-]/.test(char)) continue;
+
+                charCounts[char] = (charCounts[char] || 0) + 1;
+            }
+
+            // Identify "Noise" characters
+            for (const [char, count] of Object.entries(charCounts)) {
+                // Criteria: More than 4 occurrences AND > 10% density
+                // e.g. "S&e&l&e..." (length ~20, count & ~10 -> 50%) -> STRIP
+                if (count > 4 && count > len * 0.1) {
+                    const charCode = char.charCodeAt(0);
+                    console.warn(`🔥[v99] CLEANER: Detected noise char '${char}'(Code: ${charCode}).Occurrences: ${count}.STRIPPING.`);
+
+                    // Escape special regex characters to prevent crashes
+                    const safeChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(safeChar, 'g');
+                    cleaned = cleaned.replace(regex, '');
+                }
+            }
+        }
+
+        // 3. Legacy Fallback (keeping just in case of low-density & artifacts)
+        // Remove & if followed immediately by a non-whitespace character
+        cleaned = cleaned.replace(/&(?=\S)/g, '');
+
+        // DEBUG: Log output
+        if (text.includes('Selecciona') || text.includes('&S&e')) {
+            console.log('✅ [v99-DEBUG] cleanString output:', cleaned);
+        }
+
+        return cleaned;
+    };
+
+    // Helper function to scrub entire book data object
+    const scrubBookData = (data) => {
+        if (!data) return data;
+
+        console.log('🧹 Scrubbing book data for encoding artifacts...');
+        // const start = performance.now(); // Perf log removed for cleanliness
+
+        const scrubValue = (val) => {
+            if (typeof val === 'string') return cleanString(val);
+            if (Array.isArray(val)) return val.map(scrubValue);
+            if (val && typeof val === 'object') {
+                const newVal = {};
+                for (const key in val) {
+                    newVal[key] = scrubValue(val[key]);
+                }
+                return newVal;
+            }
+            return val;
+        };
+
+        return scrubValue(data);
+    };
+
     // Helper function to show alert modal
     const showModal = (message, title = 'Aviso') => {
         setModalConfig({
@@ -126,940 +212,139 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         });
     };
 
-    // Download book or lab guide as PDF with logo and footer
+    // [SERVER-SIDE] Generate PDF via Backend Lambda (Option 2)
+    // 1. Scrub Data (Clean artifacts)
+    // 2. Upload JSON to S3
+    // 3. Trigger Lambda to Convert -> PDF
+    // [SERVER-SIDE] Generate PDF via Backend Lambda (Async Pattern)
+    // 1. Scrub Data (Clean artifacts)
+    // 2. Upload JSON to S3
+    // 3. Trigger Lambda (Start Job)
+    // 4. Poll for Status until Complete
     const downloadAsPDF = async () => {
+        if (downloadingPDF) return;
         setDownloadingPDF(true);
         try {
-            const data = viewMode === 'book' ? bookData : labGuideData;
+            const rawData = viewMode === 'book' ? bookData : labGuideData;
 
-            // Load course title and module titles from outline
-            let courseTitle = 'Curso';
-            let moduleTitles = {};
+            // 1. Scrub Data
+            showModal('Preparando contenido... (Paso 1/4)', 'Generando PDF');
+            await new Promise(r => setTimeout(r, 100)); // UI refresh
+            const data = scrubBookData(rawData);
 
-            try {
-                const session = await fetchAuthSession();
-                const s3 = new S3Client({
-                    region: AWS_REGION,
-                    credentials: session.credentials
-                });
+            // 2. Upload to S3
+            const session = await fetchAuthSession();
+            const s3 = new S3Client({
+                region: AWS_REGION,
+                credentials: session.credentials
+            });
+            const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
 
-                const bucketName = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
-                const outlinePrefix = `${projectFolder}/outline/`;
+            const timestamp = Date.now();
+            const exportKey = `${projectFolder}/exports/${timestamp}_${viewMode}.json`;
 
-                // Use verified key if available, otherwise try to discover
-                let outlineKeyToUse = verifiedOutlineKey;
+            showModal('Subiendo datos al servidor... (Paso 2/4)', 'Generando PDF');
 
-                if (!outlineKeyToUse) {
-                    const outlineResponse = await s3.send(new ListObjectsV2Command({
-                        Bucket: bucketName,
-                        Prefix: outlinePrefix,
-                        MaxKeys: 10
-                    }));
+            await s3.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: exportKey,
+                Body: JSON.stringify(data),
+                ContentType: 'application/json'
+            }));
 
-                    if (outlineResponse.Contents && outlineResponse.Contents.length > 0) {
-                        let outlineFile = outlineResponse.Contents.find(obj =>
-                            obj.Key.endsWith('.yaml') || obj.Key.endsWith('.yml')
-                        );
-                        if (!outlineFile) {
-                            outlineFile = outlineResponse.Contents.find(obj => obj.Key.endsWith('.json'));
-                        }
-                        if (outlineFile) {
-                            outlineKeyToUse = outlineFile.Key;
-                        }
-                    }
-                }
+            // 3. Trigger Backend (Start Job)
+            showModal('Iniciando proceso en la nube... (Paso 3/4)', 'Generando PDF');
 
-                if (outlineKeyToUse) {
-                    const outlineObj = await s3.send(new GetObjectCommand({
-                        Bucket: bucketName,
-                        Key: outlineKeyToUse
-                    }));
-                    const outlineContent = await outlineObj.Body.transformToString();
+            const token = session.tokens?.idToken?.toString();
+            const startResponse = await fetch(`${API_BASE}/build-pdf`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ action: 'start', s3Key: exportKey })
+            });
 
-                    let outlineData;
-                    if (outlineKeyToUse.endsWith('.json')) {
-                        outlineData = JSON.parse(outlineContent);
-                    } else {
-                        outlineData = loadYaml(outlineContent);
-                    }
+            if (!startResponse.ok) {
+                const errText = await startResponse.text();
+                throw new Error(`Server returned ${startResponse.status}: ${errText}`);
+            }
 
-                    // Handle nested course structure
-                    const courseData = outlineData.course || outlineData;
-                    courseTitle = courseData.course_title || courseData.title || 'Curso';
+            const { executionArn } = await startResponse.json();
 
-                    // Extract module titles
-                    const modulesArray = courseData.modules || outlineData.modules;
-                    if (modulesArray && Array.isArray(modulesArray)) {
-                        modulesArray.forEach((module, idx) => {
-                            moduleTitles[idx + 1] = module.module_title || module.title || `Módulo ${idx + 1}`;
+            // 4. Poll Status
+            showModal('Renderizando PDF (Esto puede tomar 1-2 minutos)...', 'Generando PDF');
+
+            // Poll every 3 seconds, timeout after 15 minutes
+            await new Promise((resolve, reject) => {
+                let attempts = 0;
+                const maxAttempts = 300; // 300 * 3s = 15 minutes
+
+                const interval = setInterval(async () => {
+                    attempts++;
+                    try {
+                        const statusRes = await fetch(`${API_BASE}/build-pdf`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ action: 'check', executionArn })
                         });
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading outline:', error);
-            }
 
-            const title = viewMode === 'book' ? courseTitle : `${courseTitle} - Guía de Laboratorios`;
+                        if (statusRes.ok) {
+                            const statusData = await statusRes.json();
+                            const { status, output } = statusData; // SF status: RUNNING, SUCCEEDED, FAILED
+                            console.log(`[SF Execution] Status:`, status);
 
-            const pdf = new jsPDF({
-                orientation: 'portrait',
-                unit: 'mm',
-                format: 'a4'
-            });
-
-            // Load logo from S3
-            let logoDataUrl = null;
-            try {
-                const session = await fetchAuthSession();
-                const s3 = new S3Client({
-                    region: AWS_REGION,
-                    credentials: session.credentials
-                });
-
-                const logoResponse = await s3.send(new GetObjectCommand({
-                    Bucket: 'crewai-course-artifacts',
-                    Key: 'logo/LogoNetec.png'
-                }));
-
-                const logoBlob = await logoResponse.Body.transformToByteArray();
-                const logoBase64 = btoa(String.fromCharCode(...logoBlob));
-                logoDataUrl = `data:image/png;base64,${logoBase64}`;
-            } catch (error) {
-                console.error('Error loading logo:', error);
-            }
-
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            const margin = 20;
-            const lineHeight = 7;
-            const maxWidth = pageWidth - 2 * margin;
-            let yPosition = margin;
-
-            // Helper function to add header with design
-            const addHeader = (pageNum) => {
-                if (pageNum === 1) return;
-                pdf.setFillColor(230, 240, 250); // Light blue instead of dark blue
-                pdf.rect(0, 0, pageWidth, 15, 'F');
-                pdf.setTextColor(0, 51, 102); // Dark blue text for contrast
-                pdf.setFontSize(10);
-                pdf.setFont('helvetica', 'bold');
-                pdf.text(courseTitle, margin, 10);
-                if (logoDataUrl) {
-                    pdf.addImage(logoDataUrl, 'PNG', pageWidth - margin - 20, 4, 20, 7.5);
-                }
-            };
-
-            // Helper function to add footer with design
-            const addFooter = (pageNum, totalPages) => {
-                pdf.setFillColor(230, 240, 250); // Light blue like header
-                pdf.rect(0, pageHeight - 15, pageWidth, 15, 'F');
-                pdf.setFontSize(8);
-                pdf.setFont('helvetica', 'italic');
-                pdf.setTextColor(0, 51, 102); // Dark blue like header text
-                const footerText = 'Este contenido ha sido generado con IA y supervisado por Netec';
-                pdf.text(footerText, (pageWidth - pdf.getTextWidth(footerText)) / 2, pageHeight - 7);
-                pdf.setFont('helvetica', 'normal');
-                const pageText = `Página ${pageNum} de ${totalPages}`;
-                pdf.text(pageText, pageWidth - margin - pdf.getTextWidth(pageText), pageHeight - 7);
-            };
-
-            // Helper function to check if we need a new page
-            // Content should start at yPosition = 28 to leave space below 15px header
-            const checkNewPage = (requiredSpace = 40) => {
-                if (yPosition > pageHeight - requiredSpace) {
-                    pdf.addPage();
-                    yPosition = 28; // More space below header (header is 15px tall)
-                    return true;
-                }
-                return false;
-            };
-
-            // Add logo on first page
-            if (logoDataUrl) {
-                pdf.addImage(logoDataUrl, 'PNG', pageWidth - margin - 40, margin, 40, 15);
-                yPosition += 25;
-            }
-
-            // Add title
-            pdf.setFontSize(24);
-            pdf.setFont('helvetica', 'bold');
-            pdf.setTextColor(0, 0, 0);
-
-            // Split title if too long
-            const titleLines = pdf.splitTextToSize(title, maxWidth);
-            titleLines.forEach(line => {
-                pdf.text(line, margin, yPosition);
-                yPosition += 12;
-            });
-            yPosition += 8;
-
-            // Group lessons by module
-            const moduleGroups = {};
-            data.lessons.forEach(lesson => {
-                const moduleNum = lesson.moduleNumber || 1;
-                if (!moduleGroups[moduleNum]) {
-                    moduleGroups[moduleNum] = [];
-                }
-                moduleGroups[moduleNum].push(lesson);
-            });
-
-            const sortedModuleNums = Object.keys(moduleGroups).sort((a, b) => parseInt(a) - parseInt(b));
-
-            // Process each module
-            for (const moduleNum of sortedModuleNums) {
-                const moduleLessons = moduleGroups[moduleNum];
-                checkNewPage(20);
-
-                // Module header
-                const moduleTitle = moduleTitles[parseInt(moduleNum)] || `Módulo ${moduleNum}`;
-                pdf.setFillColor(0, 51, 102); // Dark navy blue
-                pdf.rect(margin - 5, yPosition - 7, maxWidth + 10, 15, 'F');
-                pdf.setFontSize(16);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setTextColor(255, 255, 255);
-                pdf.text(`Módulo ${moduleNum}: ${moduleTitle}`, margin, yPosition);
-                yPosition += 15;
-                pdf.setTextColor(0, 0, 0);
-
-                // Process lessons within this module
-                for (let i = 0; i < moduleLessons.length; i++) {
-                    const lesson = moduleLessons[i];
-                    const lessonNumInModule = lesson.lessonNumberInModule || (i + 1);
-
-                    checkNewPage(80); // Prevent orphan lesson title - require 80px for title + content
-
-                    // Lesson title (only the numbered title, not the "Lesson X:" prefix)
-                    pdf.setFontSize(14);
-                    pdf.setFont('helvetica', 'bold');
-                    pdf.setTextColor(0, 82, 147); // Blue for lesson titles
-                    pdf.text(`${moduleNum}.${lessonNumInModule} ${lesson.title || 'Sin título'}`, margin, yPosition);
-                    pdf.setTextColor(0, 0, 0); // Reset to black
-                    yPosition += lineHeight + 3;
-
-                    // Process lesson content with images and code blocks
-                    let content = lesson.content || '';
-
-                    // Remove the "Lesson X: Title" line - try multiple patterns
-                    // Pattern 1: Standard "Lesson 1: Title\n"
-                    content = content.replace(/Lesson\s+\d+\s*:\s*[^\n]+\n+/gi, '');
-                    // Pattern 2: At start with possible whitespace
-                    content = content.replace(/^\s*Lesson\s+\d+\s*:\s*[^\n]+\n*/gi, '');
-                    // Pattern 3: Just in case it's a header
-                    content = content.replace(/^#+\s*Lesson\s+\d+\s*:\s*[^\n]+\n*/gim, '');
-
-                    // Trim any leading whitespace after removal
-                    content = content.trimStart();
-
-                    // Split content by images
-                    const imageRegex = /!\[.*?\]\((data:image\/[^;]+;base64,[^\)]+)\)/g;
-                    const parts = [];
-                    let lastIndex = 0;
-                    let match;
-
-                    while ((match = imageRegex.exec(content)) !== null) {
-                        if (match.index > lastIndex) {
-                            parts.push({ type: 'text', content: content.substring(lastIndex, match.index) });
-                        }
-                        parts.push({ type: 'image', dataUrl: match[1] });
-                        lastIndex = match.index + match[0].length;
-                    }
-
-                    if (lastIndex < content.length) {
-                        parts.push({ type: 'text', content: content.substring(lastIndex) });
-                    }
-
-                    // Process each part - use index to allow look-ahead
-                    pdf.setFontSize(10);
-                    pdf.setFont('helvetica', 'normal');
-
-                    // Track last title position for orphan prevention
-                    let lastTitleYPosition = null;
-
-                    for (let partIndex = 0; partIndex < parts.length; partIndex++) {
-                        const part = parts[partIndex];
-                        if (part.type === 'text') {
-                            let text = part.content;
-
-                            // Extract code blocks and tables
-                            const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
-                            // Table regex: matches markdown tables (lines starting and ending with |)
-                            const tableRegex = /(?:^|\n)((?:\|[^\n]+\|\n?)+)/g;
-
-                            const textParts = [];
-                            let lastIdx = 0;
-                            let codeMatch;
-
-                            // First, extract code blocks
-                            const codeBlocks = [];
-                            while ((codeMatch = codeBlockRegex.exec(text)) !== null) {
-                                codeBlocks.push({
-                                    start: codeMatch.index,
-                                    end: codeMatch.index + codeMatch[0].length,
-                                    type: 'code',
-                                    content: codeMatch[2].trim()
+                            // Check SUCCESS
+                            if (status === 'SUCCEEDED' && statusData.downloadUrl) {
+                                clearInterval(interval);
+                                setModalConfig({
+                                    isOpen: true,
+                                    type: 'confirm',
+                                    title: '¡PDF Listo!',
+                                    message: 'El documento ha sido generado correctamente.',
+                                    confirmText: 'Descargar PDF',
+                                    cancelText: 'Cerrar',
+                                    onConfirm: () => {
+                                        window.open(statusData.downloadUrl, '_blank');
+                                        setModalConfig(prev => ({ ...prev, isOpen: false }));
+                                        resolve();
+                                    },
+                                    onCancel: () => {
+                                        setModalConfig(prev => ({ ...prev, isOpen: false }));
+                                        resolve();
+                                    }
                                 });
                             }
-
-                            // Then, extract tables (but not if they're inside code blocks)
-                            const tables = [];
-                            let tableMatch;
-                            while ((tableMatch = tableRegex.exec(text)) !== null) {
-                                const tableStart = tableMatch.index + (tableMatch[0].startsWith('\n') ? 1 : 0);
-                                const tableEnd = tableStart + tableMatch[1].length;
-
-                                // Check if table is inside a code block
-                                const insideCode = codeBlocks.some(cb =>
-                                    tableStart >= cb.start && tableEnd <= cb.end
-                                );
-
-                                if (!insideCode) {
-                                    // Parse the table
-                                    const tableLines = tableMatch[1].trim().split('\n').filter(l => l.trim());
-                                    const rows = [];
-                                    let headerRow = null;
-
-                                    for (let i = 0; i < tableLines.length; i++) {
-                                        const line = tableLines[i].trim();
-                                        // Skip separator rows (|---|---|)
-                                        if (/^\|[\s\-:]+\|$/.test(line) || /^\|(\s*[-:]+\s*\|)+$/.test(line)) {
-                                            continue;
-                                        }
-
-                                        // Extract cells
-                                        const cells = line.split('|')
-                                            .slice(1, -1) // Remove empty first and last elements
-                                            .map(cell => cell.trim()
-                                                .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
-                                                .replace(/\*(.+?)\*/g, '$1')     // Remove italic
-                                                .replace(/`(.+?)`/g, '$1')       // Remove inline code
-                                            );
-
-                                        if (cells.length > 0) {
-                                            if (headerRow === null) {
-                                                headerRow = cells;
-                                            } else {
-                                                rows.push(cells);
-                                            }
-                                        }
-                                    }
-
-                                    if (headerRow && headerRow.length > 0) {
-                                        tables.push({
-                                            start: tableStart,
-                                            end: tableEnd,
-                                            type: 'table',
-                                            header: headerRow,
-                                            rows: rows
-                                        });
-                                    }
-                                }
+                            // Check FAILURE
+                            else if (status === 'FAILED' || status === 'TIMED_OUT' || status === 'ABORTED') {
+                                clearInterval(interval);
+                                reject(new Error(`La generación falló con estado: ${status}`));
                             }
 
-                            // Merge code blocks and tables, sort by position
-                            const allBlocks = [...codeBlocks, ...tables].sort((a, b) => a.start - b.start);
-
-                            // Build textParts array
-                            lastIdx = 0;
-                            for (const block of allBlocks) {
-                                if (block.start > lastIdx) {
-                                    textParts.push({ type: 'text', content: text.substring(lastIdx, block.start) });
-                                }
-                                textParts.push(block);
-                                lastIdx = block.end;
-                            }
-
-                            if (lastIdx < text.length) {
-                                textParts.push({ type: 'text', content: text.substring(lastIdx) });
-                            }
-
-                            if (textParts.length === 0) {
-                                textParts.push({ type: 'text', content: text });
-                            }
-
-                            for (const textPart of textParts) {
-                                if (textPart.type === 'code') {
-                                    // Enhanced code block with dark theme and SYNTAX HIGHLIGHTING
-                                    pdf.setFont('courier', 'normal');
-                                    pdf.setFontSize(8);
-
-                                    const codeLines = textPart.content.split('\n');
-                                    const boxPadding = 5;
-                                    const codeLineHeight = 4.5;
-
-                                    // Calculate total height
-                                    let totalLines = 0;
-                                    for (const codeLine of codeLines) {
-                                        if (codeLine.length === 0) {
-                                            totalLines++;
-                                        } else {
-                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 10);
-                                            totalLines += splitLines.length;
-                                        }
-                                    }
-
-                                    const totalHeight = (totalLines * codeLineHeight) + (2 * boxPadding);
-
-                                    // If code block doesn't fit, move to new page
-                                    if (yPosition + totalHeight > pageHeight - 40) {
-                                        pdf.addPage();
-                                        yPosition = 20;
-                                    }
-
-                                    // Dark blue background (like VS Code dark theme)
-                                    pdf.setFillColor(26, 26, 46); // #1a1a2e
-                                    pdf.rect(margin - 2, yPosition - 4, maxWidth + 4, totalHeight + 2, 'F');
-
-                                    // Left accent border (teal)
-                                    pdf.setFillColor(0, 150, 136); // Teal accent
-                                    pdf.rect(margin - 2, yPosition - 4, 3, totalHeight + 2, 'F');
-
-                                    yPosition += boxPadding;
-
-                                    // Syntax highlighting function
-                                    const highlightLine = (codeLine, xStart, y) => {
-                                        // Token patterns for syntax highlighting
-                                        const keywords = /\b(function|const|let|var|if|else|for|while|return|class|import|export|from|async|await|try|catch|throw|new|this|true|false|null|undefined|def|elif|print|in|not|and|or|lambda|with|as|break|continue|pass|raise|except|finally|global|local|export)\b/g;
-                                        const strings = /(["'`])(?:(?!\1)[^\\]|\\.)*?\1/g;
-                                        const comments = /(#.*$|\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
-                                        const numbers = /\b\d+\.?\d*\b/g;
-                                        const functions = /\b(\w+)\s*\(/g;
-
-                                        // Colors
-                                        const colors = {
-                                            keyword: [86, 156, 214],    // Blue
-                                            string: [206, 145, 120],    // Orange/tan
-                                            comment: [106, 153, 85],    // Green
-                                            number: [181, 206, 168],    // Light green
-                                            function: [220, 220, 170],  // Yellow
-                                            default: [212, 212, 212]    // Light gray
-                                        };
-
-                                        // Simple tokenization - find all matches and their positions
-                                        const tokens = [];
-                                        let match;
-
-                                        // Find comments first (they override everything)
-                                        const commentMatch = codeLine.match(/(#.*$|\/\/.*$)/);
-                                        if (commentMatch) {
-                                            const commentStart = codeLine.indexOf(commentMatch[0]);
-                                            tokens.push({
-                                                start: commentStart,
-                                                end: codeLine.length,
-                                                type: 'comment',
-                                                text: commentMatch[0]
-                                            });
-                                        }
-
-                                        // Find strings
-                                        while ((match = strings.exec(codeLine)) !== null) {
-                                            tokens.push({
-                                                start: match.index,
-                                                end: match.index + match[0].length,
-                                                type: 'string',
-                                                text: match[0]
-                                            });
-                                        }
-
-                                        // Find keywords
-                                        while ((match = keywords.exec(codeLine)) !== null) {
-                                            tokens.push({
-                                                start: match.index,
-                                                end: match.index + match[0].length,
-                                                type: 'keyword',
-                                                text: match[0]
-                                            });
-                                        }
-
-                                        // Find numbers
-                                        while ((match = numbers.exec(codeLine)) !== null) {
-                                            tokens.push({
-                                                start: match.index,
-                                                end: match.index + match[0].length,
-                                                type: 'number',
-                                                text: match[0]
-                                            });
-                                        }
-
-                                        // Sort tokens by position
-                                        tokens.sort((a, b) => a.start - b.start);
-
-                                        // Remove overlapping tokens (comments win)
-                                        const filteredTokens = [];
-                                        for (const token of tokens) {
-                                            const overlaps = filteredTokens.some(t =>
-                                                (token.start >= t.start && token.start < t.end) ||
-                                                (token.end > t.start && token.end <= t.end)
-                                            );
-                                            if (!overlaps) {
-                                                filteredTokens.push(token);
-                                            }
-                                        }
-
-                                        // Render the line with colors
-                                        let currentX = xStart;
-                                        let lastEnd = 0;
-
-                                        for (const token of filteredTokens) {
-                                            // Render text before this token
-                                            if (token.start > lastEnd) {
-                                                const beforeText = codeLine.substring(lastEnd, token.start);
-                                                pdf.setTextColor(...colors.default);
-                                                pdf.text(beforeText, currentX, y);
-                                                currentX += pdf.getTextWidth(beforeText);
-                                            }
-
-                                            // Render the token
-                                            pdf.setTextColor(...colors[token.type]);
-                                            pdf.text(token.text, currentX, y);
-                                            currentX += pdf.getTextWidth(token.text);
-                                            lastEnd = token.end;
-                                        }
-
-                                        // Render remaining text
-                                        if (lastEnd < codeLine.length) {
-                                            pdf.setTextColor(...colors.default);
-                                            pdf.text(codeLine.substring(lastEnd), currentX, y);
-                                        }
-                                    };
-
-                                    // Render each line with syntax highlighting
-                                    for (const codeLine of codeLines) {
-                                        if (codeLine.length === 0) {
-                                            yPosition += codeLineHeight;
-                                        } else {
-                                            // For long lines that wrap, just render with default color
-                                            const splitLines = pdf.splitTextToSize(codeLine, maxWidth - 10);
-                                            if (splitLines.length === 1) {
-                                                highlightLine(codeLine, margin + 3, yPosition);
-                                            } else {
-                                                // Wrapped lines - no highlighting to avoid complexity
-                                                pdf.setTextColor(212, 212, 212);
-                                                for (const sl of splitLines) {
-                                                    pdf.text(sl, margin + 3, yPosition);
-                                                    yPosition += codeLineHeight;
-                                                }
-                                                continue;
-                                            }
-                                            yPosition += codeLineHeight;
-                                        }
-                                    }
-
-                                    yPosition += boxPadding + 3;
-                                    pdf.setFont('helvetica', 'normal');
-                                    pdf.setFontSize(10);
-                                    pdf.setTextColor(0, 0, 0); // Reset to black
-
-                                } else if (textPart.type === 'table') {
-                                    // Render markdown table as PDF table
-                                    const { header, rows } = textPart;
-                                    const numCols = header.length;
-
-                                    if (numCols === 0) continue;
-
-                                    // Calculate column widths based on content
-                                    const cellPadding = 3;
-                                    const cellHeight = 8;
-                                    const headerHeight = 10;
-                                    const tableWidth = maxWidth;
-
-                                    // Measure column widths based on content (proportional)
-                                    pdf.setFontSize(8);
-                                    const colWidths = [];
-                                    const minColWidth = 20;
-
-                                    // Calculate content width for each column
-                                    const contentWidths = header.map((h, colIdx) => {
-                                        let maxContentWidth = pdf.getTextWidth(h);
-                                        rows.forEach(row => {
-                                            if (row[colIdx]) {
-                                                const cellWidth = pdf.getTextWidth(row[colIdx]);
-                                                if (cellWidth > maxContentWidth) {
-                                                    maxContentWidth = cellWidth;
-                                                }
-                                            }
-                                        });
-                                        return Math.max(maxContentWidth + cellPadding * 2, minColWidth);
-                                    });
-
-                                    // Normalize widths to fit table width
-                                    const totalContentWidth = contentWidths.reduce((a, b) => a + b, 0);
-                                    const scaleFactor = tableWidth / totalContentWidth;
-
-                                    for (let i = 0; i < numCols; i++) {
-                                        colWidths.push(contentWidths[i] * scaleFactor);
-                                    }
-
-                                    // Calculate total table height
-                                    const totalTableHeight = headerHeight + (rows.length * cellHeight);
-
-                                    // Check if table fits on current page
-                                    if (yPosition + totalTableHeight > pageHeight - 40) {
-                                        pdf.addPage();
-                                        yPosition = 20;
-                                    }
-
-                                    let tableX = margin;
-                                    let tableY = yPosition;
-
-                                    // Draw header row with blue background (matching theme)
-                                    pdf.setFillColor(0, 82, 147); // Blue header
-                                    pdf.rect(tableX, tableY, tableWidth, headerHeight, 'F');
-
-                                    // Draw header cells
-                                    pdf.setFont('helvetica', 'bold');
-                                    pdf.setFontSize(8);
-                                    pdf.setTextColor(255, 255, 255); // White text on blue
-
-                                    let cellX = tableX;
-                                    for (let i = 0; i < numCols; i++) {
-                                        // Draw cell border
-                                        pdf.setDrawColor(200, 200, 200);
-                                        pdf.rect(cellX, tableY, colWidths[i], headerHeight, 'S');
-
-                                        // Draw cell text (truncate if needed)
-                                        const cellText = header[i] || '';
-                                        const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
-                                        pdf.text(truncatedText, cellX + cellPadding, tableY + headerHeight - 3);
-
-                                        cellX += colWidths[i];
-                                    }
-
-                                    tableY += headerHeight;
-
-                                    // Draw data rows
-                                    pdf.setFont('helvetica', 'normal');
-                                    pdf.setTextColor(0, 0, 0); // Black text for data rows
-
-                                    for (const row of rows) {
-                                        // Check if row fits on current page
-                                        if (tableY + cellHeight > pageHeight - 40) {
-                                            pdf.addPage();
-                                            tableY = 20;
-
-                                            // Redraw header on new page with blue theme
-                                            pdf.setFillColor(0, 82, 147);
-                                            pdf.rect(margin, tableY, tableWidth, headerHeight, 'F');
-
-                                            pdf.setFont('helvetica', 'bold');
-                                            pdf.setTextColor(255, 255, 255); // White for header
-                                            cellX = margin;
-                                            for (let i = 0; i < numCols; i++) {
-                                                pdf.setDrawColor(200, 200, 200);
-                                                pdf.rect(cellX, tableY, colWidths[i], headerHeight, 'S');
-                                                const cellText = header[i] || '';
-                                                const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
-                                                pdf.text(truncatedText, cellX + cellPadding, tableY + headerHeight - 3);
-                                                cellX += colWidths[i];
-                                            }
-
-                                            tableY += headerHeight;
-                                            pdf.setFont('helvetica', 'normal');
-                                            pdf.setTextColor(0, 0, 0); // Reset to black for rows
-                                        }
-
-                                        cellX = margin;
-                                        for (let i = 0; i < numCols; i++) {
-                                            // Draw cell border
-                                            pdf.setDrawColor(200, 200, 200);
-                                            pdf.rect(cellX, tableY, colWidths[i], cellHeight, 'S');
-
-                                            // Draw cell text
-                                            const cellText = row[i] || '';
-                                            const truncatedText = pdf.splitTextToSize(cellText, colWidths[i] - cellPadding * 2)[0] || '';
-                                            pdf.text(truncatedText, cellX + cellPadding, tableY + cellHeight - 2);
-
-                                            cellX += colWidths[i];
-                                        }
-
-                                        tableY += cellHeight;
-                                    }
-
-                                    yPosition = tableY + 5;
-                                    pdf.setFontSize(10);
-
-                                } else {
-                                    // Enhanced text rendering with formatting
-                                    const renderFormattedText = (text) => {
-                                        const lines = text.split('\n');
-
-                                        for (const line of lines) {
-                                            if (!line.trim()) {
-                                                yPosition += 3; // Empty line spacing
-                                                continue;
-                                            }
-
-                                            checkNewPage();
-
-                                            // Detect line type and apply appropriate formatting
-                                            const trimmedLine = line.trim();
-
-                                            // H1 Headers (# )
-                                            // Orphan prevention: require 70px space so title stays with content
-                                            if (/^#\s+/.test(trimmedLine)) {
-                                                checkNewPage(150); // Prevent orphan - need half page for content after title
-                                                lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = trimmedLine.replace(/^#\s+/, '');
-                                                pdf.setFontSize(16);
-                                                pdf.setFont('helvetica', 'bold');
-                                                pdf.setTextColor(0, 82, 147); // Blue color
-                                                const wrappedLines = pdf.splitTextToSize(headerText, maxWidth);
-                                                for (const wl of wrappedLines) {
-                                                    checkNewPage();
-                                                    pdf.text(wl, margin, yPosition);
-                                                    yPosition += 8;
-                                                }
-                                                yPosition += 4;
-                                                pdf.setTextColor(0, 0, 0);
-                                                continue;
-                                            }
-
-                                            // H2 Headers (## )
-                                            // Orphan prevention: require 55px space so title stays with content
-                                            if (/^##\s+/.test(trimmedLine)) {
-                                                checkNewPage(150); // Prevent orphan - need half page for content after title
-                                                lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = trimmedLine.replace(/^##\s+/, '');
-                                                pdf.setFontSize(14);
-                                                pdf.setFont('helvetica', 'bold');
-                                                pdf.setTextColor(0, 82, 147); // Blue color
-                                                const wrappedLines = pdf.splitTextToSize(headerText, maxWidth);
-                                                for (const wl of wrappedLines) {
-                                                    checkNewPage();
-                                                    pdf.text(wl, margin, yPosition);
-                                                    yPosition += 7;
-                                                }
-                                                yPosition += 3;
-                                                pdf.setTextColor(0, 0, 0);
-                                                continue;
-                                            }
-
-                                            // H3+ Headers (### )
-                                            // Orphan prevention: require 45px space so title stays with content
-                                            if (/^#{3,6}\s+/.test(trimmedLine)) {
-                                                checkNewPage(130); // Prevent orphan - need substantial content after title
-                                                lastTitleYPosition = yPosition; // Track for orphan prevention
-                                                const headerText = trimmedLine.replace(/^#{3,6}\s+/, '');
-                                                pdf.setFontSize(12);
-                                                pdf.setFont('helvetica', 'bold');
-                                                pdf.setTextColor(0, 102, 153); // Lighter blue
-                                                const wrappedLines = pdf.splitTextToSize(headerText, maxWidth);
-                                                for (const wl of wrappedLines) {
-                                                    checkNewPage();
-                                                    pdf.text(wl, margin, yPosition);
-                                                    yPosition += 6;
-                                                }
-                                                yPosition += 2;
-                                                pdf.setTextColor(0, 0, 0);
-                                                continue;
-                                            }
-
-                                            // Unordered list items (- or *) - matching HTML viewer logic exactly
-                                            // Also handles section headers (items ending with :)
-                                            const ulMatch = line.match(/^(\s*)([-*])\s+(.*)$/);
-                                            if (ulMatch) {
-                                                const indent = ulMatch[1].length;
-                                                const itemContent = ulMatch[3].trim();
-
-                                                // Skip empty items
-                                                if (!itemContent) continue;
-
-                                                // Calculate nesting level - EXACTLY like HTML viewer
-                                                const level = Math.floor(indent / 2);
-
-                                                // Calculate positions - similar to HTML marginLeft = level * 1.5rem
-                                                const bulletIndent = margin + (level * 6); // 6mm per level
-                                                const textIndent = bulletIndent + 4;
-                                                const availableWidth = maxWidth - (level * 6) - 6;
-
-                                                // Check if this is a section header (ends with ":") - now styled bold but BLACK
-                                                const isSectionHeader = itemContent.endsWith(':') && itemContent.length < 100;
-
-                                                // Handle bold text
-                                                const hasBold = /\*\*(.+?)\*\*/.test(itemContent);
-
-                                                // Clean markdown formatting
-                                                let cleanText = itemContent
-                                                    .replace(/\*\*(.+?)\*\*/g, '$1')
-                                                    .replace(/\*(.+?)\*/g, '$1')
-                                                    .replace(/`(.+?)`/g, '$1');
-
-                                                // Bullet symbols matching HTML viewer: disc (level 0), circle (level 1), square (level 2+)
-                                                let bulletSymbol;
-                                                if (level === 0) bulletSymbol = '-';
-                                                else if (level === 1) bulletSymbol = 'o';
-                                                else bulletSymbol = '*';
-
-                                                // All bullet items are BLACK and normal weight - only markdown # headers are blue
-                                                pdf.setFontSize(10);
-                                                pdf.setTextColor(0, 0, 0); // Black for all body text
-                                                // Only use bold if markdown explicitly has **text**
-                                                pdf.setFont('helvetica', hasBold ? 'bold' : 'normal');
-
-                                                // Draw bullet
-                                                pdf.text(bulletSymbol, bulletIndent, yPosition);
-
-                                                // Draw text (wrapped if needed)
-                                                const wrappedLines = pdf.splitTextToSize(cleanText, availableWidth);
-                                                for (let i = 0; i < wrappedLines.length; i++) {
-                                                    if (i > 0) {
-                                                        checkNewPage();
-                                                    }
-                                                    pdf.text(wrappedLines[i], textIndent, yPosition);
-                                                    yPosition += 5.5;
-                                                }
-
-                                                if (isSectionHeader) {
-                                                    yPosition += 1; // Extra space after section headers
-                                                }
-
-                                                pdf.setTextColor(0, 0, 0);
-                                                continue;
-                                            }
-
-                                            // Ordered list items (1. 2. etc)
-                                            const olMatch = line.match(/^(\s*)(\d+\.)\s+(.*)$/);
-                                            if (olMatch) {
-                                                const indent = olMatch[1].length;
-                                                const bulletType = olMatch[2];
-                                                const itemContent = olMatch[3].trim();
-
-                                                if (!itemContent) continue;
-
-                                                const level = Math.floor(indent / 2);
-                                                const bulletIndent = margin + (level * 6);
-                                                const textIndent = bulletIndent + 6; // More space for numbers
-                                                const availableWidth = maxWidth - (level * 6) - 8;
-
-                                                let cleanText = itemContent
-                                                    .replace(/\*\*(.+?)\*\*/g, '$1')
-                                                    .replace(/\*(.+?)\*/g, '$1')
-                                                    .replace(/`(.+?)`/g, '$1');
-
-                                                pdf.setFontSize(10);
-                                                pdf.setTextColor(51, 51, 51);
-                                                pdf.setFont('helvetica', 'normal');
-
-                                                // Draw number
-                                                pdf.text(bulletType, bulletIndent, yPosition);
-
-                                                // Draw text
-                                                const wrappedLines = pdf.splitTextToSize(cleanText, availableWidth);
-                                                for (let i = 0; i < wrappedLines.length; i++) {
-                                                    if (i > 0) checkNewPage();
-                                                    pdf.text(wrappedLines[i], textIndent, yPosition);
-                                                    yPosition += 5.5;
-                                                }
-
-                                                pdf.setTextColor(0, 0, 0);
-                                                continue;
-                                            }
-
-                                            // Regular paragraph text
-                                            let cleanText = trimmedLine
-                                                .replace(/\*\*(.+?)\*\*/g, '$1')
-                                                .replace(/\*(.+?)\*/g, '$1')
-                                                .replace(/\[VISUAL:.*?\]/g, '')
-                                                .replace(/`(.+?)`/g, '$1');
-
-                                            if (cleanText) {
-                                                pdf.setFontSize(10);
-                                                pdf.setFont('helvetica', 'normal');
-                                                pdf.setTextColor(0, 0, 0);
-
-                                                const wrappedLines = pdf.splitTextToSize(cleanText, maxWidth);
-                                                for (const wl of wrappedLines) {
-                                                    checkNewPage();
-                                                    pdf.text(wl, margin, yPosition);
-                                                    yPosition += lineHeight;
-                                                }
-                                            }
-                                        }
-                                    };
-
-                                    renderFormattedText(textPart.content);
-                                }
-                            }
-                        } else if (part.type === 'image') {
-                            try {
-                                const img = new Image();
-                                img.src = part.dataUrl;
-
-                                await new Promise((resolve, reject) => {
-                                    img.onload = () => resolve();
-                                    img.onerror = () => reject(new Error('Image load failed'));
-                                    setTimeout(() => reject(new Error('Image load timeout')), 5000);
-                                });
-
-                                const maxImgWidth = maxWidth - 10;
-                                const aspectRatio = img.height / img.width;
-                                let imgWidth = Math.min(img.width * 0.264583, maxImgWidth);
-                                let imgHeight = imgWidth * aspectRatio;
-
-                                const maxImgHeight = 180;
-                                if (imgHeight > maxImgHeight) {
-                                    imgHeight = maxImgHeight;
-                                    imgWidth = imgHeight / aspectRatio;
-                                }
-
-                                if (yPosition + imgHeight > pageHeight - 40) {
-                                    // Check if there's a recent title that should move with this image
-                                    // If title was rendered within last 35mm, it's an orphan - move it too
-                                    const titleThreshold = 35; // mm
-                                    if (lastTitleYPosition !== null && (yPosition - lastTitleYPosition) < titleThreshold) {
-                                        // There's an orphan title - the page break will separate it from this image
-                                        // Add page first, then we'll handle it
-                                        pdf.addPage();
-                                        yPosition = 28; // More space below header
-                                        // Note: The title was already rendered on the previous page
-                                        // This is not ideal, but prevents most orphan cases by our earlier large checkNewPage values
-                                    } else {
-                                        pdf.addPage();
-                                        yPosition = 28; // More space below header
-                                    }
-                                    // Reset title tracking after page break
-                                    lastTitleYPosition = null;
-                                }
-
-                                const imgFormat = part.dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
-                                pdf.addImage(part.dataUrl, imgFormat, margin, yPosition, imgWidth, imgHeight);
-
-                                yPosition += imgHeight + 5;
-                                // Reset title tracking after image is placed
-                                lastTitleYPosition = null;
-
-                            } catch (imgError) {
-                                console.error('Error adding image to PDF:', imgError);
-                                pdf.text('[IMAGEN NO DISPONIBLE]', margin, yPosition);
-                                yPosition += lineHeight;
+                            if (attempts >= maxAttempts) {
+                                clearInterval(interval);
+                                reject(new Error('Tiempo de espera agotado (Timeout). El PDF es demasiado grande.'));
                             }
                         }
+                    } catch (e) {
+                        // Ignore transient network errors during polling
+                        console.warn('Polling check failed', e);
                     }
+                }, 3000);
+            });
 
-                    yPosition += 10;
-                }
-
-                yPosition += 15;
-            }
-
-            // Add headers and footers to all pages
-            const totalPages = pdf.internal.getNumberOfPages();
-            for (let i = 1; i <= totalPages; i++) {
-                pdf.setPage(i);
-                addHeader(i);
-                addFooter(i, totalPages);
-            }
-
-            // Download the PDF
-            const fileName = `${projectFolder}_${viewMode === 'book' ? 'libro' : 'lab_guide'}.pdf`;
-            pdf.save(fileName);
 
         } catch (error) {
-            console.error('Error generating PDF:', error);
-            alert('Error al generar el PDF. Por favor, intente nuevamente.');
+            console.error('PDF Generation Error:', error);
+            showModal(`Error: ${error.message}`, 'Fallo en Generación');
         } finally {
             setDownloadingPDF(false);
         }
     };
+
 
     // Function to extract module number from lesson filename or title
     const extractModuleInfo = (lesson, index) => {
@@ -1510,7 +795,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 }
             }
 
-            return bookData;
+            // Scrub encoding artifacts from loaded data
+            return scrubBookData(bookData);
         } catch (error) {
             console.warn('Error in loadBookDataFromAPI:', error);
             return null;
@@ -1638,7 +924,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 // Ensure lessons is an array
                 if (data.bookData.lessons && Array.isArray(data.bookData.lessons)) {
                     // Set book data immediately WITHOUT waiting for images
-                    bookToSet = { ...data.bookData, outlineKey }; // Include outlineKey for regeneration
+                    bookToSet = scrubBookData({ ...data.bookData, outlineKey }); // Include outlineKey for regeneration
                     setBookData(bookToSet);
                     setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
                     setLoading(false); // Show UI immediately
@@ -1683,7 +969,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             } else if (data.bookContent) {
                 // Parse book content immediately without waiting for images
                 console.log('Parsing book content (images will load in background)...');
-                const parsedBook = { ...parseMarkdownToBook(data.bookContent), outlineKey };
+                const parsedBook = scrubBookData({ ...parseMarkdownToBook(data.bookContent), outlineKey });
 
                 // Set book data immediately for fast UI display
                 setBookData(parsedBook);
@@ -1698,7 +984,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         console.log('Skipping image update - version already loaded');
                         return;
                     }
-                    const parsedBookWithImages = { ...parseMarkdownToBook(contentWithImages), outlineKey };
+                    const parsedBookWithImages = scrubBookData({ ...parseMarkdownToBook(contentWithImages), outlineKey });
                     setBookData(parsedBookWithImages);
                     setOriginalBookData(JSON.parse(JSON.stringify(parsedBookWithImages)));
                     console.log('Images loaded successfully');
@@ -1725,7 +1011,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 }
 
                 // Set initial data immediately WITHOUT images
-                bookToSet = { ...fetchedJson, outlineKey };
+                // NEW: Apply scrubbing to JSON data
+                const scrubbedBook = scrubBookData({ ...fetchedJson, outlineKey });
+                bookToSet = scrubbedBook;
+
                 setBookData(bookToSet);
                 setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
                 setLoading(false); // Show UI immediately
@@ -1737,13 +1026,21 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 (async () => {
                     try {
                         for (let lesson of bookToSet.lessons) {
-                            if (lesson.content) lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                            if (lesson.content) {
+                                // Content can be huge, but we only need to replace URLs.
+                                // NOTE: Images replacement might re-introduce un-scrubbed strings if not careful?
+                                // replaceS3UrlsWithDataUrls returns a string.
+                                // We should probably re-scrub just in case, but let's trust cleanString at render time too.
+                                lesson.content = await replaceS3UrlsWithDataUrls(lesson.content);
+                            }
                         }
-                        // Update state after all images loaded (or could do progressively like above)
+                        // Update state after all images loaded
                         if (!versionLoadedRef.current) {
-                            setBookData({ ...bookToSet });
+                            // Re-scrubbing here is safe and ensures even image-loaded content is clean
+                            setBookData(scrubBookData({ ...bookToSet }));
                             setOriginalBookData(JSON.parse(JSON.stringify(bookToSet)));
                         }
+                        console.log('All images loaded (JSON source)');
                         console.log('All images loaded (JSON source)');
                     } catch (err) {
                         console.error('Error loading images (JSON source):', err);

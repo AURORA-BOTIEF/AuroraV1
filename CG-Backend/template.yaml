@@ -8,6 +8,10 @@ Globals:
       AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
       AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
       AllowOrigin: "'*'"
+    BinaryMediaTypes:
+      - "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      - "application/octet-stream"
+      - "*/*"
     Auth:
       ApiKeyRequired: false
       DefaultAuthorizer: AWS_IAM
@@ -75,15 +79,30 @@ Resources:
         - arm64
 
   PPTLayer:
-    Type: AWS::Lambda::LayerVersion
+    Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: ppt-dependencies
       Description: PowerPoint generation dependencies (python-pptx)
-      Content: ./lambda-layers/ppt-layer.zip
+      ContentUri: ./lambda-layers/ppt_layer/
       CompatibleRuntimes:
         - python3.12
       CompatibleArchitectures:
         - arm64
+    Metadata:
+      BuildMethod: python3.12
+
+  PdfLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: pdf-dependencies
+      Description: PDF generation dependencies (xhtml2pdf, jinja2)
+      ContentUri: ./lambda-layers/pdf_layer/
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+    Metadata:
+      BuildMethod: python3.12
 
   # ======================================
   # STRANDS AGENTS - COURSE GENERATION
@@ -141,6 +160,8 @@ Resources:
       Runtime: python3.12
       Handler: content_validator.lambda_handler
       CodeUri: ./lambda/content_validator/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 120
       MemorySize: 256
       Architectures:
@@ -171,6 +192,8 @@ Resources:
       Runtime: python3.12
       Handler: batch_expander.lambda_handler
       CodeUri: ./lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 60
       MemorySize: 256
       Architectures:
@@ -199,6 +222,8 @@ Resources:
       Runtime: python3.12
       Handler: lab_batch_expander.lambda_handler
       CodeUri: ./lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 60
       MemorySize: 256
       Architectures:
@@ -605,6 +630,8 @@ Resources:
       Handler: lab_guide_builder.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 512
       Timeout: 300
       Policies:
@@ -771,8 +798,10 @@ Resources:
       Layers:
         - !Ref PPTLayer
         - !Ref StrandsAgentsLayer
-      MemorySize: 1024
-      Timeout: 60
+      Architectures:
+        - arm64
+      MemorySize: 2048
+      Timeout: 120
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
@@ -783,6 +812,7 @@ Resources:
         - Effect: Allow
           Action:
             - s3:GetObject
+            - s3:PutObject
             - s3:ListBucket
           Resource:
           - arn:aws:s3:::crewai-course-artifacts
@@ -796,6 +826,77 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  BookToPdfFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Generates PDF from book data (Server-Side) using xhtml2pdf
+      Handler: book_to_pdf.lambda_handler
+      Runtime: python3.12
+      CodeUri: ./lambda/book_to_pdf/
+      Layers:
+        - !Ref PdfLayer
+      Architectures:
+        - arm64
+      MemorySize: 3008
+      Timeout: 900
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+        # Removed lambda:InvokeFunction (no longer needed for self-invocation)
+      # Events removed - now triggered by Step Function
+
+  PdfStarterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PdfStarterFunction
+      Description: API handler to start/check PDF State Machine
+      Runtime: python3.12
+      Handler: pdf_starter.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref PdfGenerationStateMachine
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref PdfGenerationStateMachine
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+              Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:PdfGenerationStateMachine:*"
+      Events:
+        BuildPdfApi:
+          Type: Api
+          Properties:
+            Path: /build-pdf
+            Method: post
+            Auth:
+              Authorizer: NONE
+        BuildPdfApiOptions:
+          Type: Api
+          Properties:
+            Path: /build-pdf
+            Method: options
+            Auth:
+              Authorizer: NONE
+
   LoadBookFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -803,6 +904,8 @@ Resources:
       Handler: load_book.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 256
       Timeout: 30
       Environment:
@@ -994,6 +1097,8 @@ Resources:
       Handler: starter_api.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 256
       Timeout: 30
       Environment:
@@ -1134,9 +1239,25 @@ Resources:
               Action:
                 - lambda:InvokeFunction
               Resource:
-                - !GetAtt StrandsInfographicGenerator.Arn
-                - !GetAtt StrandsPptMerger.Arn
                 - !GetAtt StrandsVisualOptimizer.Arn
+                - !GetAtt StrandsNotification.Arn
+
+  PdfGenerationStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: PdfGenerationStateMachine
+      DefinitionUri: pdf_generation_state_machine.json
+      DefinitionSubstitutions:
+        BookToPdfFunctionArn: !GetAtt BookToPdfFunction.Arn
+      Type: STANDARD
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt BookToPdfFunction.Arn
                 - !GetAtt StrandsNotification.Arn
 
   # ======================================
@@ -1257,6 +1378,8 @@ Resources:
       Runtime: python3.12
       Handler: get_student_courses.lambda_handler
       CodeUri: lambda/assignments/
+      Layers:
+        - !Ref StrandsAgentsLayer
       Timeout: 30
       MemorySize: 256
       Environment:

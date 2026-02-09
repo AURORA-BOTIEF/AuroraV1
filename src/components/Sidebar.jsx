@@ -26,7 +26,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   // ⭐ NUEVO: estado del botón para externos
   const [botonHabilitado, setBotonHabilitado] = useState(false);
 
-  // Pinta inmediatamente desde localStorage
+  // Pinta inmediatamente desde localStorage (solo avatar, no auth)
   useEffect(() => {
     let cancelled = false;
     try {
@@ -36,11 +36,48 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     return () => { cancelled = true; };
   }, [email]);
 
+  // ✅ Helper: obtener headers de auth desde Amplify (NO localStorage)
+  async function getAuthHeaders() {
+    const session = await fetchAuthSession();
+    const idToken = session.tokens?.idToken?.toString();
+    if (!idToken) return {};
+
+    // En REST API con Cognito Authorizer, a veces funciona sin "Bearer"
+    // y a veces con "Bearer". Aquí intentamos primero SIN Bearer para /perfil,
+    // y para el resto dejamos el que ya usabas (Bearer) si quieres.
+    return { raw: { Authorization: idToken }, bearer: { Authorization: `Bearer ${idToken}` } };
+  }
+
+  // ✅ Cargar token (para el resto de endpoints que ya usan authHeader)
   useEffect(() => {
     let cancelled = false;
+    fetchAuthSession()
+      .then(session => {
+        const idToken = session.tokens?.idToken;
+        if (idToken && !cancelled) {
+          // Mantengo tu comportamiento para otras rutas (Bearer)
+          setAuthHeader({ Authorization: `Bearer ${idToken.toString()}` });
+        }
+        if (!cancelled) setTokenLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthHeader({});
+          setTokenLoaded(true);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  // ✅ PINTAR FOTO: primero intenta con claims de idToken, si no, llama /perfil con token de sesión
+  useEffect(() => {
+    let cancelled = false;
+
     async function pintarFoto() {
+      // 1) Intento 1: tomar "picture" directo del idToken (sin API)
       try {
-        const u = await getCurrentUser();
+        await getCurrentUser();
         const session = await fetchAuthSession();
         const pic = session.tokens?.idToken?.payload?.picture || '';
         if (/^https?:\/\//i.test(pic)) {
@@ -48,22 +85,35 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           return;
         }
       } catch { }
+
+      // 2) Intento 2: llamar /perfil usando token real de sesión (NO localStorage)
       try {
         if (!API_BASE) return;
-        const idt = localStorage.getItem('id_token');
-        if (!idt) return;
-        const r = await fetch(`${API_BASE}/perfil`, { headers: { Authorization: `Bearer ${idt}` } });
+
+        const { raw, bearer } = await getAuthHeaders();
+        if (!raw?.Authorization && !bearer?.Authorization) return;
+
+        // 🔥 Prueba 1: SIN Bearer (muchos Cognito Authorizer REST lo esperan así)
+        let r = await fetch(`${API_BASE}/perfil`, { headers: raw });
+        // 🔥 Si falla, prueba 2: CON Bearer
+        if (!r.ok) {
+          r = await fetch(`${API_BASE}/perfil`, { headers: bearer });
+        }
+
         if (!r.ok) return;
-        const d = await r.json();
+        const d = await r.json().catch(() => ({}));
         if (!cancelled && d?.photoUrl) setAvatar(d.photoUrl);
       } catch { }
     }
+
     pintarFoto();
+
     const onUpd = (e) => {
       const url = e.detail?.photoUrl;
       if (url !== undefined) setAvatar(url || null);
     };
     window.addEventListener('profilePhotoUpdated', onUpd);
+
     return () => {
       cancelled = true;
       window.removeEventListener('profilePhotoUpdated', onUpd);
@@ -72,21 +122,6 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
 
   const dominio = useMemo(() => (email.split('@')[1] || '').toLowerCase(), [email]);
   const esNetec = DOMINIOS_PERMITIDOS.has(dominio);
-
-  useEffect(() => {
-    fetchAuthSession()
-      .then(session => {
-        const idToken = session.tokens?.idToken;
-        if (idToken) {
-          setAuthHeader({ Authorization: `Bearer ${idToken.toString()}` });
-        }
-        setTokenLoaded(true);
-      })
-      .catch(() => {
-        setAuthHeader({});
-        setTokenLoaded(true);
-      });
-  }, []);
 
   // Estado de solicitud Netec (tu lógica actual, NO se toca)
   useEffect(() => {
@@ -107,18 +142,18 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
       }
     };
     fetchEstado();
-  }, [email, esNetec, authHeader]);
+  }, [email, esNetec, authHeader, tokenLoaded]);
 
   // ⭐ NUEVO: obtener boton_habilitado para usuarios externos
   useEffect(() => {
-    if (!email || esNetec === true) return; // Netec siempre ve el botón, no consulta
+    if (!email || esNetec === true || !tokenLoaded) return; // Netec siempre ve el botón, no consulta
 
     const cargarEstado = async () => {
       try {
         const r = await fetch(`${API_BASE}/boton?correo=${email}`, {
           headers: authHeader
         });
-        const j = await r.json();
+        const j = await r.json().catch(() => ({}));
         setBotonHabilitado(j.boton_habilitado === true);
       } catch {
         setBotonHabilitado(false);
@@ -126,7 +161,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     };
 
     cargarEstado();
-  }, [email, esNetec, authHeader]);
+  }, [email, esNetec, authHeader, tokenLoaded]);
 
   const toggle = () => setColapsado(v => !v);
 
@@ -253,16 +288,13 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
 
       <div id="caminito" className="caminito">
         <Link to="/resumenes" className="nav-link">
-          <div className="step"><div className="circle">🧠</div>{!
-            colapsado && <span>Resúmenes</span>}</div>
+          <div className="step"><div className="circle">🧠</div>{!colapsado && <span>Resúmenes</span>}</div>
         </Link>
         <Link to="/actividades" className="nav-link">
-          <div className="step"><div className="circle">📘</div>{!
-            colapsado && <span>Actividades</span>}</div>
+          <div className="step"><div className="circle">📘</div>{!colapsado && <span>Actividades</span>}</div>
         </Link>
         <Link to="/examenes" className="nav-link">
-          <div className="step"><div className="circle">🔬</div>{!
-            colapsado && <span>Examen</span>}</div>
+          <div className="step"><div className="circle">🔬</div>{!colapsado && <span>Examen</span>}</div>
         </Link>
 
         {(esAdmin || esAdminPrincipal) && (
@@ -290,7 +322,6 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           </Link>
         )}
 
-        {/* Asignador Portal - visible to admin and asignadores */}
         {(esAdmin || esAdminPrincipal || esAsignador) && (
           <Link to="/asignador" className="nav-link" title="Portal de Asignación">
             <div className="step">
@@ -313,7 +344,6 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           </div>
         </a>
 
-        {/* Estudiantes Portal - visible to estudiantes */}
         {esEstudiante && (
           <Link to="/mis-cursos" className="nav-link" title="Mis Cursos">
             <div className="step">
@@ -323,7 +353,6 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           </Link>
         )}
 
-        {/* Instructores Externos Portal - visible to instructor_externo */}
         {esInstructorExterno && (
           <Link to="/portal-instructor" className="nav-link" title="Portal del Instructor">
             <div className="step">
@@ -343,4 +372,3 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     </div>
   );
 }
-
