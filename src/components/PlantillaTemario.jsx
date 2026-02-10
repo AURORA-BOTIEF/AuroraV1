@@ -454,31 +454,31 @@ export default function PlantillaTemario() {
       );
 
       y += 14;
+      
+
+      cap.subcapitulos.forEach((sub, j) => {
+        doc.setFontSize(10);
+
+        const textoIzq = `${i + 1}.${j + 1} ${sub.nombre}`;
+        const lineasIzq = doc.splitTextToSize(textoIzq, leftColWidth);
+
+        const blockHeight = lineasIzq.length * 12;
+
+        addPageIfNeeded(blockHeight);
+
+        // columna izquierda (texto largo)
+        doc.text(lineasIzq, leftColX, y);
+
+        // columna derecha (tiempo / sesión)
+        doc.text(
+          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
+          rightColX,
+          y,
+          { align: "right" }
+        );
+
+        y += blockHeight + 4;
       });
-
-    cap.subcapitulos.forEach((sub, j) => {
-      doc.setFontSize(10);
-
-      const textoIzq = `${i + 1}.${j + 1} ${sub.nombre}`;
-      const lineasIzq = doc.splitTextToSize(textoIzq, leftColWidth);
-
-      const blockHeight = lineasIzq.length * 12;
-
-      addPageIfNeeded(blockHeight);
-
-      // columna izquierda (texto largo)
-      doc.text(lineasIzq, leftColX, y);
-
-      // columna derecha (tiempo / sesión)
-      doc.text(
-        `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
-        rightColX,
-        y,
-        { align: "right" }
-      );
-
-      y += blockHeight + 4;
-    });
 
 
     const totalPages = doc.internal.getNumberOfPages();
