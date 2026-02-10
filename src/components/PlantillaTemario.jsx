@@ -478,8 +478,8 @@ export default function PlantillaTemario() {
         );
 
         y += blockHeight + 4;
+        });
       });
-
 
     const totalPages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
