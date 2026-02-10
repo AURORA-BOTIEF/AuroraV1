@@ -363,6 +363,11 @@ export default function PlantillaTemario() {
     const pageH = doc.internal.pageSize.getHeight();
     const margin = { top: 230, bottom: 100, left: 60, right: 60 };
     const contentW = pageW - margin.left - margin.right;
+    // 👇 AGREGA AQUÍ
+    const rightColWidth = 140;
+    const leftColX = margin.left + 25;
+    const rightColX = pageW - margin.right;
+    const leftColWidth = contentW - rightColWidth - 20;
 
     const enc = await toDataURL(encabezadoImagen);
     const pie = await toDataURL(pieDePaginaImagen);
@@ -425,30 +430,56 @@ export default function PlantillaTemario() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(azul);
-      doc.text(`Capítulo ${i + 1}: ${cap.capitulo}`, margin.left, y);
-      y += 14;
+
+      const tituloCap = `Capítulo ${i + 1}: ${cap.capitulo}`;
+      const lineasCap = doc.splitTextToSize(tituloCap, contentW);
+
+      addPageIfNeeded(lineasCap.length * 16);
+
+      // título del capítulo (con salto automático)
+      doc.text(lineasCap, margin.left, y);
+
+      // mover y según alto real del título
+      y += lineasCap.length * 16;
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(negro);
-      doc.text(`Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`, margin.left + 10, y);
-      y += 14;
 
-      cap.subcapitulos.forEach((sub, j) => {
-        addPageIfNeeded(14);
-        doc.setFontSize(10);
-        doc.text(`${i + 1}.${j + 1} ${sub.nombre}`, margin.left + 25, y);
-        doc.text(
-          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
-          pageW - margin.right,
-          y,
-          { align: "right" }
-        );
-        y += 12;
+      // duración debajo del título
+      doc.text(
+        `Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`,
+        margin.left + 10,
+        y
+      );
+
+      y += 14;
       });
 
-      y += 12;
+    cap.subcapitulos.forEach((sub, j) => {
+      doc.setFontSize(10);
+
+      const textoIzq = `${i + 1}.${j + 1} ${sub.nombre}`;
+      const lineasIzq = doc.splitTextToSize(textoIzq, leftColWidth);
+
+      const blockHeight = lineasIzq.length * 12;
+
+      addPageIfNeeded(blockHeight);
+
+      // columna izquierda (texto largo)
+      doc.text(lineasIzq, leftColX, y);
+
+      // columna derecha (tiempo / sesión)
+      doc.text(
+        `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
+        rightColX,
+        y,
+        { align: "right" }
+      );
+
+      y += blockHeight + 4;
     });
+
 
     const totalPages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
