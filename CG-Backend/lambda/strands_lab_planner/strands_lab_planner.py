@@ -29,7 +29,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6-v1:0")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
 
@@ -573,6 +573,9 @@ def lambda_handler(event, context):
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
         lab_requirements = event.get('lab_requirements')
+
+        # FORCE Sonnet 4.6 on Bedrock for all lab planning (consistency and format reliability)
+        model_provider = 'bedrock'
         
         # Support both old (modules) and new (lab_ids) parameters
         modules_to_generate = event.get('modules_to_generate')
@@ -592,7 +595,7 @@ def lambda_handler(event, context):
         print(f"📦 Bucket: {course_bucket}")
         print(f"📄 Outline: {outline_key}")
         print(f"📁 Project: {project_folder}")
-        print(f"🤖 Model: {model_provider}")
+        print(f"🤖 Model: {model_provider} (forced to Bedrock Sonnet 4.6 for lab planning)")
         print(f"🎯 Module Scope: {modules_to_generate}")
         if lab_ids_to_regenerate:
             print(f"🆔 Lab IDs to Regenerate: {lab_ids_to_regenerate}")

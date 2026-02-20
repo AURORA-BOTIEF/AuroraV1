@@ -124,7 +124,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6-v1:0
           OPENAI_API_KEY: ""  # Will be set via environment or Secrets Manager
           UPDATED_AT: "2025-10-12-16:45"
       Policies:
@@ -261,7 +261,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6-v1:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -498,7 +498,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6-v1:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -541,7 +541,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6-v1:0
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -1239,6 +1239,8 @@ Resources:
               Action:
                 - lambda:InvokeFunction
               Resource:
+                - !GetAtt StrandsInfographicGenerator.Arn
+                - !GetAtt StrandsPptMerger.Arn
                 - !GetAtt StrandsVisualOptimizer.Arn
                 - !GetAtt StrandsNotification.Arn
 

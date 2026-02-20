@@ -97,6 +97,12 @@ def lambda_handler(event, context):
         print(f"📊 {num_labs} labs → {num_batches} batch(es)")
         print(f"📏 Batch size: {MAX_LABS_PER_BATCH} labs per batch")
         
+        # Discover existing lesson content
+        print(f"\n🔍 Discovering lesson content in {project_folder}/lessons/...")
+        lesson_files = list_lesson_files(course_bucket, project_folder)
+        lesson_map = map_lessons_to_keys(lesson_files)
+        print(f"📄 Found {len(lesson_files)} lesson files, mapped {len(lesson_map)} lessons")
+
         # Create batch tasks
         all_batches = []
         
@@ -106,10 +112,32 @@ def lambda_handler(event, context):
             
             batch_lab_ids = lab_ids[start_idx:end_idx]
             
+            # Map labs to their corresponding lesson content keys
+            batch_lesson_keys = {}
+            for lab_id in batch_lab_ids:
+                # Extract module and lesson from lab_id (MM-LL-NN)
+                try:
+                    parts = lab_id.split('-')
+                    if len(parts) >= 2:
+                        mod_num = int(parts[0])
+                        les_num = int(parts[1])
+                        
+                        # Check if we have content for this lesson
+                        if (mod_num, les_num) in lesson_map:
+                            batch_lesson_keys[lab_id] = lesson_map[(mod_num, les_num)]
+                            print(f"    🔗 Lab {lab_id} mapped to lesson content: {lesson_map[(mod_num, les_num)].split('/')[-1]}")
+                        elif les_num == 0 and (mod_num, 1) in lesson_map:
+                            # Fallback: if lab is 00 (module level) and lesson 1 exists, use lesson 1
+                            batch_lesson_keys[lab_id] = lesson_map[(mod_num, 1)]
+                            print(f"    🔗 Lab {lab_id} (Module Level) mapped to lesson 1 content: {lesson_map[(mod_num, 1)].split('/')[-1]}")
+                except Exception as e:
+                    print(f"    ⚠️ Could not map lab {lab_id} to lesson: {e}")
+
             batch_task = {
                 'batch_index': batch_idx + 1,  # 1-based for logging
                 'total_batches': num_batches,
                 'lab_ids': batch_lab_ids,
+                'lab_lesson_keys': batch_lesson_keys,  # NEW: Pass content keys
                 'course_bucket': course_bucket,
                 'master_plan_key': master_plan_key,
                 'project_folder': project_folder,
@@ -145,3 +173,49 @@ def lambda_handler(event, context):
             'error': str(e),
             'errorType': type(e).__name__
         }
+
+
+def list_lesson_files(bucket: str, project_folder: str) -> List[str]:
+    """List all markdown files in the lessons directory."""
+    try:
+        prefix = f"{project_folder}/lessons/"
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+        
+        files = []
+        for page in pages:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    if key.endswith('.md'):
+                        files.append(key)
+        return files
+    except Exception as e:
+        print(f"⚠️ Error listing lesson files: {e}")
+        return []
+
+
+def map_lessons_to_keys(lesson_keys: List[str]) -> Dict[tuple, str]:
+    """
+    Map (module_num, lesson_num) -> s3_key
+    Expected filename format: module-M-lesson-L-title.md
+    """
+    mapping = {}
+    import re
+    
+    # Pattern: module-M-lesson-L-title.md
+    # Configured to be flexible with separators
+    pattern = re.compile(r'module-(\d+)-lesson-(\d+)', re.IGNORECASE)
+    
+    for key in lesson_keys:
+        filename = key.split('/')[-1]
+        match = pattern.search(filename)
+        if match:
+            try:
+                mod_num = int(match.group(1))
+                les_num = int(match.group(2))
+                mapping[(mod_num, les_num)] = key
+            except ValueError:
+                continue
+                
+    return mapping

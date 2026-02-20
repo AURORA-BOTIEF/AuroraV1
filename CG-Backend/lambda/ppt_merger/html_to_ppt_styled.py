@@ -31,6 +31,9 @@ COLORS = {
     'text_dark': RGBColor(0x00, 0x33, 0x66),
     'white': RGBColor(0xFF, 0xFF, 0xFF),
     'callout_bg': RGBColor(0xFF, 0xC0, 0x00),
+    'primary': RGBColor(0x00, 0x33, 0x66),
+    'secondary': RGBColor(0x46, 0x82, 0xB4),
+    'text_black': RGBColor(0x33, 0x33, 0x33),
 }
 
 FONTS = {
@@ -82,14 +85,29 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
     for idx, slide_html in enumerate(slides_html):
         logger.info(f"Processing slide {idx + 1}/{len(slides_html)}")
         
+        slide = None
         if slide_html.find(class_='course-title-slide'):
-            create_course_title_slide(prs, blank_layout, slide_html, logo_bytes)
+            slide = create_course_title_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='module-title-slide'):
-            create_module_title_slide(prs, blank_layout, slide_html, logo_bytes)
+            slide = create_module_title_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='lesson-title-slide'):
-            create_lesson_title_slide(prs, blank_layout, slide_html, logo_bytes)
+            slide = create_lesson_title_slide(prs, blank_layout, slide_html, logo_bytes)
+        elif slide_html.find(class_='module-end-logo-slide'):
+            slide = create_module_end_logo_slide(prs, blank_layout, slide_html, logo_bytes)
         else:
-            create_content_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+            slide = create_content_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+            
+        # Add instructor notes if present
+        if slide:
+            notes_div = slide_html.find(class_='notes')
+            if notes_div:
+                notes_text = notes_div.get_text(strip=True)
+                if notes_text:
+                    try:
+                        slide.notes_slide.notes_text_frame.text = notes_text
+                        logger.info(f"   📝 Added instructor notes ({len(notes_text)} chars)")
+                    except Exception as e:
+                        logger.warning(f"   ⚠️ Could not add notes: {e}")
     
     output = io.BytesIO()
     prs.save(output)
@@ -191,12 +209,12 @@ def add_content_image(slide, img_url: str, position: str, ctx: dict):
         
         if position == 'left':
             left = CONTENT_LEFT
-            top = CONTENT_TOP
+            top = ctx.get('content_top', CONTENT_TOP)
             width = Inches(5)
             height = Inches(4)
         else:
             left = Inches(7)
-            top = CONTENT_TOP
+            top = ctx.get('content_top', CONTENT_TOP)
             width = Inches(5)
             height = Inches(4)
         
@@ -230,6 +248,7 @@ def create_course_title_slide(prs, layout, slide_html, logo_bytes):
     p.alignment = PP_ALIGN.CENTER
     
     add_logo_centered(slide, logo_bytes)
+    return slide
 
 
 def create_module_title_slide(prs, layout, slide_html, logo_bytes):
@@ -266,6 +285,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes):
     p.alignment = PP_ALIGN.CENTER
     
     add_logo_centered(slide, logo_bytes)
+    return slide
 
 
 def create_lesson_title_slide(prs, layout, slide_html, logo_bytes):
@@ -328,6 +348,22 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes):
         p.font.color.rgb = COLORS['header_light']  # Light blue
         p.font.name = FONTS['body']
         p.alignment = PP_ALIGN.CENTER
+    
+    return slide
+
+
+def create_module_end_logo_slide(prs, layout, slide_html, logo_bytes):
+    """Module end slide: White background, large centered logo."""
+    slide = prs.slides.add_slide(layout)
+    
+    # White background
+    background = slide.background
+    fill = background.fill
+    fill.solid()
+    fill.fore_color.rgb = COLORS['white']
+    
+    add_logo_middle_center(slide, logo_bytes)
+    return slide
 
 
 def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
@@ -337,7 +373,12 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     title_elem = slide_html.find(class_='slide-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Untitled"
     
-    add_header_bar(slide, title_text)
+    subtitle_elem = slide_html.find(class_='slide-subtitle')
+    subtitle_text = subtitle_elem.get_text(strip=True) if subtitle_elem else ""
+    
+    header_height = add_header_bar(slide, title_text, subtitle_text)
+    
+    content_top_pos = header_height + Inches(0.2) # Start content below header
     
     content_elem = slide_html.find(class_='slide-content')
     if not content_elem:
@@ -361,6 +402,9 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     if img_elem and img_elem.get('src'):
         img_url = img_elem.get('src')
         logger.info(f"Found slide image: {img_url[:80]}...")
+        
+        # Pass content_top to image function
+        ctx['content_top'] = content_top_pos
         add_content_image(slide, img_url, image_position, ctx)
         
         # Adjust bullet area based on image position
@@ -375,12 +419,16 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
         bullet_width = CONTENT_WIDTH
     
     # Content
+    heading_elem = content_elem.find(class_='content-heading')
     bullets_elem = content_elem.find('ul', class_='bullets')
     code_elem = content_elem.find(class_='code-block')
     callout_elem = content_elem.find(class_='callout')
     
-    current_top = CONTENT_TOP
+    current_top = content_top_pos
     
+    if heading_elem:
+        current_top = add_content_heading(slide, heading_elem, current_top, bullet_left, bullet_width)
+
     if bullets_elem:
         current_top = add_bullets(slide, bullets_elem, current_top, bullet_left, bullet_width)
     
@@ -391,6 +439,7 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
         add_callout(slide, callout_elem)
     
     add_logo(slide, logo_bytes)
+    return slide
 
 
 def add_gradient_background(slide):
@@ -409,32 +458,86 @@ def add_gradient_background(slide):
     fill.gradient_stops[1].color.rgb = COLORS['header_light']
 
 
-def add_header_bar(slide, title_text):
-    """Add a gradient header bar with title."""
-    header = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(0), Inches(0),
-        SLIDE_WIDTH, HEADER_HEIGHT
-    )
-    header.line.fill.background()
+def add_header_bar(slide, title_text, subtitle_text=""):
+    """
+    Add a gradient header bar with title and optional subtitle.
+    Matches the HTML look (Gradient Blue/DarkBlue).
+    """
+    # 1. Gradient Bar
+    # HTML height is 120px. 120px / 96dpi * 72 points/inch * 914400 EMUs/inch ? No, Inches.
+    # 120px is ~1/6 of 720px height. PPT height is 7.5 inches. 
+    # 120/720 * 7.5 = 1.25 inches.
+    # 1. Gradient Bar - Dynamic Height
+    # Base height
+    base_h = 1.25
     
-    fill = header.fill
+    # Check for expansion
+    expanded_h = 2.2 # Increased to 2.2 to accommodate 2-line title + subtitle
+    # Lowered threshold to 40 to catch shorter titles that still wrap
+    is_long_title = len(title_text) > 40 
+    has_subtitle = bool(subtitle_text)
+    
+    # Expand if long title OR subtitle present
+    current_h_val = expanded_h if (is_long_title and has_subtitle) else (1.8 if has_subtitle else base_h)
+    
+    # If just long title but no subtitle, 1.8 is enough. If both, need 2.2.
+    if is_long_title and not has_subtitle:
+        current_h_val = 1.6
+        
+    bar_height = Inches(current_h_val)
+    
+    # ... Existing gradient logic ...
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), bar_height
+    )
+    fill = shape.fill
     fill.gradient()
-    fill.gradient_angle = 135
-    fill.gradient_stops[0].color.rgb = COLORS['header_dark']
-    fill.gradient_stops[1].color.rgb = COLORS['header_light']
+    
+    fill.gradient_stops[0].color.rgb = COLORS['primary']
+    fill.gradient_stops[1].color.rgb = COLORS['secondary']
+    shape.line.fill.background() # No border
+
+    # 2. Logo (Top Right)
+    # Using generic logo or placeholder if not passed? 
+    # Actually, create_content_slide calls add_logo separately.
+    
+    # 3. Title Text
+    # Title box - allow space for subtitle
+    title_top = Inches(0.2)
+    # Increase height if long title or subtitle
+    title_height = Inches(1.5) if is_long_title else Inches(0.8)
     
     title_box = slide.shapes.add_textbox(
-        Inches(0.5), Inches(0.3), Inches(12), Inches(0.8)
+        Inches(0.5), title_top, Inches(12), title_height
     )
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(32)
+    p.font.size = Pt(36)
     p.font.bold = True
     p.font.color.rgb = COLORS['white']
     p.font.name = FONTS['title']
+    
+    # 4. Subtitle Text (if present)
+    if subtitle_text:
+        # Push subtitle down if long title
+        # If long title, title might take 2 lines. 
+        # Title starts 0.2. 2 lines @ 36pt ends approx 1.4-1.5.
+        subtitle_top = Inches(1.6) if is_long_title else Inches(0.9)
+        
+        subtitle_box = slide.shapes.add_textbox(
+            Inches(0.5), subtitle_top, Inches(12), Inches(0.5)
+        )
+        tf_sub = subtitle_box.text_frame
+        p_sub = tf_sub.paragraphs[0]
+        p_sub.text = subtitle_text
+        p_sub.font.size = Pt(24)
+        p_sub.font.color.rgb = COLORS['white']
+        p_sub.font.name = FONTS['body']
+        
+    return bar_height # Return bottom of header for content positioning
+
 
 
 def add_bullets(slide, bullets_elem, top, left=None, width=None):
@@ -469,10 +572,19 @@ def add_bullets(slide, bullets_elem, top, left=None, width=None):
         else:
             p = tf.add_paragraph()
         
-        p.text = f"▸ {text}"
-        p.font.size = Pt(20)
-        p.font.name = FONTS['body']
-        p.font.color.rgb = COLORS['text_dark']
+        # Split Bullet Symbol (Yellow) and Text (Black)
+        run_symbol = p.add_run()
+        run_symbol.text = "▸ "
+        run_symbol.font.size = Pt(20)
+        run_symbol.font.name = FONTS['body']
+        run_symbol.font.color.rgb = COLORS['bullet_marker'] # Yellow Accent
+        
+        run_text = p.add_run()
+        run_text.text = text
+        run_text.font.size = Pt(20)
+        run_text.font.name = FONTS['body']
+        run_text.font.color.rgb = COLORS['text_black'] # Black Text
+        
         p.space_before = Pt(8)
         p.space_after = Pt(4)
         
@@ -499,24 +611,33 @@ def add_code_block(slide, code_elem, top):
     
     code_text = code_content.get_text() if code_content else ""
     
+    # Calculate dynamic height based on number of lines
+    lines = code_text.strip().split('\n')[:20]  # Allow up to 20 lines
+    num_lines = len(lines)
+    
+    # Approx 0.25 inches per line, min 1.5", max 4.5"
+    line_height = 0.25
+    padding = 0.6  # Top + bottom padding
+    calculated_height = (num_lines * line_height) + padding
+    box_height = max(1.5, min(4.5, calculated_height))
+    
     code_box = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
         CONTENT_LEFT, top,
-        CONTENT_WIDTH, Inches(3)
+        CONTENT_WIDTH, Inches(box_height)
     )
     code_box.fill.solid()
     code_box.fill.fore_color.rgb = COLORS['code_bg']
     code_box.line.fill.background()
     
     text_box = slide.shapes.add_textbox(
-        CONTENT_LEFT + Inches(0.2), top + Inches(0.3),
-        CONTENT_WIDTH - Inches(0.4), Inches(2.6)
+        CONTENT_LEFT + Inches(0.2), top + Inches(0.2),
+        CONTENT_WIDTH - Inches(0.4), Inches(box_height - 0.4)
     )
     tf = text_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     
-    lines = code_text.strip().split('\n')[:15]
     p.text = '\n'.join(lines)
     p.font.size = Pt(12)
     p.font.name = FONTS['code']
@@ -545,4 +666,47 @@ def add_callout(slide, callout_elem):
     p.font.name = FONTS['body']
     p.font.color.rgb = COLORS['text_dark']
     p.alignment = PP_ALIGN.CENTER
+
+
+def add_content_heading(slide, heading_elem, top, left=None, width=None):
+    """Add a bold styled heading (e.g. 'Descripción')."""
+    if left is None:
+        left = CONTENT_LEFT
+    if width is None:
+        width = CONTENT_WIDTH
+        
+    text = heading_elem.get_text(strip=True)
+    if not text:
+        return top
+        
+    # Text box for heading
+    text_box = slide.shapes.add_textbox(left, top, width, Inches(0.5))
+    tf = text_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = text
+    p.font.size = Pt(24)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = COLORS['primary'] # Use primary blue for headings
+    
+    return top + Inches(0.6) # Return new top position
+
+
+def add_logo_middle_center(slide, logo_bytes):
+    """Add logo centered both vertically and horizontally."""
+    if not logo_bytes:
+        return
+    
+    try:
+        logo_stream = io.BytesIO(logo_bytes)
+        logo_w = Inches(3) # Larger logo for module end
+        logo_h = Inches(1.2)
+        
+        left = (SLIDE_WIDTH - logo_w) / 2
+        top = (SLIDE_HEIGHT - logo_h) / 2
+        
+        slide.shapes.add_picture(logo_stream, left, top, logo_w, logo_h)
+    except Exception as e:
+        logger.warning(f"Could not add centered logo: {e}")
 

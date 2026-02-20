@@ -22,29 +22,79 @@ lambda_client = boto3.client('lambda')
 
 # HTML Template for the PDF
 # Designed to look like the "Professional" Netec style
+# HTML Template for the PDF
+# Designed to look like the "Professional" Netec style
 PDF_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <style>
+        /* Default Page (Used for Page 1 / Cover) - Clean, no frames */
         @page {
             size: a4 portrait;
             margin: 2cm;
         }
 
+        /* Content Page template (Used for Page 3+) - With Header/Footer */
+        @page content {
+            size: a4 portrait;
+            margin: 2cm;
+            margin-bottom: 2.5cm;
+            margin-top: 2.5cm;
+            
+            @frame header_frame {
+                -pdf-frame-content: headerContent;
+                top: 0.8cm;
+                left: 2cm;
+                right: 2cm;
+                height: 1.5cm;
+            }
+
+            @frame footer_frame {
+                -pdf-frame-content: footerContent;
+                bottom: 1cm;
+                left: 2cm;
+                right: 2cm;
+                height: 1cm;
+            }
+        }
+        
+        /* Info Page template (Used for Page 2) - Custom IP Footer */
+        @page info_page {
+            size: a4 portrait;
+            margin: 2cm;
+            margin-bottom: 3cm; /* More space for IP footer */
+            margin-top: 2.5cm;
+
+            @frame header_frame {
+                -pdf-frame-content: headerContent;
+                top: 0.8cm;
+                left: 2cm;
+                right: 2cm;
+                height: 1.5cm;
+            }
+            
+            @frame ip_footer_frame {
+                -pdf-frame-content: ipContent;
+                bottom: 1cm;
+                left: 2cm;
+                right: 2cm;
+                height: 2.5cm; /* Taller frame for IP text */
+            }
+        }
+
         body {
             font-family: Helvetica, Arial, sans-serif;
             font-size: 12px;
-            line-height: 1.6;
+            line-height: 1.5;
             color: #333;
         }
 
-        /* Title Page */
+        /* Title Page Styling */
         .title-page {
             text-align: center;
             padding-top: 5cm;
-            page-break-after: always;
         }
 
         .logo-large {
@@ -66,11 +116,7 @@ PDF_TEMPLATE = """
             font-weight: bold;
         }
 
-        /* About/Meta Pages */
-        .about-page {
-            page-break-after: always;
-        }
-
+        /* Info Page Styling */
         .about-page h1 {
             color: #1a237e;
             border-bottom: 2px solid #1a237e;
@@ -78,53 +124,39 @@ PDF_TEMPLATE = """
         }
 
         .meta-section {
-            margin-bottom: 1cm;
+            margin-bottom: 0.5cm;
         }
 
         .meta-label {
             font-weight: bold;
             color: #1a237e;
             display: block;
-            margin-bottom: 0.2cm;
+            margin-bottom: 0.1cm;
         }
-
-        /* IP Page */
-        .ip-content {
-            margin-top: 5cm;
+        
+        /* IP Info Text Style */
+        .ip-text {
+            font-size: 9px;
+            color: #666;
             text-align: justify;
-            font-size: 11px;
-            line-height: 2;
+            line-height: 1.3;
         }
 
-        /* Content */
+        /* Content Styling */
         .module-break {
             page-break-before: always;
         }
 
-        h1 {
-            color: #1a237e;
-            font-size: 20px;
-            -pdf-keep-with-next: true;
-        }
+        h1 { color: #1a237e; font-size: 20px; -pdf-keep-with-next: true; margin-top: 0; }
+        h2 { color: #303f9f; font-size: 16px; -pdf-keep-with-next: true; }
+        h3, h4, h5 { -pdf-keep-with-next: true; }
 
-        h2 {
-            color: #303f9f;
-            font-size: 16px;
-            -pdf-keep-with-next: true;
-        }
+        .lesson-content { margin-bottom: 1cm; }
+        .lesson-content img { max-width: 100%; height: auto; }
 
-        h3, h4, h5, h6 {
-            -pdf-keep-with-next: true;
-        }
-
-        .lesson-content {
-            margin-bottom: 1cm;
-        }
-
-        .lesson-content img {
-            max-width: 100%;
-            height: auto;
-        }
+        /* List Spacing Fix */
+        ul, ol { margin-top: 0; margin-bottom: 8px; padding-left: 20px; }
+        li { margin-bottom: 3px; line-height: 1.3; }
 
         code, pre {
             background-color: #f5f5f5;
@@ -132,38 +164,39 @@ PDF_TEMPLATE = """
             font-family: monospace;
             font-size: 10px;
         }
-
-        pre {
-            padding: 10px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 1cm 0;
-        }
-
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #1a237e;
-            color: white;
-        }
-
-        ul, ol {
-            margin-left: 1cm;
-        }
-
+        pre { padding: 10px; white-space: pre-wrap; }
+        
+        table { width: 100%; border-collapse: collapse; margin: 1cm 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #1a237e; color: white; }
     </style>
 </head>
 <body>
-    <!-- Title Page -->
+    <!-- Header Content (Appears on 'content' and 'info_page') -->
+    <div id="headerContent">
+        <div style="text-align: right;">
+            {% if logo_path %}<img src="{{ logo_path }}" style="height: 35px;" />{% endif %}
+        </div>
+    </div>
+
+    <!-- Standard Footer Content (Appears on 'content' pages) -->
+    <div id="footerContent">
+        <div style="text-align: center; color: #888; font-size: 9px; border-top: 1px solid #eee; padding-top: 5px;">
+            Contenido desarrollado por IA, revisado por Netec
+            <br/>
+            Page <pdf:pagenumber> of <pdf:pagecount>
+        </div>
+    </div>
+
+    <!-- IP Footer Content (Appears ONLY on 'info_page' footer frame) -->
+    <div id="ipContent">
+        <div class="ip-text">
+            <p><strong>Material didáctico preparado por la empresa Global K, S.A. de C.V. Registrado en Derechos de Autor.</strong></p>
+            <p>Todos los contenidos de este Sitio (incluyendo, pero no limitado a: texto, logotipos, contenido, fotografías, audio, botones, nombres comerciales y videos) están sujetos a derechos de propiedad por las leyes de Derechos de Autor de la empresa Global K, S.A. de C.V. Queda prohibido copiar, reproducir, distribuir, publicar, transmitir, difundir, o en cualquier modo explotar cualquier parte de este documento sin la autorización previa por escrito.</p>
+        </div>
+    </div>
+
+    <!-- Page 1: Cover (matches @page) -->
     <div class="title-page">
         {% if logo_path %}
         <img src="{{ logo_path }}" class="logo-large" />
@@ -173,9 +206,11 @@ PDF_TEMPLATE = """
         
         <div class="date-section">{{ date }}</div>
     </div>
-    
-    <!-- About Page (Metadata) -->
-    {% if description or audience or prerequisites %}
+
+    <!-- Page 2: Info (Switch to 'info_page' template) -->
+    <pdf:nexttemplate name="info_page" />
+    <pdf:nextpage />
+
     <div class="about-page">
         <h1>Información del Curso</h1>
         
@@ -199,33 +234,24 @@ PDF_TEMPLATE = """
             <p>{{ prerequisites }}</p>
         </div>
         {% endif %}
-    </div>
-    {% endif %}
 
-    <!-- Objectives Page -->
-    {% if objectives %}
-    <div class="about-page">
-        <h1>Objetivos de Aprendizaje</h1>
-        <ul>
-        {% for obj in objectives %}
-            <li>{{ obj }}</li>
-        {% endfor %}
-        </ul>
-    </div>
-    {% endif %}
-
-    <!-- IP Page -->
-    <div style="page-break-before: always;">
-        <div class="ip-content">
-            <p><strong>Material didáctico preparado por la empresa Global K, S.A. de C.V. Registrado en Derechos de Autor.</strong></p>
-            
-            <p>Todos los contenidos de este Sitio (incluyendo, pero no limitado a: texto, logotipos, contenido, fotografías, audio, botones, nombres comerciales y videos) están sujetos a derechos de propiedad por las leyes de Derechos de Autor de la empresa Global K, S.A. de C.V.</p>
-            
-            <p>Queda prohibido copiar, reproducir, distribuir, publicar, transmitir, difundir, o en cualquier modo explotar cualquier parte de este documento sin la autorización previa por escrito de Global K, S.A. de C.V. o de los titulares correspondientes.</p>
+        {% if objectives %}
+        <div style="margin-top: 1cm;">
+            <h1>Objetivos de Aprendizaje</h1>
+            <ul>
+            {% for obj in objectives %}
+                <li>{{ obj }}</li>
+            {% endfor %}
+            </ul>
         </div>
+        {% endif %}
     </div>
 
-    <!-- Content -->
+    <!-- IP Info removed from main flow, now in footer frame -->
+
+    <!-- Page 3+: Content (Switch to 'content' template) -->
+    <pdf:nexttemplate name="content" />
+    
     {% for module in modules %}
     <div class="module-break">
         <h1>Módulo {{ module.number }}: {{ module.title }}</h1>
@@ -330,10 +356,28 @@ def handle_worker(event):
             logger.warning(f"Failed to download logo: {e}")
             local_logo_path = None
 
+        # Safe Typography Normalization Helper (Recursive)
+        def normalize_obj(obj):
+            if isinstance(obj, str):
+                # Replace smart quotes, dashes, etc.
+                replacements = {
+                    '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2013': '-', '\u2014': '-', '\u2015': '-', '\u00ad': '',
+                    '\u2018': "'", '\u2019': "'", '\u201a': "'", '\u201b': "'",
+                    '\u201c': '"', '\u201d': '"', '\u201e': '"', '\u201f': '"',
+                    '\u2026': '...', '\u00a0': ' '
+                }
+                for char, rep in replacements.items():
+                    obj = obj.replace(char, rep)
+                return obj
+            elif isinstance(obj, list):
+                return [normalize_obj(x) for x in obj]
+            elif isinstance(obj, dict):
+                return {k: normalize_obj(v) for k, v in obj.items()}
+            return obj
+
         # ----------------------------------------
         # 2. FETCH OUTLINE & METADATA
         # ----------------------------------------
-        # Structure: project_folder/outline/ANY_NAME.yaml
         project_folder = os.path.dirname(os.path.dirname(s3_key))
         
         course_meta = {
@@ -371,12 +415,25 @@ def handle_worker(event):
             if outline_key:
                 logger.info(f"Found outline file: {outline_key}")
                 outline_res = s3.get_object(Bucket=bucket_name, Key=outline_key)
-                outline_data = yaml.safe_load(outline_res['Body'].read())
+                outline_data_raw = yaml.safe_load(outline_res['Body'].read())
+                
+                # Normalize Outline Data
+                outline_data = normalize_obj(outline_data_raw)
                 
                 # Helper to look deeply
                 course_section = outline_data.get('course', {})
                 if not isinstance(course_section, dict):
                      course_section = {}
+
+                # Helper to clean stringified lists
+                def clean_metadata_list_string(val):
+                    if not val: return ''
+                    if isinstance(val, list): return ", ".join(val)
+                    if isinstance(val, str):
+                        cleaned = re.sub(r"^\[\s*['\"]|['\"]\s*\]$", "", val)
+                        cleaned = re.sub(r"['\"]\s*,\s*['\"]", ", ", cleaned)
+                        return cleaned
+                    return str(val)
 
                 # 1. Title (Clean it)
                 raw_title = (
@@ -398,20 +455,20 @@ def handle_worker(event):
                 )
 
                 # 3. Audience
-                course_meta['audience'] = (
+                raw_audience = (
                     outline_data.get('target_audience') or
                     outline_data.get('audience') or
                     course_section.get('target_audience') or
-                    course_section.get('audience') or
-                    ''
+                    course_section.get('audience')
                 )
+                course_meta['audience'] = clean_metadata_list_string(raw_audience)
 
                 # 4. Prerequisites
-                course_meta['prerequisites'] = (
+                raw_prereq = (
                     outline_data.get('prerequisites') or
-                    course_section.get('prerequisites') or
-                    ''
+                    course_section.get('prerequisites')
                 )
+                course_meta['prerequisites'] = clean_metadata_list_string(raw_prereq)
                 
                 # 5. Objectives (New)
                 course_meta['objectives'] = (
@@ -438,7 +495,10 @@ def handle_worker(event):
         # ----------------------------------------
         logger.info(f"Downloading book data from s3://{bucket_name}/{s3_key}")
         response = s3.get_object(Bucket=bucket_name, Key=s3_key)
-        book_data = json.loads(response['Body'].read().decode('utf-8'))
+        
+        # Parse first, THEN normalize
+        book_data_raw = json.loads(response['Body'].read().decode('utf-8'))
+        book_data = normalize_obj(book_data_raw)
         
         # 4. Prepare Data Structure for Template
         modules_map = {}
@@ -459,24 +519,47 @@ def handle_worker(event):
             clean_html = re.sub(r'^\s*<h[1-6]>.*?</h[1-6]>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
             
             # Orphan Fix: Add keep-with-next to:
-            # 1. HEADERS (Handled via CSS h1-h6)
-            # We removed all regex-based paragraph heuristics (bold text, ends-with-colon) 
-            # because they caused improper infinite loops in xhtml2pdf when content overflowed a page.
-            
-            def add_keep_with_next(match):
-                # Utility kept if needed for future, but currently unused for paragraphs
-                tag = match.group(0)
-                if 'style="' in tag:
-                    if '-pdf-keep-with-next' not in tag:
-                        return tag.replace('style="', 'style="-pdf-keep-with-next: true; ')
-                    return tag
-                else:
-                    return tag.replace('<p', '<p style="-pdf-keep-with-next: true;"')
+            # 1. Short paragraphs ending in colon
+            # 2. Short paragraphs starting with bold (likely headers)
+            def apply_orphan_fix(match):
+                full_tag = match.group(0)
+                attrs = match.group(1) or ""
+                content = match.group(2)
+                
+                # Skip if already has keep-with-next
+                if '-pdf-keep-with-next' in attrs:
+                    return full_tag
+                
+                # Check 1: Length (Strip tags roughly for length check)
+                text_content = re.sub(r'<[^>]+>', '', content).strip()
+                if len(text_content) > 250: 
+                    return full_tag
 
-            # 1. Ends with :  <-- REMOVED to prevent infinite loops
-            # clean_html = re.sub(r'<p[^>]*>.*?:(?:<[^>]+>)*</p>', add_keep_with_next, clean_html, flags=re.DOTALL)
-            
-            # Removed aggressive "bold text" heuristic to prevent pagination infinite loops.
+                should_keep = False
+                
+                # Heuristic A: Ends with colon
+                if text_content.endswith(':'):
+                    should_keep = True
+                
+                # Heuristic B: Starts with Bold (e.g. <strong>Title</strong> or <b>Title</b>)
+                # We check the raw content string for this
+                elif re.match(r'^\s*<(?:strong|b)>', content, re.IGNORECASE):
+                    should_keep = True
+
+                if should_keep:
+                    if 'style="' in attrs:
+                        return f'<p{attrs.replace("style=\u0022", "style=\u0022-pdf-keep-with-next: true; ")}>{content}</p>'
+                    else:
+                        return f'<p{attrs} style="-pdf-keep-with-next: true;">{content}</p>'
+                
+                return full_tag
+
+            clean_html = re.sub(
+                r'<p(\s+[^>]*)?>(.*?)</p>', 
+                apply_orphan_fix, 
+                clean_html, 
+                flags=re.DOTALL | re.IGNORECASE
+            )
             # Relying on H1-H6 and colon-ending paragraphs is safer.
 
             modules_map[mod_num]['lessons'].append({

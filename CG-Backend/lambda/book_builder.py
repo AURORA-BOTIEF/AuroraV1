@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import re
+import yaml
 import boto3
 import time
 from datetime import datetime
@@ -51,6 +52,8 @@ def lambda_handler(event, context):
         image_mappings = request_data.get('image_mappings', {})
         book_title = request_data.get('book_title', 'Generated Course Book')
         author = request_data.get('author', 'Aurora AI')
+        model_provider = request_data.get('model_provider', 'bedrock')
+        outline_s3_key = request_data.get('outline_s3_key')
 
         if not course_bucket:
             raise ValueError("course_bucket is required")
@@ -59,6 +62,11 @@ def lambda_handler(event, context):
 
         # Initialize S3 client
         s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
+
+        # Detect course language (prefer outline language when available)
+        is_spanish = detect_spanish_course(s3_client, course_bucket, outline_s3_key)
+        module_term = "Capítulo" if is_spanish else "Module"
+        lesson_term = "Lección" if is_spanish else "Lesson"
 
         # If no lesson_keys provided, auto-discover lessons from S3
         if not lesson_keys:
@@ -184,9 +192,12 @@ def lambda_handler(event, context):
                 
                 # Normalize the title to remove incorrect "Lesson X.Y:" prefixes
                 lesson_title = normalize_lesson_title(raw_title, lesson_num)
+                lesson_title = normalize_spanish_terms(lesson_title, is_spanish)
 
                 # Replace visual tags with images for this lesson
                 processed_content = replace_visual_tags(lesson_content, image_mappings, course_bucket)
+                processed_content = normalize_spanish_terms(processed_content, is_spanish)
+                processed_content = ensure_lesson_bibliography(processed_content, model_provider, is_spanish)
 
                 lesson_data = {
                     'title': lesson_title,
@@ -202,7 +213,7 @@ def lambda_handler(event, context):
                 # Organize by module
                 if module_num not in modules:
                     modules[module_num] = {
-                        'title': f"Module {module_num}",  # Will try to extract better title later
+                        'title': f"{module_term} {module_num}",  # Will try to extract better title later
                         'lessons': []
                     }
                 modules[module_num]['lessons'].append(lesson_data)
@@ -224,14 +235,14 @@ def lambda_handler(event, context):
                 # Look for module title in lesson content
                 module_title = extract_module_title(first_lesson['content'], module_num)
                 if module_title:
-                    module_data['title'] = module_title
+                    module_data['title'] = normalize_spanish_terms(module_title, is_spanish)
 
         # Generate hierarchical table of contents
         toc_lines = []
         for module_num, module_data in sorted_modules:
             toc_lines.append(f"\n## {module_data['title']}")
             for lesson in module_data['lessons']:
-                toc_lines.append(f"  - Lesson {lesson['lesson_number']}: {lesson['title']}")
+                toc_lines.append(f"  - {lesson_term} {lesson['lesson_number']}: {lesson['title']}")
         
         toc_content = f"# Table of Contents\n" + "\n".join(toc_lines) + "\n\n---\n\n"
 
@@ -249,7 +260,7 @@ def lambda_handler(event, context):
             
             # Add lessons within this module
             for lesson in module_data['lessons']:
-                full_book_content += f"## Lesson {lesson['lesson_number']}: {lesson['title']}\n\n"
+                full_book_content += f"## {lesson_term} {lesson['lesson_number']}: {lesson['title']}\n\n"
                 full_book_content += lesson['content']
                 full_book_content += "\n\n---\n\n"
 
@@ -365,6 +376,70 @@ def lambda_handler(event, context):
                 "request_id": context.aws_request_id if context else "unknown"
             })
         }
+
+def detect_spanish_course(s3_client, course_bucket, outline_s3_key):
+    """Determine if the course language is Spanish from outline metadata."""
+    if not outline_s3_key:
+        return False
+
+    try:
+        response = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
+        outline_text = response['Body'].read().decode('utf-8')
+        outline_data = yaml.safe_load(outline_text) or {}
+        course_info = outline_data.get('course', outline_data)
+        language = str(course_info.get('language', outline_data.get('language', ''))).lower()
+        return language.startswith('es')
+    except Exception as e:
+        print(f"Warning: Could not detect course language from outline: {e}")
+        return False
+
+
+def normalize_spanish_terms(content: str, is_spanish: bool) -> str:
+    """Normalize terms for Spanish theory books: Module/Módulo->Capítulo, Lesson->Lección."""
+    if not is_spanish or not content:
+        return content
+
+    updated = content
+    updated = re.sub(r'\b(M[oó]dulo|Module)\b', 'Capítulo', updated, flags=re.IGNORECASE)
+    updated = re.sub(r'\bLesson\b', 'Lección', updated, flags=re.IGNORECASE)
+    return updated
+
+
+def ensure_lesson_bibliography(content: str, model_provider: str, is_spanish: bool) -> str:
+    """Ensure every lesson contains a bibliography section with model/source attribution."""
+    if not content:
+        return content
+
+    has_bibliography = re.search(r'^##\s*(Bibliography|Bibliografía|References|Referencias)\b', content, re.IGNORECASE | re.MULTILINE)
+    if has_bibliography:
+        return content
+
+    urls = list(dict.fromkeys(re.findall(r'https?://[^\s\)\]]+', content)))
+    model_name = "OpenAI GPT-5" if str(model_provider).lower() == 'openai' else "Anthropic Claude Sonnet 4.6 (Amazon Bedrock)"
+
+    if is_spanish:
+        heading = "## Bibliografía"
+        if urls:
+            lines = [heading, ""] + [f"- Fuente web: {url}" for url in urls]
+        else:
+            lines = [
+                heading,
+                "",
+                f"- Contenido generado con conocimiento del modelo: {model_name}."
+            ]
+    else:
+        heading = "## Bibliography"
+        if urls:
+            lines = [heading, ""] + [f"- Web source: {url}" for url in urls]
+        else:
+            lines = [
+                heading,
+                "",
+                f"- Content generated using model knowledge: {model_name}."
+            ]
+
+    return content.rstrip() + "\n\n" + "\n".join(lines) + "\n"
+
 
 def normalize_lesson_title(title, lesson_num):
     """Normalize lesson title to use correct lesson numbering.

@@ -498,60 +498,29 @@ def create_group_presentation_slide(is_spanish: bool, slide_counter: int) -> Dic
 
 def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: int) -> List[Dict]:
     """
-    Create agenda slide(s) showing all course modules and lessons.
-    Automatically splits into multiple slides if content exceeds height limits.
+    Create simplified agenda slide(s) showing ONLY course modules (no lessons).
+    Automatically splits into multiple slides based on TOTAL ITEM COUNT.
     Returns list of slide dictionaries.
     """
-    # Build full agenda first
+    # 1. Extract only module titles
     agenda_items = []
     for idx, module in enumerate(modules, 1):
         module_title = module.get('title', f"Módulo {idx}")
-        agenda_items.append(module_title)  # Modules with default bullet (►)
-        
-        # Add lessons under each module (indented with different bullet)
-        lessons = module.get('lessons', [])
-        for lesson in lessons:
-            lesson_title = lesson.get('title', '')
-            if lesson_title:
-                agenda_items.append(f"      ○ {lesson_title}")  # Indented with circle bullet
+        agenda_items.append(module_title)
     
-    # Estimate height: Each bullet ≈ 50px (BULLET_HEIGHT)
-    # Max bullets per slide with subtitle: ~8 bullets (440px / 50px ≈ 8.8)
-    # Using 8 to leave margin for long titles
-    MAX_BULLETS_PER_SLIDE = 8
+    # 2. Simple splitting logic
+    MAX_MODULES_PER_SLIDE = 7 
     
-    logger.info(f"📅 Agenda: {len(modules)} modules, {len(agenda_items)} total items")
-    
-    # If agenda fits in one slide, return single slide
-    if len(agenda_items) <= MAX_BULLETS_PER_SLIDE:
-        return [{
-            "slide_number": slide_counter,
-            "title": "Agenda" if is_spanish else "Agenda",
-            "subtitle": "Estructura del curso" if is_spanish else "Course structure",
-            "layout_hint": "single-column",
-            "content_blocks": [
-                {
-                    "type": "bullets",
-                    "heading": "",
-                    "items": agenda_items
-                }
-            ],
-            "notes": "Course agenda with modules and lessons"
-        }]
-    
-    # Split into multiple slides
     slides = []
     current_items = []
     part_num = 1
     
     for item in agenda_items:
         current_items.append(item)
-        
-        # Check if we've reached the limit
-        if len(current_items) >= MAX_BULLETS_PER_SLIDE:
-            slides.append({
+        if len(current_items) >= MAX_MODULES_PER_SLIDE:
+             slides.append({
                 "slide_number": slide_counter + len(slides),
-                "title": f"Agenda ({part_num})" if is_spanish else f"Agenda ({part_num})",
+                "title": f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE else "Agenda",
                 "subtitle": "Estructura del curso" if is_spanish else "Course structure",
                 "layout_hint": "single-column",
                 "content_blocks": [
@@ -563,14 +532,13 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
                 ],
                 "notes": f"Course agenda part {part_num}"
             })
-            current_items = []
-            part_num += 1
+             current_items = []
+             part_num += 1
     
-    # Add remaining items
     if current_items:
         slides.append({
             "slide_number": slide_counter + len(slides),
-            "title": f"Agenda ({part_num})" if is_spanish else f"Agenda ({part_num})",
+            "title": f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE and part_num > 1 else "Agenda",
             "subtitle": "Estructura del curso" if is_spanish else "Course structure",
             "layout_hint": "single-column",
             "content_blocks": [
@@ -582,7 +550,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             ],
             "notes": f"Course agenda part {part_num}"
         })
-    
+        
     return slides
 
 
@@ -1786,14 +1754,19 @@ def lambda_handler(event, context):
             all_slides = []
             
             # Add introduction slides for first batch
+            # Determine language
+            course_metadata = book_data.get('course_metadata', {})
+            is_spanish = course_metadata.get('language', '').lower() in ['es', 'español', 'spanish']
+            
+            # Add introduction slides for first batch
             if is_first_batch:
-                course_metadata = book_data.get('course_metadata', {})
-                is_spanish = course_metadata.get('language', '').lower() in ['es', 'español', 'spanish']
-                
                 if course_metadata:
                     intro_slides, slide_counter = create_introduction_slides(course_metadata, is_spanish, 1)
                     all_slides.extend(intro_slides)
                     logger.info(f"✅ Added {len(intro_slides)} introduction slides")
+                    
+                    # Add Copyright Slide
+                    all_slides.append(create_copyright_slide(is_spanish, len(all_slides) + 1))
                     
                     # Add agenda
                     outline_modules = book_data.get('outline_modules', [])
@@ -1819,6 +1792,47 @@ def lambda_handler(event, context):
                 all_slides.extend(lesson_slides)
                 
                 logger.info(f"✅ Generated {len(lesson_slides)} slides for lesson {lesson_idx}")
+                
+                # End of Module Logic
+                current_module_num = lesson.get('module_number', 1)
+                is_last_lesson_of_course = (lesson_idx == total_lessons)
+                
+                # Check next lesson to see if module changes
+                next_lesson_module = -1
+                if lesson_idx < len(original_lessons):
+                     next_lesson_module = original_lessons[lesson_idx].get('module_number', 1)
+                     
+                is_end_of_module = is_last_lesson_of_course or (next_lesson_module != -1 and next_lesson_module != current_module_num)
+                
+                if is_end_of_module:
+                    outline_modules = book_data.get('outline_modules', [])
+                    if 0 < current_module_num <= len(outline_modules):
+                        module_info = outline_modules[current_module_num - 1]
+                        
+                        # 1. Labs
+                        for mod_lesson in module_info.get('lessons', []):
+                             l_title = mod_lesson.get('title', '').lower()
+                             l_type = mod_lesson.get('type', '').lower()
+                             # Check if it is a lab
+                             if (l_title.startswith('lab ') or l_title.startswith('lab-') or 
+                                 l_title.startswith('práctica') or 'laboratorio -' in l_title or
+                                 l_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio']):
+                                     
+                                     all_slides.append(create_lab_intro_slide(mod_lesson, is_spanish, len(all_slides)+1))
+                                     all_slides.append(create_lab_result_slide(mod_lesson, is_spanish, len(all_slides)+1))
+                        
+                        # 2. References
+                        all_slides.append(create_references_slide(module_info, is_spanish, len(all_slides)+1))
+                        logger.info(f"📚 Added End-of-Module slides for Module {current_module_num}")
+                    
+                    # 3. Logo Slide (replaces intermediate Thank You)
+                    if not is_last_lesson_of_course: # Only add if NOT the very last lesson (final thank you handles that)
+                        all_slides.append(create_logo_slide(len(all_slides)+1))
+            
+            # Add Final Thank You if final batch
+            if lesson_end >= total_lessons:
+                 all_slides.append(create_thank_you_slide(is_spanish, len(all_slides)+1))
+                 logger.info(f"🏁 Added Final Thank You slide")
             
             # Generate final HTML
             course_title = book_data.get('course_metadata', {}).get('title', 'Course Presentation')
