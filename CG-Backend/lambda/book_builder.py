@@ -328,7 +328,8 @@ def lambda_handler(event, context):
         full_book_content += stats_content
 
         # Add end-of-course glossary
-        full_book_content += generate_course_glossary(sorted_modules, is_spanish)
+        glossary_content = generate_course_glossary(sorted_modules, is_spanish)
+        full_book_content += glossary_content
 
         # Save the complete book to S3
         book_filename = f"{project_folder}/book/{book_title.replace(' ', '_')}_complete.md"
@@ -340,6 +341,20 @@ def lambda_handler(event, context):
         )
 
         # Also save as JSON for easier frontend consumption
+        special_sections = []
+        if course_intro_content and course_intro_content.strip():
+            special_sections.append({
+                'section_type': 'course_intro',
+                'title': 'Introducción del Curso' if is_spanish else 'Course Introduction',
+                'content': course_intro_content.strip()
+            })
+        if glossary_content and glossary_content.strip():
+            special_sections.append({
+                'section_type': 'glossary',
+                'title': 'Glosario' if is_spanish else 'Glossary',
+                'content': glossary_content.strip()
+            })
+
         book_json = {
             'metadata': {
                 'title': book_title,
@@ -349,6 +364,7 @@ def lambda_handler(event, context):
                 'total_lessons': len(all_lessons),
                 'total_words': total_words,
                 'course_introduction': course_intro_content,
+                'course_glossary': glossary_content,
                 'project_folder': project_folder
             },
             'modules': [
@@ -359,6 +375,7 @@ def lambda_handler(event, context):
                 }
                 for module_num, module_data in sorted_modules
             ],
+            'special_sections': special_sections,
             's3_key': book_filename,
             'bucket': course_bucket
         }

@@ -348,6 +348,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
     // Function to extract module number from lesson filename or title
     const extractModuleInfo = (lesson, index) => {
+        if (lesson.isSpecialSection) {
+            return {
+                moduleNumber: 0,
+                lessonNumber: 0
+            };
+        }
+
         // PRIORITY 1: Check if lesson already has moduleNumber from conversion
         if (lesson.moduleNumber) {
             return {
@@ -403,6 +410,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         const modules = {};
         data.lessons.forEach((lesson, index) => {
+            if (lesson.isSpecialSection) return;
+
             const { moduleNumber } = extractModuleInfo(lesson, index);
             if (!modules[moduleNumber]) {
                 modules[moduleNumber] = {
@@ -418,6 +427,49 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         return modules;
     };    // Toggle module collapse state
+
+    const renderSpecialSections = () => {
+        const data = viewMode === 'book' ? bookData : labGuideData;
+        if (!data || !Array.isArray(data.lessons)) return null;
+
+        const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+        const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+
+        const specialLessons = data.lessons
+            .map((lesson, index) => ({ ...lesson, originalIndex: index }))
+            .filter(lesson => lesson.isSpecialSection);
+
+        if (specialLessons.length === 0) return null;
+
+        return (
+            <div className="module-section special-sections">
+                <div className="module-header">
+                    <span className="module-title">Secciones del Curso</span>
+                    <span className="module-count">({specialLessons.length})</span>
+                </div>
+                <div className="module-lessons">
+                    {specialLessons.map((lesson) => {
+                        const icon = lesson.specialSectionType === 'course_intro' ? '📘' : '📖';
+                        const fallbackTitle = lesson.specialSectionType === 'course_intro'
+                            ? 'Introducción del Curso'
+                            : 'Glosario';
+
+                        return (
+                            <div
+                                key={lesson.originalIndex}
+                                className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
+                                onClick={() => setActiveIndex(lesson.originalIndex)}
+                            >
+                                <span className="lesson-number">{icon}</span>
+                                <span className="lesson-title-text">{lesson.title || fallbackTitle}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
     const toggleModule = (moduleNumber) => {
         setCollapsedModules(prev => ({
             ...prev,
@@ -485,9 +537,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 const summaryLabel = isSpanishContext ? 'Resumen del Capítulo' : 'Chapter Summary';
 
                                 const displayNumber = isIntro
-                                    ? introLabel
+                                    ? 'ℹ️'
                                     : isSummary
-                                        ? summaryLabel
+                                        ? '🧾'
                                         : `${info.moduleNumber}.${lessonNumber}`;
 
                                 const fallbackTitle = isIntro
@@ -793,6 +845,39 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             });
                         }
                     });
+
+                    const specialSections = bookData.special_sections || bookData.specialSections || [];
+                    specialSections.forEach((section, sectionIdx) => {
+                        if (!section || !section.content) return;
+                        lessons.push({
+                            title: section.title || (section.section_type === 'course_intro' ? 'Introducción del Curso' : 'Glosario'),
+                            content: section.content,
+                            isSpecialSection: true,
+                            specialSectionType: section.section_type || 'extra',
+                            filename: `special_section_${sectionIdx + 1}.md`
+                        });
+                    });
+
+                    if (bookData.metadata?.course_introduction && !specialSections.some(s => (s.section_type || s.sectionType) === 'course_intro')) {
+                        lessons.unshift({
+                            title: 'Introducción del Curso',
+                            content: bookData.metadata.course_introduction,
+                            isSpecialSection: true,
+                            specialSectionType: 'course_intro',
+                            filename: 'special_section_course_intro.md'
+                        });
+                    }
+
+                    if (bookData.metadata?.course_glossary && !specialSections.some(s => (s.section_type || s.sectionType) === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: bookData.metadata.course_glossary,
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
                     return { ...bookData, lessons };
                 }
                 return bookData;
@@ -929,6 +1014,39 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             });
                         }
                     });
+
+                    const specialSections = bookData.special_sections || bookData.specialSections || [];
+                    specialSections.forEach((section, sectionIdx) => {
+                        if (!section || !section.content) return;
+                        lessons.push({
+                            title: section.title || (section.section_type === 'course_intro' ? 'Introducción del Curso' : 'Glosario'),
+                            content: section.content,
+                            isSpecialSection: true,
+                            specialSectionType: section.section_type || 'extra',
+                            filename: `special_section_${sectionIdx + 1}.md`
+                        });
+                    });
+
+                    if (bookData.metadata?.course_introduction && !specialSections.some(s => (s.section_type || s.sectionType) === 'course_intro')) {
+                        lessons.unshift({
+                            title: 'Introducción del Curso',
+                            content: bookData.metadata.course_introduction,
+                            isSpecialSection: true,
+                            specialSectionType: 'course_intro',
+                            filename: 'special_section_course_intro.md'
+                        });
+                    }
+
+                    if (bookData.metadata?.course_glossary && !specialSections.some(s => (s.section_type || s.sectionType) === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: bookData.metadata.course_glossary,
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
                     console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons(or labs)`);
                     return {
                         ...bookData,
@@ -4531,6 +4649,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         </button>
                     </div>
                     <div className="lesson-list">
+                        {renderSpecialSections()}
                         {renderLessonsByModule()}
                     </div>
                 </div>
