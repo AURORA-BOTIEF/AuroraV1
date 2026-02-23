@@ -4696,16 +4696,25 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             <div className="book-editor-content">
                 <div className="lesson-navigator" data-view-mode={viewMode}>
                     <h3>{viewMode === 'book' ? 'Contenido del Libro' : 'Contenido del Lab Guide'}</h3>
-                    <div className="navigator-stats">
-                        {Object.keys(groupLessonsByModule()).length} módulos · {activeBookData?.lessons?.length || 0} lecciones
-                    </div>
                     <div className="navigator-actions">
                         <button
                             className="btn-toggle-all"
                             onClick={toggleAllModules}
                             title={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
+                            aria-label={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
                         >
-                            {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "📂 Expandir Todo" : "📁 Colapsar Todo"}
+                            {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                                    <path d="M12 11v6" />
+                                    <path d="M9 14h6" />
+                                </svg>
+                            ) : (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                                    <path d="M9 14h6" />
+                                </svg>
+                            )}
                         </button>
                     </div>
                     <div className="lesson-list">
