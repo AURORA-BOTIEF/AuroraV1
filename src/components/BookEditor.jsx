@@ -437,7 +437,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         const specialLessons = data.lessons
             .map((lesson, index) => ({ ...lesson, originalIndex: index }))
-            .filter(lesson => lesson.isSpecialSection);
+            .filter(lesson => lesson.isSpecialSection && lesson.specialSectionType !== 'glossary');
 
         if (specialLessons.length === 0) return null;
 
@@ -465,6 +465,46 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             </div>
                         );
                     })}
+                </div>
+            </div>
+        );
+    };
+
+    const renderFinalSections = () => {
+        const data = viewMode === 'book' ? bookData : labGuideData;
+        if (!data || !Array.isArray(data.lessons)) return null;
+
+        const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+        const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+
+        const finalLessons = data.lessons
+            .map((lesson, index) => ({ ...lesson, originalIndex: index }))
+            .filter(lesson => lesson.isSpecialSection && lesson.specialSectionType === 'glossary');
+
+        return (
+            <div className="module-section special-sections final-sections">
+                <div className="module-header">
+                    <span className="module-title">Cierre del Curso</span>
+                    <span className="module-count">({finalLessons.length || 1})</span>
+                </div>
+                <div className="module-lessons">
+                    {finalLessons.length > 0 ? (
+                        finalLessons.map((lesson) => (
+                            <div
+                                key={lesson.originalIndex}
+                                className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
+                                onClick={() => setActiveIndex(lesson.originalIndex)}
+                            >
+                                <span className="lesson-number">📖</span>
+                                <span className="lesson-title-text">{lesson.title || 'Glosario'}</span>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="lesson-item">
+                            <span className="lesson-number">🏁</span>
+                            <span className="lesson-title-text">Fin del contenido</span>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -4671,6 +4711,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     <div className="lesson-list">
                         {renderSpecialSections()}
                         {renderLessonsByModule()}
+                        {renderFinalSections()}
                     </div>
                 </div>
                 <div className="lesson-editor">
