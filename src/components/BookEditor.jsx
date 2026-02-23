@@ -451,11 +451,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // Get module title from first lesson's moduleTitle property, or use default
             const firstLesson = module.lessons[0];
-            let moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum} `;
+            let moduleTitle = firstLesson?.moduleTitle || `Capítulo ${moduleNum} `;
 
             // Ensure localization
             if (moduleTitle && typeof moduleTitle === 'string') {
-                moduleTitle = moduleTitle.replace(/\bModule\b/g, 'Módulo');
+                moduleTitle = moduleTitle
+                    .replace(/\bModule\b/g, 'Capítulo')
+                    .replace(/\bM[oó]dulo\b/g, 'Capítulo');
             }
 
             return (
@@ -470,16 +472,24 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     </div>
                     {!isCollapsed && (
                         <div className="module-lessons">
-                            {module.lessons.map((lesson) => (
+                            {module.lessons.map((lesson) => {
+                                const info = extractModuleInfo(lesson, lesson.originalIndex);
+                                const lessonNumber = lesson.lessonNumberInModule ?? info.lessonNumber;
+                                const isIntro = lessonNumber === 0;
+                                const displayNumber = isIntro ? 'Intro|Introducción' : `${info.moduleNumber}.${lessonNumber}`;
+                                const fallbackTitle = isIntro ? 'Intro|Introducción' : `${info.moduleNumber}.${lessonNumber}`;
+
+                                return (
                                 <div
                                     key={lesson.originalIndex}
                                     className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
                                     onClick={() => setActiveIndex(lesson.originalIndex)}
                                 >
-                                    <span className="lesson-number">L{lesson.lessonNumberInModule || extractModuleInfo(lesson, lesson.originalIndex).lessonNumber}</span>
-                                    <span className="lesson-title-text">{lesson.title || `Lección ${lesson.originalIndex + 1}`}</span>
+                                    <span className="lesson-number">{displayNumber}</span>
+                                    <span className="lesson-title-text">{lesson.title || fallbackTitle}</span>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -757,8 +767,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 lessons.push({
                                     ...item,
                                     moduleNumber: moduleIdx + 1,
-                                    lessonNumberInModule: itemIdx + 1,
-                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                    lessonNumberInModule: (item.lesson_number ?? item.lessonNumber ?? itemIdx + 1),
+                                    moduleTitle: (module.module_title || module.title || `Capítulo ${moduleIdx + 1}`)
+                                        .replace(/\bModule\b/g, 'Capítulo')
+                                        .replace(/\bM[oó]dulo\b/g, 'Capítulo'),
                                     filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });
                             });
@@ -890,8 +902,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 lessons.push({
                                     ...item,
                                     moduleNumber: moduleIdx + 1,
-                                    lessonNumberInModule: itemIdx + 1,
-                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1} `).replace(/\bModule\b/g, 'Módulo'),
+                                    lessonNumberInModule: (item.lesson_number ?? item.lessonNumber ?? itemIdx + 1),
+                                    moduleTitle: (module.module_title || module.title || `Capítulo ${moduleIdx + 1} `)
+                                        .replace(/\bModule\b/g, 'Capítulo')
+                                        .replace(/\bM[oó]dulo\b/g, 'Capítulo'),
                                     // Ensure filename follows the pattern for module grouping
                                     filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')} -${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });

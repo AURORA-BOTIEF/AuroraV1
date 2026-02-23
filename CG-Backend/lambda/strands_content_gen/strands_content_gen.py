@@ -39,7 +39,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6-v1:0")
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 DEFAULT_REGION = "us-east-1"
 
@@ -276,7 +276,7 @@ Match the language of the course content throughout.
 - Even if the outline contains mixed terms, normalize generated content to these terms.
 
 ```
-# {lesson_term} {module_number}.N: [Título de la Lección]
+# {module_number}.N: [Título de la lección]
 
 ## Objetivos de Aprendizaje  (or "Learning Objectives" if English)
 
@@ -355,6 +355,7 @@ CRITICAL FORMATTING RULES
 - H3 (###): Subsections within H2 (Concept Overview, Technical Details, etc.)
 - H4 (####): Details within H3 (if needed)
 - NEVER skip heading levels (H1 → H3 is INVALID, must be H1 → H2 → H3)
+- In H1 titles, use numeric format only: "{module_number}.N: [Title]" (do NOT prefix with "Lesson" or "Lección").
 
 **REQUIRED SECTIONS (MUST INCLUDE - USE COURSE LANGUAGE FOR TITLES):**
 1. Learning Objectives / Objetivos de Aprendizaje (H2) - 3-5 bullet points with Bloom verbs

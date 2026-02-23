@@ -30,6 +30,7 @@ import re
 import boto3
 import time
 import html as html_module
+import unicodedata
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 
@@ -480,9 +481,30 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
     # 1. Extract only module titles
     agenda_items = []
     for idx, module in enumerate(modules, 1):
-        module_title = module.get('title', f"Módulo {idx}")
-        # Clean up title if it already starts with "Capítulo X:" or similar
-        agenda_items.append(module_title)
+        module_title = str(module.get('title', '') or '').strip()
+        if not module_title:
+            module_title = f"{'Capítulo' if is_spanish else 'Module'} {idx}"
+
+        if is_spanish:
+            cleaned_title = re.sub(
+                r'^\s*(?:cap[ií]tulo|modulo|m[oó]dulo)\s*\d+\s*[:\-–—]?\s*',
+                '',
+                module_title,
+                flags=re.IGNORECASE
+            ).strip()
+            if not cleaned_title:
+                cleaned_title = module_title
+            agenda_items.append(f"Capítulo {idx}: {cleaned_title}")
+        else:
+            cleaned_title = re.sub(
+                r'^\s*(?:module|chapter)\s*\d+\s*[:\-–—]?\s*',
+                '',
+                module_title,
+                flags=re.IGNORECASE
+            ).strip()
+            if not cleaned_title:
+                cleaned_title = module_title
+            agenda_items.append(f"Module {idx}: {cleaned_title}")
     
     # 2. Simple splitting logic
 
@@ -499,7 +521,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
         if len(current_items) >= MAX_MODULES_PER_SLIDE:
              slides.append({
                 "slide_number": slide_counter + len(slides),
-                "title": f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE else "Agenda",
+                "title": (f"Temario ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE else "Temario") if is_spanish else (f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE else "Agenda"),
                 "subtitle": "Estructura del curso" if is_spanish else "Course structure",
                 "layout": "single-column",
                 "content_blocks": [
@@ -517,7 +539,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
     if current_items:
         slides.append({
             "slide_number": slide_counter + len(slides),
-            "title": f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE and part_num > 1 else "Agenda",
+            "title": (f"Temario ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE and part_num > 1 else "Temario") if is_spanish else (f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE and part_num > 1 else "Agenda"),
             "subtitle": "Estructura del curso" if is_spanish else "Course structure",
             "layout": "single-column",
             "content_blocks": [
@@ -531,6 +553,218 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
         })
         
     return slides
+
+
+def _extract_markdown_section(content: str, heading_keywords: List[str]) -> str:
+    """Extract markdown section body for first matching heading, including nested subsections."""
+    if not content:
+        return ""
+
+    lines = content.splitlines()
+    start_idx = None
+    start_level = None
+
+    for i, line in enumerate(lines):
+        match = re.match(r'^\s{0,3}(#{2,6})\s*(.+?)\s*$', line)
+        if not match:
+            continue
+        heading_level = len(match.group(1))
+        heading = match.group(2).strip().lower().rstrip(':')
+        if any(keyword in heading for keyword in heading_keywords):
+            start_idx = i + 1
+            start_level = heading_level
+            break
+
+    if start_idx is None:
+        return ""
+
+    end_idx = len(lines)
+    for j in range(start_idx, len(lines)):
+        m = re.match(r'^\s{0,3}(#{2,6})\s+', lines[j])
+        if m:
+            level = len(m.group(1))
+            # Stop only when we hit a heading at same or higher hierarchy level
+            if start_level is not None and level <= start_level:
+                end_idx = j
+                break
+
+    return "\n".join(lines[start_idx:end_idx]).strip()
+
+
+def _section_to_bullets(section_text: str) -> List[str]:
+    """Convert markdown section body to bullet-like items."""
+    if not section_text:
+        return []
+
+    bullets = []
+    paragraph_buffer = []
+
+    for raw_line in section_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if re.fullmatch(r'[-_]{3,}', line):
+            continue
+        if line.startswith('```'):
+            continue
+
+        list_match = re.match(r'^(?:[-*+]\s+|\d+[\.)]\s+)(.+)$', line)
+        if list_match:
+            item = list_match.group(1).strip()
+            item = re.sub(r'\s+', ' ', item)
+            if item:
+                bullets.append(item)
+            continue
+
+        cleaned = re.sub(r'^[>#\s]+', '', line)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        if cleaned:
+            paragraph_buffer.append(cleaned)
+
+    if not bullets and paragraph_buffer:
+        paragraph = " ".join(paragraph_buffer)
+        sentences = [s.strip() for s in re.split(r'(?<=[\.!?])\s+', paragraph) if s.strip()]
+        bullets.extend(sentences[:8])
+
+    # Remove duplicates preserving order
+    unique = []
+    seen = set()
+    for b in bullets:
+        normalized = b.lower()
+        if normalized not in seen:
+            unique.append(b)
+            seen.add(normalized)
+
+    return unique
+
+
+def _extract_instruction_lines(section_text: str) -> List[str]:
+    """Extract explicit instruction list items (numbered/bulleted) for procedural sections."""
+    if not section_text:
+        return []
+
+    items = []
+    for raw_line in section_text.splitlines():
+        line = raw_line.strip()
+        if not line or re.fullmatch(r'[-_]{3,}', line):
+            continue
+        if line.startswith('```'):
+            continue
+
+        m = re.match(r'^(?:\d+[\.)]|[-*+])\s+(.+)$', line)
+        if not m:
+            continue
+
+        item = re.sub(r'\s+', ' ', m.group(1).strip())
+        if len(item) < 3:
+            continue
+        items.append(item)
+
+    # De-duplicate preserving order
+    deduped = []
+    seen = set()
+    for item in items:
+        key = item.lower()
+        if key not in seen:
+            deduped.append(item)
+            seen.add(key)
+
+    return deduped
+
+
+def _extract_procedure_headings(section_text: str) -> List[str]:
+    """Extract higher-level procedure headings (e.g., Paso 1, Paso 2) to avoid over-fragmented slides."""
+    if not section_text:
+        return []
+
+    headings = []
+    for raw_line in section_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        m = re.match(r'^\s{0,3}#{3,6}\s*(.+?)\s*$', line)
+        if not m:
+            continue
+
+        heading = re.sub(r'\s+', ' ', m.group(1).strip().rstrip(':'))
+        if not heading:
+            continue
+
+        # Skip non-procedural subsections commonly embedded in guides
+        if re.search(r'(resultado|salida\s+esperada|checklist|verificaci[oó]n|evidencia|validaci[oó]n)', heading, re.IGNORECASE):
+            continue
+
+        headings.append(heading)
+
+    deduped = []
+    seen = set()
+    for item in headings:
+        key = item.lower()
+        if key not in seen:
+            deduped.append(item)
+            seen.add(key)
+
+    return deduped
+
+
+def _chunk_items(items: List[str], chunk_size: int) -> List[List[str]]:
+    return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)] if items else []
+
+
+def _format_duration(duration_minutes: Optional[int], is_spanish: bool) -> str:
+    if duration_minutes is None:
+        return ""
+
+    if duration_minutes < 60:
+        return f"{duration_minutes} minutos" if is_spanish else f"{duration_minutes} minutes"
+
+    hours = duration_minutes // 60
+    minutes = duration_minutes % 60
+    if is_spanish:
+        if minutes == 0:
+            return f"{hours} hora{'s' if hours != 1 else ''}"
+        return f"{hours} h {minutes} min"
+
+    if minutes == 0:
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{hours}h {minutes}m"
+
+
+def _extract_duration_minutes(lab_data: Dict, content: str) -> Optional[int]:
+    """Extract duration in minutes from structured fields or markdown text."""
+    structured_duration = lab_data.get('duration_minutes')
+    if isinstance(structured_duration, (int, float)):
+        return int(structured_duration)
+
+    if isinstance(structured_duration, str) and structured_duration.strip().isdigit():
+        return int(structured_duration.strip())
+
+    patterns = [
+        r'(?:duraci[oó]n(?:\s+estimada)?|tiempo(?:\s+estimado)?|estimated\s+time|duration)\s*[:\-]?\s*(\d{1,3})\s*(?:min|mins|minuto|minutos|minutes?)',
+        r'(?:duraci[oó]n(?:\s+estimada)?|tiempo(?:\s+estimado)?|estimated\s+time|duration)\s*[:\-]?\s*(\d{1,2})\s*(?:hora|horas|hour|hours)(?:\s*(\d{1,2})\s*(?:min|minutos|minutes?))?'
+    ]
+
+    for idx, pattern in enumerate(patterns):
+        match = re.search(pattern, content, re.IGNORECASE)
+        if not match:
+            continue
+        if idx == 0:
+            return int(match.group(1))
+        hours = int(match.group(1))
+        extra_minutes = int(match.group(2)) if match.group(2) else 0
+        return hours * 60 + extra_minutes
+
+    return None
+
+
+def extract_references_from_lesson_content(content: str) -> List[str]:
+    """Extract bibliography/reference items from a lesson markdown body."""
+    references_section = _extract_markdown_section(
+        content,
+        ['bibliografía', 'bibliografia', 'bibliography', 'referencias', 'references']
+    )
+    return _section_to_bullets(references_section)
 
 
 def create_lab_intro_slide(lab_data: Dict, is_spanish: bool, slide_counter: int) -> Dict:
@@ -661,7 +895,7 @@ def create_module_title_slide(module: Dict, module_number: int, is_spanish: bool
     """Create a full-screen branded module title slide."""
     return {
         "slide_number": slide_counter,
-        "title": module.get('title', f"Módulo {module_number}"),
+        "title": module.get('title', f"{'Capítulo' if is_spanish else 'Module'} {module_number}"),
         "subtitle": "",
         "layout": "module-title",
         "content_blocks": [],
@@ -687,12 +921,12 @@ def create_module_title_slide_from_lesson(lesson: Dict, module_number: int, is_s
     """
     Create module title slide using lesson data (no outline dependency).
     Extracts module title from lesson's module_title field if present,
-    otherwise uses a generic "Módulo N" title.
+    otherwise uses a generic "Capítulo N" title.
     """
     # Try to get module title from lesson metadata
     module_title = lesson.get('module_title', '')
     if not module_title:
-        module_title = f"Módulo {module_number}" if is_spanish else f"Module {module_number}"
+        module_title = f"{'Capítulo' if is_spanish else 'Module'} {module_number}"
     
     return {
         "slide_number": slide_counter,
@@ -707,67 +941,320 @@ def create_module_title_slide_from_lesson(lesson: Dict, module_number: int, is_s
 
 def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter: int) -> List[Dict]:
     """
-    Create lab intro and result slides directly from lesson content.
-    Returns list of slides (intro + result).
+    Create rich, multi-slide lab activity deck from lab guide content.
+    Includes: duration, objectives, description, steps, expected results.
     """
     slides = []
     lesson_title = lesson.get('title', 'Lab Activity')
-    content = lesson.get('content', '')
-    
-    # Extract objective from content (look for ## Objetivo or ## Objective pattern)
-    objective = ""
-    import re
-    obj_match = re.search(r'##\s*(?:Objetivo|Objective)[:\s]*\n+(.*?)(?=\n##|\Z)', content, re.IGNORECASE | re.DOTALL)
-    if obj_match:
-        objective = obj_match.group(1).strip()[:500]  # Truncate to 500 chars
-    
-    # Extract description (first paragraph or ## Descripción)
-    description = ""
-    desc_match = re.search(r'##\s*(?:Descripción|Description)[:\s]*\n+(.*?)(?=\n##|\Z)', content, re.IGNORECASE | re.DOTALL)
-    if desc_match:
-        description = desc_match.group(1).strip()[:500]
-    elif content:
-        # Fallback: use first paragraph
-        lines = content.strip().split('\n')
-        for line in lines:
-            if line.strip() and not line.startswith('#'):
-                description = line.strip()[:300]
-                break
-    
-    # Extract expected result
-    expected_result = ""
-    result_match = re.search(r'##\s*(?:Resultado\s*esperado|Expected\s*result)[:\s]*\n+(.*?)(?=\n##|\Z)', content, re.IGNORECASE | re.DOTALL)
-    if result_match:
-        expected_result = result_match.group(1).strip()[:500]
-    
-    # Lab Intro Slide
-    intro_bullets = []
-    if objective:
-        intro_bullets.append(f"**{'Objetivo' if is_spanish else 'Objective'}:** {objective}")
-    if description:
-        intro_bullets.append(f"**{'Descripción' if is_spanish else 'Description'}:** {description}")
-    
+    content = lesson.get('lab_guide') or lesson.get('content', '')
+
+    duration_minutes = _extract_duration_minutes(lesson, content)
+    duration_text = _format_duration(duration_minutes, is_spanish) if duration_minutes is not None else ""
+
+    description_text = _extract_markdown_section(
+        content,
+        ['descripción general', 'descripción', 'description', 'general description', 'overview']
+    )
+    objective_text = _extract_markdown_section(content, ['objetivos', 'objetivo', 'learning objectives', 'objective'])
+    steps_text = _extract_markdown_section(content, ['pasos', 'procedimiento', 'instrucciones', 'steps', 'procedure', 'instructions'])
+    expected_text = _extract_markdown_section(
+        content,
+        [
+            'resultado esperado', 'resultados esperados',
+            'expected result', 'expected results',
+            'salida esperada', 'entregables',
+            'criterios de éxito', 'criterios de exito',
+            'success criteria', 'verification', 'verificación', 'verificacion'
+        ]
+    )
+
+    description_items = _section_to_bullets(description_text)
+    objectives_items = _section_to_bullets(objective_text)
+    steps_items = _extract_procedure_headings(steps_text)
+    if not steps_items:
+        steps_items = _extract_instruction_lines(steps_text)
+    if not steps_items:
+        steps_items = _section_to_bullets(steps_text)
+    expected_items = _section_to_bullets(expected_text)
+
+    if not description_items:
+        fallback_description = lesson.get('description', '')
+        if fallback_description:
+            description_items = [fallback_description]
+
+    if not objectives_items:
+        raw_objectives = lesson.get('objectives', [])
+        if isinstance(raw_objectives, str):
+            objectives_items = [raw_objectives]
+        elif isinstance(raw_objectives, list):
+            objectives_items = [str(item).strip() for item in raw_objectives if str(item).strip()]
+
+    if not expected_items:
+        raw_expected = lesson.get('expected_results') or lesson.get('expected_result')
+        if isinstance(raw_expected, str) and raw_expected.strip():
+            expected_items = [raw_expected.strip()]
+        elif isinstance(raw_expected, list):
+            expected_items = [str(item).strip() for item in raw_expected if str(item).strip()]
+
+    current_slide = slide_counter
+
+    # Slide 1: Lab Overview
+    overview_items = []
+    if duration_text:
+        overview_items.append(
+            f"{'Tiempo estimado' if is_spanish else 'Estimated time'}: {duration_text}"
+        )
+    overview_items.extend(description_items[:4])
+
+    if not overview_items:
+        overview_items = [
+            "Revisar la guía de laboratorio y preparar el entorno." if is_spanish
+            else "Review the lab guide and prepare the environment."
+        ]
+
     slides.append({
-        "slide_number": slide_counter,
+        "slide_number": current_slide,
         "title": lesson_title,
         "subtitle": "Actividad Práctica" if is_spanish else "Lab Activity",
         "layout": "text-only",
-        "content_blocks": [{"type": "bullets", "items": intro_bullets if intro_bullets else ["Lab activity content"]}],
-        "notes": f"Lab: {lesson_title} - Objective and description for instructor"
+        "content_blocks": [{
+            "type": "bullets",
+            "heading": "Descripción General" if is_spanish else "General Description",
+            "items": overview_items
+        }],
+        "notes": f"Lab overview for {lesson_title}"
     })
-    
-    # Lab Result Slide
-    result_title = "Resultado Esperado" if is_spanish else "Expected Result"
-    slides.append({
-        "slide_number": slide_counter + 1,
-        "title": result_title,
-        "subtitle": lesson_title,
-        "layout": "text-only",
-        "content_blocks": [{"type": "bullets", "items": [expected_result] if expected_result else ["Complete all lab steps successfully"]}],
-        "notes": f"Expected outcome for {lesson_title}"
-    })
-    
+    current_slide += 1
+
+    # Objectives slides
+    if objectives_items:
+        objective_chunks = _chunk_items(objectives_items, 6)
+        for idx, chunk in enumerate(objective_chunks, 1):
+            slides.append({
+                "slide_number": current_slide,
+                "title": (
+                    f"Objetivos ({idx}/{len(objective_chunks)})" if len(objective_chunks) > 1 else "Objetivos"
+                ) if is_spanish else (
+                    f"Objectives ({idx}/{len(objective_chunks)})" if len(objective_chunks) > 1 else "Objectives"
+                ),
+                "subtitle": lesson_title,
+                "layout": "text-only",
+                "content_blocks": [{"type": "bullets", "heading": "", "items": chunk}],
+                "notes": f"Lab objectives for {lesson_title}"
+            })
+            current_slide += 1
+
+    # Steps slides (required)
+    if steps_items:
+        step_chunks = _chunk_items(steps_items, 5)
+        for idx, chunk in enumerate(step_chunks, 1):
+            slides.append({
+                "slide_number": current_slide,
+                "title": (
+                    f"Pasos de la Práctica ({idx}/{len(step_chunks)})" if len(step_chunks) > 1 else "Pasos de la Práctica"
+                ) if is_spanish else (
+                    f"Lab Steps ({idx}/{len(step_chunks)})" if len(step_chunks) > 1 else "Lab Steps"
+                ),
+                "subtitle": lesson_title,
+                "layout": "text-only",
+                "content_blocks": [{"type": "bullets", "heading": "", "items": chunk}],
+                "notes": f"Lab procedure steps for {lesson_title}"
+            })
+            current_slide += 1
+
+    # Expected results slides
+    if expected_items:
+        expected_chunks = _chunk_items(expected_items, 6)
+        for idx, chunk in enumerate(expected_chunks, 1):
+            slides.append({
+                "slide_number": current_slide,
+                "title": (
+                    f"Resultados Esperados ({idx}/{len(expected_chunks)})" if len(expected_chunks) > 1 else "Resultados Esperados"
+                ) if is_spanish else (
+                    f"Expected Results ({idx}/{len(expected_chunks)})" if len(expected_chunks) > 1 else "Expected Results"
+                ),
+                "subtitle": lesson_title,
+                "layout": "text-only",
+                "content_blocks": [{"type": "bullets", "heading": "", "items": chunk}],
+                "notes": f"Expected outcomes for {lesson_title}"
+            })
+            current_slide += 1
+
+    if not steps_items and not expected_items:
+        slides.append({
+            "slide_number": current_slide,
+            "title": "Resultado Esperado" if is_spanish else "Expected Result",
+            "subtitle": lesson_title,
+            "layout": "text-only",
+            "content_blocks": [{
+                "type": "bullets",
+                "heading": "",
+                "items": [
+                    "Completar correctamente la actividad siguiendo la guía del laboratorio."
+                    if is_spanish else
+                    "Successfully complete the activity following the lab guide."
+                ]
+            }],
+            "notes": f"Fallback expected result for {lesson_title}"
+        })
+
     return slides
+
+
+def create_references_slides(module_title: str, references: List[str], is_spanish: bool, slide_counter: int) -> List[Dict]:
+    """Create one or more reference slides using bibliography extracted from theory book lessons."""
+    cleaned_references = [ref.strip() for ref in references if isinstance(ref, str) and ref.strip()]
+
+    # Remove duplicates preserving order
+    deduped = []
+    seen = set()
+    for ref in cleaned_references:
+        key = ref.lower()
+        if key not in seen:
+            deduped.append(ref)
+            seen.add(key)
+
+    if not deduped:
+        deduped = [
+            "Documentación oficial del curso" if is_spanish else "Official course documentation"
+        ]
+
+    chunks = _chunk_items(deduped, 6)
+    slides = []
+
+    for idx, chunk in enumerate(chunks, 1):
+        title = "Referencias Bibliográficas" if is_spanish else "Bibliographic References"
+        if len(chunks) > 1:
+            title = f"{title} ({idx}/{len(chunks)})"
+
+        slides.append({
+            "slide_number": slide_counter + idx - 1,
+            "title": title,
+            "subtitle": module_title,
+            "layout": "single-column",
+            "content_blocks": [{
+                "type": "bullets",
+                "heading": "",
+                "items": chunk
+            }],
+            "notes": "Module references from theory book bibliography"
+        })
+
+    return slides
+
+
+def _normalize_text(value: str) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize('NFKD', value)
+    normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = normalized.lower()
+    normalized = re.sub(r'[^a-z0-9\s\-]', ' ', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return normalized
+
+
+def _extract_first_heading(content: str) -> str:
+    if not content:
+        return ""
+    for line in content.splitlines():
+        match = re.match(r'^\s{0,3}#\s+(.+?)\s*$', line)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def load_lab_guides_from_s3(course_bucket: str, project_folder: str) -> List[Dict]:
+    """Load generated lab guide markdown files from S3 for richer lab slides."""
+    if not course_bucket or not project_folder:
+        return []
+
+    s3 = boto3.client('s3')
+    prefix = f"{project_folder}/labguide/"
+    guides = []
+
+    try:
+        response = s3.list_objects_v2(Bucket=course_bucket, Prefix=prefix)
+        for obj in response.get('Contents', []):
+            key = obj.get('Key', '')
+            if not key.endswith('.md'):
+                continue
+
+            try:
+                content_obj = s3.get_object(Bucket=course_bucket, Key=key)
+                content = content_obj['Body'].read().decode('utf-8')
+            except Exception as e:
+                logger.warning(f"⚠️ Could not load lab guide {key}: {e}")
+                continue
+
+            module_number = None
+            module_match = re.search(r'lab-(\d{2})-', key)
+            if module_match:
+                try:
+                    module_number = int(module_match.group(1))
+                except ValueError:
+                    module_number = None
+
+            title = _extract_first_heading(content)
+            if not title:
+                title = key.split('/')[-1].replace('.md', '').replace('-', ' ')
+
+            guides.append({
+                'key': key,
+                'title': title,
+                'normalized_title': _normalize_text(title),
+                'module_number': module_number,
+                'duration_minutes': _extract_duration_minutes({}, content),
+                'content': content
+            })
+
+        logger.info(f"🧪 Loaded {len(guides)} lab guide(s) from s3://{course_bucket}/{prefix}")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not list/load lab guides at {prefix}: {e}")
+
+    return guides
+
+
+def select_best_lab_guide(
+    activity_title: str,
+    module_number: Optional[int],
+    lab_guides: List[Dict],
+    used_guide_keys: set
+) -> Optional[Dict]:
+    """Find best lab guide match by module and title similarity."""
+    if not lab_guides:
+        return None
+
+    target = _normalize_text(activity_title)
+    target_tokens = set(target.split())
+
+    best = None
+    best_score = -1
+
+    for guide in lab_guides:
+        score = 0
+        guide_key = guide.get('key')
+
+        if guide_key in used_guide_keys:
+            score -= 2
+
+        if module_number is not None and guide.get('module_number') == module_number:
+            score += 4
+
+        guide_title = guide.get('normalized_title', '')
+        if target and guide_title:
+            if target in guide_title or guide_title in target:
+                score += 5
+
+            guide_tokens = set(guide_title.split())
+            overlap = len(target_tokens.intersection(guide_tokens))
+            score += overlap
+
+        if score > best_score:
+            best_score = score
+            best = guide
+
+    return best
 
 
 def detect_language(book_data: Dict) -> bool:
@@ -1421,7 +1908,9 @@ def generate_complete_course(
     lesson_batch_start: int = 1,
     lesson_batch_end: int = None,
     total_lessons: int = None,
-    max_processing_time: int = 840
+    max_processing_time: int = 840,
+    course_bucket: Optional[str] = None,
+    project_folder: Optional[str] = None
 ) -> Dict:
     """
     Generate complete course structure with HTML-First architecture.
@@ -1472,6 +1961,9 @@ def generate_complete_course(
     generator = HTMLFirstGenerator(model, style)
     all_slides = []
     slide_counter = 1
+    lab_guides = load_lab_guides_from_s3(course_bucket, project_folder)
+    used_lab_guide_keys = set()
+    processed_lab_activity_titles = set()
     
     # Add introduction slides ONLY for first batch
     if is_first_batch:
@@ -1511,6 +2003,7 @@ def generate_complete_course(
     last_module_number = None
     lesson_number_in_module = 0
     lessons_processed = 0
+    module_references_by_number = {}
     
     # REMOVED: lab_titles set no longer needed - labs are detected by lesson type field
 
@@ -1561,7 +2054,12 @@ def generate_complete_course(
             lesson_number_in_module = 0
         
         # Get module title for lesson subtitle (from lesson metadata or generate)
-        current_module_title = lesson.get('module_title', f"Módulo {current_module_number}" if is_spanish else f"Module {current_module_number}")
+        current_module_title = lesson.get('module_title', f"{'Capítulo' if is_spanish else 'Module'} {current_module_number}")
+
+        # Collect bibliography/references from lesson content to build module-level references slides
+        lesson_references = extract_references_from_lesson_content(lesson.get('content', ''))
+        if lesson_references:
+            module_references_by_number.setdefault(current_module_number, []).extend(lesson_references)
         
         # Always get module title for lesson subtitle (without adding the slide again)
         # Check if we didn't just get it above
@@ -1574,6 +2072,16 @@ def generate_complete_course(
         # BOOK-DRIVEN LAB DETECTION: Check lesson type field instead of title matching
         lesson_type = lesson.get('type', 'lesson').lower()
         lesson_title_lower = lesson_title.lower().strip()
+        lesson_content_lower = lesson.get('content', '').lower()
+        has_lab_markers = (
+            '## laboratorio' in lesson_content_lower or
+            '## práctica' in lesson_content_lower or
+            '## practica' in lesson_content_lower or
+            '## lab activity' in lesson_content_lower or
+            '## laboratory' in lesson_content_lower or
+            'guía de laboratorio' in lesson_content_lower or
+            'guia de laboratorio' in lesson_content_lower
+        )
         
         # Detect lab lessons by type field OR title patterns
         is_lab_lesson = (
@@ -1582,7 +2090,8 @@ def generate_complete_course(
             lesson_title_lower.startswith('lab ') or
             lesson_title_lower.startswith('lab:') or
             lesson_title_lower.startswith('práctica') or
-            lesson_title_lower.startswith('actividad')
+            lesson_title_lower.startswith('actividad') or
+            has_lab_markers
         )
         
         # Increment lesson number within module
@@ -1591,6 +2100,20 @@ def generate_complete_course(
         if is_lab_lesson:
             # PROCESS LABS INLINE - Generate lab intro and result slides
             logger.info(f"\n🧪 Processing Lab Lesson {lesson_idx}: {lesson_title}")
+            best_guide = select_best_lab_guide(
+                activity_title=lesson_title,
+                module_number=current_module_number,
+                lab_guides=lab_guides,
+                used_guide_keys=used_lab_guide_keys
+            )
+
+            if best_guide:
+                lesson['lab_guide'] = best_guide.get('content', '')
+                if lesson.get('duration_minutes') is None and best_guide.get('duration_minutes') is not None:
+                    lesson['duration_minutes'] = best_guide.get('duration_minutes')
+                used_lab_guide_keys.add(best_guide.get('key'))
+                logger.info(f"   📄 Matched lab guide: {best_guide.get('key')}")
+
             lab_slides = create_lab_slides_from_content(lesson, is_spanish, slide_counter)
             for lab_slide in lab_slides:
                 lab_slide['lesson_number'] = lesson_idx
@@ -1598,6 +2121,7 @@ def generate_complete_course(
                 lab_slide['module_number'] = current_module_number
                 all_slides.append(lab_slide)
                 slide_counter += 1
+            processed_lab_activity_titles.add(_normalize_text(lesson_title))
             logger.info(f"✅ Added {len(lab_slides)} lab slides for: {lesson_title}")
             lessons_processed += 1
             continue  # Skip normal lesson processing for labs
@@ -1692,36 +2216,73 @@ def generate_complete_course(
             next_lesson_module = next_lesson.get('module_number', 1)
         
         if is_last_lesson or (next_lesson_module is not None and next_lesson_module != current_module_number):
-            # Add module-end slides from outline_modules (labs, references, logo)
+            # Add module-end slides from book content (references) + logo
             logger.info(f"📚 Adding End-of-Module slides for Module {current_module_number}")
-            
+
+            references_for_module = module_references_by_number.get(current_module_number, [])
+            module_title_for_references = current_module_title or f"{'Capítulo' if is_spanish else 'Module'} {current_module_number}"
+
             if 'outline_modules' in book_data:
                 outline_modules = book_data.get('outline_modules', [])
                 if current_module_number <= len(outline_modules):
                     module_info = outline_modules[current_module_number - 1]
-                    
-                    # 1. Process lab_activities for this module (from outline metadata)
+                    module_title_for_references = module_info.get('title', module_title_for_references)
+
+                    # Generate full lab activity slides from actual lab guide content
                     lab_activities = module_info.get('lab_activities', [])
-                    for lab_activity in lab_activities:
-                        logger.info(f"📋 Adding lab slides for: {lab_activity.get('title', 'Lab')}")
-                        all_slides.append(create_lab_intro_slide(lab_activity, is_spanish, slide_counter))
-                        slide_counter += 1
-                        all_slides.append(create_lab_result_slide(lab_activity, is_spanish, slide_counter))
-                        slide_counter += 1
-                    
-                    # 2. References Slide
-                    all_slides.append(create_references_slide(module_info, is_spanish, slide_counter))
-                    slide_counter += 1
+                    for activity in lab_activities:
+                        activity_title = activity.get('title', 'Lab Activity')
+                        normalized_activity = _normalize_text(activity_title)
+                        if normalized_activity in processed_lab_activity_titles:
+                            continue
+
+                        best_guide = select_best_lab_guide(
+                            activity_title=activity_title,
+                            module_number=current_module_number,
+                            lab_guides=lab_guides,
+                            used_guide_keys=used_lab_guide_keys
+                        )
+
+                        lab_lesson_data = {
+                            'title': activity_title,
+                            'description': activity.get('description', ''),
+                            'objectives': activity.get('objectives', []),
+                            'duration_minutes': activity.get('duration_minutes')
+                        }
+
+                        if best_guide:
+                            lab_lesson_data['lab_guide'] = best_guide.get('content', '')
+                            if lab_lesson_data.get('duration_minutes') is None:
+                                lab_lesson_data['duration_minutes'] = best_guide.get('duration_minutes')
+                            used_lab_guide_keys.add(best_guide.get('key'))
+                            logger.info(f"🧪 Using lab guide for activity '{activity_title}': {best_guide.get('key')}")
+
+                        lab_activity_slides = create_lab_slides_from_content(lab_lesson_data, is_spanish, slide_counter)
+                        for lab_slide in lab_activity_slides:
+                            lab_slide['module_number'] = current_module_number
+                            all_slides.append(lab_slide)
+
+                        slide_counter += len(lab_activity_slides)
+                        processed_lab_activity_titles.add(normalized_activity)
+                        logger.info(f"✅ Added {len(lab_activity_slides)} lab activity slide(s) for: {activity_title}")
+
+                    # Fallback to outline references if book bibliography is unavailable
+                    if not references_for_module:
+                        references_for_module = module_info.get('references', [])
                 else:
-                    # Fallback if outline doesn't have this module
-                    all_slides.append(create_references_slide({'title': f'Módulo {current_module_number}'}, is_spanish, slide_counter))
-                    slide_counter += 1
-            else:
-                # No outline, just add references
-                all_slides.append(create_references_slide({'title': f'Módulo {current_module_number}'}, is_spanish, slide_counter))
-                slide_counter += 1
-            
-            # 3. Module-End Logo slide
+                    if not references_for_module:
+                        references_for_module = []
+
+            reference_slides = create_references_slides(
+                module_title=module_title_for_references,
+                references=references_for_module,
+                is_spanish=is_spanish,
+                slide_counter=slide_counter
+            )
+            all_slides.extend(reference_slides)
+            slide_counter += len(reference_slides)
+
+            # Module-End Logo slide
             all_slides.append(create_module_end_logo_slide(slide_counter))
             slide_counter += 1
 

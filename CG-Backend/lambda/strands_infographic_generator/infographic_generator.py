@@ -1464,7 +1464,9 @@ def lambda_handler(event, context):
                 lesson_batch_start=lesson_start,
                 lesson_batch_end=lesson_end,
                 total_lessons=total_lessons,  # Pass total lessons for completion detection
-                max_processing_time=840  # 14 minutes
+                max_processing_time=840,  # 14 minutes
+                course_bucket=course_bucket,
+                project_folder=project_folder
             )
             
             # Check if partial (timeout occurred)
