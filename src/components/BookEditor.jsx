@@ -475,9 +475,26 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             {module.lessons.map((lesson) => {
                                 const info = extractModuleInfo(lesson, lesson.originalIndex);
                                 const lessonNumber = lesson.lessonNumberInModule ?? info.lessonNumber;
-                                const isIntro = lessonNumber === 0;
-                                const displayNumber = isIntro ? 'Intro|Introducción' : `${info.moduleNumber}.${lessonNumber}`;
-                                const fallbackTitle = isIntro ? 'Intro|Introducción' : `${info.moduleNumber}.${lessonNumber}`;
+                                const textContext = `${moduleTitle} ${lesson.title || ''}`;
+                                const isSpanishContext = /cap[ií]tulo|lecci[oó]n|introducci[oó]n|resumen|temario/i.test(textContext);
+
+                                const isIntro = lesson.is_intro || lessonNumber === 0 || /^(introducci[oó]n|introduction)$/i.test((lesson.title || '').trim());
+                                const isSummary = lesson.is_summary || /^(resumen del cap[ií]tulo|chapter summary)$/i.test((lesson.title || '').trim());
+
+                                const introLabel = isSpanishContext ? 'Introducción' : 'Introduction';
+                                const summaryLabel = isSpanishContext ? 'Resumen del Capítulo' : 'Chapter Summary';
+
+                                const displayNumber = isIntro
+                                    ? introLabel
+                                    : isSummary
+                                        ? summaryLabel
+                                        : `${info.moduleNumber}.${lessonNumber}`;
+
+                                const fallbackTitle = isIntro
+                                    ? introLabel
+                                    : isSummary
+                                        ? summaryLabel
+                                        : `${info.moduleNumber}.${lessonNumber}`;
 
                                 return (
                                 <div

@@ -63,7 +63,8 @@ def lambda_handler(event, context):
         # Initialize S3 client
         s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
 
-        # Detect course language (prefer outline language when available)
+        # Load outline metadata and detect course language
+        outline_data = load_outline_data(s3_client, course_bucket, outline_s3_key)
         is_spanish = detect_spanish_course(s3_client, course_bucket, outline_s3_key)
         module_term = "Capítulo" if is_spanish else "Module"
 
@@ -237,10 +238,11 @@ def lambda_handler(event, context):
                 if module_title:
                     module_data['title'] = normalize_spanish_terms(module_title, is_spanish)
 
-        # Build display lessons including mandatory module introduction (lesson 0)
+        # Build display lessons including mandatory module introduction and summary tab
         for module_num, module_data in sorted_modules:
-            intro_title = "Intro|Introducción" if is_spanish else "Intro|Introduction"
+            intro_title = "Introducción" if is_spanish else "Introduction"
             intro_content = generate_module_intro(module_num, module_data['title'], module_data['lessons'], is_spanish)
+            summary_content = generate_module_summary(module_num, module_data['title'], module_data['lessons'], is_spanish)
 
             intro_lesson = {
                 'title': intro_title,
@@ -252,23 +254,45 @@ def lambda_handler(event, context):
                 'is_intro': True
             }
 
-            module_data['display_lessons'] = [intro_lesson] + module_data['lessons']
+            summary_lesson = {
+                'title': "Resumen del Capítulo" if is_spanish else "Chapter Summary",
+                'filename': f"module-{module_num}-lesson-summary.md",
+                'content': summary_content,
+                'word_count': len(summary_content.split()),
+                'module_number': module_num,
+                'lesson_number': (module_data['lessons'][-1]['lesson_number'] + 1) if module_data['lessons'] else 1,
+                'is_summary': True
+            }
+
+            module_data['display_lessons'] = [intro_lesson] + module_data['lessons'] + [summary_lesson]
 
         # Generate hierarchical table of contents
         toc_lines = []
         for module_num, module_data in sorted_modules:
             toc_lines.append(f"\n## {module_data['title']}")
             for lesson in module_data.get('display_lessons', module_data['lessons']):
-                toc_lines.append(f"  - {module_num}.{lesson['lesson_number']}: {lesson['title']}")
+                if lesson.get('is_intro'):
+                    toc_lines.append(f"  - {lesson['title']}")
+                elif lesson.get('is_summary'):
+                    toc_lines.append(f"  - {lesson['title']}")
+                else:
+                    toc_lines.append(f"  - {module_num}.{lesson['lesson_number']}: {lesson['title']}")
         
-        toc_content = f"# Table of Contents\n" + "\n".join(toc_lines) + "\n\n---\n\n"
+        toc_title = "Tabla de Contenido" if is_spanish else "Table of Contents"
+        toc_content = f"# {toc_title}\n" + "\n".join(toc_lines) + "\n\n---\n\n"
 
         # Generate book front matter
         total_lessons = len(all_lessons)
         front_matter = generate_front_matter(book_title, author, total_lessons)
 
+        # Build course introduction from outline
+        course_intro_content = generate_course_introduction(outline_data, is_spanish)
+
         # Combine all content with module hierarchy
-        full_book_content = front_matter + toc_content
+        full_book_content = front_matter
+        if course_intro_content:
+            full_book_content += course_intro_content + "\n\n---\n\n"
+        full_book_content += toc_content
 
         for module_num, module_data in sorted_modules:
             # Add module header
@@ -277,13 +301,15 @@ def lambda_handler(event, context):
             
             # Add module introduction + lessons within this module
             for lesson in module_data.get('display_lessons', module_data['lessons']):
-                full_book_content += f"## {module_num}.{lesson['lesson_number']}: {lesson['title']}\n\n"
+                if lesson.get('is_intro'):
+                    full_book_content += f"## {lesson['title']}\n\n"
+                elif lesson.get('is_summary'):
+                    summary_title = f"Resumen del Capítulo {module_num}" if is_spanish else f"Chapter {module_num} Summary"
+                    full_book_content += f"## {summary_title}\n\n"
+                else:
+                    full_book_content += f"## {module_num}.{lesson['lesson_number']}: {lesson['title']}\n\n"
                 full_book_content += lesson['content']
                 full_book_content += "\n\n---\n\n"
-
-            # Add module-level summary
-            full_book_content += generate_module_summary(module_num, module_data['title'], module_data['lessons'], is_spanish)
-            full_book_content += "\n\n---\n\n"
 
         # Add book statistics
         total_words = sum(lesson['word_count'] for lesson in all_lessons)
@@ -322,6 +348,7 @@ def lambda_handler(event, context):
                 'total_modules': len(modules),
                 'total_lessons': len(all_lessons),
                 'total_words': total_words,
+                'course_introduction': course_intro_content,
                 'project_folder': project_folder
             },
             'modules': [
@@ -416,6 +443,20 @@ def detect_spanish_course(s3_client, course_bucket, outline_s3_key):
     except Exception as e:
         print(f"Warning: Could not detect course language from outline: {e}")
         return False
+
+
+def load_outline_data(s3_client, course_bucket, outline_s3_key):
+    """Load outline structure from S3 when available."""
+    if not outline_s3_key:
+        return {}
+
+    try:
+        response = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
+        outline_text = response['Body'].read().decode('utf-8')
+        return yaml.safe_load(outline_text) or {}
+    except Exception as e:
+        print(f"Warning: Could not load outline data: {e}")
+        return {}
 
 
 def normalize_spanish_terms(content: str, is_spanish: bool) -> str:
@@ -577,108 +618,321 @@ def strip_primary_lesson_heading(content: str) -> str:
 
 
 def generate_module_intro(module_num: int, module_title: str, module_lessons: list, is_spanish: bool) -> str:
-    """Generate mandatory introduction section (internal lesson 0) for each module."""
+    """Generate contextual introduction section (internal lesson 0) for each module."""
     lesson_titles = [lesson.get('title', '').strip() for lesson in module_lessons if lesson.get('title')]
-    preview = "\n".join([f"- {title}" for title in lesson_titles]) if lesson_titles else "- (Sin lecciones definidas)"
+    lesson_preview = "\n".join([f"- {title}" for title in lesson_titles]) if lesson_titles else "- (Sin lecciones definidas)"
+
+    module_topics = extract_module_key_topics(module_lessons, is_spanish=is_spanish, max_items=6)
+    topic_preview = "\n".join([f"- {topic}" for topic in module_topics]) if module_topics else lesson_preview
+
+    module_objectives = extract_module_objectives(module_lessons, max_items=4)
+    objectives_preview = "\n".join([f"- {obj}" for obj in module_objectives]) if module_objectives else "- Comprender y aplicar los contenidos del capítulo."
 
     if is_spanish:
         return f"""### Objetivos del capítulo
 
-- Comprender el alcance general del capítulo {module_num}.
-- Identificar los conceptos clave que se estudiarán.
-- Conectar los contenidos con su aplicación práctica.
+{objectives_preview}
 
 ### Información general
 
-Este capítulo presenta una visión integral de **{module_title}**. Antes de iniciar las lecciones, revisa los objetivos, la secuencia temática y la relación entre conceptos para facilitar el aprendizaje progresivo.
+Este capítulo desarrolla de forma aplicada el tema **{module_title}**. A continuación se muestran los contenidos reales que se abordan en las lecciones del capítulo.
 
-### Lecciones incluidas en este capítulo
+### Temas principales del capítulo
 
-{preview}
+{topic_preview}
+
+### Lecciones incluidas
+
+{lesson_preview}
 """
 
     return f"""### Chapter objectives
 
-- Understand the overall scope of chapter {module_num}.
-- Identify the key concepts covered in this chapter.
-- Connect the content to practical applications.
+{objectives_preview}
 
 ### General information
 
-This chapter provides an overview of **{module_title}**. Before starting the lessons, review the objectives and topic sequence to support progressive learning.
+This chapter develops **{module_title}** through practical and conceptual progression. The sections below summarize the real content covered in this chapter.
 
-### Lessons included in this chapter
+### Main chapter topics
 
-{preview}
+{topic_preview}
+
+### Included lessons
+
+{lesson_preview}
 """
 
 
 def generate_module_summary(module_num: int, module_title: str, module_lessons: list, is_spanish: bool) -> str:
-    """Generate chapter-level summary section appended after lessons."""
-    lesson_titles = [lesson.get('title', '').strip() for lesson in module_lessons if lesson.get('title')]
-    bullets = "\n".join([f"- {title}" for title in lesson_titles]) if lesson_titles else "- (Sin lecciones definidas)"
+    """Generate chapter-level summary content focused on real covered topics."""
+    module_topics = extract_module_key_topics(module_lessons, is_spanish=is_spanish, max_items=8)
+    bullets = "\n".join([f"- {topic}" for topic in module_topics]) if module_topics else "- (Sin temas detectados)"
 
     if is_spanish:
-        return f"""## Resumen del Capítulo {module_num}
+        return f"""Este resumen consolida los aprendizajes más importantes de **{module_title}**.
 
-Este cierre consolida los aprendizajes principales de **{module_title}** y destaca cómo los temas del capítulo se conectan entre sí.
-
-### Puntos clave
+### Temas más importantes cubiertos
 
 {bullets}
 """
 
-    return f"""## Chapter {module_num} Summary
+    return f"""This summary consolidates the most important learnings from **{module_title}**.
 
-This section consolidates the core learnings from **{module_title}** and highlights how the chapter topics connect.
-
-### Key points
+### Most important topics covered
 
 {bullets}
 """
 
 
 def generate_course_glossary(sorted_modules: list, is_spanish: bool) -> str:
-    """Generate a concise glossary at course end."""
-    unique_titles = []
+    """Generate glossary with term definitions inferred from lesson content."""
+    glossary_entries = extract_glossary_entries(sorted_modules, is_spanish=is_spanish, max_entries=20)
+    glossary_title = "Glosario" if is_spanish else "Glossary"
+
+    lines = [f"\n## {glossary_title}\n"]
+    if not glossary_entries:
+        empty_msg = "- No se detectaron términos para el glosario." if is_spanish else "- No glossary terms were detected."
+        lines.append(empty_msg)
+        return "\n".join(lines) + "\n"
+
+    for term, definition in glossary_entries:
+        lines.append(f"- **{term}**: {definition}")
+
+    return "\n".join(lines) + "\n"
+
+
+def generate_course_introduction(outline_data: dict, is_spanish: bool) -> str:
+    """Create a course introduction section using metadata from the outline file."""
+    if not outline_data:
+        return ""
+
+    course = outline_data.get('course', outline_data)
+    title = course.get('title') or course.get('name') or ""
+    description = course.get('description') or course.get('summary') or ""
+    level = course.get('level') or course.get('difficulty') or ""
+    audience = course.get('audience') or course.get('target_audience') or ""
+    prerequisites = normalize_to_list(course.get('prerequisites'))
+    objectives = normalize_to_list(course.get('objectives') or course.get('learning_objectives'))
+    modules = course.get('modules') or outline_data.get('modules') or []
+
+    agenda_items = []
+    for idx, module in enumerate(modules, 1):
+        module_title = module.get('title', f"{('Capítulo' if is_spanish else 'Module')} {idx}")
+        agenda_items.append(f"{idx}. {module_title}")
+
+    prereq_text = "\n".join([f"- {item}" for item in prerequisites]) if prerequisites else ("- No especificado" if is_spanish else "- Not specified")
+    objective_text = "\n".join([f"- {item}" for item in objectives]) if objectives else ("- No especificado" if is_spanish else "- Not specified")
+    agenda_text = "\n".join(agenda_items) if agenda_items else ("- No especificado" if is_spanish else "- Not specified")
+
+    if is_spanish:
+        return f"""## Introducción del Curso
+
+### Título del curso
+
+{title or 'No especificado'}
+
+### Descripción
+
+{description or 'No especificada'}
+
+### Nivel
+
+{level or 'No especificado'}
+
+### Audiencia
+
+{audience or 'No especificada'}
+
+### Prerrequisitos
+
+{prereq_text}
+
+### Objetivos
+
+{objective_text}
+
+### Temario
+
+{agenda_text}
+"""
+
+    return f"""## Course Introduction
+
+### Course title
+
+{title or 'Not specified'}
+
+### Description
+
+{description or 'Not specified'}
+
+### Level
+
+{level or 'Not specified'}
+
+### Audience
+
+{audience or 'Not specified'}
+
+### Prerequisites
+
+{prereq_text}
+
+### Objectives
+
+{objective_text}
+
+### Agenda
+
+{agenda_text}
+"""
+
+
+def normalize_to_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+    if isinstance(value, dict):
+        items = []
+        for k, v in value.items():
+            text = f"{k}: {v}" if v else str(k)
+            if text.strip():
+                items.append(text.strip())
+        return items
+    return [str(value).strip()]
+
+
+def extract_module_key_topics(module_lessons: list, is_spanish: bool, max_items: int = 6) -> list:
+    """Extract key topic headings (H2/H3) from real module lesson content."""
+    stop_words_es = {
+        'objetivos de aprendizaje', 'introducción', 'resumen', 'puntos clave', 'próximos pasos',
+        'recursos adicionales', 'bibliografía', 'metadatos', 'validación y pruebas', 'solución de problemas'
+    }
+    stop_words_en = {
+        'learning objectives', 'introduction', 'summary', 'key takeaways', "what's next",
+        'additional resources', 'bibliography', 'metadata', 'validation & testing', 'troubleshooting'
+    }
+    stop_words = stop_words_es if is_spanish else stop_words_en
+
+    topics = []
     seen = set()
+
+    for lesson in module_lessons:
+        content = lesson.get('content', '')
+        for line in content.splitlines():
+            match = re.match(r'^###?\s+(.+)$', line.strip())
+            if not match:
+                continue
+            heading = match.group(1).strip().rstrip(':').strip()
+            normalized = re.sub(r'\s+', ' ', heading.lower())
+            if normalized in stop_words:
+                continue
+            if len(heading) < 3 or len(heading) > 90:
+                continue
+            if normalized not in seen:
+                seen.add(normalized)
+                topics.append(heading)
+            if len(topics) >= max_items:
+                return topics
+
+    return topics
+
+
+def extract_module_objectives(module_lessons: list, max_items: int = 4) -> list:
+    """Extract objective bullets from module lessons."""
+    objectives = []
+    for lesson in module_lessons:
+        content = lesson.get('content', '')
+        for line in content.splitlines():
+            if re.match(r'^\s*[-*]\s+.+', line):
+                bullet = re.sub(r'^\s*[-*]\s+', '', line).strip()
+                if 8 <= len(bullet) <= 160 and bullet not in objectives:
+                    objectives.append(bullet)
+                if len(objectives) >= max_items:
+                    return objectives
+    return objectives
+
+
+def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries: int = 20) -> list:
+    """Extract term-definition pairs from lesson headings and emphasized terms."""
+    terms = []
+    term_set = set()
+    term_sources = {}
 
     for _, module_data in sorted_modules:
         for lesson in module_data.get('lessons', []):
-            title = str(lesson.get('title', '')).strip()
-            if not title:
-                continue
-            token = title.lower()
-            if token not in seen:
-                seen.add(token)
-                unique_titles.append(title)
-            if len(unique_titles) >= 10:
+            content = lesson.get('content', '')
+
+            # Candidate terms from headings
+            for line in content.splitlines():
+                heading_match = re.match(r'^###?\s+(.+)$', line.strip())
+                if heading_match:
+                    candidate = heading_match.group(1).strip().rstrip(':').strip()
+                    candidate = re.sub(r'^(\d+\.\d+\s*:\s*)', '', candidate)
+                    if is_valid_glossary_term(candidate):
+                        norm = candidate.lower()
+                        if norm not in term_set:
+                            term_set.add(norm)
+                            terms.append(candidate)
+                            term_sources[candidate] = content
+
+            # Candidate terms from bold markers
+            for candidate in re.findall(r'\*\*([^*]{2,80})\*\*', content):
+                candidate = candidate.strip().rstrip(':').strip()
+                if is_valid_glossary_term(candidate):
+                    norm = candidate.lower()
+                    if norm not in term_set:
+                        term_set.add(norm)
+                        terms.append(candidate)
+                        term_sources[candidate] = content
+
+            if len(terms) >= max_entries:
                 break
-        if len(unique_titles) >= 10:
+        if len(terms) >= max_entries:
             break
 
-    if is_spanish:
-        lines = [
-            "\n## Glosario\n",
-            "- **Capítulo**: Unidad temática principal del curso.",
-            "- **Lección**: Unidad de aprendizaje específica dentro de un capítulo.",
-            "- **Objetivo de aprendizaje**: Resultado esperado y medible del proceso formativo.",
-            "- **Actividad práctica**: Ejercicio aplicado para reforzar los conceptos teóricos."
-        ]
-        for title in unique_titles:
-            lines.append(f"- **{title}**: Concepto o tema clave abordado durante el curso.")
-        return "\n".join(lines) + "\n"
+    entries = []
+    for term in terms[:max_entries]:
+        source_content = term_sources.get(term, '')
+        definition = infer_definition_from_content(term, source_content, is_spanish=is_spanish)
+        entries.append((term, definition))
 
-    lines = [
-        "\n## Glossary\n",
-        "- **Module**: Main thematic unit of the course.",
-        "- **Lesson**: Specific learning unit within a module.",
-        "- **Learning objective**: Expected measurable learning outcome.",
-        "- **Practical activity**: Applied exercise to reinforce theory."
-    ]
-    for title in unique_titles:
-        lines.append(f"- **{title}**: Key concept or topic covered in the course.")
-    return "\n".join(lines) + "\n"
+    return entries
+
+
+def is_valid_glossary_term(term: str) -> bool:
+    """Basic filter for glossary candidate terms."""
+    if not term:
+        return False
+    t = term.strip()
+    if len(t) < 3 or len(t) > 80:
+        return False
+    if re.match(r'^(objetivos de aprendizaje|introducción|resumen|bibliograf[íi]a|learning objectives|summary|bibliography)$', t, re.IGNORECASE):
+        return False
+    if re.match(r'^\d+([\.:]\d+)*$', t):
+        return False
+    return True
+
+
+def infer_definition_from_content(term: str, content: str, is_spanish: bool) -> str:
+    """Infer a concise definition from the first sentence that mentions the term."""
+    if content:
+        sentences = re.split(r'(?<=[.!?])\s+', re.sub(r'\s+', ' ', content))
+        term_lower = term.lower()
+        for sentence in sentences:
+            if term_lower in sentence.lower() and 30 <= len(sentence) <= 220:
+                cleaned = sentence.strip()
+                cleaned = re.sub(r'^[-*]\s*', '', cleaned)
+                return cleaned
+
+    if is_spanish:
+        return "Concepto clave abordado en este curso."
+    return "Key concept covered in this course."
 
 def replace_visual_tags(content, mappings, bucket):
     """
