@@ -444,7 +444,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         return (
             <div className="module-section special-sections">
                 <div className="module-header">
-                    <span className="module-title">Secciones del Curso</span>
+                    <span className="module-title">Inicio</span>
                     <span className="module-count">({specialLessons.length})</span>
                 </div>
                 <div className="module-lessons">
@@ -878,6 +878,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         });
                     }
 
+                    if (!lessons.some(l => l.isSpecialSection && l.specialSectionType === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: '## Glosario\n\n- Glosario en preparación para esta versión del libro.',
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
                     return { ...bookData, lessons };
                 }
                 return bookData;
@@ -1041,6 +1051,16 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         lessons.push({
                             title: 'Glosario',
                             content: bookData.metadata.course_glossary,
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
+                    if (!lessons.some(l => l.isSpecialSection && l.specialSectionType === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: '## Glosario\n\n- Glosario en preparación para esta versión del libro.',
                             isSpecialSection: true,
                             specialSectionType: 'glossary',
                             filename: 'special_section_glossary.md'

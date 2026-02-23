@@ -348,12 +348,11 @@ def lambda_handler(event, context):
                 'title': 'Introducción del Curso' if is_spanish else 'Course Introduction',
                 'content': course_intro_content.strip()
             })
-        if glossary_content and glossary_content.strip():
-            special_sections.append({
-                'section_type': 'glossary',
-                'title': 'Glosario' if is_spanish else 'Glossary',
-                'content': glossary_content.strip()
-            })
+        special_sections.append({
+            'section_type': 'glossary',
+            'title': 'Glosario' if is_spanish else 'Glossary',
+            'content': (glossary_content or '').strip() or generate_default_glossary(is_spanish)
+        })
 
         book_json = {
             'metadata': {
@@ -709,8 +708,7 @@ def generate_course_glossary(sorted_modules: list, is_spanish: bool) -> str:
 
     lines = [f"\n## {glossary_title}\n"]
     if not glossary_entries:
-        empty_msg = "- No se detectaron términos para el glosario." if is_spanish else "- No glossary terms were detected."
-        lines.append(empty_msg)
+        lines.extend(generate_default_glossary_lines(is_spanish))
         return "\n".join(lines) + "\n"
 
     for term, definition in glossary_entries:
@@ -728,9 +726,16 @@ def generate_course_introduction(outline_data: dict, is_spanish: bool) -> str:
     title = course.get('title') or course.get('name') or ""
     description = course.get('description') or course.get('summary') or ""
     level = course.get('level') or course.get('difficulty') or ""
-    audience = course.get('audience') or course.get('target_audience') or ""
+    audience = normalize_to_list(course.get('audience') or course.get('target_audience'))
     prerequisites = normalize_to_list(course.get('prerequisites'))
-    objectives = normalize_to_list(course.get('objectives') or course.get('learning_objectives'))
+    objectives = normalize_to_list(
+        course.get('objectives')
+        or course.get('learning_objectives')
+        or course.get('learning_outcomes')
+        or course.get('learning outcomes')
+        or outline_data.get('learning_outcomes')
+        or outline_data.get('learning outcomes')
+    )
     modules = course.get('modules') or outline_data.get('modules') or []
 
     agenda_items = []
@@ -738,6 +743,7 @@ def generate_course_introduction(outline_data: dict, is_spanish: bool) -> str:
         module_title = module.get('title', f"{('Capítulo' if is_spanish else 'Module')} {idx}")
         agenda_items.append(f"{idx}. {module_title}")
 
+    audience_text = "\n".join([f"- {item}" for item in audience]) if audience else ("- No especificada" if is_spanish else "- Not specified")
     prereq_text = "\n".join([f"- {item}" for item in prerequisites]) if prerequisites else ("- No especificado" if is_spanish else "- Not specified")
     objective_text = "\n".join([f"- {item}" for item in objectives]) if objectives else ("- No especificado" if is_spanish else "- Not specified")
     agenda_text = "\n".join(agenda_items) if agenda_items else ("- No especificado" if is_spanish else "- Not specified")
@@ -759,7 +765,7 @@ def generate_course_introduction(outline_data: dict, is_spanish: bool) -> str:
 
 ### Audiencia
 
-{audience or 'No especificada'}
+{audience_text}
 
 ### Prerrequisitos
 
@@ -790,7 +796,7 @@ def generate_course_introduction(outline_data: dict, is_spanish: bool) -> str:
 
 ### Audience
 
-{audience or 'Not specified'}
+{audience_text}
 
 ### Prerequisites
 
@@ -950,6 +956,32 @@ def infer_definition_from_content(term: str, content: str, is_spanish: bool) -> 
     if is_spanish:
         return "Concepto clave abordado en este curso."
     return "Key concept covered in this course."
+
+
+def generate_default_glossary_lines(is_spanish: bool) -> list:
+    """Default glossary entries when extraction has low confidence."""
+    if is_spanish:
+        return [
+            "- **Contenedor**: Unidad ligera y portátil que empaqueta aplicación y dependencias para ejecutarse de forma consistente.",
+            "- **Imagen**: Plantilla inmutable que define el sistema de archivos y configuración base de un contenedor.",
+            "- **Volumen**: Mecanismo de persistencia para almacenar datos fuera del ciclo de vida del contenedor.",
+            "- **Red de contenedores**: Configuración que permite comunicación segura entre contenedores y servicios.",
+            "- **Dockerfile**: Archivo de instrucciones para construir imágenes de forma reproducible."
+        ]
+
+    return [
+        "- **Container**: Lightweight portable unit that packages an application and its dependencies for consistent execution.",
+        "- **Image**: Immutable template that defines the filesystem and baseline configuration for a container.",
+        "- **Volume**: Persistence mechanism used to store data outside the container lifecycle.",
+        "- **Container network**: Configuration that enables secure communication between containers and services.",
+        "- **Dockerfile**: Instruction file used to build images reproducibly."
+    ]
+
+
+def generate_default_glossary(is_spanish: bool) -> str:
+    """Return fallback glossary markdown content."""
+    title = "## Glosario" if is_spanish else "## Glossary"
+    return title + "\n\n" + "\n".join(generate_default_glossary_lines(is_spanish)) + "\n"
 
 def replace_visual_tags(content, mappings, bucket):
     """
