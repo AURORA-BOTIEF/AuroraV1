@@ -31,6 +31,7 @@ import boto3
 import time
 import html as html_module
 import unicodedata
+from urllib.parse import quote
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 
@@ -348,12 +349,12 @@ def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_co
     """
     intro_slides = []
     
-    # 1. Course Title Slide - Full branded title slide
+    # 1. Course Title Slide
     intro_slides.append({
         "slide_number": slide_counter,
         "title": course_metadata.get('title', 'Course Title'),
         "subtitle": "",
-        "layout": "course-title",
+        "layout": "intro-cover",
         "content_blocks": [],
         "notes": "Course title slide"
     })
@@ -363,52 +364,33 @@ def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_co
     intro_slides.append(create_copyright_slide(True, slide_counter))  # Always Spanish for Netec
     slide_counter += 1
     
-    # 3. Description / Audience Slide
-    audience_list = course_metadata.get('audience', [])
-    if audience_list:
+    # 3. Description Slide
+    description_text = (course_metadata.get('description') or '').strip()
+    if description_text:
         intro_slides.append({
             "slide_number": slide_counter,
-            "title": "Descripción" if is_spanish else "Description",
-            "subtitle": course_metadata.get('description', ''),
-            "layout": "single-column",
-            "content_blocks": [
-                {
-                    "type": "bullets",
-                    "heading": "¿Para quién es este curso?" if is_spanish else "Who is this course for?",
-                    "items": audience_list
-                }
-            ],
-            "notes": "Target audience and course description"
-        })
-        slide_counter += 1
-    
-    # 4. Prerequisites Slide
-    prerequisites_list = course_metadata.get('prerequisites', [])
-    if prerequisites_list:
-        intro_slides.append({
-            "slide_number": slide_counter,
-            "title": "Prerrequisitos" if is_spanish else "Prerequisites",
-            "subtitle": "Conocimientos recomendados" if is_spanish else "Recommended knowledge",
-            "layout": "single-column",
+            "title": "Descripción del curso" if is_spanish else "Course Description",
+            "subtitle": "",
+            "layout": "intro-description",
             "content_blocks": [
                 {
                     "type": "bullets",
                     "heading": "",
-                    "items": prerequisites_list
+                    "items": [description_text]
                 }
             ],
-            "notes": "Course prerequisites"
+            "notes": "Course description"
         })
         slide_counter += 1
-    
-    # 5. Objectives / Learning Outcomes Slide
+
+    # 4. Objectives Slide
     learning_outcomes = course_metadata.get('learning_outcomes', [])
     if learning_outcomes:
         intro_slides.append({
             "slide_number": slide_counter,
-            "title": "Objetivos" if is_spanish else "Learning Objectives",
-            "subtitle": "Al finalizar este curso podrás:" if is_spanish else "By the end of this course you will be able to:",
-            "layout": "single-column",
+            "title": "Objetivos del curso" if is_spanish else "Course Objectives",
+            "subtitle": "Al finalizar el curso, serás capaz de:" if is_spanish else "By the end of this course, you will be able to:",
+            "layout": "intro-objectives",
             "content_blocks": [
                 {
                     "type": "bullets",
@@ -420,6 +402,44 @@ def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_co
         })
         slide_counter += 1
     
+    # 5. Prerequisites Slide
+    prerequisites_list = course_metadata.get('prerequisites', [])
+    if prerequisites_list:
+        intro_slides.append({
+            "slide_number": slide_counter,
+            "title": "Prerrequisitos" if is_spanish else "Prerequisites",
+            "subtitle": "",
+            "layout": "intro-prerequisites",
+            "content_blocks": [
+                {
+                    "type": "bullets",
+                    "heading": "",
+                    "items": prerequisites_list
+                }
+            ],
+            "notes": "Course prerequisites"
+        })
+        slide_counter += 1
+    
+    # 6. Audience Slide (new)
+    audience_list = course_metadata.get('audience', [])
+    if audience_list:
+        intro_slides.append({
+            "slide_number": slide_counter,
+            "title": "Audiencia" if is_spanish else "Audience",
+            "subtitle": "",
+            "layout": "intro-audience",
+            "content_blocks": [
+                {
+                    "type": "bullets",
+                    "heading": "",
+                    "items": audience_list
+                }
+            ],
+            "notes": "Target audience"
+        })
+        slide_counter += 1
+    
     return intro_slides, slide_counter
 
 
@@ -428,8 +448,8 @@ def create_group_presentation_slide(is_spanish: bool, slide_counter: int) -> Dic
     return {
         "slide_number": slide_counter,
         "title": "Presentación del Grupo" if is_spanish else "Group Presentation",
-        "subtitle": "Conozcámonos" if is_spanish else "Let's get to know each other",
-        "layout": "single-column",
+        "subtitle": "",
+        "layout": "intro-group-presentation",
         "content_blocks": [
             {
                 "type": "bullets",
@@ -459,7 +479,7 @@ def create_copyright_slide(is_spanish: bool, slide_counter: int) -> Dict:
         "slide_number": slide_counter,
         "title": title,
         "subtitle": "",
-        "layout": "single-column",
+        "layout": "intro-intellectual-property",
         "content_blocks": [
             {
                 "type": "bullets",
@@ -510,7 +530,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
 
     # (Removed lesson processing)
         
-    MAX_MODULES_PER_SLIDE = 7 
+    MAX_MODULES_PER_SLIDE = 5
     
     slides = []
     current_items = []
@@ -523,7 +543,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
                 "slide_number": slide_counter + len(slides),
                 "title": (f"Temario ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE else "Temario") if is_spanish else (f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE else "Agenda"),
                 "subtitle": "Estructura del curso" if is_spanish else "Course structure",
-                "layout": "single-column",
+                "layout": "intro-agenda",
                 "content_blocks": [
                     {
                         "type": "bullets",
@@ -541,7 +561,7 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
             "slide_number": slide_counter + len(slides),
             "title": (f"Temario ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE and part_num > 1 else "Temario") if is_spanish else (f"Agenda ({part_num})" if len(agenda_items) > MAX_MODULES_PER_SLIDE and part_num > 1 else "Agenda"),
             "subtitle": "Estructura del curso" if is_spanish else "Course structure",
-            "layout": "single-column",
+            "layout": "intro-agenda",
             "content_blocks": [
                 {
                     "type": "bullets",
@@ -2367,6 +2387,32 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         logger.info(f"🔑 Generated presigned URL for logo")
     except Exception as e:
         logger.warning(f"⚠️ Could not generate presigned URL for logo: {e}")
+
+    # Corporate intro assets (logo/Assets)
+    corporate_asset_files = {
+        'cover': 'Portada.jpg',
+        'countries': 'Paises.png',
+        'intellectual': 'Propiedad_Intelectual.svg',
+        'description': 'Descripcion_Curso.jpg',
+        'objectives': 'Objetivos.jpg',
+        'prerequisites': 'Prerrequisitos.png',
+        'audience': 'Audiencia.png',
+        'group': 'Presentación.png'
+    }
+
+    def _asset_url_from_s3(filename: str) -> str:
+        asset_key = f"logo/Assets/{filename}"
+        fallback = f"https://crewai-course-artifacts.s3.amazonaws.com/logo/Assets/{quote(filename)}"
+        try:
+            return s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': 'crewai-course-artifacts', 'Key': asset_key},
+                ExpiresIn=3600
+            )
+        except Exception:
+            return fallback
+
+    corporate_assets = {k: _asset_url_from_s3(v) for k, v in corporate_asset_files.items()}
     
     if image_url_mapping:
         logger.info(f"🔑 Generating presigned URLs for {len(image_url_mapping)} images...")
@@ -3112,6 +3158,227 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             height: auto;
             opacity: 1;
         }}
+
+        /* ============================================
+           CORPORATE INTRODUCTION LAYOUTS
+           ============================================ */
+        .intro-cover-slide {{
+            height: 100%;
+            display: grid;
+            grid-template-columns: 46% 54%;
+            background: #efefef;
+            position: relative;
+        }}
+
+        .intro-cover-left {{
+            padding: 48px 46px 44px 60px;
+            position: relative;
+            overflow: hidden;
+        }}
+
+        .intro-cover-left::after {{
+            content: '';
+            position: absolute;
+            top: -10%;
+            right: -32%;
+            width: 80%;
+            height: 130%;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            border: 2px solid rgba(0, 0, 0, 0.04);
+        }}
+
+        .intro-accent-bar {{
+            width: 52px;
+            height: 8px;
+            background: {colors['accent']};
+            margin-bottom: 34px;
+        }}
+
+        .intro-cover-title {{
+            margin-top: 140px;
+            font-size: 62pt;
+            line-height: 1.06;
+            font-weight: 800;
+            color: {colors['primary']};
+            position: relative;
+            z-index: 2;
+        }}
+
+        .intro-cover-right {{
+            padding: 56px 50px 34px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: flex-start;
+            gap: 14px;
+        }}
+
+        .intro-cover-main-image {{
+            width: 100%;
+            max-width: 640px;
+            height: 565px;
+            object-fit: cover;
+            border: none;
+        }}
+
+        .intro-cover-countries {{
+            width: 320px;
+            height: auto;
+            object-fit: contain;
+            margin-top: 6px;
+        }}
+
+        .intro-cover-contact {{
+            width: 100%;
+            text-align: right;
+            font-size: 22pt;
+            color: #1a1a1a;
+            line-height: 1.1;
+        }}
+
+        .intro-logo-bottom-left {{
+            position: absolute;
+            bottom: 18px;
+            left: 22px;
+            width: 190px;
+            height: auto;
+            z-index: 5;
+        }}
+
+        .intro-content-slide {{
+            height: 100%;
+            background: #efefef;
+            padding: 54px 48px 40px 50px;
+            position: relative;
+            display: grid;
+            grid-template-columns: 56% 44%;
+            gap: 26px;
+        }}
+
+        .intro-content-slide.group-style {{
+            grid-template-columns: 52% 48%;
+        }}
+
+        .intro-main-col {{
+            display: flex;
+            flex-direction: column;
+        }}
+
+        .intro-content-title {{
+            font-size: 46pt;
+            line-height: 1.04;
+            font-weight: 800;
+            color: #000;
+            margin-bottom: 12px;
+        }}
+
+        .intro-subtitle {{
+            font-size: 24pt;
+            color: #111;
+            margin-bottom: 10px;
+            line-height: 1.2;
+        }}
+
+        .intro-divider {{
+            height: 2px;
+            background: #c7c7c7;
+            margin: 8px 0 16px;
+        }}
+
+        .intro-list {{
+            margin: 0;
+            padding-left: 34px;
+            max-height: 430px;
+            overflow: hidden;
+        }}
+
+        .intro-list li {{
+            font-size: 21pt;
+            color: #111;
+            line-height: 1.3;
+            margin: 8px 0;
+        }}
+
+        .intro-list.red-bullets li::marker {{
+            color: #d50000;
+        }}
+
+        .intro-paragraphs {{
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 430px;
+            overflow: hidden;
+        }}
+
+        .intro-paragraphs p {{
+            font-size: 21pt;
+            color: #111;
+            line-height: 1.28;
+        }}
+
+        .intro-right-asset {{
+            width: 100%;
+            max-width: 560px;
+            height: 520px;
+            object-fit: cover;
+            justify-self: end;
+        }}
+
+        .intro-legal-slide {{
+            height: 100%;
+            background: #efefef;
+            padding: 54px 40px 36px 42px;
+            display: grid;
+            grid-template-columns: 38% 62%;
+            gap: 24px;
+            position: relative;
+        }}
+
+        .intro-legal-icon {{
+            width: 100%;
+            max-width: 360px;
+            max-height: 500px;
+            object-fit: contain;
+            align-self: center;
+            justify-self: center;
+        }}
+
+        .intro-agenda-slide {{
+            height: 100%;
+            background: #efefef;
+            position: relative;
+            padding: 44px 0 0;
+        }}
+
+        .intro-agenda-wave {{
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 145px;
+            height: 26px;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.45), rgba(220,220,220,0.25));
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+        }}
+
+        .intro-agenda-content {{
+            position: relative;
+            z-index: 2;
+            padding: 16px 90px 0 102px;
+        }}
+
+        .intro-agenda-content .intro-content-title {{
+            margin-bottom: 26px;
+        }}
+
+        .intro-agenda-list li {{
+            font-size: 54px;
+            line-height: 1.14;
+            margin: 16px 0;
+            font-weight: 700;
+            color: #111;
+        }}
         
         /* Legacy branded-title (for thank you slide) */
         .branded-title {{
@@ -3253,7 +3520,109 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         html_parts.append(f'<div class="slide" data-slide="{slide_idx}">')
         
         # Special layouts for title slides
-        if layout == 'course-title':
+        if layout == 'intro-cover':
+            html_parts.append('  <div class="intro-cover-slide">')
+            html_parts.append('    <div class="intro-cover-left">')
+            html_parts.append('      <div class="intro-accent-bar"></div>')
+            html_parts.append(f'      <div class="intro-cover-title">{title}</div>')
+            html_parts.append(f'      <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
+            html_parts.append('    </div>')
+            html_parts.append('    <div class="intro-cover-right">')
+            html_parts.append(f'      <img src="{corporate_assets["cover"]}" class="intro-cover-main-image" alt="Portada">')
+            html_parts.append(f'      <img src="{corporate_assets["countries"]}" class="intro-cover-countries" alt="Países">')
+            html_parts.append('      <div class="intro-cover-contact">www.netec.com | servicio@netec.com</div>')
+            html_parts.append('    </div>')
+            html_parts.append('  </div>')
+            if notes:
+                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+            html_parts.append('</div>')
+            continue
+
+        elif layout == 'intro-intellectual-property':
+            legal_items = []
+            for block in slide.get('content_blocks', []):
+                if block.get('type') == 'bullets':
+                    legal_items.extend(block.get('items', []))
+
+            html_parts.append('  <div class="intro-legal-slide">')
+            html_parts.append(f'    <img src="{corporate_assets["intellectual"]}" class="intro-legal-icon" alt="Propiedad Intelectual">')
+            html_parts.append('    <div class="intro-main-col">')
+            html_parts.append('      <div class="intro-accent-bar"></div>')
+            html_parts.append(f'      <div class="intro-content-title">{title}</div>')
+            html_parts.append('      <div class="intro-divider"></div>')
+            html_parts.append('      <div class="intro-paragraphs">')
+            for item in legal_items:
+                html_parts.append(f'        <p>{item}</p>')
+            html_parts.append('      </div>')
+            html_parts.append('    </div>')
+            html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
+            html_parts.append('  </div>')
+            if notes:
+                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+            html_parts.append('</div>')
+            continue
+
+        elif layout in ['intro-description', 'intro-objectives', 'intro-prerequisites', 'intro-audience', 'intro-group-presentation']:
+            intro_items = []
+            for block in slide.get('content_blocks', []):
+                if block.get('type') == 'bullets':
+                    intro_items.extend(block.get('items', []))
+
+            asset_by_layout = {
+                'intro-description': corporate_assets['description'],
+                'intro-objectives': corporate_assets['objectives'],
+                'intro-prerequisites': corporate_assets['prerequisites'],
+                'intro-audience': corporate_assets['audience'],
+                'intro-group-presentation': corporate_assets['group']
+            }
+
+            extra_class = ' group-style' if layout == 'intro-group-presentation' else ''
+            list_class = 'intro-list red-bullets' if layout == 'intro-objectives' else 'intro-list'
+
+            html_parts.append(f'  <div class="intro-content-slide{extra_class}">')
+            html_parts.append('    <div class="intro-main-col">')
+            html_parts.append('      <div class="intro-accent-bar"></div>')
+            html_parts.append(f'      <div class="intro-content-title">{title}</div>')
+            if subtitle:
+                html_parts.append(f'      <div class="intro-subtitle">{subtitle}</div>')
+            html_parts.append('      <div class="intro-divider"></div>')
+            html_parts.append(f'      <ul class="{list_class}">')
+            for item in intro_items:
+                html_parts.append(f'        <li>{item}</li>')
+            html_parts.append('      </ul>')
+            html_parts.append('    </div>')
+            html_parts.append(f'    <img src="{asset_by_layout[layout]}" class="intro-right-asset" alt="{title}">')
+            html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
+            html_parts.append('  </div>')
+            if notes:
+                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+            html_parts.append('</div>')
+            continue
+
+        elif layout == 'intro-agenda':
+            agenda_items = []
+            for block in slide.get('content_blocks', []):
+                if block.get('type') == 'bullets':
+                    agenda_items.extend(block.get('items', []))
+
+            html_parts.append('  <div class="intro-agenda-slide">')
+            html_parts.append('    <div class="intro-accent-bar" style="margin-left: 0; margin-bottom: 0;"></div>')
+            html_parts.append('    <div class="intro-agenda-wave"></div>')
+            html_parts.append('    <div class="intro-agenda-content">')
+            html_parts.append(f'      <div class="intro-content-title">{title}</div>')
+            html_parts.append('      <ul class="intro-list intro-agenda-list">')
+            for item in agenda_items:
+                html_parts.append(f'        <li>{item}</li>')
+            html_parts.append('      </ul>')
+            html_parts.append('    </div>')
+            html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
+            html_parts.append('  </div>')
+            if notes:
+                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+            html_parts.append('</div>')
+            continue
+
+        elif layout == 'course-title':
             html_parts.append('  <div class="course-title-slide">')
             html_parts.append(f'    <div class="title">{title}</div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')

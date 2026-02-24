@@ -86,7 +86,15 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
         logger.info(f"Processing slide {idx + 1}/{len(slides_html)}")
         
         slide = None
-        if slide_html.find(class_='course-title-slide'):
+        if slide_html.find(class_='intro-cover-slide'):
+            slide = create_intro_cover_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+        elif slide_html.find(class_='intro-legal-slide'):
+            slide = create_intro_legal_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+        elif slide_html.find(class_='intro-agenda-slide'):
+            slide = create_intro_agenda_slide(prs, blank_layout, slide_html, logo_bytes)
+        elif slide_html.find(class_='intro-content-slide'):
+            slide = create_intro_content_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+        elif slide_html.find(class_='course-title-slide'):
             slide = create_course_title_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='module-title-slide'):
             slide = create_module_title_slide(prs, blank_layout, slide_html, logo_bytes)
@@ -222,6 +230,290 @@ def add_content_image(slide, img_url: str, position: str, ctx: dict):
         logger.info(f"✅ Added image at {position}")
     except Exception as e:
         logger.warning(f"Could not add image: {e}")
+
+
+def download_image_bytes(img_url: str, ctx: dict) -> bytes:
+    """Download an image from S3-backed URL or HTTP URL."""
+    if not img_url:
+        return None
+
+    # Prefer S3 direct read when possible (works for presigned and S3 URLs)
+    img_bytes = download_image_from_s3(ctx.get('s3_client'), ctx.get('bucket'), img_url)
+    if img_bytes:
+        return img_bytes
+
+    try:
+        response = requests.get(img_url, timeout=15)
+        if response.status_code == 200:
+            return response.content
+    except Exception as e:
+        logger.warning(f"Could not download image over HTTP: {e}")
+
+    return None
+
+
+def add_logo_bottom_left(slide, logo_bytes):
+    """Add Netec logo at bottom-left (intro style)."""
+    if not logo_bytes:
+        return
+
+    try:
+        logo_stream = io.BytesIO(logo_bytes)
+        slide.shapes.add_picture(
+            logo_stream,
+            Inches(0.22),
+            Inches(6.63),
+            width=Inches(1.95),
+            height=Inches(0.73)
+        )
+    except Exception as e:
+        logger.warning(f"Could not add bottom-left logo: {e}")
+
+
+def _safe_add_picture(slide, image_bytes: bytes, left, top, width=None, height=None) -> bool:
+    """Safely add image to slide, returning False instead of raising on unsupported formats."""
+    if not image_bytes:
+        return False
+    try:
+        stream = io.BytesIO(image_bytes)
+        if width is not None and height is not None:
+            slide.shapes.add_picture(stream, left, top, width=width, height=height)
+        elif width is not None:
+            slide.shapes.add_picture(stream, left, top, width=width)
+        elif height is not None:
+            slide.shapes.add_picture(stream, left, top, height=height)
+        else:
+            slide.shapes.add_picture(stream, left, top)
+        return True
+    except Exception as e:
+        logger.warning(f"Could not place image on slide: {e}")
+        return False
+
+
+def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
+    """Corporate cover: left title panel, right hero image, countries strip and contact text."""
+    slide = prs.slides.add_slide(layout)
+
+    # Background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Left panel subtle white shape
+    left_panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(6.0), Inches(7.5))
+    left_panel.fill.solid()
+    left_panel.fill.fore_color.rgb = RGBColor(245, 245, 245)
+    left_panel.line.fill.background()
+
+    # Accent bar
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.84), Inches(0.66), Inches(0.5), Inches(0.08))
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
+
+    # Title
+    title_elem = slide_html.find(class_='intro-cover-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Curso"
+    title_box = slide.shapes.add_textbox(Inches(0.8), Inches(2.1), Inches(4.8), Inches(2.8))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(44)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = RGBColor(0, 60, 120)
+    p.alignment = PP_ALIGN.CENTER
+
+    # Right hero image
+    hero = slide_html.find('img', class_='intro-cover-main-image')
+    hero_bytes = download_image_bytes(hero.get('src') if hero else '', ctx)
+    _safe_add_picture(slide, hero_bytes, Inches(5.95), Inches(0.9), width=Inches(7.0), height=Inches(5.75))
+
+    # Countries strip
+    countries = slide_html.find('img', class_='intro-cover-countries')
+    countries_bytes = download_image_bytes(countries.get('src') if countries else '', ctx)
+    _safe_add_picture(slide, countries_bytes, Inches(9.2), Inches(6.55), width=Inches(3.5), height=Inches(0.55))
+
+    # Contact text
+    contact = slide_html.find(class_='intro-cover-contact')
+    if contact:
+        t = slide.shapes.add_textbox(Inches(8.45), Inches(7.05), Inches(4.7), Inches(0.32))
+        p = t.text_frame.paragraphs[0]
+        p.text = contact.get_text(strip=True)
+        p.font.size = Pt(16)
+        p.font.color.rgb = RGBColor(30, 30, 30)
+        p.font.name = FONTS['body']
+        p.alignment = PP_ALIGN.RIGHT
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
+
+
+def create_intro_legal_slide(prs, layout, slide_html, logo_bytes, ctx):
+    """Corporate legal slide with left icon and right legal paragraphs."""
+    slide = prs.slides.add_slide(layout)
+
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    icon = slide_html.find('img', class_='intro-legal-icon')
+    icon_bytes = download_image_bytes(icon.get('src') if icon else '', ctx)
+    _safe_add_picture(slide, icon_bytes, Inches(0.9), Inches(1.8), width=Inches(3.2), height=Inches(3.9))
+
+    # Accent bar + title
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.85), Inches(0.66), Inches(0.5), Inches(0.08))
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
+
+    title_elem = slide_html.find(class_='intro-content-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Propiedad intelectual"
+    title_box = slide.shapes.add_textbox(Inches(5.85), Inches(1.0), Inches(6.7), Inches(1.3))
+    p = title_box.text_frame.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(40)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = RGBColor(0, 0, 0)
+
+    # Divider
+    divider = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.85), Inches(2.35), Inches(6.95), Inches(0.02))
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(195, 195, 195)
+    divider.line.fill.background()
+
+    paragraphs = [p.get_text(strip=True) for p in slide_html.select('.intro-paragraphs p') if p.get_text(strip=True)]
+    text_box = slide.shapes.add_textbox(Inches(5.85), Inches(2.45), Inches(6.9), Inches(4.7))
+    tf = text_box.text_frame
+    tf.word_wrap = True
+    for i, txt in enumerate(paragraphs):
+        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        para.text = txt
+        para.font.size = Pt(18)
+        para.font.name = FONTS['body']
+        para.font.color.rgb = RGBColor(25, 25, 25)
+        para.space_after = Pt(8)
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
+
+
+def create_intro_content_slide(prs, layout, slide_html, logo_bytes, ctx):
+    """Corporate content intro slide: left text/list and right asset image."""
+    slide = prs.slides.add_slide(layout)
+
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Accent bar
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.83), Inches(0.66), Inches(0.5), Inches(0.08))
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
+
+    title_elem = slide_html.find(class_='intro-content-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else ""
+    subtitle_elem = slide_html.find(class_='intro-subtitle')
+    subtitle_text = subtitle_elem.get_text(strip=True) if subtitle_elem else ""
+
+    title_box = slide.shapes.add_textbox(Inches(0.83), Inches(1.0), Inches(6.2), Inches(1.2))
+    p = title_box.text_frame.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(40)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = RGBColor(0, 0, 0)
+
+    current_top = Inches(2.2)
+    if subtitle_text:
+        sub_box = slide.shapes.add_textbox(Inches(0.83), current_top, Inches(6.2), Inches(0.7))
+        sp = sub_box.text_frame.paragraphs[0]
+        sp.text = subtitle_text
+        sp.font.size = Pt(22)
+        sp.font.name = FONTS['body']
+        sp.font.color.rgb = RGBColor(20, 20, 20)
+        current_top = Inches(2.9)
+
+    # Divider
+    divider = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.83), current_top, Inches(6.6), Inches(0.02))
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(195, 195, 195)
+    divider.line.fill.background()
+    current_top = current_top + Inches(0.12)
+
+    list_items = [li.get_text(strip=True) for li in slide_html.select('ul.intro-list li') if li.get_text(strip=True)]
+    text_box = slide.shapes.add_textbox(Inches(0.9), current_top, Inches(6.35), Inches(4.4))
+    tf = text_box.text_frame
+    tf.word_wrap = True
+    red_bullets = bool(slide_html.select('ul.red-bullets'))
+    for i, txt in enumerate(list_items):
+        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        para.level = 0
+        para.text = txt
+        para.font.size = Pt(21)
+        para.font.name = FONTS['body']
+        para.font.color.rgb = RGBColor(210, 0, 0) if red_bullets else RGBColor(20, 20, 20)
+        para.space_after = Pt(6)
+
+    asset = slide_html.find('img', class_='intro-right-asset')
+    asset_bytes = download_image_bytes(asset.get('src') if asset else '', ctx)
+    _safe_add_picture(slide, asset_bytes, Inches(7.6), Inches(1.0), width=Inches(5.2), height=Inches(5.5))
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
+
+
+def create_intro_agenda_slide(prs, layout, slide_html, logo_bytes):
+    """Corporate agenda/temario slide with large chapter list and max readability."""
+    slide = prs.slides.add_slide(layout)
+
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0.58), Inches(0.14), Inches(0.82))
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
+
+    # Soft horizontal separator
+    sep = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(1.82), Inches(13.333), Inches(0.03))
+    sep.fill.solid()
+    sep.fill.fore_color.rgb = RGBColor(220, 220, 220)
+    sep.line.fill.background()
+
+    title_elem = slide_html.find(class_='intro-content-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Temario"
+    title_box = slide.shapes.add_textbox(Inches(1.0), Inches(0.64), Inches(6.5), Inches(0.95))
+    p = title_box.text_frame.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(40)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = RGBColor(0, 0, 0)
+
+    agenda_items = [li.get_text(strip=True) for li in slide_html.select('ul.intro-agenda-list li') if li.get_text(strip=True)]
+    list_box = slide.shapes.add_textbox(Inches(1.08), Inches(2.45), Inches(11.0), Inches(3.9))
+    tf = list_box.text_frame
+    tf.word_wrap = True
+    for i, txt in enumerate(agenda_items):
+        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        para.text = txt
+        para.font.size = Pt(27)
+        para.font.bold = True
+        para.font.name = FONTS['body']
+        para.font.color.rgb = RGBColor(20, 20, 20)
+        para.space_after = Pt(10)
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
 
 
 def create_course_title_slide(prs, layout, slide_html, logo_bytes):
