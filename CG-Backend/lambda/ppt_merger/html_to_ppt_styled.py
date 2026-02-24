@@ -37,8 +37,8 @@ COLORS = {
 }
 
 FONTS = {
-    'title': 'Segoe UI',
-    'body': 'Segoe UI', 
+    'title': 'Neue Haas Grotesk Text Pro',
+    'body': 'Neue Haas Grotesk Text Pro', 
     'code': 'Consolas',
 }
 
@@ -290,6 +290,60 @@ def _safe_add_picture(slide, image_bytes: bytes, left, top, width=None, height=N
         return False
 
 
+def add_intro_accent_bar(slide):
+    """Add the yellow accent line in a consistent position for all intro slides."""
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.53), Inches(0.46), Inches(0.82), Inches(0.08))
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
+
+
+def _add_agenda_item_paragraph(text_frame, item_text: str):
+    """Add one agenda row with yellow bullet, bold chapter prefix, and normal remainder."""
+    raw = (item_text or '').strip()
+    if not raw:
+        return
+
+    match = re.match(r'^\s*((?:Cap[ií]tulo|Chapter|Module)\s+\d+\s*:)\s*(.*)$', raw, flags=re.IGNORECASE)
+
+    para = text_frame.paragraphs[0] if not text_frame.paragraphs[0].text and len(text_frame.paragraphs) == 1 else text_frame.add_paragraph()
+    para.level = 0
+    para.space_after = Pt(8)
+
+    bullet_run = para.add_run()
+    bullet_run.text = "• "
+    bullet_run.font.size = Pt(24)
+    bullet_run.font.bold = True
+    bullet_run.font.name = FONTS['body']
+    bullet_run.font.color.rgb = COLORS['bullet_marker']
+
+    if match:
+        prefix = match.group(1).strip()
+        rest = match.group(2).strip()
+
+        prefix_run = para.add_run()
+        prefix_run.text = prefix + (" " if rest else "")
+        prefix_run.font.size = Pt(27)
+        prefix_run.font.bold = True
+        prefix_run.font.name = FONTS['body']
+        prefix_run.font.color.rgb = RGBColor(20, 20, 20)
+
+        if rest:
+            rest_run = para.add_run()
+            rest_run.text = rest
+            rest_run.font.size = Pt(27)
+            rest_run.font.bold = False
+            rest_run.font.name = FONTS['body']
+            rest_run.font.color.rgb = RGBColor(20, 20, 20)
+    else:
+        full_run = para.add_run()
+        full_run.text = raw
+        full_run.font.size = Pt(27)
+        full_run.font.bold = False
+        full_run.font.name = FONTS['body']
+        full_run.font.color.rgb = RGBColor(20, 20, 20)
+
+
 def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
     """Corporate cover: left title panel, right hero image, countries strip and contact text."""
     slide = prs.slides.add_slide(layout)
@@ -306,25 +360,22 @@ def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
     left_panel.fill.fore_color.rgb = RGBColor(245, 245, 245)
     left_panel.line.fill.background()
 
-    # Accent bar
-    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.84), Inches(0.66), Inches(0.5), Inches(0.08))
-    accent.fill.solid()
-    accent.fill.fore_color.rgb = COLORS['bullet_marker']
-    accent.line.fill.background()
+    # Accent bar (fixed position across intro slides)
+    add_intro_accent_bar(slide)
 
     # Title
     title_elem = slide_html.find(class_='intro-cover-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Curso"
-    title_box = slide.shapes.add_textbox(Inches(0.8), Inches(2.1), Inches(4.8), Inches(2.8))
+    title_box = slide.shapes.add_textbox(Inches(0.58), Inches(2.05), Inches(6.15), Inches(3.2))
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(44)
+    p.font.size = Pt(48)
     p.font.bold = True
     p.font.name = FONTS['title']
     p.font.color.rgb = RGBColor(0, 60, 120)
-    p.alignment = PP_ALIGN.CENTER
+    p.alignment = PP_ALIGN.LEFT
 
     # Right hero image
     hero = slide_html.find('img', class_='intro-cover-main-image')
@@ -338,11 +389,12 @@ def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
 
     # Contact text
     contact = slide_html.find(class_='intro-cover-contact')
-    if contact:
-        t = slide.shapes.add_textbox(Inches(8.45), Inches(7.05), Inches(4.7), Inches(0.32))
+    contact_text = contact.get_text(strip=True) if contact else "www.netec.com | servicio@netec.com"
+    if contact_text:
+        t = slide.shapes.add_textbox(Inches(8.35), Inches(6.98), Inches(4.9), Inches(0.32))
         p = t.text_frame.paragraphs[0]
-        p.text = contact.get_text(strip=True)
-        p.font.size = Pt(16)
+        p.text = contact_text
+        p.font.size = Pt(14)
         p.font.color.rgb = RGBColor(30, 30, 30)
         p.font.name = FONTS['body']
         p.alignment = PP_ALIGN.RIGHT
@@ -365,10 +417,7 @@ def create_intro_legal_slide(prs, layout, slide_html, logo_bytes, ctx):
     _safe_add_picture(slide, icon_bytes, Inches(0.9), Inches(1.8), width=Inches(3.2), height=Inches(3.9))
 
     # Accent bar + title
-    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.85), Inches(0.66), Inches(0.5), Inches(0.08))
-    accent.fill.solid()
-    accent.fill.fore_color.rgb = COLORS['bullet_marker']
-    accent.line.fill.background()
+    add_intro_accent_bar(slide)
 
     title_elem = slide_html.find(class_='intro-content-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Propiedad intelectual"
@@ -412,10 +461,7 @@ def create_intro_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     fill.fore_color.rgb = RGBColor(239, 239, 239)
 
     # Accent bar
-    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.83), Inches(0.66), Inches(0.5), Inches(0.08))
-    accent.fill.solid()
-    accent.fill.fore_color.rgb = COLORS['bullet_marker']
-    accent.line.fill.background()
+    add_intro_accent_bar(slide)
 
     title_elem = slide_html.find(class_='intro-content-title')
     title_text = title_elem.get_text(strip=True) if title_elem else ""
@@ -478,10 +524,7 @@ def create_intro_agenda_slide(prs, layout, slide_html, logo_bytes):
     fill.solid()
     fill.fore_color.rgb = RGBColor(239, 239, 239)
 
-    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0.58), Inches(0.14), Inches(0.82))
-    accent.fill.solid()
-    accent.fill.fore_color.rgb = COLORS['bullet_marker']
-    accent.line.fill.background()
+    add_intro_accent_bar(slide)
 
     # Soft horizontal separator
     sep = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(1.82), Inches(13.333), Inches(0.03))
@@ -491,7 +534,7 @@ def create_intro_agenda_slide(prs, layout, slide_html, logo_bytes):
 
     title_elem = slide_html.find(class_='intro-content-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Temario"
-    title_box = slide.shapes.add_textbox(Inches(1.0), Inches(0.64), Inches(6.5), Inches(0.95))
+    title_box = slide.shapes.add_textbox(Inches(1.0), Inches(0.66), Inches(6.5), Inches(0.95))
     p = title_box.text_frame.paragraphs[0]
     p.text = title_text
     p.font.size = Pt(40)
@@ -500,17 +543,12 @@ def create_intro_agenda_slide(prs, layout, slide_html, logo_bytes):
     p.font.color.rgb = RGBColor(0, 0, 0)
 
     agenda_items = [li.get_text(strip=True) for li in slide_html.select('ul.intro-agenda-list li') if li.get_text(strip=True)]
-    list_box = slide.shapes.add_textbox(Inches(1.08), Inches(2.45), Inches(11.0), Inches(3.9))
+    list_box = slide.shapes.add_textbox(Inches(1.08), Inches(2.34), Inches(11.0), Inches(3.95))
     tf = list_box.text_frame
     tf.word_wrap = True
-    for i, txt in enumerate(agenda_items):
-        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        para.text = txt
-        para.font.size = Pt(27)
-        para.font.bold = True
-        para.font.name = FONTS['body']
-        para.font.color.rgb = RGBColor(20, 20, 20)
-        para.space_after = Pt(10)
+    tf.clear()
+    for txt in agenda_items:
+        _add_agenda_item_paragraph(tf, txt)
 
     add_logo_bottom_left(slide, logo_bytes)
     return slide

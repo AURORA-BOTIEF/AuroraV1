@@ -2397,22 +2397,42 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         'objectives': 'Objetivos.jpg',
         'prerequisites': 'Prerrequisitos.png',
         'audience': 'Audiencia.png',
-        'group': 'Presentación.png'
+        'group': 'Presentacion.png'
     }
 
-    def _asset_url_from_s3(filename: str) -> str:
-        asset_key = f"logo/Assets/{filename}"
-        fallback = f"https://crewai-course-artifacts.s3.amazonaws.com/logo/Assets/{quote(filename)}"
-        try:
-            return s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': 'crewai-course-artifacts', 'Key': asset_key},
-                ExpiresIn=3600
-            )
-        except Exception:
-            return fallback
+    def _asset_url_from_s3(*filenames: str) -> str:
+        safe_filenames = [f for f in filenames if f]
+        if not safe_filenames:
+            return ''
 
-    corporate_assets = {k: _asset_url_from_s3(v) for k, v in corporate_asset_files.items()}
+        for filename in safe_filenames:
+            asset_key = f"logo/Assets/{filename}"
+            try:
+                # Validate existence first so we can fallback across filename variants
+                s3_client.head_object(Bucket='crewai-course-artifacts', Key=asset_key)
+                return s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': 'crewai-course-artifacts', 'Key': asset_key},
+                    ExpiresIn=3600
+                )
+            except Exception:
+                continue
+
+        # Last-resort direct URL for first candidate
+        first = safe_filenames[0]
+        return f"https://crewai-course-artifacts.s3.amazonaws.com/logo/Assets/{quote(first)}"
+
+    corporate_assets = {
+        'cover': _asset_url_from_s3(corporate_asset_files['cover']),
+        'countries': _asset_url_from_s3(corporate_asset_files['countries']),
+        'intellectual': _asset_url_from_s3(corporate_asset_files['intellectual']),
+        'description': _asset_url_from_s3(corporate_asset_files['description']),
+        'objectives': _asset_url_from_s3(corporate_asset_files['objectives']),
+        'prerequisites': _asset_url_from_s3(corporate_asset_files['prerequisites']),
+        'audience': _asset_url_from_s3(corporate_asset_files['audience']),
+        # Support both names, prefer non-accented as requested
+        'group': _asset_url_from_s3('Presentacion.png', 'Presentación.png')
+    }
     
     if image_url_mapping:
         logger.info(f"🔑 Generating presigned URLs for {len(image_url_mapping)} images...")
@@ -2474,7 +2494,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         
         body {{ 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Neue Haas Grotesk Text Pro', 'Helvetica Neue', Arial, sans-serif;
             background: {colors['bg']};
             padding: 20px;
         }}
@@ -3173,7 +3193,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .intro-cover-left {{
             padding: 48px 46px 44px 60px;
             position: relative;
-            overflow: hidden;
+            overflow: visible;
+            z-index: 2;
         }}
 
         .intro-cover-left::after {{
@@ -3188,30 +3209,44 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             border: 2px solid rgba(0, 0, 0, 0.04);
         }}
 
-        .intro-accent-bar {{
-            width: 52px;
+        .intro-global-accent {{
+            position: absolute;
+            left: 52px;
+            top: 44px;
+            width: 80px;
             height: 8px;
             background: {colors['accent']};
-            margin-bottom: 34px;
+            z-index: 10;
+        }}
+
+        .intro-accent-bar {{
+            width: 80px;
+            height: 8px;
+            background: {colors['accent']};
+            margin-bottom: 24px;
         }}
 
         .intro-cover-title {{
-            margin-top: 140px;
+            margin-top: 128px;
             font-size: 62pt;
             line-height: 1.06;
             font-weight: 800;
             color: {colors['primary']};
             position: relative;
             z-index: 2;
+            max-width: 740px;
+            margin-right: -120px;
         }}
 
         .intro-cover-right {{
             padding: 56px 50px 34px 20px;
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: flex-end;
             justify-content: flex-start;
             gap: 14px;
+            z-index: 4;
         }}
 
         .intro-cover-main-image {{
@@ -3226,7 +3261,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             width: 320px;
             height: auto;
             object-fit: contain;
-            margin-top: 6px;
+            margin-top: auto;
         }}
 
         .intro-cover-contact {{
@@ -3235,6 +3270,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             font-size: 22pt;
             color: #1a1a1a;
             line-height: 1.1;
+            white-space: nowrap;
         }}
 
         .intro-logo-bottom-left {{
@@ -3249,7 +3285,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .intro-content-slide {{
             height: 100%;
             background: #efefef;
-            padding: 54px 48px 40px 50px;
+            padding: 90px 48px 40px 50px;
             position: relative;
             display: grid;
             grid-template-columns: 56% 44%;
@@ -3329,7 +3365,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .intro-legal-slide {{
             height: 100%;
             background: #efefef;
-            padding: 54px 40px 36px 42px;
+            padding: 90px 40px 36px 42px;
             display: grid;
             grid-template-columns: 38% 62%;
             gap: 24px;
@@ -3349,14 +3385,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             height: 100%;
             background: #efefef;
             position: relative;
-            padding: 44px 0 0;
+            padding: 90px 0 0;
         }}
 
         .intro-agenda-wave {{
             position: absolute;
             left: 0;
             right: 0;
-            top: 145px;
+            top: 168px;
             height: 26px;
             background: linear-gradient(to bottom, rgba(255,255,255,0.45), rgba(220,220,220,0.25));
             border-bottom: 1px solid rgba(0,0,0,0.08);
@@ -3365,19 +3401,42 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .intro-agenda-content {{
             position: relative;
             z-index: 2;
-            padding: 16px 90px 0 102px;
+            padding: 18px 90px 0 102px;
         }}
 
         .intro-agenda-content .intro-content-title {{
             margin-bottom: 26px;
         }}
 
+        .intro-agenda-list {{
+            list-style: none;
+            padding-left: 0;
+            max-height: 430px;
+            overflow: hidden;
+        }}
+
         .intro-agenda-list li {{
-            font-size: 54px;
-            line-height: 1.14;
-            margin: 16px 0;
-            font-weight: 700;
+            position: relative;
+            padding-left: 34px;
+            font-size: 42px;
+            line-height: 1.18;
+            margin: 14px 0;
+            font-weight: 400;
             color: #111;
+        }}
+
+        .intro-agenda-list li::before {{
+            content: '•';
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: {colors['accent']};
+            font-size: 38px;
+            line-height: 1.12;
+        }}
+
+        .agenda-chapter-prefix {{
+            font-weight: 800;
         }}
         
         /* Legacy branded-title (for thank you slide) */
@@ -3510,6 +3569,19 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     # Use presigned logo URL
     logo_url = logo_presigned_url
     
+    def _format_intro_agenda_item(item_text: str) -> str:
+        raw = str(item_text or '').strip()
+        if not raw:
+            return ''
+
+        chapter_match = re.match(r'^\s*((?:Cap[ií]tulo|Chapter|Module)\s+\d+\s*:)\s*(.*)$', raw, flags=re.IGNORECASE)
+        if not chapter_match:
+            return html_module.escape(raw)
+
+        prefix = html_module.escape(chapter_match.group(1).strip())
+        remainder = html_module.escape(chapter_match.group(2).strip())
+        return f'<span class="agenda-chapter-prefix">{prefix}</span> {remainder}'
+
     # Generate each slide
     for slide_idx, slide in enumerate(slides, 1):
         layout = slide.get('layout') or slide.get('layout_hint', 'single-column')
@@ -3522,8 +3594,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         # Special layouts for title slides
         if layout == 'intro-cover':
             html_parts.append('  <div class="intro-cover-slide">')
+            html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-cover-left">')
-            html_parts.append('      <div class="intro-accent-bar"></div>')
             html_parts.append(f'      <div class="intro-cover-title">{title}</div>')
             html_parts.append(f'      <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
             html_parts.append('    </div>')
@@ -3545,9 +3617,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     legal_items.extend(block.get('items', []))
 
             html_parts.append('  <div class="intro-legal-slide">')
+            html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append(f'    <img src="{corporate_assets["intellectual"]}" class="intro-legal-icon" alt="Propiedad Intelectual">')
             html_parts.append('    <div class="intro-main-col">')
-            html_parts.append('      <div class="intro-accent-bar"></div>')
             html_parts.append(f'      <div class="intro-content-title">{title}</div>')
             html_parts.append('      <div class="intro-divider"></div>')
             html_parts.append('      <div class="intro-paragraphs">')
@@ -3580,8 +3652,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             list_class = 'intro-list red-bullets' if layout == 'intro-objectives' else 'intro-list'
 
             html_parts.append(f'  <div class="intro-content-slide{extra_class}">')
+            html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-main-col">')
-            html_parts.append('      <div class="intro-accent-bar"></div>')
             html_parts.append(f'      <div class="intro-content-title">{title}</div>')
             if subtitle:
                 html_parts.append(f'      <div class="intro-subtitle">{subtitle}</div>')
@@ -3606,13 +3678,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     agenda_items.extend(block.get('items', []))
 
             html_parts.append('  <div class="intro-agenda-slide">')
-            html_parts.append('    <div class="intro-accent-bar" style="margin-left: 0; margin-bottom: 0;"></div>')
+            html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-agenda-wave"></div>')
             html_parts.append('    <div class="intro-agenda-content">')
             html_parts.append(f'      <div class="intro-content-title">{title}</div>')
             html_parts.append('      <ul class="intro-list intro-agenda-list">')
             for item in agenda_items:
-                html_parts.append(f'        <li>{item}</li>')
+                html_parts.append(f'        <li>{_format_intro_agenda_item(item)}</li>')
             html_parts.append('      </ul>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
