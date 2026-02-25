@@ -262,7 +262,7 @@ def add_logo_bottom_left(slide, logo_bytes):
         slide.shapes.add_picture(
             logo_stream,
             Inches(0.22),
-            Inches(6.63),
+            Inches(6.58),
             width=Inches(1.95),
             height=Inches(0.73)
         )
@@ -308,11 +308,11 @@ def _add_agenda_item_paragraph(text_frame, item_text: str):
 
     para = text_frame.paragraphs[0] if not text_frame.paragraphs[0].text and len(text_frame.paragraphs) == 1 else text_frame.add_paragraph()
     para.level = 0
-    para.space_after = Pt(8)
+    para.space_after = Pt(7)
 
     bullet_run = para.add_run()
     bullet_run.text = "• "
-    bullet_run.font.size = Pt(24)
+    bullet_run.font.size = Pt(20)
     bullet_run.font.bold = True
     bullet_run.font.name = FONTS['body']
     bullet_run.font.color.rgb = COLORS['bullet_marker']
@@ -323,7 +323,7 @@ def _add_agenda_item_paragraph(text_frame, item_text: str):
 
         prefix_run = para.add_run()
         prefix_run.text = prefix + (" " if rest else "")
-        prefix_run.font.size = Pt(27)
+        prefix_run.font.size = Pt(22)
         prefix_run.font.bold = True
         prefix_run.font.name = FONTS['body']
         prefix_run.font.color.rgb = RGBColor(20, 20, 20)
@@ -331,14 +331,14 @@ def _add_agenda_item_paragraph(text_frame, item_text: str):
         if rest:
             rest_run = para.add_run()
             rest_run.text = rest
-            rest_run.font.size = Pt(27)
+            rest_run.font.size = Pt(22)
             rest_run.font.bold = False
             rest_run.font.name = FONTS['body']
             rest_run.font.color.rgb = RGBColor(20, 20, 20)
     else:
         full_run = para.add_run()
         full_run.text = raw
-        full_run.font.size = Pt(27)
+        full_run.font.size = Pt(22)
         full_run.font.bold = False
         full_run.font.name = FONTS['body']
         full_run.font.color.rgb = RGBColor(20, 20, 20)
@@ -366,7 +366,7 @@ def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
     # Title
     title_elem = slide_html.find(class_='intro-cover-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Curso"
-    title_box = slide.shapes.add_textbox(Inches(0.58), Inches(2.05), Inches(6.15), Inches(3.2))
+    title_box = slide.shapes.add_textbox(Inches(0.58), Inches(2.05), Inches(5.75), Inches(3.2))
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
@@ -380,21 +380,21 @@ def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
     # Right hero image
     hero = slide_html.find('img', class_='intro-cover-main-image')
     hero_bytes = download_image_bytes(hero.get('src') if hero else '', ctx)
-    _safe_add_picture(slide, hero_bytes, Inches(5.95), Inches(0.9), width=Inches(7.0), height=Inches(5.75))
+    _safe_add_picture(slide, hero_bytes, Inches(6.02), Inches(0.9), width=Inches(6.93), height=Inches(5.75))
 
     # Countries strip
     countries = slide_html.find('img', class_='intro-cover-countries')
     countries_bytes = download_image_bytes(countries.get('src') if countries else '', ctx)
-    _safe_add_picture(slide, countries_bytes, Inches(9.2), Inches(6.55), width=Inches(3.5), height=Inches(0.55))
+    _safe_add_picture(slide, countries_bytes, Inches(9.2), Inches(6.53), width=Inches(3.5), height=Inches(0.55))
 
     # Contact text
     contact = slide_html.find(class_='intro-cover-contact')
     contact_text = contact.get_text(strip=True) if contact else "www.netec.com | servicio@netec.com"
     if contact_text:
-        t = slide.shapes.add_textbox(Inches(8.35), Inches(6.98), Inches(4.9), Inches(0.32))
+        t = slide.shapes.add_textbox(Inches(8.3), Inches(7.0), Inches(4.95), Inches(0.28))
         p = t.text_frame.paragraphs[0]
         p.text = contact_text
-        p.font.size = Pt(14)
+        p.font.size = Pt(12)
         p.font.color.rgb = RGBColor(30, 30, 30)
         p.font.name = FONTS['body']
         p.alignment = PP_ALIGN.RIGHT
@@ -497,14 +497,25 @@ def create_intro_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     text_box = slide.shapes.add_textbox(Inches(0.9), current_top, Inches(6.35), Inches(4.4))
     tf = text_box.text_frame
     tf.word_wrap = True
-    red_bullets = bool(slide_html.select('ul.red-bullets'))
-    for i, txt in enumerate(list_items):
-        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+    tf.clear()
+    for txt in list_items:
+        para = tf.paragraphs[0] if not tf.paragraphs[0].text and len(tf.paragraphs) == 1 else tf.add_paragraph()
         para.level = 0
-        para.text = txt
-        para.font.size = Pt(21)
-        para.font.name = FONTS['body']
-        para.font.color.rgb = RGBColor(210, 0, 0) if red_bullets else RGBColor(20, 20, 20)
+
+        bullet_run = para.add_run()
+        bullet_run.text = "• "
+        bullet_run.font.size = Pt(22)
+        bullet_run.font.bold = True
+        bullet_run.font.name = FONTS['body']
+        bullet_run.font.color.rgb = COLORS['bullet_marker']
+
+        text_run = para.add_run()
+        text_run.text = txt
+        text_run.font.size = Pt(21)
+        text_run.font.bold = False
+        text_run.font.name = FONTS['body']
+        text_run.font.color.rgb = RGBColor(20, 20, 20)
+
         para.space_after = Pt(6)
 
     asset = slide_html.find('img', class_='intro-right-asset')
@@ -924,10 +935,17 @@ def add_bullets(slide, bullets_elem, top, left=None, width=None):
                 nested_text = nested_li.get_text(strip=True)
                 if nested_text:
                     np = tf.add_paragraph()
-                    np.text = f"    ○ {nested_text}"
-                    np.font.size = Pt(18)
-                    np.font.name = FONTS['body']
-                    np.font.color.rgb = COLORS['text_dark']
+                    run_symbol_nested = np.add_run()
+                    run_symbol_nested.text = "    ○ "
+                    run_symbol_nested.font.size = Pt(18)
+                    run_symbol_nested.font.name = FONTS['body']
+                    run_symbol_nested.font.color.rgb = COLORS['bullet_marker']
+
+                    run_text_nested = np.add_run()
+                    run_text_nested.text = nested_text
+                    run_text_nested.font.size = Pt(18)
+                    run_text_nested.font.name = FONTS['body']
+                    run_text_nested.font.color.rgb = COLORS['text_black']
                     np.space_before = Pt(4)
     
     return top + Inches(len(items) * 0.5)

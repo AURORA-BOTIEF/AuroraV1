@@ -2588,7 +2588,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             content: '○';
             position: absolute;
             left: -20px;
-            color: {colors['primary']};
+            color: {colors['accent']};
             font-size: 12pt;
         }}
         
@@ -3235,7 +3235,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             position: relative;
             z-index: 2;
             max-width: 740px;
-            margin-right: -120px;
+            margin-right: -72px;
         }}
 
         .intro-cover-right {{
@@ -3261,25 +3261,32 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             width: 320px;
             height: auto;
             object-fit: contain;
-            margin-top: auto;
+            position: absolute;
+            right: 50px;
+            bottom: 32px;
+            margin-top: 0;
         }}
 
         .intro-cover-contact {{
-            width: 100%;
+            position: absolute;
+            right: 50px;
+            bottom: 0;
+            width: auto;
             text-align: right;
-            font-size: 22pt;
+            font-size: 18pt;
             color: #1a1a1a;
             line-height: 1.1;
             white-space: nowrap;
+            z-index: 9;
         }}
 
         .intro-logo-bottom-left {{
             position: absolute;
-            bottom: 18px;
+            bottom: 8px;
             left: 22px;
             width: 190px;
             height: auto;
-            z-index: 5;
+            z-index: 10;
         }}
 
         .intro-content-slide {{
@@ -3324,20 +3331,29 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
 
         .intro-list {{
             margin: 0;
-            padding-left: 34px;
+            padding-left: 0;
+            list-style: none;
             max-height: 430px;
             overflow: hidden;
         }}
 
         .intro-list li {{
+            position: relative;
+            padding-left: 34px;
             font-size: 21pt;
             color: #111;
             line-height: 1.3;
             margin: 8px 0;
         }}
 
-        .intro-list.red-bullets li::marker {{
-            color: #d50000;
+        .intro-list li::before {{
+            content: '•';
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: {colors['accent']};
+            font-size: 28px;
+            line-height: 1.1;
         }}
 
         .intro-paragraphs {{
@@ -3418,7 +3434,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .intro-agenda-list li {{
             position: relative;
             padding-left: 34px;
-            font-size: 42px;
+            font-size: 34px;
             line-height: 1.18;
             margin: 14px 0;
             font-weight: 400;
@@ -3431,7 +3447,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             left: 0;
             top: 0;
             color: {colors['accent']};
-            font-size: 38px;
+            font-size: 30px;
             line-height: 1.12;
         }}
 
