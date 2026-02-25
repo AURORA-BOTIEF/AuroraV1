@@ -1,7 +1,9 @@
 import json
+import yaml
 import boto3
 import os
 import logging
+import re
 from html_to_ppt_styled import convert_html_to_pptx
 
 # Configure logging
@@ -90,9 +92,17 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Infographic HTML not found. Please generate it first.'})
             }
 
+        # Load supplementary data for enriching module/lesson title slides
+        book_data = _load_supplementary_data(s3_client, course_bucket, project_folder)
+
         # Convert to PPT
         logger.info("Converting HTML to PPT with style mapping...")
-        pptx_bytes = convert_html_to_pptx(html_content, s3_client=s3_client, course_bucket=course_bucket)
+        pptx_bytes = convert_html_to_pptx(
+            html_content,
+            s3_client=s3_client,
+            course_bucket=course_bucket,
+            book_data=book_data,
+        )
         
         # Upload PPT to S3
         logger.info(f"Uploading PPT to S3: {ppt_key} ({len(pptx_bytes)} bytes)")
@@ -136,6 +146,34 @@ def lambda_handler(event, context):
             'headers': cors_headers(),
             'body': json.dumps({'error': str(e)})
         }
+
+
+def _load_supplementary_data(s3_client, course_bucket, project_folder):
+    """Load outline YAML and book JSON so the PPT converter can enrich
+    module-title and lesson-title slides that were generated with older HTML."""
+    result = {'outline_modules': [], 'book_modules': []}
+    # --- Outline YAML ---
+    try:
+        prefix = f"{project_folder}/outline/"
+        resp = s3_client.list_objects_v2(Bucket=course_bucket, Prefix=prefix)
+        yaml_keys = [o['Key'] for o in resp.get('Contents', []) if o['Key'].endswith('.yaml')]
+        if yaml_keys:
+            obj = s3_client.get_object(Bucket=course_bucket, Key=yaml_keys[0])
+            outline = yaml.safe_load(obj['Body'].read().decode('utf-8'))
+            result['outline_modules'] = outline.get('course', {}).get('modules', [])
+            logger.info(f"Loaded outline with {len(result['outline_modules'])} modules")
+    except Exception as e:
+        logger.warning(f"Could not load outline YAML: {e}")
+    # --- Book data JSON ---
+    try:
+        book_key = f"{project_folder}/book/Generated_Course_Book_data.json"
+        obj = s3_client.get_object(Bucket=course_bucket, Key=book_key)
+        book = json.loads(obj['Body'].read().decode('utf-8'))
+        result['book_modules'] = book.get('modules', [])
+        logger.info(f"Loaded book data with {len(result['book_modules'])} modules")
+    except Exception as e:
+        logger.warning(f"Could not load book data JSON: {e}")
+    return result
 
 
 def cors_headers():

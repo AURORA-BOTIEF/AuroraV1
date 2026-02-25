@@ -924,15 +924,85 @@ def create_module_title_slide(module: Dict, module_number: int, is_spanish: bool
     }
 
 
+def _extract_objectives_from_content(content: str) -> List[str]:
+    """Extract learning objectives from lesson markdown content.
+    
+    Looks for sections like '## Objetivos de Aprendizaje' / '### Objetivos del capítulo'
+    and pulls the bullet list items from it.
+    """
+    if not content:
+        return []
+    
+    # Match the objectives section header (## or ###)
+    pattern = re.compile(
+        r'^#{2,3}\s*(?:Objetivos\s+(?:de\s+Aprendizaje|del\s+[Cc]ap[ií]tulo)|Learning\s+Objectives|Objetivos)[^\n]*\n+'
+        r'(?:[^\n]*\n)*?'  # optional preamble line like "Al finalizar..."
+        r'((?:\s*-\s+.+\n?)+)',
+        re.MULTILINE | re.IGNORECASE
+    )
+    match = pattern.search(content)
+    if not match:
+        return []
+    
+    bullet_block = match.group(1)
+    objectives = []
+    for line in bullet_block.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('- '):
+            # Strip bold markers for cleaner slide text
+            text = re.sub(r'\*\*([^*]+)\*\*', r'\1', line[2:].strip())
+            objectives.append(text)
+    
+    return objectives[:6]  # Cap at 6 to fit on slide
+
+
+def _extract_introduction_from_content(content: str) -> str:
+    """Extract the first paragraph of the '## Introducción' / '## Introduction' section."""
+    if not content:
+        return ''
+    
+    pattern = re.compile(
+        r'^#{2,3}\s*(?:Introducción|Introduction)[^\n]*\n+'
+        r'(.+?)(?:\n\n|\n#{2,3}|\Z)',
+        re.MULTILINE | re.IGNORECASE | re.DOTALL
+    )
+    match = pattern.search(content)
+    if not match:
+        return ''
+    
+    # Take just the first paragraph (first block of non-empty lines)
+    raw = match.group(1).strip()
+    first_para = raw.split('\n\n')[0].replace('\n', ' ').strip()
+    # Cap at 300 chars for slide readability
+    if len(first_para) > 300:
+        first_para = first_para[:297] + '...'
+    return first_para
+
+
 def create_lesson_title_slide(lesson: Dict, module_number: int, lesson_number: int, is_spanish: bool, slide_counter: int, module_title: str = "") -> Dict:
-    """Create a full-screen branded lesson title slide with module name as subtitle."""
+    """Create a branded lesson title slide with numbered title and introduction text."""
     lesson_title = lesson.get('title', f"Lección {lesson_number}")
+    
+    # Extract introduction from lesson content for the slide body
+    intro_text = _extract_introduction_from_content(lesson.get('content', ''))
+    
+    # Build the numbered display title like "1.2 Operaciones con Contenedores"
+    display_title = f"{module_number}.{lesson_number} {lesson_title}"
+    
+    content_blocks = []
+    if intro_text:
+        content_blocks.append({
+            "type": "bullets",
+            "heading": "",
+            "items": [intro_text]
+        })
+    
     return {
         "slide_number": slide_counter,
-        "title": lesson_title,
+        "title": display_title,
         "subtitle": module_title,
         "layout": "lesson-title",
-        "content_blocks": [],
+        "content_blocks": content_blocks,
         "notes": f"Lesson {lesson_number} of Module {module_number}"
     }
 
@@ -942,18 +1012,29 @@ def create_module_title_slide_from_lesson(lesson: Dict, module_number: int, is_s
     Create module title slide using lesson data (no outline dependency).
     Extracts module title from lesson's module_title field if present,
     otherwise uses a generic "Capítulo N" title.
+    Extracts learning objectives from the first lesson's content.
     """
     # Try to get module title from lesson metadata
     module_title = lesson.get('module_title', '')
     if not module_title:
         module_title = f"{'Capítulo' if is_spanish else 'Module'} {module_number}"
     
+    # Extract objectives from first lesson of the module
+    objectives = _extract_objectives_from_content(lesson.get('content', ''))
+    content_blocks = []
+    if objectives:
+        content_blocks.append({
+            "type": "bullets",
+            "heading": "Objetivos:" if is_spanish else "Objectives:",
+            "items": objectives
+        })
+    
     return {
         "slide_number": slide_counter,
         "title": module_title,
         "subtitle": "",
         "layout": "module-title",
-        "content_blocks": [],
+        "content_blocks": content_blocks,
         "notes": f"Module {module_number} introduction",
         "module_number": module_number
     }
@@ -2065,8 +2146,15 @@ def generate_complete_course(
         # BOOK-DRIVEN MODULE DETECTION: Use module_number change, not title matching
         # When module_number changes, we've entered a new module
         if current_module_number != last_module_number:
-            # Add Module Title Slide using lesson metadata (no outline dependency)
             logger.info(f"📚 Module change detected: {last_module_number} -> {current_module_number}")
+
+            # Enrich the lesson dict with module_title from outline if not already set
+            if not lesson.get('module_title') and 'outline_modules' in book_data:
+                outline_modules = book_data.get('outline_modules', [])
+                if current_module_number <= len(outline_modules):
+                    mod_info = outline_modules[current_module_number - 1]
+                    lesson['module_title'] = mod_info.get('title', '')
+
             module_slide = create_module_title_slide_from_lesson(lesson, current_module_number, is_spanish, slide_counter)
             all_slides.append(module_slide)
             slide_counter += 1
@@ -2392,7 +2480,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     corporate_asset_files = {
         'cover': 'Portada.jpg',
         'countries': 'Paises.png',
-        'intellectual': 'Propiedad_Intelectual.svg',
+        'intellectual': 'Propiedad_Intelectual.png',
         'description': 'Descripcion_Curso.jpg',
         'objectives': 'Objetivos.jpg',
         'prerequisites': 'Prerrequisitos.png',
@@ -2425,7 +2513,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     corporate_assets = {
         'cover': _asset_url_from_s3(corporate_asset_files['cover']),
         'countries': _asset_url_from_s3(corporate_asset_files['countries']),
-        'intellectual': _asset_url_from_s3(corporate_asset_files['intellectual']),
+        'intellectual': _asset_url_from_s3('Propiedad_Intelectual.png', 'Propiedad_Intelectual.svg'),
         'description': _asset_url_from_s3(corporate_asset_files['description']),
         'objectives': _asset_url_from_s3(corporate_asset_files['objectives']),
         'prerequisites': _asset_url_from_s3(corporate_asset_files['prerequisites']),
@@ -2511,39 +2599,53 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             /* Note: overflow visible to allow modal popup */
         }}
         
-        /* Slide header */
+        /* Slide header - corporate template: yellow accent bar on left, no gradient */
         .slide-header {{
-            padding: 30px 50px;
-            background: linear-gradient(135deg, {colors['primary']}, {colors['secondary']});
-            color: white;
-            min-height: 120px;
+            padding: 30px 50px 20px 70px;
+            background: transparent;
+            color: {colors['primary']};
+            min-height: 90px;
             position: relative;
-            z-index: 10; /* Ensure header stays above content */
+            z-index: 10;
+            border-bottom: 2px solid #d0d0d0;
+        }}
+
+        .slide-header::before {{
+            content: '';
+            position: absolute;
+            left: 42px;
+            top: 22px;
+            bottom: 22px;
+            width: 8px;
+            background: {colors['accent']};
+            border-radius: 2px;
         }}
         
         .slide-title {{
-            font-size: 36pt;
+            font-size: 30pt;
             font-weight: 700;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
             line-height: 1.2;
+            color: {colors['primary']};
         }}
         
         .slide-subtitle {{
-            font-size: 24pt;
-            opacity: 0.9;
+            font-size: 20pt;
+            opacity: 0.8;
             line-height: 1.3;
+            color: {colors['secondary']};
         }}
         
-        /* Content area - OPTIMIZED HEIGHT LIMITS */
+        /* Content area */
         .slide-content {{
-            padding: 20px 50px 40px 50px; /* Reduced bottom padding */
-            max-height: 520px; /* Optimized: 720 - 120 header - 40 footer - 40 padding = 520px */
-            overflow: hidden; /* Clip content that exceeds bounds */
+            padding: 20px 50px 40px 50px;
+            max-height: 560px; /* 720 - 90 header - 30 footer - 40 padding */
+            overflow: hidden;
             position: relative;
         }}
         
         .slide-content.with-subtitle {{
-            max-height: 500px; /* With subtitle: 520 - 20 = 500px */
+            max-height: 540px;
         }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
@@ -3053,12 +3155,12 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         /* Logo positioning */
         .slide-logo {{
             position: absolute;
-            bottom: 20px;
-            right: 30px;
-            width: 120px;
+            bottom: 10px;
+            left: 22px;
+            width: 150px;
             height: auto;
             opacity: 0.9;
-            z-index: 500; /* High z-index to stay above all content */
+            z-index: 500;
         }}
         
         /* COURSE TITLE SLIDE - Main branded opening */
@@ -3091,75 +3193,161 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             opacity: 1;
         }}
         
-        /* MODULE TITLE SLIDE - Section divider */
+        /* MODULE TITLE SLIDE - Section divider (corporate template) */
         .module-title-slide {{
+            height: 100%;
+            background: #efefef;
+            padding: 50px 60px 40px 60px;
+            position: relative;
+            display: grid;
+            grid-template-columns: 48% 52%;
+            gap: 40px;
+        }}
+
+        .module-title-left {{
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            padding-top: 20px;
+        }}
+
+        .module-title-accent {{
+            width: 80px;
+            height: 8px;
+            background: {colors['accent']};
+            margin-bottom: 32px;
+        }}
+
+        .module-title-chapter {{
+            font-size: 50pt;
+            font-weight: 800;
+            color: #111;
+            line-height: 1.1;
+            margin-bottom: 18px;
+        }}
+
+        .module-title-divider {{
+            height: 2px;
+            background: #c7c7c7;
+            margin: 12px 0 18px;
+        }}
+
+        .module-title-name {{
+            font-size: 28pt;
+            font-weight: 700;
+            color: #b22222;
+            line-height: 1.2;
+        }}
+
+        .module-title-right {{
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            padding-top: 20px;
+        }}
+
+        .module-title-obj-heading {{
+            font-size: 26pt;
+            font-weight: 700;
+            color: #111;
+            margin-bottom: 14px;
+        }}
+
+        .module-title-obj-list {{
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }}
+
+        .module-title-obj-list li {{
+            position: relative;
+            padding-left: 34px;
+            font-size: 19pt;
+            color: #222;
+            line-height: 1.35;
+            margin: 10px 0;
+        }}
+
+        .module-title-obj-list li::before {{
+            content: '•';
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: {colors['accent']};
+            font-size: 26px;
+            line-height: 1.1;
+        }}
+
+        .module-title-slide .logo {{
+            position: absolute;
+            bottom: 10px;
+            left: 22px;
+            width: 190px;
+            height: auto;
+            opacity: 1;
+        }}
+        
+        /* LESSON TITLE SLIDE - Topic introduction (corporate template) */
+        .lesson-title-slide {{
             display: flex;
             align-items: center;
             justify-content: flex-start;
             flex-direction: column;
             height: 100%;
-            background: linear-gradient(to right, {colors['primary']}, {colors['secondary']});
-            color: white;
-            padding: 100px 80px;
+            background: #efefef;
+            color: {colors['primary']};
+            padding: 0 80px 40px 80px;
             position: relative;
         }}
-        
-        .module-title-slide .title {{
-            font-size: 56pt;
-            font-weight: 700;
-            margin-top: 80px;
-            text-align: left;
+
+        .lesson-title-slide::before {{
+            content: '';
+            display: block;
             width: 100%;
-            border-left: 8px solid {colors['accent']};
-            padding-left: 30px;
-        }}
-        
-        .module-title-slide .logo {{
+            height: 10px;
+            background: {colors['accent']};
             position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 140px;
-            height: auto;
-            opacity: 0.95;
+            top: 0;
+            left: 0;
         }}
-        
-        /* LESSON TITLE SLIDE - Topic introduction */
-        .lesson-title-slide {{
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            height: 100%;
-            background: white;
-            color: {colors['primary']};
-            padding: 60px 80px;
-            position: relative;
-            border-top: 10px solid {colors['accent']};
-        }}
-        
+
         .lesson-title-slide .title {{
-            font-size: 48pt;
+            font-size: 42pt;
             font-weight: 700;
-            margin-bottom: 20px;
+            margin-top: 100px;
+            margin-bottom: 24px;
             text-align: center;
             color: {colors['primary']};
+            line-height: 1.15;
         }}
-        
-        .lesson-title-slide .subtitle {{
-            font-size: 28pt;
-            color: {colors['secondary']};
-            opacity: 0.8;
+
+        .lesson-intro-divider {{
+            width: 70%;
+            height: 2px;
+            background: #c7c7c7;
+            margin: 0 auto 24px auto;
+        }}
+
+        .lesson-intro-text {{
+            max-width: 900px;
             text-align: center;
+            padding: 0 20px;
         }}
-        
+
+        .lesson-intro-text p {{
+            font-size: 20pt;
+            color: #333;
+            line-height: 1.4;
+            margin-bottom: 10px;
+        }}
+
         .lesson-title-slide .logo {{
             position: absolute;
-            top: 40px;
-            right: 40px;
-            width: 100px;
+            bottom: 10px;
+            left: 22px;
+            width: 190px;
             height: auto;
-            opacity: 0.85;
+            opacity: 1;
         }}
         
         /* MODULE-END LOGO SLIDE - White background, centered logo, no frame */
@@ -3228,14 +3416,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
 
         .intro-cover-title {{
             margin-top: 128px;
-            font-size: 62pt;
+            font-size: 52pt;
             line-height: 1.06;
             font-weight: 800;
             color: {colors['primary']};
             position: relative;
             z-index: 2;
-            max-width: 740px;
-            margin-right: -72px;
+            max-width: 100%;
         }}
 
         .intro-cover-right {{
@@ -3721,20 +3908,69 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             continue
         
         elif layout == 'module-title':
+            # Parse module number from slide data or title
+            mod_num = slide.get('module_number', '')
+            # Detect language from title pattern
+            is_es = bool(re.search(r'(?:M[oó]dulo|Cap[ií]tulo)', title, re.IGNORECASE))
+            # Try to split "Módulo 1: Nombre" into chapter label + name
+            mod_match = re.match(r'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s+(\d+)\s*:\s*(.+)$', title, re.IGNORECASE)
+            if mod_match:
+                chapter_label = f"{'Capítulo' if is_es else 'Chapter'} {mod_match.group(1)}"
+                chapter_name = mod_match.group(2).strip()
+            else:
+                chapter_label = f"{'Capítulo' if is_es else 'Chapter'} {mod_num}" if mod_num else title
+                chapter_name = title if mod_num else ''
+            
+            # Extract objectives from content_blocks
+            obj_items = []
+            obj_heading = "Objetivos:" if is_es else "Objectives:"
+            for block in slide.get('content_blocks', []):
+                if block.get('type') == 'bullets':
+                    if block.get('heading'):
+                        obj_heading = block['heading']
+                    obj_items.extend(block.get('items', []))
+            
             html_parts.append('  <div class="module-title-slide">')
-            html_parts.append(f'    <div class="title">{title}</div>')
+            html_parts.append('    <div class="module-title-left">')
+            html_parts.append('      <div class="module-title-accent"></div>')
+            html_parts.append(f'      <div class="module-title-chapter">{chapter_label}</div>')
+            html_parts.append('      <div class="module-title-divider"></div>')
+            html_parts.append(f'      <div class="module-title-name">{chapter_name}</div>')
+            html_parts.append('    </div>')
+            html_parts.append('    <div class="module-title-right">')
+            if obj_items:
+                html_parts.append(f'      <div class="module-title-obj-heading">{obj_heading}</div>')
+                html_parts.append('      <ul class="module-title-obj-list">')
+                for item in obj_items:
+                    html_parts.append(f'        <li>{item}</li>')
+                html_parts.append('      </ul>')
+            html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
+            if notes:
+                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
             html_parts.append('</div>')
             continue
         
         elif layout == 'lesson-title':
+            # Extract introduction text from content_blocks if available
+            intro_items = []
+            for block in slide.get('content_blocks', []):
+                if block.get('type') == 'bullets':
+                    intro_items.extend(block.get('items', []))
+            
             html_parts.append('  <div class="lesson-title-slide">')
             html_parts.append(f'    <div class="title">{title}</div>')
-            if subtitle:
-                html_parts.append(f'    <div class="subtitle">{subtitle}</div>')
+            if intro_items:
+                html_parts.append('    <div class="lesson-intro-divider"></div>')
+                html_parts.append('    <div class="lesson-intro-text">')
+                for item in intro_items:
+                    html_parts.append(f'      <p>{item}</p>')
+                html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
+            if notes:
+                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
             html_parts.append('</div>')
             continue
         

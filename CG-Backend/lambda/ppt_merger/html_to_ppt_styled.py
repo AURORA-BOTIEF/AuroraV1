@@ -59,10 +59,93 @@ LOGO_HEIGHT = Inches(0.6)
 LOGO_RIGHT_MARGIN = Inches(0.3)
 LOGO_BOTTOM_MARGIN = Inches(0.3)
 
+# =============================================================================
+# SUPPLEMENTARY DATA HELPERS (for backward-compatible enrichment)
+# =============================================================================
 
-def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str = None) -> bytes:
+def _extract_objectives_from_md(content: str) -> list:
+    """Extract learning objectives bullet items from lesson markdown."""
+    if not content:
+        return []
+    pattern = re.compile(
+        r'^#{2,3}\s*(?:Objetivos[^\n]*|Learning\s+Objectives[^\n]*)\n+'
+        r'(?:[^\n]*\n)*?'
+        r'((?:\s*-\s+.+\n?)+)',
+        re.MULTILINE | re.IGNORECASE,
+    )
+    m = pattern.search(content)
+    if not m:
+        return []
+    items = []
+    for line in m.group(1).strip().split('\n'):
+        line = line.strip()
+        if line.startswith('- '):
+            text = re.sub(r'\*\*([^*]+)\*\*', r'\1', line[2:].strip())
+            items.append(text)
+    return items[:6]
+
+
+def _extract_intro_from_md(content: str) -> str:
+    """Extract the first paragraph of ## Introducción / ## Introduction."""
+    if not content:
+        return ''
+    pattern = re.compile(
+        r'^#{2,3}\s*(?:Introducción|Introduction)[^\n]*\n+(.+?)(?:\n\n|\n##|\Z)',
+        re.MULTILINE | re.IGNORECASE | re.DOTALL,
+    )
+    m = pattern.search(content)
+    if not m:
+        return ''
+    para = m.group(1).strip().split('\n\n')[0].replace('\n', ' ').strip()
+    return para[:300] + '...' if len(para) > 300 else para
+
+
+def _build_supplementary_lookup(book_data: dict) -> dict:
+    """Build a lookup dict keyed by module number with title, objectives, lessons.
+    Used to enrich old HTML that lacks new classes."""
+    supp = {}
+    if not book_data:
+        return supp
+
+    outline_modules = book_data.get('outline_modules', [])
+    book_modules = book_data.get('book_modules', [])
+
+    for idx, om in enumerate(outline_modules):
+        mod_num = idx + 1
+        supp[mod_num] = {
+            'title': om.get('title', ''),
+            'objectives': [],
+            'lessons': [],
+        }
+
+    for idx, bm in enumerate(book_modules):
+        mod_num = bm.get('module_number', idx + 1)
+        if mod_num not in supp:
+            supp[mod_num] = {'title': bm.get('module_title', ''), 'objectives': [], 'lessons': []}
+
+        # Extract objectives from the first "Introducción" lesson
+        for lesson in bm.get('lessons', []):
+            lesson_title = lesson.get('title', '')
+            content = lesson.get('content', '')
+            supp[mod_num]['lessons'].append({
+                'title': lesson_title,
+                'content': content,
+            })
+            if lesson_title.lower().strip() in ('introducción', 'introduction') and not supp[mod_num]['objectives']:
+                supp[mod_num]['objectives'] = _extract_objectives_from_md(content)
+
+        # Update title from book if outline didn't provide it
+        if not supp[mod_num]['title']:
+            supp[mod_num]['title'] = bm.get('module_title', f'Capítulo {mod_num}')
+
+    return supp
+
+
+def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str = None, book_data: dict = None) -> bytes:
     """
     Convert HTML infographic slides to PowerPoint.
+    book_data: optional dict with 'outline_modules' and 'book_modules' for
+               enriching module-title / lesson-title slides from S3 data.
     """
     logger.info("Starting HTML to PPT conversion with style mapping...")
     
@@ -81,7 +164,13 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
     
     # Store references for image downloads
     ctx = {'s3_client': s3_client, 'bucket': course_bucket}
-    
+
+    # Build supplementary lookup for backward-compatible enrichment
+    supp = _build_supplementary_lookup(book_data) if book_data else {}
+    current_module_num = 0  # tracks which module we're in (parsed from text)
+    lesson_counter_in_module = 0  # counts lesson-title slides within current module
+    seen_module_nums = set()  # track first-occurrence module-title slides
+
     for idx, slide_html in enumerate(slides_html):
         logger.info(f"Processing slide {idx + 1}/{len(slides_html)}")
         
@@ -97,9 +186,26 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
         elif slide_html.find(class_='course-title-slide'):
             slide = create_course_title_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='module-title-slide'):
-            slide = create_module_title_slide(prs, blank_layout, slide_html, logo_bytes)
+            # Parse module number from text instead of using sequential counter
+            _mt = slide_html.find(class_='module-title-chapter') or slide_html.find(class_='title')
+            _mt_text = _mt.get_text(strip=True) if _mt else ''
+            _mn = re.search(r'(\d+)', _mt_text)
+            if _mn:
+                current_module_num = int(_mn.group(1))
+            else:
+                current_module_num += 1
+            # Only reset lesson counter on FIRST occurrence of a module number
+            # Old HTML may have duplicate module-title slides (start + before summary)
+            if current_module_num not in seen_module_nums:
+                lesson_counter_in_module = 0
+                seen_module_nums.add(current_module_num)
+            slide = create_module_title_slide(prs, blank_layout, slide_html, logo_bytes,
+                                              supp=supp, module_num=current_module_num)
         elif slide_html.find(class_='lesson-title-slide'):
-            slide = create_lesson_title_slide(prs, blank_layout, slide_html, logo_bytes)
+            lesson_counter_in_module += 1
+            slide = create_lesson_title_slide(prs, blank_layout, slide_html, logo_bytes,
+                                              supp=supp, module_num=current_module_num,
+                                              lesson_num=lesson_counter_in_module)
         elif slide_html.find(class_='module-end-logo-slide'):
             slide = create_module_end_logo_slide(prs, blank_layout, slide_html, logo_bytes)
         else:
@@ -352,10 +458,10 @@ def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = RGBColor(245, 245, 245)
 
-    # Left panel subtle white shape
-    left_panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(6.0), Inches(7.5))
+    # Left panel – same colour as background so no visible seam
+    left_panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(6.3), Inches(7.5))
     left_panel.fill.solid()
     left_panel.fill.fore_color.rgb = RGBColor(245, 245, 245)
     left_panel.line.fill.background()
@@ -592,54 +698,165 @@ def create_course_title_slide(prs, layout, slide_html, logo_bytes):
     return slide
 
 
-def create_module_title_slide(prs, layout, slide_html, logo_bytes):
-    """Module title: Gradient background, yellow bar on LEFT, centered logo."""
+def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, module_num=1):
+    """Module title: white bg, yellow accent bar, chapter number left, objectives right."""
     slide = prs.slides.add_slide(layout)
-    
-    title_elem = slide_html.find(class_='title')
-    title_text = title_elem.get_text(strip=True) if title_elem else "Untitled"
-    
-    add_gradient_background(slide)
-    
-    # Yellow accent bar on left side
-    yellow_bar = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(0), Inches(0),
-        Inches(0.15), SLIDE_HEIGHT
+
+    # White/light background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Yellow accent bar (top-left)
+    accent = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.53), Inches(0.55), Inches(0.82), Inches(0.08)
     )
-    yellow_bar.fill.solid()
-    yellow_bar.fill.fore_color.rgb = COLORS['bullet_marker']
-    yellow_bar.line.fill.background()
-    
-    # Title (left-aligned with padding from yellow bar)
-    title_box = slide.shapes.add_textbox(
-        Inches(0.5), Inches(2.5), Inches(12), Inches(2)
-    )
-    tf = title_box.text_frame
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
+
+    # Parse chapter label and name from the title element
+    title_elem = slide_html.find(class_='module-title-chapter')
+    chapter_label = title_elem.get_text(strip=True) if title_elem else ""
+    name_elem = slide_html.find(class_='module-title-name')
+    chapter_name = name_elem.get_text(strip=True) if name_elem else ""
+
+    # Objectives from new HTML classes
+    obj_heading_elem = slide_html.find(class_='module-title-obj-heading')
+    obj_list_elem = slide_html.find(class_='module-title-obj-list')
+    obj_items = []
+    if obj_list_elem:
+        obj_items = [li.get_text(strip=True) for li in obj_list_elem.find_all('li') if li.get_text(strip=True)]
+
+    # --- Backward-compatible fallback: use supplementary book data ---
+    if not chapter_label:
+        old_title = slide_html.find(class_='title')
+        full = old_title.get_text(strip=True) if old_title else ""
+
+        m = re.match(r'^((?:Cap[ií]tulo|M[oó]dulo|Module|Chapter)\s+\d+)\s*:\s*(.+)$', full, re.IGNORECASE)
+        if m:
+            chapter_label = m.group(1).strip()
+            chapter_name = m.group(2).strip()
+        else:
+            # Title is just "Capítulo N" without name – enrich from supp
+            chapter_label = full or f"Capítulo {module_num}"
+            chapter_name = ""
+            if supp and module_num in supp:
+                mod_info = supp[module_num]
+                # Parse name from the full outline title "Módulo N: Name"
+                om = re.match(r'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s+\d+\s*:\s*(.+)$',
+                              mod_info.get('title', ''), re.IGNORECASE)
+                if om:
+                    chapter_name = om.group(1).strip()
+                elif mod_info.get('title') and mod_info['title'] != chapter_label:
+                    chapter_name = mod_info['title']
+
+    if not obj_items and supp and module_num in supp:
+        obj_items = supp[module_num].get('objectives', [])
+
+    # Chapter label (large, black)
+    lbl_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.1), Inches(5.5), Inches(2.0))
+    tf = lbl_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
-    p.text = title_text
-    p.font.size = Pt(48)
+    p.text = chapter_label
+    p.font.size = Pt(50)
     p.font.bold = True
-    p.font.color.rgb = COLORS['white']
     p.font.name = FONTS['title']
-    p.alignment = PP_ALIGN.CENTER
-    
-    add_logo_centered(slide, logo_bytes)
+    p.font.color.rgb = RGBColor(17, 17, 17)
+    p.alignment = PP_ALIGN.LEFT
+
+    # Divider line
+    divider = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(3.2), Inches(5.5), Inches(0.02)
+    )
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
+    divider.line.fill.background()
+
+    # Chapter name (red, below divider)
+    if chapter_name:
+        name_box = slide.shapes.add_textbox(Inches(0.6), Inches(3.4), Inches(5.5), Inches(2.0))
+        tf = name_box.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = chapter_name
+        p.font.size = Pt(28)
+        p.font.bold = True
+        p.font.name = FONTS['title']
+        p.font.color.rgb = RGBColor(178, 34, 34)
+        p.alignment = PP_ALIGN.LEFT
+
+    # Objectives on right side (already extracted above, including supp fallback)
+    obj_heading = "Objetivos:"
+    if obj_heading_elem:
+        obj_heading = obj_heading_elem.get_text(strip=True)
+
+    if obj_items:
+        obj_heading = obj_heading_elem.get_text(strip=True) if obj_heading_elem else "Objetivos:"
+        # Heading
+        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.1), Inches(6.0), Inches(0.6))
+        hp = h_box.text_frame.paragraphs[0]
+        hp.text = obj_heading
+        hp.font.size = Pt(26)
+        hp.font.bold = True
+        hp.font.name = FONTS['title']
+        hp.font.color.rgb = RGBColor(17, 17, 17)
+
+        # Objective items
+        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.8), Inches(6.0), Inches(4.5))
+        tf = obj_box.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        for i, item in enumerate(obj_items):
+            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            bullet_run = para.add_run()
+            bullet_run.text = "• "
+            bullet_run.font.size = Pt(18)
+            bullet_run.font.bold = True
+            bullet_run.font.name = FONTS['body']
+            bullet_run.font.color.rgb = COLORS['bullet_marker']
+
+            text_run = para.add_run()
+            text_run.text = item
+            text_run.font.size = Pt(18)
+            text_run.font.bold = False
+            text_run.font.name = FONTS['body']
+            text_run.font.color.rgb = RGBColor(34, 34, 34)
+            para.space_after = Pt(6)
+
+    add_logo_bottom_left(slide, logo_bytes)
     return slide
 
 
-def create_lesson_title_slide(prs, layout, slide_html, logo_bytes):
-    """Lesson title: WHITE background, yellow bar at TOP, logo top-right, dark text."""
+def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, module_num=1, lesson_num=1):
+    """Lesson title: light bg, yellow bar at TOP, numbered title, divider, intro text."""
     slide = prs.slides.add_slide(layout)
-    
+
+    # Light background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
     title_elem = slide_html.find(class_='title')
-    subtitle_elem = slide_html.find(class_='subtitle')
-    
     title_text = title_elem.get_text(strip=True) if title_elem else "Untitled"
-    subtitle_text = subtitle_elem.get_text(strip=True) if subtitle_elem else ""
+
+    # Check if title already has numbering like "1.2 Name" or "1.1: Name"
+    has_numbering = bool(re.match(r'^\d+\.\d+[:\s]', title_text))
+
+    # Don't number module-intro or summary lessons
+    title_lower = title_text.lower().strip()
+    is_bookend = title_lower in ('introducción', 'introduction',
+                                  'resumen del capítulo', 'chapter summary',
+                                  'resumen', 'summary')
+
+    # If old format without numbering, prepend "module.lesson" prefix
+    if not has_numbering and not is_bookend and module_num > 0:
+        title_text = f"{module_num}.{lesson_num} {title_text}"
     
-    # Yellow bar at TOP (border-top style from CSS)
+    # Yellow bar at TOP
     yellow_bar = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
         Inches(0), Inches(0),
@@ -649,47 +866,78 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes):
     yellow_bar.fill.fore_color.rgb = COLORS['bullet_marker']
     yellow_bar.line.fill.background()
     
-    # Logo at top-right
-    if logo_bytes:
-        try:
-            logo_stream = io.BytesIO(logo_bytes)
-            slide.shapes.add_picture(
-                logo_stream, 
-                SLIDE_WIDTH - Inches(1.8), 
-                Inches(0.3), 
-                Inches(1.5), 
-                Inches(0.6)
-            )
-        except Exception as e:
-            logger.warning(f"Could not add top-right logo: {e}")
-    
     # Title (centered, dark blue)
     title_box = slide.shapes.add_textbox(
-        Inches(0.5), Inches(2.5), Inches(12.333), Inches(1.5)
+        Inches(0.5), Inches(1.8), Inches(12.333), Inches(1.8)
     )
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(44)
+    p.font.size = Pt(42)
     p.font.bold = True
-    p.font.color.rgb = COLORS['text_dark']  # Dark blue text
+    p.font.color.rgb = COLORS['text_dark']
     p.font.name = FONTS['title']
     p.alignment = PP_ALIGN.CENTER
-    
-    # Subtitle (light blue)
-    if subtitle_text:
-        subtitle_box = slide.shapes.add_textbox(
-            Inches(0.5), Inches(4), Inches(12.333), Inches(1)
+
+    # Introduction text (from new HTML classes)
+    intro_items = [li.get_text(strip=True) for li in slide_html.select('.lesson-intro-text p') if li.get_text(strip=True)]
+
+    # Backward-compatible fallback: extract intro from book data via title matching
+    if not intro_items and not is_bookend and supp and module_num in supp:
+        supp_lessons = supp[module_num].get('lessons', [])
+        matched_lesson = None
+
+        # Try 1: match by "X.Y" number prefix in the title
+        _num_m = re.match(r'(\d+\.\d+)', title_text)
+        if _num_m:
+            target_num = _num_m.group(1)
+            for _sl in supp_lessons:
+                if target_num + ':' in _sl['title'] or target_num + ' ' in _sl['title'] or _sl['title'].startswith(target_num):
+                    matched_lesson = _sl
+                    break
+
+        # Try 2: fuzzy match on stripped title text
+        if not matched_lesson:
+            clean_title = re.sub(r'^\d+\.\d+[:\s]+', '', title_text).strip().lower()
+            if clean_title:
+                for _sl in supp_lessons:
+                    clean_supp = re.sub(r'^\d+\.\d+[:\s]+', '', _sl['title']).strip().lower()
+                    if clean_title == clean_supp or clean_title in clean_supp or clean_supp in clean_title:
+                        matched_lesson = _sl
+                        break
+
+        if matched_lesson:
+            intro_text = _extract_intro_from_md(matched_lesson.get('content', ''))
+            if intro_text:
+                intro_items = [intro_text]
+
+    if intro_items:
+        # Divider
+        divider = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(2), Inches(3.7),
+            Inches(9.333), Inches(0.02)
         )
-        tf = subtitle_box.text_frame
-        p = tf.paragraphs[0]
-        p.text = subtitle_text
-        p.font.size = Pt(24)
-        p.font.color.rgb = COLORS['header_light']  # Light blue
-        p.font.name = FONTS['body']
-        p.alignment = PP_ALIGN.CENTER
-    
+        divider.fill.solid()
+        divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
+        divider.line.fill.background()
+
+        intro_box = slide.shapes.add_textbox(
+            Inches(1.5), Inches(3.9), Inches(10.333), Inches(2.8)
+        )
+        tf = intro_box.text_frame
+        tf.word_wrap = True
+        for i, text in enumerate(intro_items):
+            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            para.text = text
+            para.font.size = Pt(20)
+            para.font.name = FONTS['body']
+            para.font.color.rgb = RGBColor(51, 51, 51)
+            para.alignment = PP_ALIGN.CENTER
+            para.space_after = Pt(6)
+
+    add_logo_bottom_left(slide, logo_bytes)
     return slide
 
 
@@ -710,6 +958,12 @@ def create_module_end_logo_slide(prs, layout, slide_html, logo_bytes):
 def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     """Create a content slide with header, bullets, and optional image."""
     slide = prs.slides.add_slide(layout)
+
+    # White background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = COLORS['white']
     
     title_elem = slide_html.find(class_='slide-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Untitled"
@@ -723,8 +977,8 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     
     content_elem = slide_html.find(class_='slide-content')
     if not content_elem:
-        add_logo(slide, logo_bytes)
-        return
+        add_logo_bottom_left(slide, logo_bytes)
+        return slide
     
     # Check for image layout
     has_image = 'image-left' in content_elem.get('class', []) or 'image-right' in content_elem.get('class', [])
@@ -779,7 +1033,7 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     if callout_elem:
         add_callout(slide, callout_elem)
     
-    add_logo(slide, logo_bytes)
+    add_logo_bottom_left(slide, logo_bytes)
     return slide
 
 
@@ -801,83 +1055,70 @@ def add_gradient_background(slide):
 
 def add_header_bar(slide, title_text, subtitle_text=""):
     """
-    Add a gradient header bar with title and optional subtitle.
-    Matches the HTML look (Gradient Blue/DarkBlue).
+    Add a header region with yellow accent bar on left, dark title, and
+    a thin divider line.  Matches the corporate template (no gradient).
     """
-    # 1. Gradient Bar
-    # HTML height is 120px. 120px / 96dpi * 72 points/inch * 914400 EMUs/inch ? No, Inches.
-    # 120px is ~1/6 of 720px height. PPT height is 7.5 inches. 
-    # 120/720 * 7.5 = 1.25 inches.
-    # 1. Gradient Bar - Dynamic Height
-    # Base height
-    base_h = 1.25
-    
-    # Check for expansion
-    expanded_h = 2.2 # Increased to 2.2 to accommodate 2-line title + subtitle
-    # Lowered threshold to 40 to catch shorter titles that still wrap
-    is_long_title = len(title_text) > 40 
+    # Determine heights
+    is_long_title = len(title_text) > 50
     has_subtitle = bool(subtitle_text)
-    
-    # Expand if long title OR subtitle present
-    current_h_val = expanded_h if (is_long_title and has_subtitle) else (1.8 if has_subtitle else base_h)
-    
-    # If just long title but no subtitle, 1.8 is enough. If both, need 2.2.
-    if is_long_title and not has_subtitle:
-        current_h_val = 1.6
-        
-    bar_height = Inches(current_h_val)
-    
-    # ... Existing gradient logic ...
-    shape = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), bar_height
-    )
-    fill = shape.fill
-    fill.gradient()
-    
-    fill.gradient_stops[0].color.rgb = COLORS['primary']
-    fill.gradient_stops[1].color.rgb = COLORS['secondary']
-    shape.line.fill.background() # No border
+    base_h = 1.0
+    if has_subtitle:
+        base_h = 1.5
+    if is_long_title:
+        base_h = max(base_h, 1.4)
 
-    # 2. Logo (Top Right)
-    # Using generic logo or placeholder if not passed? 
-    # Actually, create_content_slide calls add_logo separately.
-    
-    # 3. Title Text
-    # Title box - allow space for subtitle
-    title_top = Inches(0.2)
-    # Increase height if long title or subtitle
-    title_height = Inches(1.5) if is_long_title else Inches(0.8)
-    
+    bar_height = Inches(base_h)
+
+    # Yellow accent bar on left
+    accent_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0.4), Inches(0.22),
+        Inches(0.08), Inches(base_h - 0.14)
+    )
+    accent_bar.fill.solid()
+    accent_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent_bar.line.fill.background()
+
+    # Title text (dark blue)
+    title_top = Inches(0.18)
+    title_height = Inches(0.9) if not is_long_title else Inches(1.2)
+
     title_box = slide.shapes.add_textbox(
-        Inches(0.5), title_top, Inches(12), title_height
+        Inches(0.65), title_top, Inches(12), title_height
     )
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(36)
+    p.font.size = Pt(30)
     p.font.bold = True
-    p.font.color.rgb = COLORS['white']
+    p.font.color.rgb = COLORS['primary']
     p.font.name = FONTS['title']
-    
-    # 4. Subtitle Text (if present)
+
+    # Subtitle (secondary colour)
     if subtitle_text:
-        # Push subtitle down if long title
-        # If long title, title might take 2 lines. 
-        # Title starts 0.2. 2 lines @ 36pt ends approx 1.4-1.5.
-        subtitle_top = Inches(1.6) if is_long_title else Inches(0.9)
-        
+        subtitle_top = Inches(0.9) if not is_long_title else Inches(1.1)
         subtitle_box = slide.shapes.add_textbox(
-            Inches(0.5), subtitle_top, Inches(12), Inches(0.5)
+            Inches(0.65), subtitle_top, Inches(12), Inches(0.5)
         )
         tf_sub = subtitle_box.text_frame
         p_sub = tf_sub.paragraphs[0]
         p_sub.text = subtitle_text
-        p_sub.font.size = Pt(24)
-        p_sub.font.color.rgb = COLORS['white']
+        p_sub.font.size = Pt(20)
+        p_sub.font.color.rgb = COLORS['secondary']
         p_sub.font.name = FONTS['body']
-        
-    return bar_height # Return bottom of header for content positioning
+
+    # Divider line under header
+    divider = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0.4), bar_height,
+        Inches(12.533), Inches(0.02)
+    )
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(208, 208, 208)
+    divider.line.fill.background()
+
+    return bar_height
 
 
 
