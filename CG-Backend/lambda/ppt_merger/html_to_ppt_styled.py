@@ -170,10 +170,27 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
     current_module_num = 0  # tracks which module we're in (parsed from text)
     lesson_counter_in_module = 0  # counts lesson-title slides within current module
     seen_module_nums = set()  # track first-occurrence module-title slides
+    # Bookend lesson titles to skip
+    _bookend_titles = {'introducción', 'introduction', 'resumen del capítulo',
+                       'chapter summary', 'resumen', 'summary'}
+    _skipping_bookend = False  # when True, skip content slides until next lesson/module title
 
     for idx, slide_html in enumerate(slides_html):
         logger.info(f"Processing slide {idx + 1}/{len(slides_html)}")
         
+        # Check if this is a "structural" slide that ends skip mode
+        is_structural = (slide_html.find(class_='module-title-slide') or
+                         slide_html.find(class_='lesson-title-slide') or
+                         slide_html.find(class_='course-title-slide') or
+                         slide_html.find(class_='module-end-logo-slide'))
+        if is_structural:
+            _skipping_bookend = False  # always reset on structural slides
+
+        # If we're in skip mode (after a bookend lesson-title), skip content slides
+        if _skipping_bookend and not is_structural:
+            logger.info(f"   Skipping bookend content slide {idx + 1}")
+            continue
+
         slide = None
         if slide_html.find(class_='intro-cover-slide'):
             slide = create_intro_cover_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
@@ -194,14 +211,26 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
                 current_module_num = int(_mn.group(1))
             else:
                 current_module_num += 1
-            # Only reset lesson counter on FIRST occurrence of a module number
-            # Old HTML may have duplicate module-title slides (start + before summary)
+            # Only create module-title on FIRST occurrence; skip duplicates
             if current_module_num not in seen_module_nums:
                 lesson_counter_in_module = 0
                 seen_module_nums.add(current_module_num)
-            slide = create_module_title_slide(prs, blank_layout, slide_html, logo_bytes,
-                                              supp=supp, module_num=current_module_num)
+                slide = create_module_title_slide(prs, blank_layout, slide_html, logo_bytes,
+                                                  supp=supp, module_num=current_module_num)
+            else:
+                logger.info(f"   Skipping duplicate module-title for module {current_module_num}")
+                _skipping_bookend = True  # also skip content after duplicate module-title
+                continue
         elif slide_html.find(class_='lesson-title-slide'):
+            # Skip bookend lessons (Introducción, Resumen del Capítulo)
+            _lt_elem = slide_html.find(class_='title')
+            _lt_text = _lt_elem.get_text(strip=True) if _lt_elem else ''
+            # Strip any numbering prefix to check bare title
+            _lt_bare = re.sub(r'^\d+\.\d+[:\s]+', '', _lt_text).strip().lower()
+            if _lt_bare in _bookend_titles:
+                logger.info(f"   Skipping bookend lesson: {_lt_text}")
+                _skipping_bookend = True  # skip following content slides too
+                continue
             lesson_counter_in_module += 1
             slide = create_lesson_title_slide(prs, blank_layout, slide_html, logo_bytes,
                                               supp=supp, module_num=current_module_num,
@@ -775,7 +804,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
     divider.line.fill.background()
 
-    # Chapter name (red, below divider)
+    # Chapter name (blue, below divider)
     if chapter_name:
         name_box = slide.shapes.add_textbox(Inches(0.6), Inches(3.4), Inches(5.5), Inches(2.0))
         tf = name_box.text_frame
@@ -785,7 +814,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
         p.font.size = Pt(28)
         p.font.bold = True
         p.font.name = FONTS['title']
-        p.font.color.rgb = RGBColor(178, 34, 34)
+        p.font.color.rgb = COLORS['text_dark']
         p.alignment = PP_ALIGN.LEFT
 
     # Objectives on right side (already extracted above, including supp fallback)
@@ -843,18 +872,11 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     title_elem = slide_html.find(class_='title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Untitled"
 
-    # Check if title already has numbering like "1.2 Name" or "1.1: Name"
-    has_numbering = bool(re.match(r'^\d+\.\d+[:\s]', title_text))
-
-    # Don't number module-intro or summary lessons
-    title_lower = title_text.lower().strip()
-    is_bookend = title_lower in ('introducción', 'introduction',
-                                  'resumen del capítulo', 'chapter summary',
-                                  'resumen', 'summary')
-
-    # If old format without numbering, prepend "module.lesson" prefix
-    if not has_numbering and not is_bookend and module_num > 0:
-        title_text = f"{module_num}.{lesson_num} {title_text}"
+    # Don't add any numbering prefix — the book title already contains it (e.g. "1.1: Name")
+    # Strip any double-prefixed numbering that old code may have added
+    _double_prefix = re.match(r'^\d+\.\d+\s+(\d+\.\d+[:\s].+)$', title_text)
+    if _double_prefix:
+        title_text = _double_prefix.group(1)
     
     # Yellow bar at TOP
     yellow_bar = slide.shapes.add_shape(
@@ -866,9 +888,9 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     yellow_bar.fill.fore_color.rgb = COLORS['bullet_marker']
     yellow_bar.line.fill.background()
     
-    # Title (centered, dark blue)
+    # Title (centered, dark)
     title_box = slide.shapes.add_textbox(
-        Inches(0.5), Inches(1.8), Inches(12.333), Inches(1.8)
+        Inches(0.5), Inches(1.5), Inches(12.333), Inches(1.8)
     )
     tf = title_box.text_frame
     tf.word_wrap = True
@@ -876,15 +898,17 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     p.text = title_text
     p.font.size = Pt(42)
     p.font.bold = True
-    p.font.color.rgb = COLORS['text_dark']
+    p.font.color.rgb = RGBColor(17, 17, 17)
     p.font.name = FONTS['title']
     p.alignment = PP_ALIGN.CENTER
 
     # Introduction text (from new HTML classes)
+    intro_heading_elem = slide_html.find(class_='lesson-intro-heading')
+    intro_heading = intro_heading_elem.get_text(strip=True) if intro_heading_elem else ''
     intro_items = [li.get_text(strip=True) for li in slide_html.select('.lesson-intro-text p') if li.get_text(strip=True)]
 
     # Backward-compatible fallback: extract intro from book data via title matching
-    if not intro_items and not is_bookend and supp and module_num in supp:
+    if not intro_items and supp and module_num in supp:
         supp_lessons = supp[module_num].get('lessons', [])
         matched_lesson = None
 
@@ -912,30 +936,54 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
             if intro_text:
                 intro_items = [intro_text]
 
-    if intro_items:
+    if intro_items or intro_heading:
         # Divider
         divider = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(2), Inches(3.7),
+            Inches(2), Inches(3.5),
             Inches(9.333), Inches(0.02)
         )
         divider.fill.solid()
         divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
         divider.line.fill.background()
 
-        intro_box = slide.shapes.add_textbox(
-            Inches(1.5), Inches(3.9), Inches(10.333), Inches(2.8)
-        )
-        tf = intro_box.text_frame
-        tf.word_wrap = True
-        for i, text in enumerate(intro_items):
-            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            para.text = text
-            para.font.size = Pt(20)
-            para.font.name = FONTS['body']
-            para.font.color.rgb = RGBColor(51, 51, 51)
-            para.alignment = PP_ALIGN.CENTER
-            para.space_after = Pt(6)
+        y_pos = 3.7
+
+        # "Introducción" heading bullet
+        if intro_heading:
+            heading_box = slide.shapes.add_textbox(
+                Inches(1.5), Inches(y_pos), Inches(10.333), Inches(0.5)
+            )
+            hp = heading_box.text_frame.paragraphs[0]
+            bullet_run = hp.add_run()
+            bullet_run.text = "\u2022  "
+            bullet_run.font.size = Pt(20)
+            bullet_run.font.bold = False
+            bullet_run.font.name = FONTS['body']
+            bullet_run.font.color.rgb = RGBColor(51, 51, 51)
+            text_run = hp.add_run()
+            text_run.text = intro_heading
+            text_run.font.size = Pt(20)
+            text_run.font.bold = False
+            text_run.font.name = FONTS['body']
+            text_run.font.color.rgb = RGBColor(51, 51, 51)
+            hp.alignment = PP_ALIGN.LEFT
+            y_pos += 0.5
+
+        if intro_items:
+            intro_box = slide.shapes.add_textbox(
+                Inches(1.8), Inches(y_pos), Inches(9.733), Inches(2.5)
+            )
+            tf = intro_box.text_frame
+            tf.word_wrap = True
+            for i, text in enumerate(intro_items):
+                para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+                para.text = text
+                para.font.size = Pt(18)
+                para.font.name = FONTS['body']
+                para.font.color.rgb = RGBColor(68, 68, 68)
+                para.alignment = PP_ALIGN.LEFT
+                para.space_after = Pt(6)
 
     add_logo_bottom_left(slide, logo_bytes)
     return slide

@@ -980,20 +980,20 @@ def _extract_introduction_from_content(content: str) -> str:
 
 
 def create_lesson_title_slide(lesson: Dict, module_number: int, lesson_number: int, is_spanish: bool, slide_counter: int, module_title: str = "") -> Dict:
-    """Create a branded lesson title slide with numbered title and introduction text."""
+    """Create a branded lesson title slide with introduction text."""
     lesson_title = lesson.get('title', f"Lección {lesson_number}")
     
     # Extract introduction from lesson content for the slide body
     intro_text = _extract_introduction_from_content(lesson.get('content', ''))
     
-    # Build the numbered display title like "1.2 Operaciones con Contenedores"
-    display_title = f"{module_number}.{lesson_number} {lesson_title}"
+    # Use the title as-is from the book (it already contains numbering like "1.1: ...")
+    display_title = lesson_title
     
     content_blocks = []
     if intro_text:
         content_blocks.append({
             "type": "bullets",
-            "heading": "",
+            "heading": "Introducción" if is_spanish else "Introduction",
             "items": [intro_text]
         })
     
@@ -2103,6 +2103,23 @@ def generate_complete_course(
     # Track module changes for module title slides
     last_module_number = None
     lesson_number_in_module = 0
+
+    # Build a set of modules that were already processed in PREVIOUS batches
+    # to avoid creating duplicate module-title slides across batch boundaries
+    _already_titled_modules = set()
+    if lesson_batch_start > 1:
+        # Check which modules had lessons in earlier batches
+        for mod in book_data.get('modules', []):
+            mod_num = mod.get('module_number', 0)
+            for li, _les in enumerate(mod.get('lessons', [])):
+                # Global lesson index (1-based)
+                global_idx = sum(len(m.get('lessons',[])) for m in book_data.get('modules',[]) if m.get('module_number',0) < mod_num) + li + 1
+                if global_idx < lesson_batch_start:
+                    _already_titled_modules.add(mod_num)
+
+    # Bookend lesson titles to skip (Introducción, Resumen del Capítulo)
+    _bookend_titles = {'introducción', 'introduction', 'resumen del capítulo',
+                       'chapter summary', 'resumen', 'summary'}
     lessons_processed = 0
     module_references_by_number = {}
     
@@ -2155,9 +2172,15 @@ def generate_complete_course(
                     mod_info = outline_modules[current_module_number - 1]
                     lesson['module_title'] = mod_info.get('title', '')
 
-            module_slide = create_module_title_slide_from_lesson(lesson, current_module_number, is_spanish, slide_counter)
-            all_slides.append(module_slide)
-            slide_counter += 1
+            # Only create module-title if NOT already created in a previous batch
+            if current_module_number not in _already_titled_modules:
+                module_slide = create_module_title_slide_from_lesson(lesson, current_module_number, is_spanish, slide_counter)
+                all_slides.append(module_slide)
+                slide_counter += 1
+                _already_titled_modules.add(current_module_number)
+            else:
+                logger.info(f"   ⏭️ Skipping duplicate module-title for module {current_module_number} (already created in previous batch)")
+
             last_module_number = current_module_number
             lesson_number_in_module = 0
         
@@ -2176,6 +2199,14 @@ def generate_complete_course(
             if current_module_number <= len(outline_modules):
                 module_info = outline_modules[current_module_number - 1]
                 current_module_title = module_info.get('title', '')
+
+        # SKIP BOOKEND LESSONS (Introducción, Resumen del Capítulo)
+        # Their content was already used for the module-title slide (objectives)
+        # but they should NOT produce their own slides
+        if lesson_title.lower().strip() in _bookend_titles:
+            logger.info(f"   ⏭️ Skipping bookend lesson: {lesson_title}")
+            lessons_processed += 1
+            continue
 
         # BOOK-DRIVEN LAB DETECTION: Check lesson type field instead of title matching
         lesson_type = lesson.get('type', 'lesson').lower()
@@ -3235,7 +3266,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .module-title-name {{
             font-size: 28pt;
             font-weight: 700;
-            color: #b22222;
+            color: {colors['primary']};
             line-height: 1.2;
         }}
 
@@ -3314,10 +3345,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .lesson-title-slide .title {{
             font-size: 42pt;
             font-weight: 700;
-            margin-top: 100px;
+            margin-top: 80px;
             margin-bottom: 24px;
             text-align: center;
-            color: {colors['primary']};
+            color: #111;
             line-height: 1.15;
         }}
 
@@ -3325,20 +3356,34 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             width: 70%;
             height: 2px;
             background: #c7c7c7;
-            margin: 0 auto 24px auto;
+            margin: 0 auto 20px auto;
+        }}
+
+        .lesson-intro-heading {{
+            font-size: 20pt;
+            font-weight: 400;
+            color: #333;
+            margin-bottom: 12px;
+        }}
+
+        .lesson-intro-heading::before {{
+            content: '•';
+            margin-right: 12px;
+            font-size: 22pt;
         }}
 
         .lesson-intro-text {{
             max-width: 900px;
-            text-align: center;
-            padding: 0 20px;
+            text-align: left;
+            padding: 0 60px;
         }}
 
         .lesson-intro-text p {{
-            font-size: 20pt;
-            color: #333;
-            line-height: 1.4;
+            font-size: 18pt;
+            color: #444;
+            line-height: 1.45;
             margin-bottom: 10px;
+            text-indent: 20px;
         }}
 
         .lesson-title-slide .logo {{
@@ -3959,14 +4004,24 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 if block.get('type') == 'bullets':
                     intro_items.extend(block.get('items', []))
             
+            # Extract heading and items for lesson-title intro
+            intro_heading = ''
+            for block in slide.get('content_blocks', []):
+                if block.get('heading'):
+                    intro_heading = block['heading']
+                    break
+
             html_parts.append('  <div class="lesson-title-slide">')
             html_parts.append(f'    <div class="title">{title}</div>')
-            if intro_items:
+            if intro_items or intro_heading:
                 html_parts.append('    <div class="lesson-intro-divider"></div>')
-                html_parts.append('    <div class="lesson-intro-text">')
-                for item in intro_items:
-                    html_parts.append(f'      <p>{item}</p>')
-                html_parts.append('    </div>')
+                if intro_heading:
+                    html_parts.append(f'    <div class="lesson-intro-heading">{intro_heading}</div>')
+                if intro_items:
+                    html_parts.append('    <div class="lesson-intro-text">')
+                    for item in intro_items:
+                        html_parts.append(f'      <p>{item}</p>')
+                    html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
