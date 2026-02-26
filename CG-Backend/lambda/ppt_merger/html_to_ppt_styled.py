@@ -100,6 +100,74 @@ def _extract_intro_from_md(content: str) -> str:
     return para[:300] + '...' if len(para) > 300 else para
 
 
+def _extract_resumen_items_from_md(content: str) -> list:
+    """Extract summary items from Resumen del Capítulo markdown."""
+    if not content:
+        return []
+    pattern = re.compile(
+        r'###\s*(?:Temas\s+m[áa]s\s+importantes\s+cubiertos|Key\s+Topics\s+Covered)[^\n]*\n+'
+        r'((?:\s*-\s+.+\n?)+)',
+        re.MULTILINE | re.IGNORECASE,
+    )
+    m = pattern.search(content)
+    if not m:
+        return []
+    items = []
+    for line in m.group(1).strip().split('\n'):
+        line = line.strip()
+        if line.startswith('- '):
+            items.append(line[2:].strip())
+    return items[:10]
+
+
+def _parse_glossary_items_from_md(glossary_md: str) -> list:
+    """Parse glossary markdown into list of (term, definition) tuples."""
+    items = []
+    if not glossary_md:
+        return items
+    seen_terms = set()
+    # Noise words that indicate a section heading, not a real glossary term
+    _skip_terms = {'próximos pasos', 'recursos adicionales', 'puntos clave',
+                   'describir', 'explicar', 'comparar', 'aplicación práctica',
+                   'detalles técnicos', 'visión general del concepto'}
+    for line in glossary_md.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('- **'):
+            m = re.match(r'^-\s+\*\*([^*]+)\*\*:\s*(.+)$', line)
+            if m:
+                term = m.group(1).strip()
+                defn = m.group(2).strip()
+                # Skip question-style entries, pure verbs, or section headings
+                term_lower = term.lower().replace('¿', '').replace('?', '').strip()
+                if term_lower in _skip_terms:
+                    continue
+                if term.startswith('¿') or term.endswith('?'):
+                    continue
+                if term_lower in seen_terms:
+                    continue
+                seen_terms.add(term_lower)
+                # Clean definition
+                defn = re.sub(r'!\[[^\]]*\]\([^\)]+\)', '', defn)
+                defn = re.sub(r'#{2,}\s*', '', defn)
+                defn = re.sub(r'\*\*([^*]+)\*\*', r'\1', defn).strip()
+                defn = re.sub(r'^[-–—]+\s*', '', defn).strip()
+                # Strip leading term echo
+                for prefix in [term, term.split(':')[0].strip()]:
+                    if defn.lower().startswith(prefix.lower()):
+                        defn = defn[len(prefix):].lstrip(' :,.-–—').strip()
+                # If definition still looks like noise, drop it
+                if defn.lower().replace('¿', '').replace('?', '') == term_lower:
+                    defn = ''
+                if 'concepto clave abordado' in defn.lower():
+                    defn = ''
+                if 'objetivos de aprendizaje' in defn.lower():
+                    defn = ''
+                if len(defn) > 120:
+                    defn = defn[:117] + '...'
+                items.append((term, defn))
+    return items
+
+
 def _build_supplementary_lookup(book_data: dict) -> dict:
     """Build a lookup dict keyed by module number with title, objectives, lessons.
     Used to enrich old HTML that lacks new classes."""
@@ -116,14 +184,16 @@ def _build_supplementary_lookup(book_data: dict) -> dict:
             'title': om.get('title', ''),
             'objectives': [],
             'lessons': [],
+            'resumen_items': [],
         }
 
     for idx, bm in enumerate(book_modules):
         mod_num = bm.get('module_number', idx + 1)
         if mod_num not in supp:
-            supp[mod_num] = {'title': bm.get('module_title', ''), 'objectives': [], 'lessons': []}
+            supp[mod_num] = {'title': bm.get('module_title', ''), 'objectives': [], 'lessons': [], 'resumen_items': []}
 
         # Extract objectives from the first "Introducción" lesson
+        # and summary items from the "Resumen del Capítulo" lesson
         for lesson in bm.get('lessons', []):
             lesson_title = lesson.get('title', '')
             content = lesson.get('content', '')
@@ -133,10 +203,24 @@ def _build_supplementary_lookup(book_data: dict) -> dict:
             })
             if lesson_title.lower().strip() in ('introducción', 'introduction') and not supp[mod_num]['objectives']:
                 supp[mod_num]['objectives'] = _extract_objectives_from_md(content)
+            if lesson_title.lower().strip() in ('resumen del capítulo', 'chapter summary', 'resumen', 'summary'):
+                items = _extract_resumen_items_from_md(content)
+                if items:
+                    supp[mod_num]['resumen_items'] = items
 
         # Update title from book if outline didn't provide it
         if not supp[mod_num]['title']:
             supp[mod_num]['title'] = bm.get('module_title', f'Capítulo {mod_num}')
+
+    # Extract glossary from metadata
+    metadata = book_data.get('metadata', {}) if book_data else {}
+    glossary_md = metadata.get('course_glossary', '')
+    if not glossary_md:
+        for ss in book_data.get('special_sections', []):
+            if isinstance(ss, dict) and 'glosario' in (ss.get('title', '') or '').lower():
+                glossary_md = ss.get('content', '')
+                break
+    supp['_glossary_items'] = _parse_glossary_items_from_md(glossary_md)
 
     return supp
 
@@ -174,6 +258,11 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
     _bookend_titles = {'introducción', 'introduction', 'resumen del capítulo',
                        'chapter summary', 'resumen', 'summary'}
     _skipping_bookend = False  # when True, skip content slides until next lesson/module title
+    _injected_summaries = set()  # track which modules already got a chapter summary
+
+    # Pre-scan: find the index of the last slide (¡Gracias!) to inject glossary before it
+    _last_slide_idx = len(slides_html) - 1
+    _glossary_injected = False
 
     for idx, slide_html in enumerate(slides_html):
         logger.info(f"Processing slide {idx + 1}/{len(slides_html)}")
@@ -182,7 +271,11 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
         is_structural = (slide_html.find(class_='module-title-slide') or
                          slide_html.find(class_='lesson-title-slide') or
                          slide_html.find(class_='course-title-slide') or
-                         slide_html.find(class_='module-end-logo-slide'))
+                         slide_html.find(class_='module-end-logo-slide') or
+                         slide_html.find(class_='chapter-summary-slide') or
+                         slide_html.find(class_='lab-intro-slide') or
+                         slide_html.find(class_='glossary-slide') or
+                         slide_html.find(class_='gracias-slide'))
         if is_structural:
             _skipping_bookend = False  # always reset on structural slides
 
@@ -200,8 +293,48 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
             slide = create_intro_agenda_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='intro-content-slide'):
             slide = create_intro_content_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+        elif slide_html.find(class_='chapter-summary-slide'):
+            slide = create_chapter_summary_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+        elif slide_html.find(class_='lab-intro-slide'):
+            slide = create_lab_intro_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+        elif slide_html.find(class_='glossary-slide'):
+            slide = create_glossary_slide(prs, blank_layout, slide_html, logo_bytes)
+        elif slide_html.find(class_='gracias-slide'):
+            # Inject chapter summary for last module if not done yet
+            if supp and current_module_num and current_module_num not in _injected_summaries:
+                _ri = supp.get(current_module_num, {}).get('resumen_items', [])
+                if _ri:
+                    _injected_summaries.add(current_module_num)
+                    _inject_chapter_summary(prs, blank_layout, logo_bytes, ctx,
+                                            current_module_num, _ri,
+                                            supp.get(current_module_num, {}).get('title', ''))
+                    logger.info(f"   📋 Injected chapter summary for final module {current_module_num}")
+            # Inject glossary before gracias if not already done
+            if not _glossary_injected and supp:
+                _inject_glossary(prs, blank_layout, logo_bytes, supp)
+                _glossary_injected = True
+            slide = create_gracias_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
         elif slide_html.find(class_='course-title-slide'):
-            slide = create_course_title_slide(prs, blank_layout, slide_html, logo_bytes)
+            # Backward compat: detect ¡Gracias! and route to gracias slide
+            _ct_title = slide_html.find(class_='title')
+            _ct_text = _ct_title.get_text(strip=True) if _ct_title else ''
+            if 'gracias' in _ct_text.lower():
+                # Inject chapter summary for last module if not done yet
+                if supp and current_module_num and current_module_num not in _injected_summaries:
+                    _ri = supp.get(current_module_num, {}).get('resumen_items', [])
+                    if _ri:
+                        _injected_summaries.add(current_module_num)
+                        _inject_chapter_summary(prs, blank_layout, logo_bytes, ctx,
+                                                current_module_num, _ri,
+                                                supp.get(current_module_num, {}).get('title', ''))
+                        logger.info(f"   📋 Injected chapter summary for final module {current_module_num}")
+                # Inject glossary before gracias if not already done
+                if not _glossary_injected and supp:
+                    _inject_glossary(prs, blank_layout, logo_bytes, supp)
+                    _glossary_injected = True
+                slide = create_gracias_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+            else:
+                slide = create_course_title_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='module-title-slide'):
             # Parse module number from text instead of using sequential counter
             _mt = slide_html.find(class_='module-title-chapter') or slide_html.find(class_='title')
@@ -236,9 +369,36 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
                                               supp=supp, module_num=current_module_num,
                                               lesson_num=lesson_counter_in_module)
         elif slide_html.find(class_='module-end-logo-slide'):
+            # Inject chapter summary BEFORE the module-end logo if we have data
+            _resumen_items = supp.get(current_module_num, {}).get('resumen_items', []) if supp else []
+            if _resumen_items and current_module_num not in _injected_summaries:
+                _injected_summaries.add(current_module_num)
+                _inject_chapter_summary(prs, blank_layout, logo_bytes, ctx,
+                                        current_module_num, _resumen_items,
+                                        supp.get(current_module_num, {}).get('title', ''))
+                logger.info(f"   📋 Injected chapter summary for module {current_module_num}")
             slide = create_module_end_logo_slide(prs, blank_layout, slide_html, logo_bytes)
         else:
-            slide = create_content_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+            # Read the content-slide title for backward-compat checks
+            _content_title_elem = slide_html.find(class_='slide-title') or slide_html.find(class_='slide-header') or slide_html.find('h2')
+            _content_title_text = _content_title_elem.get_text(strip=True) if _content_title_elem else ''
+
+            # Backward compat: skip per-lesson "Resumen" content slides
+            if _content_title_text.lower().startswith('resumen:') or _content_title_text.lower().startswith('resumen -'):
+                logger.info(f"   ⏭️ Skipping per-lesson summary slide: {_content_title_text}")
+                continue
+            if _content_title_text.lower() in ('resumen', 'puntos clave'):
+                logger.info(f"   ⏭️ Skipping per-lesson summary slide: {_content_title_text}")
+                continue
+
+            # Backward compat: detect old lab overview slides (subtitle "Actividad Práctica")
+            _subtitle_elem = slide_html.find(class_='slide-subtitle')
+            _subtitle_text = _subtitle_elem.get_text(strip=True).lower() if _subtitle_elem else ''
+            if 'actividad' in _subtitle_text or _content_title_text.lower().startswith('laboratorio'):
+                logger.info(f"   🔬 Converting old lab overview to lab-intro: {_content_title_text}")
+                slide = create_lab_intro_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
+            else:
+                slide = create_content_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
             
         # Add instructor notes if present
         if slide:
@@ -700,6 +860,485 @@ def create_intro_agenda_slide(prs, layout, slide_html, logo_bytes):
     return slide
 
 
+# =============================================================================
+# ASSET DOWNLOAD HELPER
+# =============================================================================
+
+def _download_asset_image(s3_client, bucket, filename):
+    """Download an asset image from S3 logo/Assets/ folder. Returns bytes or None."""
+    if not s3_client or not bucket:
+        return None
+    try:
+        key = f"logo/Assets/{filename}"
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        return response['Body'].read()
+    except Exception as e:
+        logger.warning(f"Could not download asset {filename}: {e}")
+        return None
+
+
+def _inject_chapter_summary(prs, layout, logo_bytes, ctx, module_num, resumen_items, module_title):
+    """Inject a chapter summary slide programmatically (backward compat for old HTML)."""
+    slide = prs.slides.add_slide(layout)
+
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Yellow bar at TOP
+    top_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
+    )
+    top_bar.fill.solid()
+    top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    top_bar.line.fill.background()
+
+    # Title
+    title_text = f"Resumen del Capítulo {module_num}"
+    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.5), Inches(7.0), Inches(0.8))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(32)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = COLORS['primary']
+
+    # Heading
+    h_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.3), Inches(7.0), Inches(0.5))
+    hp = h_box.text_frame.paragraphs[0]
+    hp.text = "Temas más importantes cubiertos"
+    hp.font.size = Pt(18)
+    hp.font.name = FONTS['body']
+    hp.font.color.rgb = RGBColor(85, 85, 85)
+
+    # Summary items
+    if resumen_items:
+        item_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.9), Inches(6.5), Inches(4.5))
+        tf = item_box.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        for i, item in enumerate(resumen_items):
+            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            bullet_run = para.add_run()
+            bullet_run.text = "• "
+            bullet_run.font.size = Pt(17)
+            bullet_run.font.bold = True
+            bullet_run.font.name = FONTS['body']
+            bullet_run.font.color.rgb = COLORS['bullet_marker']
+            text_run = para.add_run()
+            text_run.text = item
+            text_run.font.size = Pt(17)
+            text_run.font.name = FONTS['body']
+            text_run.font.color.rgb = RGBColor(34, 34, 34)
+            para.space_after = Pt(4)
+
+    # Resumen_Capitulo.png on right
+    asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Resumen_Capitulo.png')
+    if asset_bytes:
+        try:
+            img_stream = io.BytesIO(asset_bytes)
+            slide.shapes.add_picture(img_stream, Inches(7.8), Inches(1.5), Inches(4.8), Inches(4.8))
+        except Exception as e:
+            logger.warning(f"Could not add Resumen_Capitulo.png: {e}")
+
+    add_logo_bottom_left(slide, logo_bytes)
+
+
+def _inject_glossary(prs, layout, logo_bytes, supp):
+    """Inject glossary slide(s) programmatically (backward compat for old HTML)."""
+    glossary_items = supp.get('_glossary_items', [])
+    if not glossary_items:
+        return
+
+    slide = prs.slides.add_slide(layout)
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Yellow bar at TOP
+    top_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
+    )
+    top_bar.fill.solid()
+    top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    top_bar.line.fill.background()
+
+    # Title
+    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = "Glosario"
+    p.font.size = Pt(36)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = COLORS['primary']
+
+    # Two-column layout
+    mid = (len(glossary_items) + 1) // 2
+    col1_items = glossary_items[:mid]
+    col2_items = glossary_items[mid:]
+
+    for col_idx, col_items in enumerate([col1_items, col2_items]):
+        left = Inches(0.6) if col_idx == 0 else Inches(6.8)
+        box = slide.shapes.add_textbox(left, Inches(1.5), Inches(5.8), Inches(5.0))
+        tf = box.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        for i, (term, defn) in enumerate(col_items):
+            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            br = para.add_run()
+            br.text = "• "
+            br.font.size = Pt(15)
+            br.font.bold = True
+            br.font.name = FONTS['body']
+            br.font.color.rgb = COLORS['bullet_marker']
+            tr = para.add_run()
+            tr.text = term
+            tr.font.size = Pt(15)
+            tr.font.bold = True
+            tr.font.name = FONTS['body']
+            tr.font.color.rgb = COLORS['primary']
+            if defn:
+                dr = para.add_run()
+                dr.text = f" {defn}"
+                dr.font.size = Pt(14)
+                dr.font.name = FONTS['body']
+                dr.font.color.rgb = RGBColor(68, 68, 68)
+            para.space_after = Pt(3)
+
+    add_logo_bottom_left(slide, logo_bytes)
+    logger.info(f"   📖 Injected glossary slide with {len(glossary_items)} terms")
+
+
+# =============================================================================
+# CHAPTER SUMMARY SLIDE
+# =============================================================================
+
+def create_chapter_summary_slide(prs, layout, slide_html, logo_bytes, ctx):
+    """Chapter summary: light bg, yellow top bar, bullet list left, Resumen_Capitulo.png right."""
+    slide = prs.slides.add_slide(layout)
+
+    # Light background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Yellow bar at TOP
+    top_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
+    )
+    top_bar.fill.solid()
+    top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    top_bar.line.fill.background()
+
+    # Title
+    title_elem = slide_html.find(class_='chapter-summary-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Resumen del Capítulo"
+
+    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.5), Inches(7.0), Inches(0.8))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(32)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = COLORS['primary']
+
+    # Heading
+    heading_elem = slide_html.find(class_='chapter-summary-heading')
+    if heading_elem:
+        h_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.3), Inches(7.0), Inches(0.5))
+        hp = h_box.text_frame.paragraphs[0]
+        hp.text = heading_elem.get_text(strip=True)
+        hp.font.size = Pt(18)
+        hp.font.name = FONTS['body']
+        hp.font.color.rgb = RGBColor(85, 85, 85)
+
+    # Summary bullet items
+    list_elem = slide_html.find(class_='chapter-summary-list')
+    items = []
+    if list_elem:
+        items = [li.get_text(strip=True) for li in list_elem.find_all('li') if li.get_text(strip=True)]
+
+    if items:
+        item_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.9), Inches(6.5), Inches(4.5))
+        tf = item_box.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        for i, item in enumerate(items):
+            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            bullet_run = para.add_run()
+            bullet_run.text = "• "
+            bullet_run.font.size = Pt(17)
+            bullet_run.font.bold = True
+            bullet_run.font.name = FONTS['body']
+            bullet_run.font.color.rgb = COLORS['bullet_marker']
+            text_run = para.add_run()
+            text_run.text = item
+            text_run.font.size = Pt(17)
+            text_run.font.name = FONTS['body']
+            text_run.font.color.rgb = RGBColor(34, 34, 34)
+            para.space_after = Pt(4)
+
+    # Resumen_Capitulo.png on right side
+    asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Resumen_Capitulo.png')
+    if asset_bytes:
+        try:
+            img_stream = io.BytesIO(asset_bytes)
+            slide.shapes.add_picture(img_stream, Inches(7.8), Inches(1.5), Inches(4.8), Inches(4.8))
+        except Exception as e:
+            logger.warning(f"Could not add Resumen_Capitulo.png: {e}")
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
+
+
+# =============================================================================
+# LAB INTRO SLIDE
+# =============================================================================
+
+def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
+    """Lab intro: dark bg, Reloj.png left, title + objective right."""
+    slide = prs.slides.add_slide(layout)
+
+    # Dark blue background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = COLORS['primary']
+
+    # Reloj.png on left side
+    asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Reloj.png')
+    if asset_bytes:
+        try:
+            img_stream = io.BytesIO(asset_bytes)
+            slide.shapes.add_picture(img_stream, Inches(1.0), Inches(1.8), Inches(3.5), Inches(3.5))
+        except Exception as e:
+            logger.warning(f"Could not add Reloj.png: {e}")
+
+    # Subtitle (Actividad Práctica) — try new class then fall back to old
+    subtitle_elem = slide_html.find(class_='lab-intro-subtitle') or slide_html.find(class_='slide-subtitle')
+    if subtitle_elem:
+        sub_box = slide.shapes.add_textbox(Inches(5.5), Inches(1.5), Inches(7.0), Inches(0.5))
+        sp = sub_box.text_frame.paragraphs[0]
+        sp.text = subtitle_elem.get_text(strip=True)
+        sp.font.size = Pt(18)
+        sp.font.bold = True
+        sp.font.name = FONTS['title']
+        sp.font.color.rgb = COLORS['bullet_marker']
+
+    # Title — try new class then fall back to old
+    title_elem = slide_html.find(class_='lab-intro-title') or slide_html.find(class_='slide-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Lab Activity"
+    t_box = slide.shapes.add_textbox(Inches(5.5), Inches(2.1), Inches(7.0), Inches(1.5))
+    tf = t_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(30)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = COLORS['white']
+
+    # Yellow divider
+    divider = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(5.5), Inches(3.6), Inches(1.2), Inches(0.05)
+    )
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = COLORS['bullet_marker']
+    divider.line.fill.background()
+
+    # Objective text — try new class, fall back to description bullet in old HTML
+    obj_elem = slide_html.find(class_='lab-intro-objective')
+    if not obj_elem:
+        # Backward compat: extract description bullet (skip 'Tiempo estimado')
+        for li in slide_html.find_all('li'):
+            li_text = li.get_text(strip=True).lower()
+            if not li_text.startswith('tiempo') and len(li_text) > 20:
+                obj_elem = li
+                break
+    if obj_elem:
+        obj_box = slide.shapes.add_textbox(Inches(5.5), Inches(3.9), Inches(7.0), Inches(2.0))
+        otf = obj_box.text_frame
+        otf.word_wrap = True
+        op = otf.paragraphs[0]
+        op.text = obj_elem.get_text(strip=True)
+        op.font.size = Pt(18)
+        op.font.name = FONTS['body']
+        op.font.color.rgb = RGBColor(220, 232, 240)
+
+    # Duration text — try new class, fall back to searching for 'Tiempo' in bullets
+    dur_elem = slide_html.find(class_='lab-intro-duration')
+    if not dur_elem:
+        for li in slide_html.find_all('li'):
+            if 'tiempo' in li.get_text(strip=True).lower():
+                dur_elem = li
+                break
+    if dur_elem:
+        dur_box = slide.shapes.add_textbox(Inches(5.5), Inches(5.5), Inches(7.0), Inches(0.5))
+        dp = dur_box.text_frame.paragraphs[0]
+        dp.text = dur_elem.get_text(strip=True)
+        dp.font.size = Pt(16)
+        dp.font.name = FONTS['body']
+        dp.font.color.rgb = COLORS['bullet_marker']
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
+
+
+# =============================================================================
+# GLOSSARY SLIDE
+# =============================================================================
+
+def create_glossary_slide(prs, layout, slide_html, logo_bytes):
+    """Glossary: light bg, yellow top bar, two-column term grid."""
+    slide = prs.slides.add_slide(layout)
+
+    # Light background
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(239, 239, 239)
+
+    # Yellow bar at TOP
+    top_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
+    )
+    top_bar.fill.solid()
+    top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    top_bar.line.fill.background()
+
+    # Title
+    title_elem = slide_html.find(class_='glossary-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Glosario"
+
+    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(36)
+    p.font.bold = True
+    p.font.name = FONTS['title']
+    p.font.color.rgb = COLORS['primary']
+
+    # Glossary items – two-column layout
+    items_html = slide_html.find_all(class_='glossary-item')
+    items = []
+    for it in items_html:
+        term_el = it.find(class_='glossary-term')
+        def_el = it.find(class_='glossary-def')
+        term = term_el.get_text(strip=True) if term_el else ""
+        defn = def_el.get_text(strip=True) if def_el else ""
+        if term:
+            items.append((term, defn))
+
+    # Split into two columns
+    mid = (len(items) + 1) // 2
+    col1_items = items[:mid]
+    col2_items = items[mid:]
+
+    for col_idx, col_items in enumerate([col1_items, col2_items]):
+        left = Inches(0.6) if col_idx == 0 else Inches(6.8)
+        box = slide.shapes.add_textbox(left, Inches(1.5), Inches(5.8), Inches(5.0))
+        tf = box.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        for i, (term, defn) in enumerate(col_items):
+            para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            # Bullet
+            br = para.add_run()
+            br.text = "• "
+            br.font.size = Pt(15)
+            br.font.bold = True
+            br.font.name = FONTS['body']
+            br.font.color.rgb = COLORS['bullet_marker']
+            # Term (bold)
+            tr = para.add_run()
+            tr.text = term
+            tr.font.size = Pt(15)
+            tr.font.bold = True
+            tr.font.name = FONTS['body']
+            tr.font.color.rgb = COLORS['primary']
+            # Definition
+            if defn:
+                dr = para.add_run()
+                dr.text = f" {defn}"
+                dr.font.size = Pt(14)
+                dr.font.name = FONTS['body']
+                dr.font.color.rgb = RGBColor(68, 68, 68)
+            para.space_after = Pt(3)
+
+    add_logo_bottom_left(slide, logo_bytes)
+    return slide
+
+
+# =============================================================================
+# GRACIAS (CLOSING) SLIDE
+# =============================================================================
+
+def create_gracias_slide(prs, layout, slide_html, logo_bytes, ctx):
+    """Gracias slide: gradient bg, Gracias.png image, title, subtitle."""
+    slide = prs.slides.add_slide(layout)
+
+    add_gradient_background(slide)
+
+    # Gracias.png centered
+    asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Gracias.png')
+    if asset_bytes:
+        try:
+            img_stream = io.BytesIO(asset_bytes)
+            # Center the image
+            img_w, img_h = Inches(3.5), Inches(3.5)
+            img_left = (SLIDE_WIDTH - img_w) // 2
+            slide.shapes.add_picture(img_stream, img_left, Inches(0.8), img_w, img_h)
+        except Exception as e:
+            logger.warning(f"Could not add Gracias.png: {e}")
+
+    # Title
+    title_elem = slide_html.find(class_='gracias-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "¡Gracias!"
+    t_box = slide.shapes.add_textbox(Inches(0.5), Inches(4.5), Inches(12.333), Inches(1.0))
+    tf = t_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(48)
+    p.font.bold = True
+    p.font.color.rgb = COLORS['white']
+    p.font.name = FONTS['title']
+    p.alignment = PP_ALIGN.CENTER
+
+    # Subtitle
+    sub_elem = slide_html.find(class_='gracias-subtitle')
+    sub_text = sub_elem.get_text(strip=True) if sub_elem else "¿Dudas o comentarios?"
+    s_box = slide.shapes.add_textbox(Inches(0.5), Inches(5.5), Inches(12.333), Inches(0.8))
+    sf = s_box.text_frame
+    sf.word_wrap = True
+    sp = sf.paragraphs[0]
+    sp.text = sub_text
+    sp.font.size = Pt(28)
+    sp.font.bold = True
+    sp.font.color.rgb = COLORS['bullet_marker']
+    sp.font.name = FONTS['title']
+    sp.alignment = PP_ALIGN.CENTER
+
+    # Logo at bottom right
+    if logo_bytes:
+        logo_stream = io.BytesIO(logo_bytes)
+        logo_left = SLIDE_WIDTH - Inches(2.0)
+        slide.shapes.add_picture(
+            logo_stream, logo_left, Inches(6.5), Inches(1.5), Inches(0.6)
+        )
+
+    return slide
+
+
 def create_course_title_slide(prs, layout, slide_html, logo_bytes):
     """Course title: Full gradient, centered title, centered logo at bottom."""
     slide = prs.slides.add_slide(layout)
@@ -737,9 +1376,9 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     fill.solid()
     fill.fore_color.rgb = RGBColor(239, 239, 239)
 
-    # Yellow accent bar (top-left)
+    # Yellow accent bar (top-left, vertically centered)
     accent = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.53), Inches(0.55), Inches(0.82), Inches(0.08)
+        MSO_SHAPE.RECTANGLE, Inches(0.53), Inches(1.6), Inches(0.82), Inches(0.08)
     )
     accent.fill.solid()
     accent.fill.fore_color.rgb = COLORS['bullet_marker']
@@ -784,8 +1423,8 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     if not obj_items and supp and module_num in supp:
         obj_items = supp[module_num].get('objectives', [])
 
-    # Chapter label (large, black)
-    lbl_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.1), Inches(5.5), Inches(2.0))
+    # Chapter label (large, black) – positioned lower for visual balance
+    lbl_box = slide.shapes.add_textbox(Inches(0.6), Inches(2.0), Inches(5.5), Inches(2.0))
     tf = lbl_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
@@ -798,7 +1437,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
 
     # Divider line
     divider = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(3.2), Inches(5.5), Inches(0.02)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.1), Inches(5.5), Inches(0.02)
     )
     divider.fill.solid()
     divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
@@ -806,7 +1445,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
 
     # Chapter name (blue, below divider)
     if chapter_name:
-        name_box = slide.shapes.add_textbox(Inches(0.6), Inches(3.4), Inches(5.5), Inches(2.0))
+        name_box = slide.shapes.add_textbox(Inches(0.6), Inches(4.3), Inches(5.5), Inches(2.0))
         tf = name_box.text_frame
         tf.word_wrap = True
         p = tf.paragraphs[0]
@@ -824,8 +1463,8 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
 
     if obj_items:
         obj_heading = obj_heading_elem.get_text(strip=True) if obj_heading_elem else "Objetivos:"
-        # Heading
-        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.1), Inches(6.0), Inches(0.6))
+        # Heading – vertically aligned with left side
+        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.6), Inches(6.0), Inches(0.6))
         hp = h_box.text_frame.paragraphs[0]
         hp.text = obj_heading
         hp.font.size = Pt(26)
@@ -834,7 +1473,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
         hp.font.color.rgb = RGBColor(17, 17, 17)
 
         # Objective items
-        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.8), Inches(6.0), Inches(4.5))
+        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(2.3), Inches(6.0), Inches(4.5))
         tf = obj_box.text_frame
         tf.word_wrap = True
         tf.clear()

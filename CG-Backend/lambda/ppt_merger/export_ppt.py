@@ -170,6 +170,8 @@ def _load_supplementary_data(s3_client, course_bucket, project_folder):
         obj = s3_client.get_object(Bucket=course_bucket, Key=book_key)
         book = json.loads(obj['Body'].read().decode('utf-8'))
         result['book_modules'] = book.get('modules', [])
+        result['metadata'] = book.get('metadata', {})
+        result['special_sections'] = book.get('special_sections', [])
         logger.info(f"Loaded book data with {len(result['book_modules'])} modules")
     except Exception as e:
         logger.warning(f"Could not load book data JSON: {e}")
