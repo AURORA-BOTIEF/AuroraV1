@@ -1132,10 +1132,10 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     fill.solid()
     fill.fore_color.rgb = COLORS['white']
 
-    # Dashed title box (top area)
+    # Dashed title box (top area — taller, pushed down)
     from pptx.oxml.ns import qn
     title_box_shape = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.4), Inches(12.1), Inches(2.0)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.5), Inches(12.1), Inches(2.3)
     )
     title_box_shape.fill.background()  # No fill
     ln = title_box_shape.line
@@ -1143,15 +1143,15 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     ln.width = Pt(1.5)
     ln.dash_style = 3  # dash
 
-    # Title text (centered in box)
+    # Title text (centered in box — larger font)
     title_elem = slide_html.find(class_='lab-intro-title') or slide_html.find(class_='slide-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Lab Activity"
-    t_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.7), Inches(11.7), Inches(1.5))
+    t_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.9), Inches(11.7), Inches(1.6))
     tf = t_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(36)
+    p.font.size = Pt(42)
     p.font.bold = True
     p.font.name = FONTS['title']
     p.font.color.rgb = RGBColor(17, 17, 17)
@@ -1159,7 +1159,7 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
 
     # Yellow accent bar below title box
     accent = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(2.5), Inches(2.2), Inches(0.1)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(2.9), Inches(2.4), Inches(0.1)
     )
     accent.fill.solid()
     accent.fill.fore_color.rgb = COLORS['bullet_marker']
@@ -1167,7 +1167,7 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
 
     # Gray divider line
     div = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(2.7), Inches(12.1), Inches(0.02)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(3.1), Inches(12.1), Inches(0.02)
     )
     div.fill.solid()
     div.fill.fore_color.rgb = RGBColor(199, 199, 199)
@@ -1184,10 +1184,10 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
                 obj_elem = li
                 break
 
-    # Heading label
+    # Heading label (pushed down to match taller title box)
     heading_elem = slide_html.find(class_='lab-intro-section-heading')
     heading_text = heading_elem.get_text(strip=True) if heading_elem else 'Objetivo:'
-    h_box = slide.shapes.add_textbox(Inches(0.6), Inches(3.1), Inches(8.0), Inches(0.5))
+    h_box = slide.shapes.add_textbox(Inches(0.6), Inches(3.5), Inches(8.0), Inches(0.5))
     hp = h_box.text_frame.paragraphs[0]
     hp.text = heading_text
     hp.font.size = Pt(18)
@@ -1196,17 +1196,21 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     hp.font.color.rgb = RGBColor(34, 34, 34)
 
     if obj_elem:
-        obj_box = slide.shapes.add_textbox(Inches(0.8), Inches(3.6), Inches(8.0), Inches(2.0))
+        obj_text = obj_elem.get_text(strip=True)
+        # Strip checkbox artifacts like '[ ] '
+        import re as _re
+        obj_text = _re.sub(r'^\[\s*\]\s*', '', obj_text)
+        obj_box = slide.shapes.add_textbox(Inches(0.8), Inches(4.0), Inches(8.0), Inches(2.0))
         otf = obj_box.text_frame
         otf.word_wrap = True
         op = otf.paragraphs[0]
-        op.text = obj_elem.get_text(strip=True)
+        op.text = obj_text
         op.font.size = Pt(16)
         op.font.name = FONTS['body']
         op.font.color.rgb = RGBColor(51, 51, 51)
         # Left border effect via a thin shape
         border_line = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(3.6), Inches(0.04), Inches(0.6)
+            MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.0), Inches(0.04), Inches(0.6)
         )
         border_line.fill.solid()
         border_line.fill.fore_color.rgb = RGBColor(199, 199, 199)
@@ -1223,13 +1227,14 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
 
     dur_elem = slide_html.find(class_='lab-intro-duration-label')
     dur_val_elem = slide_html.find(class_='lab-intro-duration-value')
-    if not dur_elem:
-        # Backward compat
+    dur_box_elem = slide_html.find(class_='lab-intro-duration-box')
+    if not dur_elem and not dur_box_elem:
+        # Backward compat: look for duration text in list items
         for li in slide_html.find_all('li'):
             if 'tiempo' in li.get_text(strip=True).lower():
                 dur_elem = li
                 break
-    if dur_elem:
+    if dur_elem or dur_box_elem:
         dur_label_text = dur_elem.get_text(strip=True) if dur_elem else 'Tiempo para esta actividad:'
         dur_value_text = dur_val_elem.get_text(strip=True) if dur_val_elem else ''
         d_box = slide.shapes.add_textbox(Inches(9.6), Inches(5.7), Inches(3.5), Inches(0.5))
@@ -1341,57 +1346,86 @@ def create_glossary_slide(prs, layout, slide_html, logo_bytes):
 # =============================================================================
 
 def create_gracias_slide(prs, layout, slide_html, logo_bytes, ctx):
-    """Gracias slide: gradient bg, Gracias.png image, title, subtitle."""
+    """Gracias slide: split layout — white left panel, hero image right."""
     slide = prs.slides.add_slide(layout)
 
-    add_gradient_background(slide)
-
-    # Gracias.png centered
+    # Right side: Gracias.png covering right ~55% of slide
     asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Gracias.png')
     if asset_bytes:
         try:
             img_stream = io.BytesIO(asset_bytes)
-            # Center the image
-            img_w, img_h = Inches(3.5), Inches(3.5)
-            img_left = (SLIDE_WIDTH - img_w) // 2
-            slide.shapes.add_picture(img_stream, img_left, Inches(0.8), img_w, img_h)
+            # Image covers right portion (from ~45% to right edge)
+            img_left = Inches(5.8)
+            slide.shapes.add_picture(
+                img_stream, img_left, Inches(0), Inches(7.533), SLIDE_HEIGHT
+            )
         except Exception as e:
             logger.warning(f"Could not add Gracias.png: {e}")
+
+    # White left panel (~50% width, overlaps slightly for curved feel)
+    white_panel = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(6.5), SLIDE_HEIGHT
+    )
+    white_panel.fill.solid()
+    white_panel.fill.fore_color.rgb = COLORS['white']
+    white_panel.line.fill.background()
+
+    # Curved edge: white oval that softens the right border of the panel
+    curve = slide.shapes.add_shape(
+        MSO_SHAPE.OVAL, Inches(4.5), Inches(-1.0), Inches(4.0), Inches(9.5)
+    )
+    curve.fill.solid()
+    curve.fill.fore_color.rgb = COLORS['white']
+    curve.line.fill.background()
+
+    # Yellow accent bar (top-left)
+    accent = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(0.6), Inches(0.9), Inches(0.1)
+    )
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
 
     # Title
     title_elem = slide_html.find(class_='gracias-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "¡Gracias!"
-    t_box = slide.shapes.add_textbox(Inches(0.5), Inches(4.5), Inches(12.333), Inches(1.0))
+    t_box = slide.shapes.add_textbox(Inches(0.8), Inches(2.5), Inches(5.0), Inches(1.2))
     tf = t_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(48)
+    p.font.size = Pt(56)
     p.font.bold = True
-    p.font.color.rgb = COLORS['white']
+    p.font.color.rgb = COLORS['primary']
     p.font.name = FONTS['title']
-    p.alignment = PP_ALIGN.CENTER
+    p.alignment = PP_ALIGN.LEFT
+
+    # Divider line
+    div = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(3.7), Inches(1.0), Inches(0.025)
+    )
+    div.fill.solid()
+    div.fill.fore_color.rgb = RGBColor(170, 170, 170)
+    div.line.fill.background()
 
     # Subtitle
     sub_elem = slide_html.find(class_='gracias-subtitle')
     sub_text = sub_elem.get_text(strip=True) if sub_elem else "¿Dudas o comentarios?"
-    s_box = slide.shapes.add_textbox(Inches(0.5), Inches(5.5), Inches(12.333), Inches(0.8))
+    s_box = slide.shapes.add_textbox(Inches(0.8), Inches(4.0), Inches(5.0), Inches(0.8))
     sf = s_box.text_frame
     sf.word_wrap = True
     sp = sf.paragraphs[0]
     sp.text = sub_text
-    sp.font.size = Pt(28)
-    sp.font.bold = True
-    sp.font.color.rgb = COLORS['bullet_marker']
-    sp.font.name = FONTS['title']
-    sp.alignment = PP_ALIGN.CENTER
+    sp.font.size = Pt(22)
+    sp.font.color.rgb = RGBColor(68, 68, 68)
+    sp.font.name = FONTS['body']
+    sp.alignment = PP_ALIGN.LEFT
 
-    # Logo at bottom right
+    # Logo at bottom left
     if logo_bytes:
         logo_stream = io.BytesIO(logo_bytes)
-        logo_left = SLIDE_WIDTH - Inches(2.0)
         slide.shapes.add_picture(
-            logo_stream, logo_left, Inches(6.5), Inches(1.5), Inches(0.6)
+            logo_stream, Inches(0.8), Inches(6.3), Inches(1.5), Inches(0.6)
         )
 
     return slide

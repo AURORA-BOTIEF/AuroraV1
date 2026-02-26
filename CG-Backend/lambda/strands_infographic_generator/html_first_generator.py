@@ -2278,12 +2278,10 @@ def generate_complete_course(
                 if not refs:
                     refs = []
 
-        ref_slides = create_references_slides(
-            module_title=title_ref, references=refs,
-            is_spanish=is_spanish, slide_counter=sc
-        )
-        all_slides.extend(ref_slides)
-        sc += len(ref_slides)
+        # References slides suppressed by design (corporate template omits bibliography)
+        # ref_slides = create_references_slides(...)
+        # all_slides.extend(ref_slides)
+        # sc += len(ref_slides)
 
         r_items = _resumen_items_by_module.get(mod_num, [])
         if r_items:
@@ -3619,27 +3617,28 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .lab-intro-title-box {{
             border: 2px dashed #aaa;
             border-radius: 6px;
-            padding: 28px 40px 22px;
+            padding: 40px 50px 34px;
             text-align: center;
-            margin-bottom: 8px;
+            margin-top: 20px;
+            margin-bottom: 10px;
         }}
         .lab-intro-title {{
-            font-size: 36pt;
+            font-size: 42pt;
             font-weight: 800;
             color: #111;
-            line-height: 1.2;
+            line-height: 1.15;
         }}
         .lab-intro-accent {{
-            width: 200px;
+            width: 220px;
             height: 8px;
             background: {colors['accent']};
-            margin: 10px 0 0 0;
+            margin: 12px 0 0 0;
         }}
         .lab-intro-divider {{
             width: 100%;
             height: 2px;
             background: #c7c7c7;
-            margin: 0 0 22px 0;
+            margin: 0 0 28px 0;
         }}
         .lab-intro-section-heading {{
             font-size: 18pt;
@@ -3740,40 +3739,78 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             height: auto;
         }}
 
-        /* GRACIAS (CLOSING) SLIDE */
+        /* GRACIAS (CLOSING) SLIDE — split layout with hero image */
         .gracias-slide {{
             height: 100%;
-            background: linear-gradient(135deg, {colors['primary']}, {colors['secondary']});
             position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            text-align: center;
+            display: grid;
+            grid-template-columns: 45% 55%;
+            overflow: hidden;
         }}
-        .gracias-image {{
-            max-width: 280px;
-            max-height: 280px;
-            margin-bottom: 30px;
+        .gracias-left {{
+            background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 60px 50px 60px 60px;
+            position: relative;
+            z-index: 2;
+        }}
+        .gracias-left::after {{
+            /* Curved white overlay that extends onto the image */
+            content: '';
+            position: absolute;
+            top: 0;
+            right: -120px;
+            width: 240px;
+            height: 100%;
+            background: #ffffff;
+            border-radius: 0 50% 50% 0 / 0 50% 50% 0;
+        }}
+        .gracias-accent {{
+            width: 80px;
+            height: 8px;
+            background: {colors['accent']};
+            position: absolute;
+            top: 50px;
+            left: 60px;
         }}
         .gracias-title {{
             font-size: 56pt;
             font-weight: 800;
-            color: white;
+            color: {colors['primary']};
+            margin-bottom: 16px;
+            position: relative;
+            z-index: 3;
+        }}
+        .gracias-divider {{
+            width: 80px;
+            height: 2px;
+            background: #aaa;
             margin-bottom: 20px;
         }}
         .gracias-subtitle {{
-            font-size: 28pt;
-            color: {colors['accent']};
-            font-weight: 600;
+            font-size: 22pt;
+            color: #444;
+            font-weight: 400;
+        }}
+        .gracias-right {{
+            position: relative;
+            overflow: hidden;
+        }}
+        .gracias-image {{
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: grayscale(100%);
         }}
         .gracias-slide .logo {{
             position: absolute;
             bottom: 20px;
-            right: 30px;
+            left: 60px;
             width: 150px;
             height: auto;
-            opacity: 0.9;
+            z-index: 4;
         }}
         
         /* LESSON TITLE SLIDE - Topic introduction (corporate template) */
@@ -4439,12 +4476,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     items = block.get('items', [])
                     heading = block.get('heading', '').lower()
                     if 'objetivo' in heading or 'objective' in heading:
-                        lab_objective = items[0] if items else ""
-                    elif items and not lab_objective:
+                        raw_obj = items[0] if items else ""
+                        # Strip checkbox artifacts like '[ ] '
+                        lab_objective = re.sub(r'^\[\s*\]\s*', '', raw_obj)
+                    elif items:
                         text = items[0]
                         if 'tiempo' in text.lower() or 'estimated' in text.lower():
                             lab_duration = text
-                        else:
+                        elif not lab_objective:
                             lab_objective = text
             reloj_img_url = _asset_url_from_s3('Reloj.png')
             is_es = 'actividad' in (subtitle or '').lower() or 'práctica' in (subtitle or '').lower()
@@ -4504,13 +4543,19 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             continue
 
         elif layout == 'gracias':
-            # Gracias closing slide with Gracias.png
+            # Gracias closing slide — split layout with hero image
             gracias_img_url = _asset_url_from_s3('Gracias.png')
             html_parts.append('  <div class="gracias-slide">')
-            html_parts.append(f'    <img src="{gracias_img_url}" class="gracias-image" alt="Gracias">')
-            html_parts.append(f'    <div class="gracias-title">{title}</div>')
+            html_parts.append('    <div class="gracias-left">')
+            html_parts.append('      <div class="gracias-accent"></div>')
+            html_parts.append(f'      <div class="gracias-title">{title}</div>')
+            html_parts.append('      <div class="gracias-divider"></div>')
             if subtitle:
-                html_parts.append(f'    <div class="gracias-subtitle">{subtitle}</div>')
+                html_parts.append(f'      <div class="gracias-subtitle">{subtitle}</div>')
+            html_parts.append('    </div>')
+            html_parts.append('    <div class="gracias-right">')
+            html_parts.append(f'      <img src="{gracias_img_url}" class="gracias-image" alt="Gracias">')
+            html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
