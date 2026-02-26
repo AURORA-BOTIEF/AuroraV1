@@ -1378,16 +1378,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             console.log('Files found in book folder:', response.Contents.map(c => c.Key));
 
             // 1.5 Look for Lab Guide JSON first (Priority)
-            // TEMPORARILY DISABLED: Force markdown parsing to bypass broken cached JSON
-            // Match files ending with _data.json that contain Lab_Guide or LabGuide
-            // (consistent with backend load_book.py pattern matching)
-            const labGuideJsonFile = false; // FORCE SKIP JSON
-            /*
+            // The JSON produced by lab_guide_builder.py has properly extracted content for each lab.
+            // Using the JSON avoids issues with false H1 headings in the markdown that break parsing.
             const labGuideJsonFile = response.Contents.find(obj =>
                 obj.Key && obj.Key.endsWith('_data.json') &&
                 (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
             );
-            */
 
             if (labGuideJsonFile) {
                 console.log('Found Lab Guide JSON:', labGuideJsonFile.Key);
@@ -1409,10 +1405,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 items.forEach((item, itemIdx) => {
                                     lessons.push({
                                         ...item,
-                                        moduleNumber: moduleIdx + 1,
-                                        lessonNumberInModule: itemIdx + 1,
-                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
-                                        filename: item.filename || `lab_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                        moduleNumber: module.module_number || (moduleIdx + 1),
+                                        lessonNumberInModule: item.lab_number || (itemIdx + 1),
+                                        moduleTitle: (module.module_title || module.title || `Capítulo ${module.module_number || (moduleIdx + 1)}`)
+                                            .replace(/\bModule\b/g, 'Capítulo')
+                                            .replace(/\bM[oó]dulo\b/g, 'Capítulo'),
+                                        filename: item.filename || `lab_${String(module.module_number || (moduleIdx + 1)).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
                                     });
                                 });
                             }
@@ -1436,9 +1434,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         console.warn('⚠️ JSON contains placeholder errors from buggy parsing. Falling back to fresh Markdown parsing.');
                         // Fall through to Markdown loader below  
                     } else {
-                        setLabGuideData(parsed);
-                        console.log('✅ Lab guide loaded from JSON (fallback path)');
-                        loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
+                        const labGuideToSet = {
+                            ...parsed,
+                            filename: labGuideJsonFile.Key.split('/').pop(),
+                            outlineKey: outlineFilename // Store outline key for regeneration
+                        };
+                        setLabGuideData(labGuideToSet);
+                        setOriginalLabGuideData(JSON.parse(JSON.stringify(labGuideToSet)));
+                        console.log('✅ Lab guide loaded from JSON:', parsed.lessons?.length, 'labs');
+                        loadImagesProgressively(labGuideToSet.lessons, setLabGuideData, 'lab');
                         return;
                     }
                 } catch (e) {
