@@ -3880,10 +3880,12 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
 
         .lesson-intro-divider {{
-            width: 70%;
+            width: 85%;
             height: 2px;
             background: #c7c7c7;
-            margin: 0 auto 20px auto;
+            margin: 0 0 20px 0;
+            align-self: flex-start;
+            margin-left: 80px;
         }}
 
         .lesson-intro-heading {{
@@ -3891,6 +3893,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             font-weight: 400;
             color: #333;
             margin-bottom: 12px;
+            align-self: flex-start;
+            margin-left: 80px;
         }}
 
         .lesson-intro-heading::before {{
@@ -3900,9 +3904,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
 
         .lesson-intro-text {{
-            max-width: 900px;
+            width: 100%;
             text-align: left;
-            padding: 0 60px;
+            padding: 0 80px;
         }}
 
         .lesson-intro-text p {{

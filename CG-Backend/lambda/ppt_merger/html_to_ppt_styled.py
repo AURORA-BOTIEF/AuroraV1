@@ -1678,11 +1678,11 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
                 intro_items = [intro_text]
 
     if intro_items or intro_heading:
-        # Divider
+        # Divider (left-aligned)
         divider = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(2), Inches(3.5),
-            Inches(9.333), Inches(0.02)
+            Inches(0.6), Inches(3.5),
+            Inches(11.2), Inches(0.02)
         )
         divider.fill.solid()
         divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
@@ -1690,10 +1690,10 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
 
         y_pos = 3.7
 
-        # "Introducción" heading bullet
+        # "Introducción" heading bullet (left-aligned)
         if intro_heading:
             heading_box = slide.shapes.add_textbox(
-                Inches(1.5), Inches(y_pos), Inches(10.333), Inches(0.5)
+                Inches(0.6), Inches(y_pos), Inches(11.2), Inches(0.5)
             )
             hp = heading_box.text_frame.paragraphs[0]
             bullet_run = hp.add_run()
@@ -1713,7 +1713,7 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
 
         if intro_items:
             intro_box = slide.shapes.add_textbox(
-                Inches(1.8), Inches(y_pos), Inches(9.733), Inches(2.5)
+                Inches(0.8), Inches(y_pos), Inches(11.5), Inches(2.5)
             )
             tf = intro_box.text_frame
             tf.word_wrap = True
