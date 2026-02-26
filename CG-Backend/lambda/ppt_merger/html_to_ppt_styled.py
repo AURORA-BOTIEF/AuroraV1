@@ -1387,7 +1387,7 @@ def create_course_title_slide(prs, layout, slide_html, logo_bytes):
 
 def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, module_num=1):
     """Module title: white bg, yellow accent bar top-left, chapter label centered-left,
-    chapter name in red below divider, objectives top-right (heading right-aligned)."""
+    chapter name in blue below divider, objectives top-right (heading left-aligned)."""
     slide = prs.slides.add_slide(layout)
 
     # White/light background
@@ -1482,7 +1482,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
         p.font.size = Pt(26)
         p.font.bold = True
         p.font.name = FONTS['title']
-        p.font.color.rgb = RGBColor(220, 30, 30)
+        p.font.color.rgb = COLORS['primary']  # Corporate blue
         p.alignment = PP_ALIGN.LEFT
 
     # Objectives on right side
@@ -1491,18 +1491,18 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
         obj_heading = obj_heading_elem.get_text(strip=True)
 
     if obj_items:
-        # Heading – RIGHT-ALIGNED at top-right
-        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(0.35), Inches(6.0), Inches(0.6))
+        # Heading – LEFT-ALIGNED to align with bullet text
+        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(0.35), Inches(5.5), Inches(0.6))
         hp = h_box.text_frame.paragraphs[0]
         hp.text = obj_heading
         hp.font.size = Pt(22)
         hp.font.bold = True
         hp.font.name = FONTS['title']
         hp.font.color.rgb = RGBColor(17, 17, 17)
-        hp.alignment = PP_ALIGN.RIGHT
+        hp.alignment = PP_ALIGN.LEFT
 
-        # Objective items (below heading)
-        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.0), Inches(6.0), Inches(3.7))
+        # Objective items (below heading, with right margin)
+        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.0), Inches(5.5), Inches(3.7))
         tf = obj_box.text_frame
         tf.word_wrap = True
         tf.clear()

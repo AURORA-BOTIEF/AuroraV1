@@ -2229,7 +2229,75 @@ def generate_complete_course(
     lab_guides = load_lab_guides_from_s3(course_bucket, project_folder)
     used_lab_guide_keys = set()
     processed_lab_activity_titles = set()
-    
+
+    # ── Helper: emit module-end slides (references, chapter summary, logo) ──
+    def _emit_module_end_slides(mod_num, mod_title, sc):
+        """Add end-of-module slides and return updated slide_counter."""
+        logger.info(f"📚 Adding End-of-Module slides for Module {mod_num}")
+        refs = module_references_by_number.get(mod_num, [])
+        title_ref = mod_title or f"{'Capítulo' if is_spanish else 'Module'} {mod_num}"
+
+        if 'outline_modules' in book_data:
+            outline_modules = book_data.get('outline_modules', [])
+            if mod_num <= len(outline_modules):
+                m_info = outline_modules[mod_num - 1]
+                title_ref = m_info.get('title', title_ref)
+
+                for activity in m_info.get('lab_activities', []):
+                    a_title = activity.get('title', 'Lab Activity')
+                    norm_a = _normalize_text(a_title)
+                    if norm_a in processed_lab_activity_titles:
+                        continue
+                    best_g = select_best_lab_guide(
+                        activity_title=a_title, module_number=mod_num,
+                        lab_guides=lab_guides, used_guide_keys=used_lab_guide_keys
+                    )
+                    lab_data = {
+                        'title': a_title,
+                        'description': activity.get('description', ''),
+                        'objectives': activity.get('objectives', []),
+                        'duration_minutes': activity.get('duration_minutes'),
+                    }
+                    if best_g:
+                        lab_data['lab_guide'] = best_g.get('content', '')
+                        if lab_data.get('duration_minutes') is None:
+                            lab_data['duration_minutes'] = best_g.get('duration_minutes')
+                        used_lab_guide_keys.add(best_g.get('key'))
+                        logger.info(f"🧪 Using lab guide for activity '{a_title}': {best_g.get('key')}")
+                    lab_act_slides = create_lab_slides_from_content(lab_data, is_spanish, sc)
+                    for ls in lab_act_slides:
+                        ls['module_number'] = mod_num
+                        all_slides.append(ls)
+                    sc += len(lab_act_slides)
+                    processed_lab_activity_titles.add(norm_a)
+                    logger.info(f"✅ Added {len(lab_act_slides)} lab activity slide(s) for: {a_title}")
+
+                if not refs:
+                    refs = m_info.get('references', [])
+            else:
+                if not refs:
+                    refs = []
+
+        ref_slides = create_references_slides(
+            module_title=title_ref, references=refs,
+            is_spanish=is_spanish, slide_counter=sc
+        )
+        all_slides.extend(ref_slides)
+        sc += len(ref_slides)
+
+        r_items = _resumen_items_by_module.get(mod_num, [])
+        if r_items:
+            summary_slide = create_chapter_summary_slide(
+                mod_num, r_items, title_ref, is_spanish, sc
+            )
+            all_slides.append(summary_slide)
+            sc += 1
+            logger.info(f"📋 Added chapter summary slide for Module {mod_num}")
+
+        all_slides.append(create_module_end_logo_slide(sc))
+        sc += 1
+        return sc
+
     # Add introduction slides ONLY for first batch
     if is_first_batch:
         course_metadata = book_data.get('course_metadata', {})
@@ -2378,6 +2446,16 @@ def generate_complete_course(
                     logger.info(f"   📋 Captured {len(resumen_items)} summary items for Module {current_module_number}")
             logger.info(f"   ⏭️ Skipping bookend lesson: {lesson_title}")
             lessons_processed += 1
+
+            # Module-end check: bookends can be the last lesson of a module/batch
+            _bk_is_last = lesson_idx >= len(batch_lessons) + lesson_batch_start - 1
+            _bk_next_mod = None
+            if not _bk_is_last and lesson_idx - lesson_batch_start + 1 < len(batch_lessons):
+                _bk_next = batch_lessons[lesson_idx - lesson_batch_start + 1]
+                _bk_next_mod = _bk_next.get('module_number', 1)
+            if _bk_is_last or (_bk_next_mod is not None and _bk_next_mod != current_module_number):
+                slide_counter = _emit_module_end_slides(
+                    current_module_number, current_module_title, slide_counter)
             continue
 
         # BOOK-DRIVEN LAB DETECTION: Check lesson type field instead of title matching
@@ -2530,86 +2608,8 @@ def generate_complete_course(
             next_lesson_module = next_lesson.get('module_number', 1)
         
         if is_last_lesson or (next_lesson_module is not None and next_lesson_module != current_module_number):
-            # Add module-end slides from book content (references) + logo
-            logger.info(f"📚 Adding End-of-Module slides for Module {current_module_number}")
-
-            references_for_module = module_references_by_number.get(current_module_number, [])
-            module_title_for_references = current_module_title or f"{'Capítulo' if is_spanish else 'Module'} {current_module_number}"
-
-            if 'outline_modules' in book_data:
-                outline_modules = book_data.get('outline_modules', [])
-                if current_module_number <= len(outline_modules):
-                    module_info = outline_modules[current_module_number - 1]
-                    module_title_for_references = module_info.get('title', module_title_for_references)
-
-                    # Generate full lab activity slides from actual lab guide content
-                    lab_activities = module_info.get('lab_activities', [])
-                    for activity in lab_activities:
-                        activity_title = activity.get('title', 'Lab Activity')
-                        normalized_activity = _normalize_text(activity_title)
-                        if normalized_activity in processed_lab_activity_titles:
-                            continue
-
-                        best_guide = select_best_lab_guide(
-                            activity_title=activity_title,
-                            module_number=current_module_number,
-                            lab_guides=lab_guides,
-                            used_guide_keys=used_lab_guide_keys
-                        )
-
-                        lab_lesson_data = {
-                            'title': activity_title,
-                            'description': activity.get('description', ''),
-                            'objectives': activity.get('objectives', []),
-                            'duration_minutes': activity.get('duration_minutes')
-                        }
-
-                        if best_guide:
-                            lab_lesson_data['lab_guide'] = best_guide.get('content', '')
-                            if lab_lesson_data.get('duration_minutes') is None:
-                                lab_lesson_data['duration_minutes'] = best_guide.get('duration_minutes')
-                            used_lab_guide_keys.add(best_guide.get('key'))
-                            logger.info(f"🧪 Using lab guide for activity '{activity_title}': {best_guide.get('key')}")
-
-                        lab_activity_slides = create_lab_slides_from_content(lab_lesson_data, is_spanish, slide_counter)
-                        for lab_slide in lab_activity_slides:
-                            lab_slide['module_number'] = current_module_number
-                            all_slides.append(lab_slide)
-
-                        slide_counter += len(lab_activity_slides)
-                        processed_lab_activity_titles.add(normalized_activity)
-                        logger.info(f"✅ Added {len(lab_activity_slides)} lab activity slide(s) for: {activity_title}")
-
-                    # Fallback to outline references if book bibliography is unavailable
-                    if not references_for_module:
-                        references_for_module = module_info.get('references', [])
-                else:
-                    if not references_for_module:
-                        references_for_module = []
-
-            reference_slides = create_references_slides(
-                module_title=module_title_for_references,
-                references=references_for_module,
-                is_spanish=is_spanish,
-                slide_counter=slide_counter
-            )
-            all_slides.extend(reference_slides)
-            slide_counter += len(reference_slides)
-
-            # Chapter Summary slide (content from Resumen del Capítulo lesson)
-            resumen_items = _resumen_items_by_module.get(current_module_number, [])
-            if resumen_items:
-                summary_slide = create_chapter_summary_slide(
-                    current_module_number, resumen_items,
-                    module_title_for_references, is_spanish, slide_counter
-                )
-                all_slides.append(summary_slide)
-                slide_counter += 1
-                logger.info(f"📋 Added chapter summary slide for Module {current_module_number}")
-
-            # Module-End Logo slide
-            all_slides.append(create_module_end_logo_slide(slide_counter))
-            slide_counter += 1
+            slide_counter = _emit_module_end_slides(
+                current_module_number, current_module_title, slide_counter)
 
     
     # Determine if this is the final batch for the entire course
@@ -3470,7 +3470,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .module-title-name {{
             font-size: 26pt;
             font-weight: 700;
-            color: #DC1E1E;
+            color: {colors['primary']};
             line-height: 1.2;
         }}
 
@@ -3479,6 +3479,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             flex-direction: column;
             justify-content: flex-start;
             padding-top: 30px;
+            padding-right: 40px;
         }}
 
         .module-title-obj-heading {{
@@ -3486,7 +3487,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             font-weight: 700;
             color: #111;
             margin-bottom: 14px;
-            text-align: right;
+            text-align: left;
         }}
 
         .module-title-obj-list {{
