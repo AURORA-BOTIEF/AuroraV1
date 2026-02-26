@@ -913,6 +913,15 @@ def create_thank_you_slide(is_spanish: bool, slide_counter: int) -> Dict:
 
 # ── Chapter summary, Glossary, Lab-intro helpers ────────────────────────────
 
+# Noise items that are AI section headings, not real objectives/topics
+_NOISE_HEADINGS = {
+    'visión general del concepto', 'detalles técnicos', 'aplicación práctica',
+    'puntos clave', 'próximos pasos', 'recursos adicionales',
+    'información general', 'temas principales del capítulo',
+    'lecciones incluidas',
+}
+
+
 def _extract_resumen_items(content: str) -> List[str]:
     """Extract summary items from 'Resumen del Capítulo' lesson content."""
     if not content:
@@ -929,7 +938,10 @@ def _extract_resumen_items(content: str) -> List[str]:
     for line in m.group(1).strip().split('\n'):
         line = line.strip()
         if line.startswith('- '):
-            items.append(line[2:].strip())
+            text = line[2:].strip()
+            if text.lower() in _NOISE_HEADINGS:
+                continue
+            items.append(text)
     return items[:10]
 
 
@@ -995,12 +1007,12 @@ def create_chapter_summary_slide(module_number: int, summary_items: List[str],
     """Create a chapter summary slide with Resumen_Capitulo.png asset."""
     return {
         "slide_number": slide_counter,
-        "title": f"Resumen del Capítulo {module_number}" if is_spanish else f"Chapter {module_number} Summary",
+        "title": "Resumen del capítulo" if is_spanish else "Chapter Summary",
         "subtitle": module_title,
         "layout": "chapter-summary",
         "content_blocks": [{
             "type": "bullets",
-            "heading": "Temas más importantes cubiertos" if is_spanish else "Key Topics Covered",
+            "heading": "",
             "items": summary_items
         }],
         "notes": f"Chapter {module_number} summary",
@@ -1069,6 +1081,11 @@ def _extract_objectives_from_content(content: str) -> List[str]:
         if line.startswith('- '):
             # Strip bold markers for cleaner slide text
             text = re.sub(r'\*\*([^*]+)\*\*', r'\1', line[2:].strip())
+            # Skip glossary-style definitions (term with parens + colon)
+            if re.match(r'^[A-Za-z\u00C1-\u00FF]+[^:]{0,40}\)\s*:', text):
+                continue
+            if text.lower().strip() in _NOISE_HEADINGS:
+                continue
             objectives.append(text)
     
     return objectives[:6]  # Cap at 6 to fit on slide
@@ -3422,19 +3439,21 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .module-title-left {{
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
-            padding-top: 120px;
+            justify-content: center;
+            padding-top: 0;
         }}
 
         .module-title-accent {{
             width: 80px;
             height: 8px;
             background: {colors['accent']};
-            margin-bottom: 32px;
+            position: absolute;
+            top: 45px;
+            left: 50px;
         }}
 
         .module-title-chapter {{
-            font-size: 50pt;
+            font-size: 54pt;
             font-weight: 800;
             color: #111;
             line-height: 1.1;
@@ -3444,13 +3463,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .module-title-divider {{
             height: 2px;
             background: #c7c7c7;
+            width: calc(100% + 52% + 40px);
             margin: 12px 0 18px;
         }}
 
         .module-title-name {{
-            font-size: 28pt;
+            font-size: 26pt;
             font-weight: 700;
-            color: {colors['primary']};
+            color: #DC1E1E;
             line-height: 1.2;
         }}
 
@@ -3458,14 +3478,15 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
-            padding-top: 120px;
+            padding-top: 30px;
         }}
 
         .module-title-obj-heading {{
-            font-size: 26pt;
+            font-size: 22pt;
             font-weight: 700;
             color: #111;
             margin-bottom: 14px;
+            text-align: right;
         }}
 
         .module-title-obj-list {{
@@ -3477,7 +3498,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .module-title-obj-list li {{
             position: relative;
             padding-left: 34px;
-            font-size: 19pt;
+            font-size: 16pt;
             color: #222;
             line-height: 1.35;
             margin: 10px 0;
@@ -3489,7 +3510,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             left: 0;
             top: 0;
             color: {colors['accent']};
-            font-size: 26px;
+            font-size: 22px;
             line-height: 1.1;
         }}
 
@@ -3505,7 +3526,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         /* CHAPTER SUMMARY SLIDE */
         .chapter-summary-slide {{
             height: 100%;
-            background: #efefef;
+            background: #ffffff;
             padding: 50px 60px 40px 60px;
             position: relative;
             display: grid;
@@ -3513,23 +3534,35 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             gap: 30px;
         }}
         .chapter-summary-slide::before {{
+            /* Gray divider near bottom */
             content: '';
             display: block;
             width: 100%;
-            height: 10px;
-            background: {colors['accent']};
+            height: 2px;
+            background: #c7c7c7;
             position: absolute;
-            top: 0;
+            bottom: 90px;
             left: 0;
         }}
+        .chapter-summary-slide::after {{
+            /* Yellow accent bar at bottom */
+            content: '';
+            display: block;
+            width: 35%;
+            height: 8px;
+            background: {colors['accent']};
+            position: absolute;
+            bottom: 82px;
+            left: 60px;
+        }}
         .chapter-summary-left {{
-            padding-top: 30px;
+            padding-top: 10px;
         }}
         .chapter-summary-title {{
-            font-size: 32pt;
+            font-size: 36pt;
             font-weight: 800;
-            color: {colors['primary']};
-            margin-bottom: 12px;
+            color: #222;
+            margin-bottom: 16px;
         }}
         .chapter-summary-heading {{
             font-size: 18pt;
@@ -3554,7 +3587,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             content: '•';
             position: absolute;
             left: 0;
-            color: {colors['accent']};
+            color: #222;
             font-size: 22px;
         }}
         .chapter-summary-right {{
