@@ -2230,10 +2230,20 @@ def generate_complete_course(
     used_lab_guide_keys = set()
     processed_lab_activity_titles = set()
 
+    # Track which modules already had their labs emitted (survives across calls within a batch)
+    _modules_with_labs_emitted = set()
+
     # ── Helper: emit module-end slides (references, chapter summary, logo) ──
-    def _emit_module_end_slides(mod_num, mod_title, sc):
-        """Add end-of-module slides and return updated slide_counter."""
-        logger.info(f"📚 Adding End-of-Module slides for Module {mod_num}")
+    def _emit_module_end_slides(mod_num, mod_title, sc, *, emit_labs=False):
+        """Add end-of-module slides and return updated slide_counter.
+
+        Args:
+            emit_labs: Only True when a REAL module boundary is confirmed
+                       (next lesson belongs to a different module).  When the
+                       trigger is merely end-of-batch we pass False so labs are
+                       NOT emitted — preventing cross-batch duplication.
+        """
+        logger.info(f"📚 Adding End-of-Module slides for Module {mod_num} (emit_labs={emit_labs})")
         refs = module_references_by_number.get(mod_num, [])
         title_ref = mod_title or f"{'Capítulo' if is_spanish else 'Module'} {mod_num}"
 
@@ -2243,34 +2253,40 @@ def generate_complete_course(
                 m_info = outline_modules[mod_num - 1]
                 title_ref = m_info.get('title', title_ref)
 
-                for activity in m_info.get('lab_activities', []):
-                    a_title = activity.get('title', 'Lab Activity')
-                    norm_a = _normalize_text(a_title)
-                    if norm_a in processed_lab_activity_titles:
-                        continue
-                    best_g = select_best_lab_guide(
-                        activity_title=a_title, module_number=mod_num,
-                        lab_guides=lab_guides, used_guide_keys=used_lab_guide_keys
-                    )
-                    lab_data = {
-                        'title': a_title,
-                        'description': activity.get('description', ''),
-                        'objectives': activity.get('objectives', []),
-                        'duration_minutes': activity.get('duration_minutes'),
-                    }
-                    if best_g:
-                        lab_data['lab_guide'] = best_g.get('content', '')
-                        if lab_data.get('duration_minutes') is None:
-                            lab_data['duration_minutes'] = best_g.get('duration_minutes')
-                        used_lab_guide_keys.add(best_g.get('key'))
-                        logger.info(f"🧪 Using lab guide for activity '{a_title}': {best_g.get('key')}")
-                    lab_act_slides = create_lab_slides_from_content(lab_data, is_spanish, sc)
-                    for ls in lab_act_slides:
-                        ls['module_number'] = mod_num
-                        all_slides.append(ls)
-                    sc += len(lab_act_slides)
-                    processed_lab_activity_titles.add(norm_a)
-                    logger.info(f"✅ Added {len(lab_act_slides)} lab activity slide(s) for: {a_title}")
+                # Only generate lab slides when a true module boundary is
+                # confirmed AND we haven't already emitted them for this module.
+                if emit_labs and mod_num not in _modules_with_labs_emitted:
+                    for activity in m_info.get('lab_activities', []):
+                        a_title = activity.get('title', 'Lab Activity')
+                        norm_a = _normalize_text(a_title)
+                        if norm_a in processed_lab_activity_titles:
+                            continue
+                        best_g = select_best_lab_guide(
+                            activity_title=a_title, module_number=mod_num,
+                            lab_guides=lab_guides, used_guide_keys=used_lab_guide_keys
+                        )
+                        lab_data = {
+                            'title': a_title,
+                            'description': activity.get('description', ''),
+                            'objectives': activity.get('objectives', []),
+                            'duration_minutes': activity.get('duration_minutes'),
+                        }
+                        if best_g:
+                            lab_data['lab_guide'] = best_g.get('content', '')
+                            if lab_data.get('duration_minutes') is None:
+                                lab_data['duration_minutes'] = best_g.get('duration_minutes')
+                            used_lab_guide_keys.add(best_g.get('key'))
+                            logger.info(f"🧪 Using lab guide for activity '{a_title}': {best_g.get('key')}")
+                        lab_act_slides = create_lab_slides_from_content(lab_data, is_spanish, sc)
+                        for ls in lab_act_slides:
+                            ls['module_number'] = mod_num
+                            all_slides.append(ls)
+                        sc += len(lab_act_slides)
+                        processed_lab_activity_titles.add(norm_a)
+                        logger.info(f"✅ Added {len(lab_act_slides)} lab activity slide(s) for: {a_title}")
+                    _modules_with_labs_emitted.add(mod_num)
+                elif not emit_labs:
+                    logger.info(f"   ⏭️ Skipping lab generation (batch boundary, not true module end)")
 
                 if not refs:
                     refs = m_info.get('references', [])
@@ -2330,6 +2346,10 @@ def generate_complete_course(
     if lesson_batch_end is None:
         lesson_batch_end = lesson_batch_start + len(lessons) - 1
     
+    # Pre-compute whether this batch is the final one (covers the last lesson)
+    _course_total = total_lessons if total_lessons is not None else len(lessons)
+    _is_course_final_batch = lesson_batch_end is not None and lesson_batch_end >= _course_total
+
     # Track module changes for module title slides
     last_module_number = None
     lesson_number_in_module = 0
@@ -2451,9 +2471,15 @@ def generate_complete_course(
             if not _bk_is_last and lesson_idx - lesson_batch_start + 1 < len(batch_lessons):
                 _bk_next = batch_lessons[lesson_idx - lesson_batch_start + 1]
                 _bk_next_mod = _bk_next.get('module_number', 1)
-            if _bk_is_last or (_bk_next_mod is not None and _bk_next_mod != current_module_number):
+            # emit_labs=True only when a REAL module boundary is confirmed:
+            # 1) next lesson is a different module, OR
+            # 2) last lesson of the final batch (end of entire course)
+            _real_module_end = (_bk_next_mod is not None and _bk_next_mod != current_module_number)
+            _course_end = (_bk_is_last and _is_course_final_batch)
+            if _bk_is_last or _real_module_end:
                 slide_counter = _emit_module_end_slides(
-                    current_module_number, current_module_title, slide_counter)
+                    current_module_number, current_module_title, slide_counter,
+                    emit_labs=(_real_module_end or _course_end))
             continue
 
         # BOOK-DRIVEN LAB DETECTION: Check lesson type field instead of title matching
@@ -2605,9 +2631,15 @@ def generate_complete_course(
             next_lesson = batch_lessons[lesson_idx - lesson_batch_start + 1]
             next_lesson_module = next_lesson.get('module_number', 1)
         
-        if is_last_lesson or (next_lesson_module is not None and next_lesson_module != current_module_number):
+        # emit_labs=True only when a REAL module boundary is confirmed:
+        # 1) next lesson is a different module, OR
+        # 2) last lesson of the final batch (end of entire course)
+        _real_mod_end = (next_lesson_module is not None and next_lesson_module != current_module_number)
+        _course_ends = (is_last_lesson and _is_course_final_batch)
+        if is_last_lesson or _real_mod_end:
             slide_counter = _emit_module_end_slides(
-                current_module_number, current_module_title, slide_counter)
+                current_module_number, current_module_title, slide_counter,
+                emit_labs=(_real_mod_end or _course_ends))
 
     
     # Determine if this is the final batch for the entire course
