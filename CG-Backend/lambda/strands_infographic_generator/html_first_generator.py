@@ -3463,7 +3463,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .module-title-divider {{
             height: 2px;
             background: #c7c7c7;
-            width: calc(100% + 52% + 40px);
+            width: 100%;
             margin: 12px 0 18px;
         }}
 
@@ -3609,63 +3609,76 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             height: auto;
         }}
 
-        /* LAB INTRO SLIDE */
+        /* LAB INTRO SLIDE — corporate template (white bg, dashed title box) */
         .lab-intro-slide {{
             height: 100%;
-            background: {colors['primary']};
-            padding: 60px 80px;
+            background: #ffffff;
+            padding: 40px 60px;
             position: relative;
-            display: grid;
-            grid-template-columns: 45% 55%;
-            gap: 40px;
         }}
-        .lab-intro-left {{
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }}
-        .lab-intro-left img {{
-            max-width: 240px;
-            max-height: 240px;
-            object-fit: contain;
-            margin: 0 auto;
-        }}
-        .lab-intro-right {{
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            color: white;
-        }}
-        .lab-intro-subtitle {{
-            font-size: 18pt;
-            font-weight: 600;
-            color: {colors['accent']};
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
+        .lab-intro-title-box {{
+            border: 2px dashed #aaa;
+            border-radius: 6px;
+            padding: 28px 40px 22px;
+            text-align: center;
+            margin-bottom: 8px;
         }}
         .lab-intro-title {{
-            font-size: 30pt;
+            font-size: 36pt;
             font-weight: 800;
-            color: white;
-            margin-bottom: 24px;
+            color: #111;
             line-height: 1.2;
         }}
-        .lab-intro-divider {{
-            width: 80px;
-            height: 4px;
+        .lab-intro-accent {{
+            width: 200px;
+            height: 8px;
             background: {colors['accent']};
-            margin-bottom: 24px;
+            margin: 10px 0 0 0;
         }}
-        .lab-intro-objective {{
+        .lab-intro-divider {{
+            width: 100%;
+            height: 2px;
+            background: #c7c7c7;
+            margin: 0 0 22px 0;
+        }}
+        .lab-intro-section-heading {{
             font-size: 18pt;
-            color: #dce8f0;
-            line-height: 1.4;
+            font-weight: 700;
+            color: #222;
+            margin-bottom: 6px;
         }}
-        .lab-intro-duration {{
+        .lab-intro-section-body {{
             font-size: 16pt;
-            color: {colors['accent']};
-            margin-top: 18px;
+            color: #333;
+            line-height: 1.4;
+            border-left: 3px solid #ccc;
+            padding-left: 14px;
+            margin-bottom: 18px;
+        }}
+        .lab-intro-bottom {{
+            position: absolute;
+            bottom: 30px;
+            right: 60px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }}
+        .lab-intro-bottom img {{
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
+        }}
+        .lab-intro-duration-box {{
+            text-align: left;
+        }}
+        .lab-intro-duration-label {{
+            font-size: 16pt;
+            font-weight: 700;
+            color: #111;
+        }}
+        .lab-intro-duration-value {{
+            font-size: 15pt;
+            color: #333;
         }}
         .lab-intro-slide .logo {{
             position: absolute;
@@ -3673,7 +3686,6 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             left: 22px;
             width: 150px;
             height: auto;
-            opacity: 0.8;
         }}
 
         /* GLOSSARY SLIDE */
@@ -4419,7 +4431,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             continue
 
         elif layout == 'lab-intro':
-            # Lab intro slide with Reloj.png
+            # Lab intro slide — corporate template (white bg, dashed title box)
             lab_objective = ""
             lab_duration = ""
             for block in slide.get('content_blocks', []):
@@ -4429,25 +4441,35 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     if 'objetivo' in heading or 'objective' in heading:
                         lab_objective = items[0] if items else ""
                     elif items and not lab_objective:
-                        # Could be duration or fallback objective
                         text = items[0]
                         if 'tiempo' in text.lower() or 'estimated' in text.lower():
                             lab_duration = text
                         else:
                             lab_objective = text
             reloj_img_url = _asset_url_from_s3('Reloj.png')
+            is_es = 'actividad' in (subtitle or '').lower() or 'práctica' in (subtitle or '').lower()
+            obj_label = 'Objetivo:' if is_es else 'Objective:'
+            dur_label = 'Tiempo para esta actividad:' if is_es else 'Time for this activity:'
             html_parts.append('  <div class="lab-intro-slide">')
-            html_parts.append('    <div class="lab-intro-left">')
-            html_parts.append(f'      <img src="{reloj_img_url}" alt="Reloj">')
-            html_parts.append('    </div>')
-            html_parts.append('    <div class="lab-intro-right">')
-            html_parts.append(f'      <div class="lab-intro-subtitle">{subtitle}</div>')
+            html_parts.append('    <div class="lab-intro-title-box">')
             html_parts.append(f'      <div class="lab-intro-title">{title}</div>')
-            html_parts.append('      <div class="lab-intro-divider"></div>')
+            html_parts.append('    </div>')
+            html_parts.append('    <div class="lab-intro-accent"></div>')
+            html_parts.append('    <div class="lab-intro-divider"></div>')
             if lab_objective:
-                html_parts.append(f'      <div class="lab-intro-objective">{lab_objective}</div>')
+                html_parts.append(f'    <div class="lab-intro-section-heading">{obj_label}</div>')
+                html_parts.append(f'    <div class="lab-intro-section-body">{lab_objective}</div>')
+            html_parts.append('    <div class="lab-intro-bottom">')
+            html_parts.append(f'      <img src="{reloj_img_url}" alt="Reloj">')
             if lab_duration:
-                html_parts.append(f'      <div class="lab-intro-duration">{lab_duration}</div>')
+                # Extract just the time value from "Tiempo estimado: 30 minutos"
+                dur_val = lab_duration
+                if ':' in dur_val:
+                    dur_val = dur_val.split(':', 1)[1].strip()
+                html_parts.append('      <div class="lab-intro-duration-box">')
+                html_parts.append(f'        <div class="lab-intro-duration-label">{dur_label}</div>')
+                html_parts.append(f'        <div class="lab-intro-duration-value">{dur_val}</div>')
+                html_parts.append('      </div>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')

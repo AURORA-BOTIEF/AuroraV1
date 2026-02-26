@@ -1123,89 +1123,128 @@ def create_chapter_summary_slide(prs, layout, slide_html, logo_bytes, ctx):
 # =============================================================================
 
 def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
-    """Lab intro: dark bg, Reloj.png left, title + objective right."""
+    """Lab intro: white bg, dashed title box, yellow accent, objective, clock bottom-right."""
     slide = prs.slides.add_slide(layout)
 
-    # Dark blue background
+    # White background
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = COLORS['primary']
+    fill.fore_color.rgb = COLORS['white']
 
-    # Reloj.png on left side
-    asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Reloj.png')
-    if asset_bytes:
-        try:
-            img_stream = io.BytesIO(asset_bytes)
-            slide.shapes.add_picture(img_stream, Inches(1.0), Inches(1.8), Inches(3.5), Inches(3.5))
-        except Exception as e:
-            logger.warning(f"Could not add Reloj.png: {e}")
+    # Dashed title box (top area)
+    from pptx.oxml.ns import qn
+    title_box_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.4), Inches(12.1), Inches(2.0)
+    )
+    title_box_shape.fill.background()  # No fill
+    ln = title_box_shape.line
+    ln.color.rgb = RGBColor(170, 170, 170)
+    ln.width = Pt(1.5)
+    ln.dash_style = 3  # dash
 
-    # Subtitle (Actividad Práctica) — try new class then fall back to old
-    subtitle_elem = slide_html.find(class_='lab-intro-subtitle') or slide_html.find(class_='slide-subtitle')
-    if subtitle_elem:
-        sub_box = slide.shapes.add_textbox(Inches(5.5), Inches(1.5), Inches(7.0), Inches(0.5))
-        sp = sub_box.text_frame.paragraphs[0]
-        sp.text = subtitle_elem.get_text(strip=True)
-        sp.font.size = Pt(18)
-        sp.font.bold = True
-        sp.font.name = FONTS['title']
-        sp.font.color.rgb = COLORS['bullet_marker']
-
-    # Title — try new class then fall back to old
+    # Title text (centered in box)
     title_elem = slide_html.find(class_='lab-intro-title') or slide_html.find(class_='slide-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Lab Activity"
-    t_box = slide.shapes.add_textbox(Inches(5.5), Inches(2.1), Inches(7.0), Inches(1.5))
+    t_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.7), Inches(11.7), Inches(1.5))
     tf = t_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(30)
+    p.font.size = Pt(36)
     p.font.bold = True
     p.font.name = FONTS['title']
-    p.font.color.rgb = COLORS['white']
+    p.font.color.rgb = RGBColor(17, 17, 17)
+    p.alignment = PP_ALIGN.CENTER
 
-    # Yellow divider
-    divider = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(5.5), Inches(3.6), Inches(1.2), Inches(0.05)
+    # Yellow accent bar below title box
+    accent = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(2.5), Inches(2.2), Inches(0.1)
     )
-    divider.fill.solid()
-    divider.fill.fore_color.rgb = COLORS['bullet_marker']
-    divider.line.fill.background()
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = COLORS['bullet_marker']
+    accent.line.fill.background()
 
-    # Objective text — try new class, fall back to description bullet in old HTML
-    obj_elem = slide_html.find(class_='lab-intro-objective')
+    # Gray divider line
+    div = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(2.7), Inches(12.1), Inches(0.02)
+    )
+    div.fill.solid()
+    div.fill.fore_color.rgb = RGBColor(199, 199, 199)
+    div.line.fill.background()
+
+    # Objective section
+    obj_elem = slide_html.find(class_='lab-intro-section-body')
     if not obj_elem:
-        # Backward compat: extract description bullet (skip 'Tiempo estimado')
+        obj_elem = slide_html.find(class_='lab-intro-objective')
+    if not obj_elem:
         for li in slide_html.find_all('li'):
             li_text = li.get_text(strip=True).lower()
             if not li_text.startswith('tiempo') and len(li_text) > 20:
                 obj_elem = li
                 break
+
+    # Heading label
+    heading_elem = slide_html.find(class_='lab-intro-section-heading')
+    heading_text = heading_elem.get_text(strip=True) if heading_elem else 'Objetivo:'
+    h_box = slide.shapes.add_textbox(Inches(0.6), Inches(3.1), Inches(8.0), Inches(0.5))
+    hp = h_box.text_frame.paragraphs[0]
+    hp.text = heading_text
+    hp.font.size = Pt(18)
+    hp.font.bold = True
+    hp.font.name = FONTS['title']
+    hp.font.color.rgb = RGBColor(34, 34, 34)
+
     if obj_elem:
-        obj_box = slide.shapes.add_textbox(Inches(5.5), Inches(3.9), Inches(7.0), Inches(2.0))
+        obj_box = slide.shapes.add_textbox(Inches(0.8), Inches(3.6), Inches(8.0), Inches(2.0))
         otf = obj_box.text_frame
         otf.word_wrap = True
         op = otf.paragraphs[0]
         op.text = obj_elem.get_text(strip=True)
-        op.font.size = Pt(18)
+        op.font.size = Pt(16)
         op.font.name = FONTS['body']
-        op.font.color.rgb = RGBColor(220, 232, 240)
+        op.font.color.rgb = RGBColor(51, 51, 51)
+        # Left border effect via a thin shape
+        border_line = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(3.6), Inches(0.04), Inches(0.6)
+        )
+        border_line.fill.solid()
+        border_line.fill.fore_color.rgb = RGBColor(199, 199, 199)
+        border_line.line.fill.background()
 
-    # Duration text — try new class, fall back to searching for 'Tiempo' in bullets
-    dur_elem = slide_html.find(class_='lab-intro-duration')
+    # Clock image + duration (bottom-right)
+    asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Reloj.png')
+    if asset_bytes:
+        try:
+            img_stream = io.BytesIO(asset_bytes)
+            slide.shapes.add_picture(img_stream, Inches(8.5), Inches(5.8), Inches(1.0), Inches(1.0))
+        except Exception as e:
+            logger.warning(f"Could not add Reloj.png: {e}")
+
+    dur_elem = slide_html.find(class_='lab-intro-duration-label')
+    dur_val_elem = slide_html.find(class_='lab-intro-duration-value')
     if not dur_elem:
+        # Backward compat
         for li in slide_html.find_all('li'):
             if 'tiempo' in li.get_text(strip=True).lower():
                 dur_elem = li
                 break
     if dur_elem:
-        dur_box = slide.shapes.add_textbox(Inches(5.5), Inches(5.5), Inches(7.0), Inches(0.5))
-        dp = dur_box.text_frame.paragraphs[0]
-        dp.text = dur_elem.get_text(strip=True)
+        dur_label_text = dur_elem.get_text(strip=True) if dur_elem else 'Tiempo para esta actividad:'
+        dur_value_text = dur_val_elem.get_text(strip=True) if dur_val_elem else ''
+        d_box = slide.shapes.add_textbox(Inches(9.6), Inches(5.7), Inches(3.5), Inches(0.5))
+        dp = d_box.text_frame.paragraphs[0]
+        dp.text = dur_label_text
         dp.font.size = Pt(16)
+        dp.font.bold = True
         dp.font.name = FONTS['body']
-        dp.font.color.rgb = COLORS['bullet_marker']
+        dp.font.color.rgb = RGBColor(17, 17, 17)
+        if dur_value_text:
+            dp2 = d_box.text_frame.add_paragraph()
+            dp2.text = dur_value_text
+            dp2.font.size = Pt(15)
+            dp2.font.name = FONTS['body']
+            dp2.font.color.rgb = RGBColor(51, 51, 51)
 
     add_logo_bottom_left(slide, logo_bytes)
     return slide
@@ -1464,15 +1503,15 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     p.font.color.rgb = RGBColor(17, 17, 17)
     p.alignment = PP_ALIGN.LEFT
 
-    # Full-width divider line
+    # Half-width divider line (left column only)
     divider = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.8), Inches(12.1), Inches(0.02)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.8), Inches(5.8), Inches(0.02)
     )
     divider.fill.solid()
     divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
     divider.line.fill.background()
 
-    # Chapter name (RED, below divider)
+    # Chapter name (corporate blue, below divider)
     if chapter_name:
         name_box = slide.shapes.add_textbox(Inches(0.6), Inches(5.0), Inches(12.1), Inches(1.5))
         tf = name_box.text_frame
