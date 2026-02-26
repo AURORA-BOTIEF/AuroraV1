@@ -63,6 +63,15 @@ LOGO_BOTTOM_MARGIN = Inches(0.3)
 # SUPPLEMENTARY DATA HELPERS (for backward-compatible enrichment)
 # =============================================================================
 
+# Noise items that are AI section headings, not real objectives/topics
+_NOISE_HEADINGS = {
+    'visión general del concepto', 'detalles técnicos', 'aplicación práctica',
+    'puntos clave', 'próximos pasos', 'recursos adicionales',
+    'información general', 'temas principales del capítulo',
+    'lecciones incluidas',
+}
+
+
 def _extract_objectives_from_md(content: str) -> list:
     """Extract learning objectives bullet items from lesson markdown."""
     if not content:
@@ -81,6 +90,12 @@ def _extract_objectives_from_md(content: str) -> list:
         line = line.strip()
         if line.startswith('- '):
             text = re.sub(r'\*\*([^*]+)\*\*', r'\1', line[2:].strip())
+            # Skip glossary-style definitions (term + colon + definition)
+            # Real objectives start with a verb, not a noun phrase with colon
+            if re.match(r'^[A-Za-zÁ-ÿ]+[^:]{0,40}\)\s*:', text):
+                continue
+            if text.lower().strip() in _NOISE_HEADINGS:
+                continue
             items.append(text)
     return items[:6]
 
@@ -116,7 +131,11 @@ def _extract_resumen_items_from_md(content: str) -> list:
     for line in m.group(1).strip().split('\n'):
         line = line.strip()
         if line.startswith('- '):
-            items.append(line[2:].strip())
+            text = line[2:].strip()
+            # Filter out AI-generated section heading noise
+            if text.lower() in _NOISE_HEADINGS:
+                continue
+            items.append(text)
     return items[:10]
 
 
@@ -878,45 +897,30 @@ def _download_asset_image(s3_client, bucket, filename):
 
 
 def _inject_chapter_summary(prs, layout, logo_bytes, ctx, module_num, resumen_items, module_title):
-    """Inject a chapter summary slide programmatically (backward compat for old HTML)."""
+    """Inject a chapter summary slide programmatically (backward compat for old HTML).
+    Layout: title top-left, bullet list left, Resumen_Capitulo.png right, yellow bar at bottom."""
     slide = prs.slides.add_slide(layout)
 
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
-
-    # Yellow bar at TOP
-    top_bar = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
-    )
-    top_bar.fill.solid()
-    top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
-    top_bar.line.fill.background()
+    fill.fore_color.rgb = RGBColor(255, 255, 255)
 
     # Title
-    title_text = f"Resumen del Capítulo {module_num}"
-    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.5), Inches(7.0), Inches(0.8))
+    title_text = "Resumen del capítulo"
+    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(7.0), Inches(0.8))
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(32)
+    p.font.size = Pt(36)
     p.font.bold = True
     p.font.name = FONTS['title']
-    p.font.color.rgb = COLORS['primary']
-
-    # Heading
-    h_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.3), Inches(7.0), Inches(0.5))
-    hp = h_box.text_frame.paragraphs[0]
-    hp.text = "Temas más importantes cubiertos"
-    hp.font.size = Pt(18)
-    hp.font.name = FONTS['body']
-    hp.font.color.rgb = RGBColor(85, 85, 85)
+    p.font.color.rgb = RGBColor(34, 34, 34)
 
     # Summary items
     if resumen_items:
-        item_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.9), Inches(6.5), Inches(4.5))
+        item_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.4), Inches(7.0), Inches(4.5))
         tf = item_box.text_frame
         tf.word_wrap = True
         tf.clear()
@@ -927,22 +931,38 @@ def _inject_chapter_summary(prs, layout, logo_bytes, ctx, module_num, resumen_it
             bullet_run.font.size = Pt(17)
             bullet_run.font.bold = True
             bullet_run.font.name = FONTS['body']
-            bullet_run.font.color.rgb = COLORS['bullet_marker']
+            bullet_run.font.color.rgb = RGBColor(34, 34, 34)
             text_run = para.add_run()
             text_run.text = item
             text_run.font.size = Pt(17)
             text_run.font.name = FONTS['body']
             text_run.font.color.rgb = RGBColor(34, 34, 34)
-            para.space_after = Pt(4)
+            para.space_after = Pt(6)
 
-    # Resumen_Capitulo.png on right
+    # Resumen_Capitulo.png on right (vertically centered)
     asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Resumen_Capitulo.png')
     if asset_bytes:
         try:
             img_stream = io.BytesIO(asset_bytes)
-            slide.shapes.add_picture(img_stream, Inches(7.8), Inches(1.5), Inches(4.8), Inches(4.8))
+            slide.shapes.add_picture(img_stream, Inches(8.5), Inches(1.8), Inches(3.5), Inches(3.5))
         except Exception as e:
             logger.warning(f"Could not add Resumen_Capitulo.png: {e}")
+
+    # Gray divider line near bottom
+    divider = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(6.1), Inches(12.1), Inches(0.015)
+    )
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
+    divider.line.fill.background()
+
+    # Yellow accent bar at bottom (partial width, centered-left)
+    bottom_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(6.15), Inches(4.5), Inches(0.08)
+    )
+    bottom_bar.fill.solid()
+    bottom_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    bottom_bar.line.fill.background()
 
     add_logo_bottom_left(slide, logo_bytes)
 
@@ -1019,46 +1039,29 @@ def _inject_glossary(prs, layout, logo_bytes, supp):
 # =============================================================================
 
 def create_chapter_summary_slide(prs, layout, slide_html, logo_bytes, ctx):
-    """Chapter summary: light bg, yellow top bar, bullet list left, Resumen_Capitulo.png right."""
+    """Chapter summary: white bg, title top-left, bullets left, Resumen_Capitulo.png right,
+    yellow accent bar at bottom."""
     slide = prs.slides.add_slide(layout)
 
-    # Light background
+    # White background
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
-
-    # Yellow bar at TOP
-    top_bar = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
-    )
-    top_bar.fill.solid()
-    top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
-    top_bar.line.fill.background()
+    fill.fore_color.rgb = RGBColor(255, 255, 255)
 
     # Title
     title_elem = slide_html.find(class_='chapter-summary-title')
-    title_text = title_elem.get_text(strip=True) if title_elem else "Resumen del Capítulo"
+    title_text = title_elem.get_text(strip=True) if title_elem else "Resumen del capítulo"
 
-    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.5), Inches(7.0), Inches(0.8))
+    title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(7.0), Inches(0.8))
     tf = title_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = title_text
-    p.font.size = Pt(32)
+    p.font.size = Pt(36)
     p.font.bold = True
     p.font.name = FONTS['title']
-    p.font.color.rgb = COLORS['primary']
-
-    # Heading
-    heading_elem = slide_html.find(class_='chapter-summary-heading')
-    if heading_elem:
-        h_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.3), Inches(7.0), Inches(0.5))
-        hp = h_box.text_frame.paragraphs[0]
-        hp.text = heading_elem.get_text(strip=True)
-        hp.font.size = Pt(18)
-        hp.font.name = FONTS['body']
-        hp.font.color.rgb = RGBColor(85, 85, 85)
+    p.font.color.rgb = RGBColor(34, 34, 34)
 
     # Summary bullet items
     list_elem = slide_html.find(class_='chapter-summary-list')
@@ -1067,7 +1070,7 @@ def create_chapter_summary_slide(prs, layout, slide_html, logo_bytes, ctx):
         items = [li.get_text(strip=True) for li in list_elem.find_all('li') if li.get_text(strip=True)]
 
     if items:
-        item_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.9), Inches(6.5), Inches(4.5))
+        item_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.4), Inches(7.0), Inches(4.5))
         tf = item_box.text_frame
         tf.word_wrap = True
         tf.clear()
@@ -1078,22 +1081,38 @@ def create_chapter_summary_slide(prs, layout, slide_html, logo_bytes, ctx):
             bullet_run.font.size = Pt(17)
             bullet_run.font.bold = True
             bullet_run.font.name = FONTS['body']
-            bullet_run.font.color.rgb = COLORS['bullet_marker']
+            bullet_run.font.color.rgb = RGBColor(34, 34, 34)
             text_run = para.add_run()
             text_run.text = item
             text_run.font.size = Pt(17)
             text_run.font.name = FONTS['body']
             text_run.font.color.rgb = RGBColor(34, 34, 34)
-            para.space_after = Pt(4)
+            para.space_after = Pt(6)
 
-    # Resumen_Capitulo.png on right side
+    # Resumen_Capitulo.png on right side (vertically centered)
     asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Resumen_Capitulo.png')
     if asset_bytes:
         try:
             img_stream = io.BytesIO(asset_bytes)
-            slide.shapes.add_picture(img_stream, Inches(7.8), Inches(1.5), Inches(4.8), Inches(4.8))
+            slide.shapes.add_picture(img_stream, Inches(8.5), Inches(1.8), Inches(3.5), Inches(3.5))
         except Exception as e:
             logger.warning(f"Could not add Resumen_Capitulo.png: {e}")
+
+    # Gray divider line near bottom
+    divider = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(6.1), Inches(12.1), Inches(0.015)
+    )
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
+    divider.line.fill.background()
+
+    # Yellow accent bar at bottom (partial width)
+    bottom_bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(6.15), Inches(4.5), Inches(0.08)
+    )
+    bottom_bar.fill.solid()
+    bottom_bar.fill.fore_color.rgb = COLORS['bullet_marker']
+    bottom_bar.line.fill.background()
 
     add_logo_bottom_left(slide, logo_bytes)
     return slide
@@ -1367,7 +1386,8 @@ def create_course_title_slide(prs, layout, slide_html, logo_bytes):
 
 
 def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, module_num=1):
-    """Module title: white bg, yellow accent bar, chapter number left, objectives right."""
+    """Module title: white bg, yellow accent bar top-left, chapter label centered-left,
+    chapter name in red below divider, objectives top-right (heading right-aligned)."""
     slide = prs.slides.add_slide(layout)
 
     # White/light background
@@ -1376,9 +1396,9 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     fill.solid()
     fill.fore_color.rgb = RGBColor(239, 239, 239)
 
-    # Yellow accent bar (top-left, vertically centered)
+    # Yellow accent bar (top-left corner)
     accent = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.53), Inches(1.6), Inches(0.82), Inches(0.08)
+        MSO_SHAPE.RECTANGLE, Inches(0.53), Inches(0.45), Inches(0.82), Inches(0.08)
     )
     accent.fill.solid()
     accent.fill.fore_color.rgb = COLORS['bullet_marker']
@@ -1395,7 +1415,16 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     obj_list_elem = slide_html.find(class_='module-title-obj-list')
     obj_items = []
     if obj_list_elem:
-        obj_items = [li.get_text(strip=True) for li in obj_list_elem.find_all('li') if li.get_text(strip=True)]
+        for li in obj_list_elem.find_all('li'):
+            text = li.get_text(strip=True)
+            if not text:
+                continue
+            # Filter glossary-style definitions (term with parens + colon)
+            if re.match(r'^[A-Za-z\u00C1-\u00FF]+[^:]{0,40}\)\s*:', text):
+                continue
+            if text.lower().strip() in _NOISE_HEADINGS:
+                continue
+            obj_items.append(text)
 
     # --- Backward-compatible fallback: use supplementary book data ---
     if not chapter_label:
@@ -1423,57 +1452,57 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     if not obj_items and supp and module_num in supp:
         obj_items = supp[module_num].get('objectives', [])
 
-    # Chapter label (large, black) – positioned lower for visual balance
-    lbl_box = slide.shapes.add_textbox(Inches(0.6), Inches(2.0), Inches(5.5), Inches(2.0))
+    # Chapter label (large, black) – vertically centered on left half
+    lbl_box = slide.shapes.add_textbox(Inches(0.6), Inches(2.2), Inches(5.8), Inches(2.5))
     tf = lbl_box.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.text = chapter_label
-    p.font.size = Pt(50)
+    p.font.size = Pt(54)
     p.font.bold = True
     p.font.name = FONTS['title']
     p.font.color.rgb = RGBColor(17, 17, 17)
     p.alignment = PP_ALIGN.LEFT
 
-    # Divider line
+    # Full-width divider line
     divider = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.1), Inches(5.5), Inches(0.02)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.8), Inches(12.1), Inches(0.02)
     )
     divider.fill.solid()
     divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
     divider.line.fill.background()
 
-    # Chapter name (blue, below divider)
+    # Chapter name (RED, below divider)
     if chapter_name:
-        name_box = slide.shapes.add_textbox(Inches(0.6), Inches(4.3), Inches(5.5), Inches(2.0))
+        name_box = slide.shapes.add_textbox(Inches(0.6), Inches(5.0), Inches(12.1), Inches(1.5))
         tf = name_box.text_frame
         tf.word_wrap = True
         p = tf.paragraphs[0]
         p.text = chapter_name
-        p.font.size = Pt(28)
+        p.font.size = Pt(26)
         p.font.bold = True
         p.font.name = FONTS['title']
-        p.font.color.rgb = COLORS['text_dark']
+        p.font.color.rgb = RGBColor(220, 30, 30)
         p.alignment = PP_ALIGN.LEFT
 
-    # Objectives on right side (already extracted above, including supp fallback)
+    # Objectives on right side
     obj_heading = "Objetivos:"
     if obj_heading_elem:
         obj_heading = obj_heading_elem.get_text(strip=True)
 
     if obj_items:
-        obj_heading = obj_heading_elem.get_text(strip=True) if obj_heading_elem else "Objetivos:"
-        # Heading – vertically aligned with left side
-        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.6), Inches(6.0), Inches(0.6))
+        # Heading – RIGHT-ALIGNED at top-right
+        h_box = slide.shapes.add_textbox(Inches(6.8), Inches(0.35), Inches(6.0), Inches(0.6))
         hp = h_box.text_frame.paragraphs[0]
         hp.text = obj_heading
-        hp.font.size = Pt(26)
+        hp.font.size = Pt(22)
         hp.font.bold = True
         hp.font.name = FONTS['title']
         hp.font.color.rgb = RGBColor(17, 17, 17)
+        hp.alignment = PP_ALIGN.RIGHT
 
-        # Objective items
-        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(2.3), Inches(6.0), Inches(4.5))
+        # Objective items (below heading)
+        obj_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.0), Inches(6.0), Inches(3.7))
         tf = obj_box.text_frame
         tf.word_wrap = True
         tf.clear()
@@ -1481,14 +1510,14 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
             para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             bullet_run = para.add_run()
             bullet_run.text = "• "
-            bullet_run.font.size = Pt(18)
+            bullet_run.font.size = Pt(16)
             bullet_run.font.bold = True
             bullet_run.font.name = FONTS['body']
             bullet_run.font.color.rgb = COLORS['bullet_marker']
 
             text_run = para.add_run()
             text_run.text = item
-            text_run.font.size = Pt(18)
+            text_run.font.size = Pt(16)
             text_run.font.bold = False
             text_run.font.name = FONTS['body']
             text_run.font.color.rgb = RGBColor(34, 34, 34)
