@@ -666,12 +666,12 @@ def create_intro_cover_slide(prs, layout, slide_html, logo_bytes, ctx):
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(245, 245, 245)
+    fill.fore_color.rgb = COLORS['white']
 
     # Left panel – same colour as background so no visible seam
     left_panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(6.3), Inches(7.5))
     left_panel.fill.solid()
-    left_panel.fill.fore_color.rgb = RGBColor(245, 245, 245)
+    left_panel.fill.fore_color.rgb = COLORS['white']
     left_panel.line.fill.background()
 
     # Accent bar (fixed position across intro slides)
@@ -724,7 +724,7 @@ def create_intro_legal_slide(prs, layout, slide_html, logo_bytes, ctx):
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     icon = slide_html.find('img', class_='intro-legal-icon')
     icon_bytes = download_image_bytes(icon.get('src') if icon else '', ctx)
@@ -772,7 +772,7 @@ def create_intro_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     # Accent bar
     add_intro_accent_bar(slide)
@@ -847,7 +847,7 @@ def create_intro_agenda_slide(prs, layout, slide_html, logo_bytes):
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     add_intro_accent_bar(slide)
 
@@ -977,7 +977,7 @@ def _inject_glossary(prs, layout, logo_bytes, supp):
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     # Yellow bar at TOP
     top_bar = slide.shapes.add_shape(
@@ -1260,14 +1260,14 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
 # =============================================================================
 
 def create_glossary_slide(prs, layout, slide_html, logo_bytes):
-    """Glossary: light bg, yellow top bar, two-column term grid."""
+    """Glossary: white bg, yellow top bar, two-column term grid."""
     slide = prs.slides.add_slide(layout)
 
-    # Light background
+    # White background
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     # Yellow bar at TOP
     top_bar = slide.shapes.add_shape(
@@ -1463,11 +1463,11 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     chapter name in blue below divider, objectives top-right (heading left-aligned)."""
     slide = prs.slides.add_slide(layout)
 
-    # White/light background
+    # White background
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     # Yellow accent bar (top-left corner)
     accent = slide.shapes.add_shape(
@@ -1601,14 +1601,14 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
 
 
 def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, module_num=1, lesson_num=1):
-    """Lesson title: light bg, yellow bar at TOP, numbered title, divider, intro text."""
+    """Lesson title: white bg, yellow bar at TOP, numbered title, divider, intro text."""
     slide = prs.slides.add_slide(layout)
 
-    # Light background
+    # White background
     bg = slide.background
     fill = bg.fill
     fill.solid()
-    fill.fore_color.rgb = RGBColor(239, 239, 239)
+    fill.fore_color.rgb = COLORS['white']
 
     title_elem = slide_html.find(class_='title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Untitled"
@@ -1807,11 +1807,15 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     bullets_elem = content_elem.find('ul', class_='bullets')
     code_elem = content_elem.find(class_='code-block')
     callout_elem = content_elem.find(class_='callout')
+    table_elem = content_elem.find('table', class_='slide-table')
     
     current_top = content_top_pos
     
     if heading_elem:
         current_top = add_content_heading(slide, heading_elem, current_top, bullet_left, bullet_width)
+
+    if table_elem:
+        current_top = add_table_block(slide, table_elem, current_top, bullet_left, bullet_width)
 
     if bullets_elem:
         current_top = add_bullets(slide, bullets_elem, current_top, bullet_left, bullet_width)
@@ -1824,6 +1828,111 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     
     add_logo_bottom_left(slide, logo_bytes)
     return slide
+
+
+def add_table_block(slide, table_elem, top, left=None, width=None):
+    """Render an HTML <table class='slide-table'> as a native PowerPoint table."""
+    if left is None:
+        left = CONTENT_LEFT
+    if width is None:
+        width = CONTENT_WIDTH
+
+    # Parse headers and rows from the HTML table
+    headers = []
+    thead = table_elem.find('thead')
+    if thead:
+        header_row = thead.find('tr')
+        if header_row:
+            headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
+
+    rows = []
+    tbody = table_elem.find('tbody')
+    row_sources = tbody.find_all('tr') if tbody else table_elem.find_all('tr')
+    for tr in row_sources:
+        cells = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+        if cells and cells != headers:  # skip header row if no thead
+            rows.append(cells)
+
+    if not headers and not rows:
+        return top
+
+    num_cols = max(len(headers), max((len(r) for r in rows), default=0))
+    num_rows = (1 if headers else 0) + len(rows)
+
+    if num_cols == 0 or num_rows == 0:
+        return top
+
+    # Calculate row height and table height
+    row_height = Inches(0.45)
+    table_height = row_height * num_rows
+    max_table_height = Inches(5.0)
+    if table_height > max_table_height:
+        table_height = max_table_height
+        row_height = table_height / num_rows
+
+    col_width = width / num_cols
+
+    tbl_shape = slide.shapes.add_table(num_rows, num_cols, left, top, width, table_height)
+    table = tbl_shape.table
+
+    # Style the table
+    row_idx = 0
+
+    # Header row
+    if headers:
+        for c, text in enumerate(headers):
+            if c < num_cols:
+                cell = table.cell(0, c)
+                cell.text = text
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = COLORS['primary']  # #003366
+                p = cell.text_frame.paragraphs[0]
+                p.font.size = Pt(14)
+                p.font.bold = True
+                p.font.color.rgb = COLORS['white']
+                p.font.name = FONTS['body']
+                p.alignment = PP_ALIGN.LEFT
+                cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+        row_idx = 1
+
+    # Data rows
+    for r, row_data in enumerate(rows):
+        ppt_row = row_idx + r
+        if ppt_row >= num_rows:
+            break
+        is_alt = (r % 2 == 1)
+        for c, text in enumerate(row_data):
+            if c < num_cols:
+                cell = table.cell(ppt_row, c)
+                cell.text = text
+                # Alternate row shading
+                cell.fill.solid()
+                if is_alt:
+                    cell.fill.fore_color.rgb = RGBColor(240, 244, 249)  # very light blue
+                else:
+                    cell.fill.fore_color.rgb = COLORS['white']
+                p = cell.text_frame.paragraphs[0]
+                p.font.size = Pt(12)
+                p.font.color.rgb = COLORS['text_black']
+                p.font.name = FONTS['body']
+                p.alignment = PP_ALIGN.LEFT
+                cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+
+    # Fill any remaining empty cells (if rows have unequal lengths)
+    for r_idx in range(num_rows):
+        for c_idx in range(num_cols):
+            cell = table.cell(r_idx, c_idx)
+            if not cell.text_frame.paragraphs[0].text:
+                cell.fill.solid()
+                if r_idx == 0 and headers:
+                    cell.fill.fore_color.rgb = COLORS['primary']
+                elif (r_idx - (1 if headers else 0)) % 2 == 1:
+                    cell.fill.fore_color.rgb = RGBColor(240, 244, 249)
+                else:
+                    cell.fill.fore_color.rgb = COLORS['white']
+
+    logger.info(f"   📊 Added table: {num_rows} rows × {num_cols} cols")
+    return top + table_height + Inches(0.3)
 
 
 def add_gradient_background(slide):
@@ -1858,11 +1967,11 @@ def add_header_bar(slide, title_text, subtitle_text=""):
 
     bar_height = Inches(base_h)
 
-    # Yellow accent bar on left
+    # Yellow accent bar on left (stops just above the gray divider)
     accent_bar = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
         Inches(0.4), Inches(0.22),
-        Inches(0.08), Inches(base_h - 0.14)
+        Inches(0.08), Inches(base_h - 0.30)
     )
     accent_bar.fill.solid()
     accent_bar.fill.fore_color.rgb = COLORS['bullet_marker']
@@ -1981,24 +2090,83 @@ def add_bullets(slide, bullets_elem, top, left=None, width=None):
     return top + Inches(len(items) * 0.5)
 
 
+def _parse_colored_spans(html_elem):
+    """
+    Parse HTML code element preserving <span style="color: #xxx"> tokens.
+    Returns list of (text, color_hex_or_None) tuples per line,
+    grouped as list-of-lists (one inner list per source line).
+    """
+    from bs4 import NavigableString, Tag
+
+    # Find the innermost code/pre element that contains the highlighted spans
+    code_tag = html_elem.find('code') or html_elem.find('pre') or html_elem
+    if code_tag.find('code'):
+        code_tag = code_tag.find('code')
+
+    lines = [[]]  # list of lists of (text, color)
+
+    def _walk(node):
+        if isinstance(node, NavigableString):
+            text = str(node)
+            # Split by newlines to maintain line structure
+            parts = text.split('\n')
+            for i, part in enumerate(parts):
+                if i > 0:
+                    lines.append([])  # new line
+                if part:
+                    lines[-1].append((part, None))
+        elif isinstance(node, Tag):
+            # Extract color from inline style
+            color = None
+            style = node.get('style', '')
+            if style:
+                m = re.search(r'color:\s*#([0-9a-fA-F]{3,8})', style)
+                if m:
+                    color = m.group(1)
+                    # Normalize 3-char hex to 6-char
+                    if len(color) == 3:
+                        color = ''.join(c * 2 for c in color)
+
+            for child in node.children:
+                if isinstance(child, NavigableString):
+                    text = str(child)
+                    parts = text.split('\n')
+                    for i, part in enumerate(parts):
+                        if i > 0:
+                            lines.append([])
+                        if part:
+                            lines[-1].append((part, color))
+                elif isinstance(child, Tag):
+                    # Recurse — inner tag may override color
+                    _walk(child)
+
+    _walk(code_tag)
+    return lines
+
+
 def add_code_block(slide, code_elem, top):
-    """Add a dark-themed code block."""
-    code_content = code_elem.find('pre')
-    if not code_content:
-        code_content = code_elem.find(class_='code-content')
-    
-    code_text = code_content.get_text() if code_content else ""
-    
-    # Calculate dynamic height based on number of lines
-    lines = code_text.strip().split('\n')[:20]  # Allow up to 20 lines
-    num_lines = len(lines)
-    
-    # Approx 0.25 inches per line, min 1.5", max 4.5"
+    """Add a dark-themed code block with syntax coloring from Pygments spans."""
+    code_content = code_elem.find('pre') or code_elem.find(class_='code-content')
+
+    # Parse colored spans from the HTML
+    has_spans = code_content and code_content.find('span')
+    if has_spans:
+        colored_lines = _parse_colored_spans(code_content)
+    else:
+        plain = code_content.get_text() if code_content else ""
+        colored_lines = [[(seg, None)] for seg in plain.strip().split('\n')]
+
+    # Limit to 20 lines
+    colored_lines = colored_lines[:20]
+    num_lines = len(colored_lines)
+
+    # Calculate dynamic height
     line_height = 0.25
-    padding = 0.6  # Top + bottom padding
+    padding = 0.6
     calculated_height = (num_lines * line_height) + padding
     box_height = max(1.5, min(4.5, calculated_height))
-    
+
+    # Dark background rounded rectangle
     code_box = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
         CONTENT_LEFT, top,
@@ -2007,19 +2175,51 @@ def add_code_block(slide, code_elem, top):
     code_box.fill.solid()
     code_box.fill.fore_color.rgb = COLORS['code_bg']
     code_box.line.fill.background()
-    
+
+    # Text box with colored runs
     text_box = slide.shapes.add_textbox(
         CONTENT_LEFT + Inches(0.2), top + Inches(0.2),
         CONTENT_WIDTH - Inches(0.4), Inches(box_height - 0.4)
     )
     tf = text_box.text_frame
     tf.word_wrap = True
-    p = tf.paragraphs[0]
-    
-    p.text = '\n'.join(lines)
-    p.font.size = Pt(12)
-    p.font.name = FONTS['code']
-    p.font.color.rgb = COLORS['code_text']
+
+    default_color = COLORS['code_text']  # #D4D4D4
+
+    for line_idx, segments in enumerate(colored_lines):
+        if line_idx == 0:
+            p = tf.paragraphs[0]
+        else:
+            p = tf.add_paragraph()
+        p.space_before = Pt(0)
+        p.space_after = Pt(0)
+
+        if not segments:
+            # Empty line — add a single space run to preserve line break
+            run = p.add_run()
+            run.text = " "
+            run.font.size = Pt(12)
+            run.font.name = FONTS['code']
+            run.font.color.rgb = default_color
+            continue
+
+        for text, color_hex in segments:
+            run = p.add_run()
+            run.text = text
+            run.font.size = Pt(12)
+            run.font.name = FONTS['code']
+            if color_hex:
+                try:
+                    r = int(color_hex[0:2], 16)
+                    g = int(color_hex[2:4], 16)
+                    b = int(color_hex[4:6], 16)
+                    run.font.color.rgb = RGBColor(r, g, b)
+                except (ValueError, IndexError):
+                    run.font.color.rgb = default_color
+            else:
+                run.font.color.rgb = default_color
+
+    logger.info(f"   🎨 Added code block with syntax coloring ({num_lines} lines)")
 
 
 def add_callout(slide, callout_elem):
