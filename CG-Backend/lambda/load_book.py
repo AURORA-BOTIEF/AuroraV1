@@ -4,6 +4,7 @@
 import os
 import json
 import boto3
+import urllib.parse
 from datetime import datetime
 
 def lambda_handler(event, context):
@@ -17,12 +18,17 @@ def lambda_handler(event, context):
 
         # Extract project folder and book type from path parameters or query parameters
         path_params = event.get('pathParameters', {})
-        query_params = event.get('queryStringParameters', {})
+        query_params = event.get('queryStringParameters', {}) or {}
 
-        project_folder = path_params.get('projectFolder') or query_params.get('projectFolder')
+        # Get project folder and URL-decode it (API Gateway may pass it encoded)
+        raw_project_folder = path_params.get('projectFolder') or query_params.get('projectFolder')
+        project_folder = urllib.parse.unquote(raw_project_folder) if raw_project_folder else None
+
         book_type = query_params.get('bookType') or 'theory'  # 'theory' or 'lab'
-        
-        print(f"Project: {project_folder}, Book Type: {book_type}")
+
+        print(f"Raw project folder: {raw_project_folder}")
+        print(f"Decoded project folder: {project_folder}")
+        print(f"Book Type: {book_type}")
 
         if not project_folder:
             return {
