@@ -4,6 +4,7 @@ import boto3
 import os
 import logging
 import re
+import urllib.parse
 from html_to_ppt_styled import convert_html_to_pptx
 
 # Configure logging
@@ -23,12 +24,18 @@ def lambda_handler(event, context):
     """
     try:
         logger.info(f"Event: {json.dumps(event)}")
-        
+
         path_params = event.get('pathParameters') or {}
         query_params = event.get('queryStringParameters') or {}
-        project_folder = path_params.get('folder')
+
+        # Get project folder and URL-decode it (API Gateway may pass it encoded)
+        raw_project_folder = path_params.get('folder')
+        project_folder = urllib.parse.unquote(raw_project_folder) if raw_project_folder else None
+
+        logger.info(f"Raw folder: {raw_project_folder}, Decoded folder: {project_folder}")
+
         check_only = query_params.get('check_only', '').lower() == 'true'
-        
+
         if not project_folder:
             return {
                 'statusCode': 400,
