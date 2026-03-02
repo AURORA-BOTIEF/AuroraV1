@@ -16,6 +16,7 @@ import json
 import boto3
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -34,6 +35,29 @@ PPT_ORCHESTRATOR_STATE_MACHINE_ARN = os.environ.get(
     'arn:aws:states:us-east-1:746434296869:stateMachine:PptBatchOrchestrator'
 )
 INFOGRAPHIC_GENERATOR_FUNCTION = 'StrandsInfographicGenerator'
+
+
+def sanitize_for_execution_name(project_name: str, max_length: int = 45) -> str:
+    """
+    Sanitize project folder name for use in Step Functions execution names.
+    AWS Step Functions execution names can only contain:
+    - Alphanumeric characters (a-z, A-Z, 0-9)
+    - Hyphens (-)
+    - Underscores (_)
+    Spaces and other special characters are not allowed.
+    """
+    # Replace spaces with hyphens
+    sanitized = project_name.replace(' ', '-')
+    # Remove any characters that are not alphanumeric, hyphens, or underscores
+    sanitized = re.sub(r'[^a-zA-Z0-9\-_]', '', sanitized)
+    # Replace multiple consecutive hyphens with a single one
+    sanitized = re.sub(r'-+', '-', sanitized)
+    # Remove leading/trailing hyphens
+    sanitized = sanitized.strip('-')
+    # Truncate to max length
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+    return sanitized
 
 
 def resolve_batch_size(requested_batch_size: Optional[int]) -> int:
@@ -336,8 +360,10 @@ def lambda_handler(event, context):
         # Available for project folder: 80 - 35 = 45 chars
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
         max_project_length = 45
-        truncated_project = project_folder[:max_project_length] if len(project_folder) > max_project_length else project_folder
-        execution_name = f"ppt-orchestration-{truncated_project}-{timestamp}"
+        # Sanitize project folder name (remove spaces and special characters)
+        sanitized_project = sanitize_for_execution_name(project_folder, max_project_length)
+        execution_name = f"ppt-orchestration-{sanitized_project}-{timestamp}"
+        logger.info(f"Generated execution name: {execution_name} (from project: {project_folder})")
         
         
         try:
