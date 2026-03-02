@@ -337,6 +337,46 @@ class HTMLSlideBuilder:
 # COURSE STRUCTURE HELPERS (Migrated from legacy infographic_generator.py)
 # ============================================================================
 
+def _parse_list_field(value) -> list:
+    """
+    Parse a field that may be either a list or a string into a proper list.
+    
+    Handles:
+    - List input: returns as-is
+    - String input with bullet chars (•): splits on bullet chars
+    - String input with newlines: splits on newlines
+    - String input without bullets: wraps as single-item list
+    - None/empty: returns empty list
+    """
+    if not value:
+        return []
+    
+    if isinstance(value, list):
+        return value
+    
+    if isinstance(value, str):
+        # If string contains bullet characters (•), split on them
+        if '•' in value:
+            # Split on bullet char, strip whitespace, filter empty
+            items = [item.strip() for item in value.split('•') if item.strip()]
+            return items
+        
+        # If string contains newlines, split on them
+        if '\n' in value:
+            items = [item.strip() for item in value.split('\n') if item.strip()]
+            return items
+        
+        # If string contains '- ' patterns (markdown style bullets)
+        if value.strip().startswith('- ') or '\n- ' in value:
+            items = [item.strip().lstrip('- ') for item in value.split('\n') if item.strip().startswith('- ') or item.strip()]
+            return items
+        
+        # Single string value, wrap in list
+        return [value]
+    
+    return []
+
+
 def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_counter: int) -> tuple:
     """
     Create introduction slides for the course:
@@ -384,7 +424,7 @@ def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_co
         slide_counter += 1
 
     # 4. Objectives Slide
-    learning_outcomes = course_metadata.get('learning_outcomes', [])
+    learning_outcomes = _parse_list_field(course_metadata.get('learning_outcomes', []))
     if learning_outcomes:
         intro_slides.append({
             "slide_number": slide_counter,
@@ -403,7 +443,7 @@ def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_co
         slide_counter += 1
     
     # 5. Prerequisites Slide
-    prerequisites_list = course_metadata.get('prerequisites', [])
+    prerequisites_list = _parse_list_field(course_metadata.get('prerequisites', []))
     if prerequisites_list:
         intro_slides.append({
             "slide_number": slide_counter,
@@ -422,7 +462,7 @@ def create_introduction_slides(course_metadata: Dict, is_spanish: bool, slide_co
         slide_counter += 1
     
     # 6. Audience Slide (new)
-    audience_list = course_metadata.get('audience', [])
+    audience_list = _parse_list_field(course_metadata.get('audience', []))
     if audience_list:
         intro_slides.append({
             "slide_number": slide_counter,
@@ -4393,7 +4433,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             legal_items = []
             for block in slide.get('content_blocks', []):
                 if block.get('type') == 'bullets':
-                    legal_items.extend(block.get('items', []))
+                    legal_items.extend(_parse_list_field(block.get('items', [])))
 
             html_parts.append('  <div class="intro-legal-slide">')
             html_parts.append('    <div class="intro-global-accent"></div>')
@@ -4417,7 +4457,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             intro_items = []
             for block in slide.get('content_blocks', []):
                 if block.get('type') == 'bullets':
-                    intro_items.extend(block.get('items', []))
+                    # Ensure items is a list - handle string case
+                    items = _parse_list_field(block.get('items', []))
+                    intro_items.extend(items)
 
             asset_by_layout = {
                 'intro-description': corporate_assets['description'],
@@ -4454,7 +4496,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             agenda_items = []
             for block in slide.get('content_blocks', []):
                 if block.get('type') == 'bullets':
-                    agenda_items.extend(block.get('items', []))
+                    agenda_items.extend(_parse_list_field(block.get('items', [])))
 
             html_parts.append('  <div class="intro-agenda-slide">')
             html_parts.append('    <div class="intro-global-accent"></div>')
@@ -4480,7 +4522,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             for block in slide.get('content_blocks', []):
                 if block.get('type') == 'bullets':
                     summary_heading = block.get('heading', '')
-                    summary_items.extend(block.get('items', []))
+                    summary_items.extend(_parse_list_field(block.get('items', [])))
             resumen_img_url = _asset_url_from_s3('Resumen_Capitulo.png')
             html_parts.append('  <div class="chapter-summary-slide">')
             html_parts.append('    <div class="chapter-summary-left">')
@@ -4630,7 +4672,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 if block.get('type') == 'bullets':
                     if block.get('heading'):
                         obj_heading = block['heading']
-                    obj_items.extend(block.get('items', []))
+                    obj_items.extend(_parse_list_field(block.get('items', [])))
             
             html_parts.append('  <div class="module-title-slide">')
             html_parts.append('    <div class="module-title-left">')
@@ -4659,7 +4701,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             intro_items = []
             for block in slide.get('content_blocks', []):
                 if block.get('type') == 'bullets':
-                    intro_items.extend(block.get('items', []))
+                    intro_items.extend(_parse_list_field(block.get('items', [])))
             
             # Extract heading and items for lesson-title intro
             intro_heading = ''
