@@ -93,9 +93,12 @@ def convert_html_to_pptx_new(
         logger.info(f"   Images: {len(slide_data['images'])}")
         logger.info(f"   Layout type: {slide_data.get('layout_type', 'normal')}")
         
-        # SPECIAL HANDLING: For branded title slides (course/module/lesson)
-        if slide_data.get('layout_type') in ['course-title', 'module-title', 'lesson-title']:
-            _create_branded_title_slide(prs, layouts['blank'], slide_data, colors, course_bucket, project_folder, s3_client)
+        # SPECIAL HANDLING: For branded title slides (course/module/lesson) AND module-end
+        if slide_data.get('layout_type') in ['course-title', 'module-title', 'lesson-title', 'module-end-logo']:
+            if slide_data.get('layout_type') == 'module-end-logo':
+                _create_module_end_logo_slide(prs, layouts['blank'], slide_data, course_bucket, s3_client)
+            else:
+                _create_branded_title_slide(prs, layouts['blank'], slide_data, colors, course_bucket, project_folder, s3_client)
             continue  # Skip normal slide creation
         
         # Check if slide has actual text content (not just empty blocks)
@@ -183,6 +186,14 @@ def convert_html_to_pptx_new(
         # Add images if present
         if slide_data['images'] and course_bucket and project_folder:
             _add_images(slide, slide_data['images'], course_bucket, project_folder, structure, s3_client, colors)
+            
+        # Add instructor notes if present
+        if slide_data.get('notes'):
+            try:
+                slide.notes_slide.notes_text_frame.text = slide_data['notes']
+                logger.info(f"  📝 Added instructor notes: {slide_data['notes'][:30]}...")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Failed to add notes: {e}")
     
     # Save to bytes
     pptx_buffer = io.BytesIO()
@@ -301,6 +312,8 @@ def _extract_slide_data(slide_html) -> Dict:
         layout_type = 'module-title'
     elif 'lesson-title' in slide_classes:
         layout_type = 'lesson-title'
+    elif 'module-end-logo-slide' in slide_classes or slide_html.find('div', class_='module-end-logo-slide'):
+        layout_type = 'module-end-logo'
     
     # Extract title (different selector for special title slides)
     if layout_type in ['course-title', 'module-title', 'lesson-title']:
@@ -392,12 +405,19 @@ def _extract_slide_data(slide_html) -> Dict:
                 'reference': image_ref,
                 'caption': caption_elem.get_text(strip=True) if caption_elem else ''
             })
+            
+    # Extract instructor notes (hidden div)
+    notes_div = slide_html.find('div', class_='notes')
+    notes = notes_div.get_text(strip=True) if notes_div else ''
+    if notes:
+        logger.info(f"  📝 Found notes: {notes[:30]}...")
     
     return {
         'title': title,
         'subtitle': subtitle,
         'content_blocks': content_blocks,
         'images': images,
+        'notes': notes,
         'layout_type': layout_type
     }
 
@@ -722,10 +742,81 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
         
         logger.info(f"✅ Created branded {layout_type} slide")
         
+        # Add notes if present
+        if slide_data.get('notes'):
+            try:
+                slide.notes_slide.notes_text_frame.text = slide_data['notes']
+            except:
+                pass
+        
     except Exception as e:
         logger.error(f"❌ Failed to create branded title slide: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
+
+def _create_module_end_logo_slide(prs, blank_layout, slide_data: Dict, course_bucket: str, s3_client):
+    """Create a module-end slide with Netec logo centered (no blue frame, white background)."""
+    try:
+        from PIL import Image as PILImage
+        
+        logger.info(f"🎨 Creating module-end logo slide")
+        
+        # Create slide with blank layout
+        slide = prs.slides.add_slide(blank_layout)
+        
+        # Clear any placeholders
+        for shape in slide.placeholders:
+            try:
+                if hasattr(shape, 'text_frame'):
+                    shape.text_frame.clear()
+                    shape.text = ""
+            except:
+                pass
+                
+        # Set white background
+        background = slide.background
+        fill = background.fill
+        fill.solid()
+        fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+        
+        # Add centered logo (approx 300px width ≈ 3.125 inches)
+        # Slide center: 13.333 / 2 = 6.666, 7.5 / 2 = 3.75
+        logo_key = 'logo/LogoNetec.png'
+        
+        try:
+            logo_response = s3_client.get_object(Bucket=course_bucket, Key=logo_key)
+            logo_bytes = logo_response['Body'].read()
+            logo_stream = io.BytesIO(logo_bytes)
+            
+            # Width ~300px -> 3.125 inches
+            width = Inches(3.125)
+            # Centered position
+            left = Inches((13.333 - 3.125) / 2)
+            # Aspect ratio usually ~3:1 for logo, so height ~1 inch
+            # Top centered
+            top = Inches((7.5 - 1.0) / 2)
+            
+            slide.shapes.add_picture(
+                logo_stream,
+                left=left,
+                top=top,
+                width=width
+            )
+            logger.info("✅ Added centered Netec logo")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Could not add centered logo: {e}")
+            
+        # Add notes if present
+        if slide_data.get('notes'):
+            try:
+                slide.notes_slide.notes_text_frame.text = slide_data['notes']
+            except:
+                pass
+                
+    except Exception as e:
+        logger.error(f"❌ Failed to create module-end logo slide: {e}")
 
 
 def _add_logo_to_regular_slide(slide, course_bucket: str, project_folder: str, s3_client):

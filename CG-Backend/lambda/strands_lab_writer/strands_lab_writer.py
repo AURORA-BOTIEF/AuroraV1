@@ -28,7 +28,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
 
@@ -42,6 +42,7 @@ def get_secret(secret_name: str) -> dict:
         return {}
 
 
+
 def load_master_plan_from_s3(bucket: str, key: str) -> dict:
     """Load master plan JSON from S3."""
     try:
@@ -53,6 +54,22 @@ def load_master_plan_from_s3(bucket: str, key: str) -> dict:
     except Exception as e:
         print(f"❌ Error loading master plan: {e}")
         raise
+
+
+def load_lesson_content(bucket: str, key: str) -> str:
+    """Load lesson markdown content from S3."""
+    try:
+        if not key:
+            return ""
+        print(f"📥 Loading lesson content from s3://{bucket}/{key}")
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        content = response['Body'].read().decode('utf-8')
+        print(f"✅ Lesson content loaded ({len(content)} chars)")
+        return content
+    except Exception as e:
+        print(f"⚠️ Error loading lesson content: {e}")
+        return ""
+
 
 
 def call_bedrock_agent(prompt: str, model_id: str) -> str:
@@ -551,7 +568,8 @@ def save_lab_guide_to_s3(
 def generate_all_labs_batch(
     lab_plans: List[Dict[str, Any]],
     master_context: dict,
-    model_provider: str = "bedrock"
+    model_provider: str = "bedrock",
+    lesson_content: str = ""
 ) -> Dict[str, str]:
     """
     Generate ALL lab guides in a SINGLE API call for efficiency.
@@ -559,6 +577,21 @@ def generate_all_labs_batch(
     Returns dict mapping lab_id to markdown content.
     """
     print(f"\n🚀 Generating {len(lab_plans)} labs in SINGLE API CALL...")
+    
+    # Context from the actual lesson
+    lesson_context_section = ""
+    if lesson_content:
+        lesson_context_section = f"""
+═══════════════════════════════════════════════════════════════════════════════
+CONTEXT: ACTUAL LESSON CONTENT
+═══════════════════════════════════════════════════════════════════════════════
+The user has just learned the following material. The lab MUST be based on this content.
+Use specific commands, configurations, and concepts from this lesson where applicable.
+
+{lesson_content[:25000]}  # Truncate to avoid context limit if huge
+═══════════════════════════════════════════════════════════════════════════════
+"""
+
     
     # Build comprehensive prompt for ALL labs
     labs_summary = []
@@ -610,6 +643,8 @@ Software Requirements:
 
 Special Considerations:
 {chr(10).join('- ' + con for con in master_context.get('special_considerations', []))}
+
+{lesson_context_section}
 
 LABS TO GENERATE ({len(lab_plans)} total):
 {chr(10).join(labs_summary)}
@@ -948,7 +983,7 @@ def lambda_handler(event, context):
         
         # FORCE Bedrock for lab generation (more reliable format compliance)
         # GPT-5 shows model drift: correct format initially, missing headers later
-        # Claude Sonnet 4.5 consistently generates proper lab headers
+        # Claude Sonnet 4.6 consistently generates proper lab headers
         model_provider = 'bedrock'
         
         lab_ids_to_process = event.get('lab_ids', [])  # NEW: For batch processing
@@ -956,7 +991,7 @@ def lambda_handler(event, context):
         print(f"📦 Bucket: {course_bucket}")
         print(f"📋 Master Plan: {master_plan_key}")
         print(f"📁 Project: {project_folder}")
-        print(f"🤖 Model: {model_provider} (forced to Bedrock for lab reliability)")
+        print(f"🤖 Model: {model_provider} (forced to Bedrock Sonnet 4.6 for lab reliability)")
         if lab_ids_to_process:
             print(f"🎯 Batch Mode: Processing specific labs: {', '.join(lab_ids_to_process)}")
         else:
@@ -1004,20 +1039,30 @@ def lambda_handler(event, context):
         }
         
         # Step 2: Generate lab guides ONE AT A TIME for reliability
-        # Both GPT-5 and Bedrock handle single-lab requests reliably
+        # both GPT-5 and Bedrock handle single-lab requests reliably
         # GPT-5 sometimes skips labs in multi-lab requests
         labs_markdown = {}
         
+        # Maps lab_id to its lesson content key
+        lab_lesson_keys = event.get('lab_lesson_keys', {})
+
         for idx, lab_plan in enumerate(lab_plans, start=1):
             lab_id = lab_plan['lab_id']
             print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
             
+            # Load specific lesson content if available
+            lesson_content = ""
+            if lab_id in lab_lesson_keys:
+                lesson_key = lab_lesson_keys[lab_id]
+                lesson_content = load_lesson_content(course_bucket, lesson_key)
+
             try:
                 # Generate ONE lab at a time (pass as single-item list)
                 batch_results = generate_all_labs_batch(
                     lab_plans=[lab_plan],  # Always single lab for reliability
                     master_context=master_context,
-                    model_provider=model_provider
+                    model_provider=model_provider,
+                    lesson_content=lesson_content
                 )
                 labs_markdown.update(batch_results)
             except Exception as e:

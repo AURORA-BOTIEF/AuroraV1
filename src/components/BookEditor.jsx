@@ -348,6 +348,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
     // Function to extract module number from lesson filename or title
     const extractModuleInfo = (lesson, index) => {
+        if (lesson.isSpecialSection) {
+            return {
+                moduleNumber: 0,
+                lessonNumber: 0
+            };
+        }
+
         // PRIORITY 1: Check if lesson already has moduleNumber from conversion
         if (lesson.moduleNumber) {
             return {
@@ -403,6 +410,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         const modules = {};
         data.lessons.forEach((lesson, index) => {
+            if (lesson.isSpecialSection) return;
+
             const { moduleNumber } = extractModuleInfo(lesson, index);
             if (!modules[moduleNumber]) {
                 modules[moduleNumber] = {
@@ -418,6 +427,89 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         return modules;
     };    // Toggle module collapse state
+
+    const renderSpecialSections = () => {
+        const data = viewMode === 'book' ? bookData : labGuideData;
+        if (!data || !Array.isArray(data.lessons)) return null;
+
+        const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+        const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+
+        const specialLessons = data.lessons
+            .map((lesson, index) => ({ ...lesson, originalIndex: index }))
+            .filter(lesson => lesson.isSpecialSection && lesson.specialSectionType !== 'glossary');
+
+        if (specialLessons.length === 0) return null;
+
+        return (
+            <div className="module-section special-sections">
+                <div className="module-header">
+                    <span className="module-title">Inicio</span>
+                    <span className="module-count">({specialLessons.length})</span>
+                </div>
+                <div className="module-lessons">
+                    {specialLessons.map((lesson) => {
+                        const icon = lesson.specialSectionType === 'course_intro' ? '📘' : '📖';
+                        const fallbackTitle = lesson.specialSectionType === 'course_intro'
+                            ? 'Introducción del Curso'
+                            : 'Glosario';
+
+                        return (
+                            <div
+                                key={lesson.originalIndex}
+                                className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
+                                onClick={() => setActiveIndex(lesson.originalIndex)}
+                            >
+                                <span className="lesson-number">{icon}</span>
+                                <span className="lesson-title-text">{lesson.title || fallbackTitle}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
+    const renderFinalSections = () => {
+        const data = viewMode === 'book' ? bookData : labGuideData;
+        if (!data || !Array.isArray(data.lessons)) return null;
+
+        const activeIndex = viewMode === 'book' ? currentLessonIndex : currentLabLessonIndex;
+        const setActiveIndex = viewMode === 'book' ? setCurrentLessonIndex : setCurrentLabLessonIndex;
+
+        const finalLessons = data.lessons
+            .map((lesson, index) => ({ ...lesson, originalIndex: index }))
+            .filter(lesson => lesson.isSpecialSection && lesson.specialSectionType === 'glossary');
+
+        return (
+            <div className="module-section special-sections final-sections">
+                <div className="module-header">
+                    <span className="module-title">Cierre del Curso</span>
+                    <span className="module-count">({finalLessons.length || 1})</span>
+                </div>
+                <div className="module-lessons">
+                    {finalLessons.length > 0 ? (
+                        finalLessons.map((lesson) => (
+                            <div
+                                key={lesson.originalIndex}
+                                className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
+                                onClick={() => setActiveIndex(lesson.originalIndex)}
+                            >
+                                <span className="lesson-number">📖</span>
+                                <span className="lesson-title-text">{lesson.title || 'Glosario'}</span>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="lesson-item">
+                            <span className="lesson-number">🏁</span>
+                            <span className="lesson-title-text">Fin del contenido</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const toggleModule = (moduleNumber) => {
         setCollapsedModules(prev => ({
             ...prev,
@@ -451,11 +543,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             // Get module title from first lesson's moduleTitle property, or use default
             const firstLesson = module.lessons[0];
-            let moduleTitle = firstLesson?.moduleTitle || `Módulo ${moduleNum} `;
+            let moduleTitle = firstLesson?.moduleTitle || `Capítulo ${moduleNum} `;
 
             // Ensure localization
             if (moduleTitle && typeof moduleTitle === 'string') {
-                moduleTitle = moduleTitle.replace(/\bModule\b/g, 'Módulo');
+                moduleTitle = moduleTitle
+                    .replace(/\bModule\b/g, 'Capítulo')
+                    .replace(/\bM[oó]dulo\b/g, 'Capítulo');
             }
 
             return (
@@ -470,16 +564,41 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     </div>
                     {!isCollapsed && (
                         <div className="module-lessons">
-                            {module.lessons.map((lesson) => (
+                            {module.lessons.map((lesson) => {
+                                const info = extractModuleInfo(lesson, lesson.originalIndex);
+                                const lessonNumber = lesson.lessonNumberInModule ?? info.lessonNumber;
+                                const textContext = `${moduleTitle} ${lesson.title || ''}`;
+                                const isSpanishContext = /cap[ií]tulo|lecci[oó]n|introducci[oó]n|resumen|temario/i.test(textContext);
+
+                                const isIntro = lesson.is_intro || lessonNumber === 0 || /^(introducci[oó]n|introduction)$/i.test((lesson.title || '').trim());
+                                const isSummary = lesson.is_summary || /^(resumen del cap[ií]tulo|chapter summary)$/i.test((lesson.title || '').trim());
+
+                                const introLabel = isSpanishContext ? 'Introducción' : 'Introduction';
+                                const summaryLabel = isSpanishContext ? 'Resumen del Capítulo' : 'Chapter Summary';
+
+                                const displayNumber = isIntro
+                                    ? 'ℹ️'
+                                    : isSummary
+                                        ? '🧾'
+                                        : `${info.moduleNumber}.${lessonNumber}`;
+
+                                const fallbackTitle = isIntro
+                                    ? introLabel
+                                    : isSummary
+                                        ? summaryLabel
+                                        : `${info.moduleNumber}.${lessonNumber}`;
+
+                                return (
                                 <div
                                     key={lesson.originalIndex}
                                     className={`lesson-item ${lesson.originalIndex === activeIndex ? 'active' : ''}`}
                                     onClick={() => setActiveIndex(lesson.originalIndex)}
                                 >
-                                    <span className="lesson-number">L{lesson.lessonNumberInModule || extractModuleInfo(lesson, lesson.originalIndex).lessonNumber}</span>
-                                    <span className="lesson-title-text">{lesson.title || `Lección ${lesson.originalIndex + 1}`}</span>
+                                    <span className="lesson-number">{displayNumber}</span>
+                                    <span className="lesson-title-text">{lesson.title || fallbackTitle}</span>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -757,13 +876,58 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 lessons.push({
                                     ...item,
                                     moduleNumber: moduleIdx + 1,
-                                    lessonNumberInModule: itemIdx + 1,
-                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
+                                    lessonNumberInModule: (item.lesson_number ?? item.lessonNumber ?? itemIdx + 1),
+                                    moduleTitle: (module.module_title || module.title || `Capítulo ${moduleIdx + 1}`)
+                                        .replace(/\bModule\b/g, 'Capítulo')
+                                        .replace(/\bM[oó]dulo\b/g, 'Capítulo'),
                                     filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });
                             });
                         }
                     });
+
+                    const specialSections = bookData.special_sections || bookData.specialSections || [];
+                    specialSections.forEach((section, sectionIdx) => {
+                        if (!section || !section.content) return;
+                        lessons.push({
+                            title: section.title || (section.section_type === 'course_intro' ? 'Introducción del Curso' : 'Glosario'),
+                            content: section.content,
+                            isSpecialSection: true,
+                            specialSectionType: section.section_type || 'extra',
+                            filename: `special_section_${sectionIdx + 1}.md`
+                        });
+                    });
+
+                    if (bookData.metadata?.course_introduction && !specialSections.some(s => (s.section_type || s.sectionType) === 'course_intro')) {
+                        lessons.unshift({
+                            title: 'Introducción del Curso',
+                            content: bookData.metadata.course_introduction,
+                            isSpecialSection: true,
+                            specialSectionType: 'course_intro',
+                            filename: 'special_section_course_intro.md'
+                        });
+                    }
+
+                    if (bookData.metadata?.course_glossary && !specialSections.some(s => (s.section_type || s.sectionType) === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: bookData.metadata.course_glossary,
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
+                    if (!lessons.some(l => l.isSpecialSection && l.specialSectionType === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: '## Glosario\n\n- Glosario en preparación para esta versión del libro.',
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
                     return { ...bookData, lessons };
                 }
                 return bookData;
@@ -890,14 +1054,59 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 lessons.push({
                                     ...item,
                                     moduleNumber: moduleIdx + 1,
-                                    lessonNumberInModule: itemIdx + 1,
-                                    moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1} `).replace(/\bModule\b/g, 'Módulo'),
+                                    lessonNumberInModule: (item.lesson_number ?? item.lessonNumber ?? itemIdx + 1),
+                                    moduleTitle: (module.module_title || module.title || `Capítulo ${moduleIdx + 1} `)
+                                        .replace(/\bModule\b/g, 'Capítulo')
+                                        .replace(/\bM[oó]dulo\b/g, 'Capítulo'),
                                     // Ensure filename follows the pattern for module grouping
                                     filename: item.filename || `lesson_${String(moduleIdx + 1).padStart(2, '0')} -${String(itemIdx + 1).padStart(2, '0')}.md`
                                 });
                             });
                         }
                     });
+
+                    const specialSections = bookData.special_sections || bookData.specialSections || [];
+                    specialSections.forEach((section, sectionIdx) => {
+                        if (!section || !section.content) return;
+                        lessons.push({
+                            title: section.title || (section.section_type === 'course_intro' ? 'Introducción del Curso' : 'Glosario'),
+                            content: section.content,
+                            isSpecialSection: true,
+                            specialSectionType: section.section_type || 'extra',
+                            filename: `special_section_${sectionIdx + 1}.md`
+                        });
+                    });
+
+                    if (bookData.metadata?.course_introduction && !specialSections.some(s => (s.section_type || s.sectionType) === 'course_intro')) {
+                        lessons.unshift({
+                            title: 'Introducción del Curso',
+                            content: bookData.metadata.course_introduction,
+                            isSpecialSection: true,
+                            specialSectionType: 'course_intro',
+                            filename: 'special_section_course_intro.md'
+                        });
+                    }
+
+                    if (bookData.metadata?.course_glossary && !specialSections.some(s => (s.section_type || s.sectionType) === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: bookData.metadata.course_glossary,
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
+                    if (!lessons.some(l => l.isSpecialSection && l.specialSectionType === 'glossary')) {
+                        lessons.push({
+                            title: 'Glosario',
+                            content: '## Glosario\n\n- Glosario en preparación para esta versión del libro.',
+                            isSpecialSection: true,
+                            specialSectionType: 'glossary',
+                            filename: 'special_section_glossary.md'
+                        });
+                    }
+
                     console.log(`Converted ${bookData.modules.length} modules into ${lessons.length} lessons(or labs)`);
                     return {
                         ...bookData,
@@ -1169,16 +1378,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             console.log('Files found in book folder:', response.Contents.map(c => c.Key));
 
             // 1.5 Look for Lab Guide JSON first (Priority)
-            // TEMPORARILY DISABLED: Force markdown parsing to bypass broken cached JSON
-            // Match files ending with _data.json that contain Lab_Guide or LabGuide
-            // (consistent with backend load_book.py pattern matching)
-            const labGuideJsonFile = false; // FORCE SKIP JSON
-            /*
+            // The JSON produced by lab_guide_builder.py has properly extracted content for each lab.
+            // Using the JSON avoids issues with false H1 headings in the markdown that break parsing.
             const labGuideJsonFile = response.Contents.find(obj =>
                 obj.Key && obj.Key.endsWith('_data.json') &&
                 (obj.Key.includes('Lab_Guide') || obj.Key.includes('LabGuide'))
             );
-            */
 
             if (labGuideJsonFile) {
                 console.log('Found Lab Guide JSON:', labGuideJsonFile.Key);
@@ -1200,10 +1405,12 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 items.forEach((item, itemIdx) => {
                                     lessons.push({
                                         ...item,
-                                        moduleNumber: moduleIdx + 1,
-                                        lessonNumberInModule: itemIdx + 1,
-                                        moduleTitle: (module.module_title || module.title || `Módulo ${moduleIdx + 1}`).replace(/\bModule\b/g, 'Módulo'),
-                                        filename: item.filename || `lab_${String(moduleIdx + 1).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
+                                        moduleNumber: module.module_number || (moduleIdx + 1),
+                                        lessonNumberInModule: item.lab_number || (itemIdx + 1),
+                                        moduleTitle: (module.module_title || module.title || `Capítulo ${module.module_number || (moduleIdx + 1)}`)
+                                            .replace(/\bModule\b/g, 'Capítulo')
+                                            .replace(/\bM[oó]dulo\b/g, 'Capítulo'),
+                                        filename: item.filename || `lab_${String(module.module_number || (moduleIdx + 1)).padStart(2, '0')}-${String(itemIdx + 1).padStart(2, '0')}.md`
                                     });
                                 });
                             }
@@ -1227,9 +1434,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                         console.warn('⚠️ JSON contains placeholder errors from buggy parsing. Falling back to fresh Markdown parsing.');
                         // Fall through to Markdown loader below  
                     } else {
-                        setLabGuideData(parsed);
-                        console.log('✅ Lab guide loaded from JSON (fallback path)');
-                        loadImagesProgressively(parsed.lessons, setLabGuideData, 'lab');
+                        const labGuideToSet = {
+                            ...parsed,
+                            filename: labGuideJsonFile.Key.split('/').pop(),
+                            outlineKey: outlineFilename // Store outline key for regeneration
+                        };
+                        setLabGuideData(labGuideToSet);
+                        setOriginalLabGuideData(JSON.parse(JSON.stringify(labGuideToSet)));
+                        console.log('✅ Lab guide loaded from JSON:', parsed.lessons?.length, 'labs');
+                        loadImagesProgressively(labGuideToSet.lessons, setLabGuideData, 'lab');
                         return;
                     }
                 } catch (e) {
@@ -4487,20 +4700,31 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             <div className="book-editor-content">
                 <div className="lesson-navigator" data-view-mode={viewMode}>
                     <h3>{viewMode === 'book' ? 'Contenido del Libro' : 'Contenido del Lab Guide'}</h3>
-                    <div className="navigator-stats">
-                        {Object.keys(groupLessonsByModule()).length} módulos · {activeBookData?.lessons?.length || 0} lecciones
-                    </div>
                     <div className="navigator-actions">
                         <button
                             className="btn-toggle-all"
                             onClick={toggleAllModules}
                             title={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
+                            aria-label={Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "Expandir todo" : "Colapsar todo"}
                         >
-                            {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? "📂 Expandir Todo" : "📁 Colapsar Todo"}
+                            {Object.keys(collapsedModules).some(k => collapsedModules[k]) ? (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                                    <path d="M12 11v6" />
+                                    <path d="M9 14h6" />
+                                </svg>
+                            ) : (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                                    <path d="M9 14h6" />
+                                </svg>
+                            )}
                         </button>
                     </div>
                     <div className="lesson-list">
+                        {renderSpecialSections()}
                         {renderLessonsByModule()}
+                        {renderFinalSections()}
                     </div>
                 </div>
                 <div className="lesson-editor">

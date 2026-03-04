@@ -283,6 +283,7 @@
         "content_type.$": "$.content_type",
         "course_bucket.$": "$.course_bucket",
         "model_provider.$": "$.model_provider",
+        "outline_s3_key.$": "$.outline_s3_key",
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email"
       },
@@ -336,6 +337,7 @@
         "content_type.$": "$.content_type",
         "course_bucket.$": "$.course_bucket",
         "model_provider.$": "$.model_provider",
+        "outline_s3_key.$": "$.outline_s3_key",
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "master_lab_plan_result.$": "$.master_lab_plan_result"
@@ -601,7 +603,9 @@
         "Payload": {
           "course_bucket.$": "$.course_bucket",
           "image_mappings.$": "$.all_image_mappings",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "model_provider.$": "$.model_provider",
+          "outline_s3_key.$": "$.outline_s3_key"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",

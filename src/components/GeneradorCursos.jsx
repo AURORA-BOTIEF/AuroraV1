@@ -337,7 +337,7 @@ function GeneradorCursos() {
                                     disabled={isProcessing}
                                     className="form-select"
                                 >
-                                    <option value="bedrock">AWS Bedrock (Claude 4.5 Sonnet)</option>
+                                    <option value="bedrock">AWS Bedrock (Claude 4.6 Sonnet)</option>
                                     <option value="openai">OpenAI (GPT-5)</option>
                                 </select>
                                 <small className="form-hint">

@@ -109,6 +109,7 @@ def lambda_handler(event, context):
                 # Download lab content
                 obj = s3_client.get_object(Bucket=course_bucket, Key=lab_key)
                 lab_content = obj['Body'].read().decode('utf-8')
+                lab_content = normalize_lab_guide_terms(lab_content)
 
                 # Extract lab metadata
                 lab_filename = lab_key.split('/')[-1]
@@ -136,7 +137,7 @@ def lambda_handler(event, context):
                 # Organize by module
                 if module_num not in modules:
                     modules[module_num] = {
-                        'title': f"Module {module_num} Labs",
+                        'title': f"Capítulo {module_num} - Laboratorios",
                         'labs': []
                     }
                 modules[module_num]['labs'].append(lab_data)
@@ -212,7 +213,7 @@ This lab guide was automatically generated to accompany the course material. It 
         total_words = sum(lab['word_count'] for lab in all_labs)
         stats_content = f"""## Lab Guide Statistics
 
-- **Total Modules with Labs**: {len(modules)}
+    - **Total Capítulos with Labs**: {len(modules)}
 - **Total Lab Exercises**: {len(all_labs)}
 - **Total Words**: {total_words:,}
 - **Estimated Total Time**: {total_duration}
@@ -227,7 +228,7 @@ This lab guide was automatically generated to accompany the course material. It 
 """
         
         # Add detailed lab summary table
-        stats_content += "| Module | Lab # | Title | Duration | Complexity |\n"
+        stats_content += "| Capítulo | Lab # | Title | Duration | Complexity |\n"
         stats_content += "|--------|-------|-------|----------|------------|\n"
         for lab in all_labs:
             meta = lab['metadata']
@@ -432,6 +433,17 @@ def extract_lab_metadata(content):
                     metadata['bloom_level'] = parts[1].strip().strip('*').strip()
     
     return metadata
+
+
+def normalize_lab_guide_terms(content: str) -> str:
+    """Normalize terminology in lab guides to use Capítulo instead of Module/Módulo."""
+    if not content:
+        return content
+
+    updated = content
+    updated = re.sub(r'\bModule\b', 'Capítulo', updated, flags=re.IGNORECASE)
+    updated = re.sub(r'\bM[oó]dulo\b', 'Capítulo', updated, flags=re.IGNORECASE)
+    return updated
 
 
 def sum_durations(duration_list):

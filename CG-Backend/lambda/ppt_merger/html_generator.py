@@ -250,6 +250,20 @@ def render_slide_with_recursive_split(slide, content_blocks, layout, text_reduct
     """
     if image_url_mapping is None:
         image_url_mapping = {}
+        
+    # Handle Module-End Logo Slide (Simple Layout)
+    if layout == 'module-end-logo':
+        html_content += f'<div class="slide" data-slide="{slide.get("slide_number")}">\n'
+        html_content += '  <div class="module-end-logo-slide">\n'
+        html_content += '    <img src="https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png" class="centered-logo" alt="Netec Logo">\n'
+        html_content += '  </div>\n'
+        
+        # Inject Instructor Notes
+        if slide.get('notes'):
+            html_content += f'  <div class="notes" style="display:none">{slide["notes"]}</div>\n'
+            
+        html_content += '</div>\n\n'
+        return html_content
 
     # Attach original indices to blocks for context preservation during splits
     for idx, block in enumerate(content_blocks):
@@ -369,6 +383,10 @@ def render_slide_with_recursive_split(slide, content_blocks, layout, text_reduct
         else:
             for idx, block in enumerate(content_blocks):
                 html_content += generate_content_block_html(block, image_url_mapping, all_blocks=content_blocks, block_index=idx)
+        
+        # Inject Instructor Notes
+        if slide.get('notes'):
+            html_content += f'  <div class="notes" style="display:none">{slide["notes"]}</div>\n'
         
         html_content += '</div>\n\n'
         return html_content
@@ -798,6 +816,26 @@ def generate_html_from_structure(structure: Dict) -> str:
             margin: 5px 76px 20px 76px;  /* Reduced from 15px top, 30px bottom */
             position: relative;
             z-index: 1;
+        }}
+
+        /* Module End Logo Slide */
+        .module-end-logo-slide {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            background: white;
+        }}
+        
+        .centered-logo {{
+            width: 300px;
+            height: auto;
+        }}
+        
+        /* Instructor Notes (Hidden) */
+        .notes {{
+            display: none;
+        }}
             line-height: 1.3;
             word-wrap: break-word;
             overflow-wrap: break-word;

@@ -49,6 +49,46 @@ def decode_cognito_jwt(token, region="us-east-1"):
         return None
 
 
+def repair_malformed_yaml(yaml_content: str) -> str:
+    """
+    Attempt to repair common YAML syntax errors, specifically unquoted strings containing colons.
+    """
+    import re
+    lines = yaml_content.split('\n')
+    repaired_lines = []
+    
+    # Pattern to find keys like 'title:', 'description:' followed by unquoted text with colons
+    # capturing groups: 1=indent+key, 2=value
+    # Look for lines that:
+    # 1. Start with spaces/dashes, then a key (title|description|objective)
+    # 2. Have a value that does NOT start with quote
+    # 3. Value contains a colon followed by space
+    target_keys = ['title', 'description', 'objective', 'summary']
+    key_pattern = '|'.join(target_keys)
+    
+    # Regex:
+    # ^(\s*(?:-\s+)?(?:{key_pattern}):\s+)  -> Group 1: indentation + key + colon + space
+    # (?!["'])                              -> Negative lookahead: value doesn't start with quote
+    # (.*:\s.*)                             -> Group 2: value containing ': '
+    # $                                     -> End of line
+    pattern = re.compile(f'^(\\s*(?:-\\s+)?(?:{key_pattern}):\\s+)(?!["\'])(.*:\\s.*)$')
+
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            prefix = match.group(1)
+            value = match.group(2).strip()
+            # Escape existing quotes if needed
+            value = value.replace('"', '\\"')
+            repaired_lines.append(f'{prefix}"{value}"')
+            print(f"🔧 Repaired YAML line: {line.strip()} -> {prefix.strip()}\"{value}\"")
+        else:
+            repaired_lines.append(line)
+            
+    return '\n'.join(repaired_lines)
+
+
+
 def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
     """
     Normalize an outline YAML file to the standard nested format.
@@ -67,6 +107,8 @@ def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
     
     Returns True if normalization was performed, False if already normalized.
     """
+    # Normalize logic
+    was_repaired = False
     try:
         # Read the outline from S3
         response = s3_client.get_object(Bucket=bucket, Key=s3_key)
@@ -76,9 +118,25 @@ def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
         if not outline_data:
             print(f"⚠️  Empty outline file: {s3_key}")
             return False
-        
+    except yaml.YAMLError as e:
+        print(f"⚠️  Initial YAML parse failed: {e}")
+        print("🔧 Attempting to repair malformed YAML...")
+        try:
+            # Rewind and read again if needed, or use cached content
+            repaired_content = repair_malformed_yaml(outline_content)
+            outline_data = yaml.safe_load(repaired_content)
+            
+            # If repair worked, we MUST save the normalized/repaired version back
+            print("✅ YAML repair successful! Proceeding with normalization.")
+            was_repaired = True
+        except Exception as repair_e:
+            print(f"❌ YAML repair failed: {repair_e}")
+            return False
+            
+    try:
         # Check if already in standard format (course.modules exists)
-        if 'course' in outline_data and 'modules' in outline_data.get('course', {}):
+        # BUT if it was repaired, we MUST write it back even if structure is standard
+        if not was_repaired and 'course' in outline_data and 'modules' in outline_data.get('course', {}):
             print(f"✅ Outline already in standard format: {s3_key}")
             return False
         
@@ -286,14 +344,18 @@ def lambda_handler(event, context):
         # Method 4: JWT token from Authorization header (Amplify API with Cognito)
         if not user_id and JWT_AVAILABLE:
             auth_header = headers.get('Authorization') or headers.get('authorization')
-            if auth_header and auth_header.startswith('Bearer '):
-                token = auth_header.replace('Bearer ', '')
-                jwt_claims = decode_cognito_jwt(token)
-                if jwt_claims:
-                    user_id = jwt_claims.get('sub') or jwt_claims.get('username') or jwt_claims.get('cognito:username')
-                    user_email = jwt_claims.get('email') or jwt_claims.get('cognito:email')
-                    if user_id:
-                        print(f"User identified via JWT token: {user_email} ({user_id})")
+            if auth_header:
+                print(f"🔐 Found Authorization header: {auth_header[:15]}...")
+                if auth_header.startswith('Bearer '):
+                    token = auth_header.replace('Bearer ', '')
+                    jwt_claims = decode_cognito_jwt(token)
+                    if jwt_claims:
+                        user_id = jwt_claims.get('sub') or jwt_claims.get('username') or jwt_claims.get('cognito:username')
+                        user_email = jwt_claims.get('email') or jwt_claims.get('cognito:email')
+                        if user_id:
+                            print(f"User identified via JWT token: {user_email} ({user_id})")
+            else:
+                print("⚠️ No Authorization header found under 'Authorization' or 'authorization'")
         
         # Method 5: Check for identity.cognitoIdentityId (Cognito Identity Pool)
         if not user_id and identity:

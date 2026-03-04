@@ -4,7 +4,7 @@ Content Generation - OPTIMIZED FOR MODERN LLMs
 Generates ONE batch of lessons per invocation (max 5 lessons).
 Step Functions handles parallelization with MaxConcurrency.
 
-Modern LLMs (Sonnet 4.5, GPT-5) can easily handle 5+ lessons with rich content
+Modern LLMs (Sonnet 4.6, GPT-5) can easily handle 5+ lessons with rich content
 and visual tags in a single API call, reducing cost and improving speed.
 
 Expected event parameters:
@@ -39,7 +39,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 DEFAULT_REGION = "us-east-1"
 
@@ -66,7 +66,6 @@ def count_existing_visuals(course_bucket: str, project_folder: str) -> int:
         if 'Contents' not in response:
             return 0
         
-        # Count .json files
         json_files = [obj for obj in response['Contents'] if obj['Key'].endswith('.json')]
         count = len(json_files)
         print(f"📊 Found {count} existing visual prompts in S3")
@@ -82,8 +81,6 @@ def format_lesson_filename(module_num: int, lesson_index: int, lesson_title: str
     safe_title = ''.join(c if c.isalnum() or c.isspace() else '' for c in safe_title)
     safe_title = '-'.join(safe_title.split())
     return f"module-{module_num}-lesson-{lesson_index + 1}-{safe_title}.md"
-
-
 def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
     """Calculate target word count for a lesson."""
     lesson_duration = lesson_data.get('duration_minutes', module_info.get('duration_minutes', 45))
@@ -121,11 +118,19 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
     return max(1000, min(5000, total_words))
 
 
-def build_course_context(course_data: dict) -> str:
+def is_spanish_course(course_data: dict) -> bool:
+    """Detect whether the course should be generated in Spanish."""
+    language = str(course_data.get('language', '')).lower()
+    return language.startswith('es')
+
+
+def build_course_context(course_data: dict, spanish_course: bool = False) -> str:
     """Build complete course outline context."""
     course_title = course_data.get('title', 'Course')
     modules = course_data.get('modules', [])
-    
+    module_term = "CAPÍTULO" if spanish_course else "MODULE"
+    lesson_term = "Lección" if spanish_course else "Lesson"
+
     context_lines = [
         "════════════════════════════════════════════════════════════════════════",
         "COMPLETE COURSE OUTLINE - MUST REFERENCE THIS EXACT STRUCTURE",
@@ -134,15 +139,15 @@ def build_course_context(course_data: dict) -> str:
         f"Total Modules: {len(modules)}",
         ""
     ]
-    
+
     for i, module in enumerate(modules, 1):
-        context_lines.append(f"MODULE {i}: {module.get('title', 'Untitled')}")
+        context_lines.append(f"{module_term} {i}: {module.get('title', 'Untitled')}")
         lessons = module.get('lessons', [])
         for j, lesson in enumerate(lessons, 1):
-            context_lines.append(f"  Lesson {i}.{j}: {lesson.get('title', 'Untitled')}")
-    
+            context_lines.append(f"  {lesson_term} {i}.{j}: {lesson.get('title', 'Untitled')}")
+
     context_lines.append("════════════════════════════════════════════════════════════════════════")
-    
+
     return "\n".join(context_lines)
 
 
@@ -178,7 +183,17 @@ def generate_batch_single_call(
     print(f"📝 Generating batch: Lessons {batch_start_idx + 1}-{batch_end_idx} ({num_lessons} lessons)")
     
     # Build course context
-    course_context = build_course_context({'title': course_data.get('title', 'Course'), 'modules': course_data.get('modules', [])})
+    spanish_course = is_spanish_course(course_data)
+    module_term = "Capítulo" if spanish_course else "Module"
+    lesson_term = "Lección" if spanish_course else "Lesson"
+    course_context = build_course_context(
+        {
+            'title': course_data.get('title', 'Course'),
+            'modules': course_data.get('modules', []),
+            'language': course_data.get('language', '')
+        },
+        spanish_course=spanish_course
+    )
     
     # Build lesson specifications
     lesson_specs = []
@@ -208,7 +223,7 @@ def generate_batch_single_call(
         labs_str = "\n".join(labs_formatted)
         
         spec = f"""
-    Lesson {i + 1}: {lesson.get('title', 'Untitled')}
+    {lesson_term} {i + 1}: {lesson.get('title', 'Untitled')}
     Duration: {lesson.get('duration_minutes', module_duration)} minutes
     Bloom Level: {lesson.get('bloom_level', module_bloom)}
     Target Length: ~{target_words} words
@@ -235,9 +250,9 @@ Please incorporate these additional requirements into the lesson content.
 
 {course_context}
 
-TASK: Generate complete, detailed lesson content for {num_lessons} lesson(s) in Module {module_number}.
+TASK: Generate complete, detailed lesson content for {num_lessons} lesson(s) in {module_term} {module_number}.
 
-MODULE {module_number}: {module_title}
+{module_term.upper()} {module_number}: {module_title}
 Description: {module_description}
 
 LESSONS TO GENERATE:
@@ -255,8 +270,13 @@ If the course is in Spanish, use Spanish titles (e.g., "Objetivos de Aprendizaje
 If the course is in English, use English titles.
 Match the language of the course content throughout.
 
+**SPANISH TERMINOLOGY ENFORCEMENT (MANDATORY):**
+- For Spanish courses, ALWAYS use "Capítulo" (never "Módulo" and never "Module").
+- For Spanish courses, ALWAYS use "Lección" (never "Lesson").
+- Even if the outline contains mixed terms, normalize generated content to these terms.
+
 ```
-# Lección {module_number}.N: [Título de la Lección]  (or "Lesson" if course is in English)
+# {module_number}.N: [Título de la lección]
 
 ## Objetivos de Aprendizaje  (or "Learning Objectives" if English)
 
@@ -318,6 +338,11 @@ Al finalizar esta lección, serás capaz de:  (or "By the end of this lesson, yo
 
 - [Resource 1 with description]
 - [Resource 2 with description]
+
+## Bibliografía  (or "Bibliography" if English)
+
+- [If content is based on model knowledge only, include model attribution used]
+- [If internet/web sources were used, include title + URL for each source]
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -330,6 +355,7 @@ CRITICAL FORMATTING RULES
 - H3 (###): Subsections within H2 (Concept Overview, Technical Details, etc.)
 - H4 (####): Details within H3 (if needed)
 - NEVER skip heading levels (H1 → H3 is INVALID, must be H1 → H2 → H3)
+- In H1 titles, use numeric format only: "{module_number}.N: [Title]" (do NOT prefix with "Lesson" or "Lección").
 
 **REQUIRED SECTIONS (MUST INCLUDE - USE COURSE LANGUAGE FOR TITLES):**
 1. Learning Objectives / Objetivos de Aprendizaje (H2) - 3-5 bullet points with Bloom verbs
@@ -337,6 +363,14 @@ CRITICAL FORMATTING RULES
 3. At least ONE topic section (H2) with subsections (H3)
 4. Summary / Resumen (H2) with Key Takeaways / Puntos Clave (H3)
 5. Additional Resources / Recursos Adicionales (H2) - optional
+6. Bibliography / Bibliografía (H2) - REQUIRED
+
+**BIBLIOGRAPHY RULES (MANDATORY):**
+- Every lesson MUST include Bibliography / Bibliografía.
+- If no web/internet source was used, include one entry with model attribution:
+    - "Anthropic Claude Sonnet 4.6 (Amazon Bedrock)" when using bedrock.
+    - "OpenAI GPT-5" when using openai.
+- If web/internet sources were used, include source title and URL for each source.
 
 **DO NOT INCLUDE Review Questions section - this will be handled separately.**
 
@@ -382,6 +416,12 @@ CRITICAL FORMATTING RULES
 - Each topic MUST follow the structure: Concept Overview → Technical Details → Practical Application
 - Match content depth to the Bloom level specified
 - Target word count for each lesson as specified
+
+**PEDAGOGICAL CLARITY (MANDATORY):**
+- Write in simple, easy-to-understand language.
+- Include concrete examples in each major topic.
+- Include analogies when explaining abstract concepts.
+- Prefer short paragraphs and clear transitions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -715,7 +755,11 @@ def lambda_handler(event, context):
             batch_start_idx=batch_start_idx,
             batch_end_idx=batch_end_idx,
             module_data=module_data,
-            course_data={'title': course_info.get('title', 'Course'), 'modules': modules},
+            course_data={
+                'title': course_info.get('title', 'Course'),
+                'modules': modules,
+                'language': course_info.get('language', outline_data.get('language', ''))
+            },
             model_provider=model_provider,
             openai_api_key=openai_api_key,
             starting_visual_number=starting_visual_number,

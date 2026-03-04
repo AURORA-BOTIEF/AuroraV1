@@ -4,6 +4,7 @@
 import os
 import json
 import boto3
+import urllib.parse
 
 def lambda_handler(event, context):
     """
@@ -38,9 +39,13 @@ def lambda_handler(event, context):
         # Get project folder from path or query parameters
         path_params = event.get('pathParameters') or {}
         query_params = event.get('queryStringParameters') or {}
-        
-        project_folder = path_params.get('folder') or query_params.get('folder')
-        
+
+        # Get project folder and URL-decode it (API Gateway may pass it encoded)
+        raw_project_folder = path_params.get('folder') or query_params.get('folder')
+        project_folder = urllib.parse.unquote(raw_project_folder) if raw_project_folder else None
+
+        print(f"Raw folder: {raw_project_folder}, Decoded folder: {project_folder}")
+
         if not project_folder:
             return {
                 "statusCode": 400,

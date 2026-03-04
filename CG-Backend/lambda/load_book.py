@@ -4,6 +4,7 @@
 import os
 import json
 import boto3
+import urllib.parse
 from datetime import datetime
 
 def lambda_handler(event, context):
@@ -17,12 +18,17 @@ def lambda_handler(event, context):
 
         # Extract project folder and book type from path parameters or query parameters
         path_params = event.get('pathParameters', {})
-        query_params = event.get('queryStringParameters', {})
+        query_params = event.get('queryStringParameters', {}) or {}
 
-        project_folder = path_params.get('projectFolder') or query_params.get('projectFolder')
+        # Get project folder and URL-decode it (API Gateway may pass it encoded)
+        raw_project_folder = path_params.get('projectFolder') or query_params.get('projectFolder')
+        project_folder = urllib.parse.unquote(raw_project_folder) if raw_project_folder else None
+
         book_type = query_params.get('bookType') or 'theory'  # 'theory' or 'lab'
-        
-        print(f"Project: {project_folder}, Book Type: {book_type}")
+
+        print(f"Raw project folder: {raw_project_folder}")
+        print(f"Decoded project folder: {project_folder}")
+        print(f"Book Type: {book_type}")
 
         if not project_folder:
             return {
@@ -77,62 +83,92 @@ def lambda_handler(event, context):
                 # Filter by book_type: 'theory' looks for Generated_Course_Book, 'lab' looks for Lab_Guide
                 json_files = []
                 md_files = []
-                
+
+                print(f"Scanning {len(response['Contents'])} objects in book folder with book_type='{book_type}'")
+
                 for obj in response['Contents']:
                     key = obj['Key']
                     last_modified = obj.get('LastModified')
-                    
+                    file_size = obj.get('Size', 0)
+
+                    # Debug: Log all files found
+                    print(f"  Found file: {key} ({file_size} bytes)")
+
                     # Filter based on book_type
                     if book_type == 'lab':
                         # Lab guide: Look for files with 'Lab_Guide' or 'LabGuide' in name
                         if key.endswith('_data.json') and ('Lab_Guide' in key or 'LabGuide' in key):
                             json_files.append((key, last_modified))
+                            print(f"    -> Added to json_files (lab)")
                         elif key.endswith('_complete.md') and ('Lab_Guide' in key or 'LabGuide' in key):
                             md_files.append((key, last_modified))
+                            print(f"    -> Added to md_files (lab)")
                     else:
                         # Theory book: Look for Generated_Course_Book or exclude Lab_Guide
                         if key.endswith('_data.json') and 'Lab_Guide' not in key and 'LabGuide' not in key:
                             json_files.append((key, last_modified))
+                            print(f"    -> Added to json_files (theory)")
                         elif key.endswith('_complete.md') and 'Lab_Guide' not in key and 'LabGuide' not in key:
                             md_files.append((key, last_modified))
-                
+                            print(f"    -> Added to md_files (theory)")
+
                 # Sort by last modified (most recent first) and pick the first
                 if json_files:
                     json_files.sort(key=lambda x: x[1], reverse=True)
                     book_json_key = json_files[0][0]
                     print(f"Selected JSON file: {book_json_key} (from {len(json_files)} available)")
-                
+                else:
+                    print(f"WARNING: No JSON files found matching criteria for book_type='{book_type}'")
+
                 if md_files:
                     md_files.sort(key=lambda x: x[1], reverse=True)
                     book_md_key = md_files[0][0]
                     print(f"Selected MD file: {book_md_key} (from {len(md_files)} available)")
+                else:
+                    print(f"WARNING: No MD files found matching criteria for book_type='{book_type}'")
 
             # Helper to decide whether to inline or presign
             def prepare_object(key):
                 """Return either {'inline': parsed_json} or {'presignedUrl': url, 'key': key}
                 depending on object size."""
                 if not key:
+                    print("ERROR: prepare_object called with empty key")
                     return None
                 try:
+                    print(f"Preparing object: {key}")
                     head = s3_client.head_object(Bucket=bucket_name, Key=key)
                     size = head.get('ContentLength', 0)
+                    print(f"  Object size: {size} bytes")
+
                     # If object is less than 800KB, inline it safely; otherwise presign
                     if size and size < 800_000:
+                        print(f"  Object is small (<800KB), inlining...")
                         obj = s3_client.get_object(Bucket=bucket_name, Key=key)
                         body = obj['Body'].read()
+                        print(f"  Read {len(body)} bytes from S3")
+
                         # If JSON, parse; if markdown, return text
                         if key.endswith('_data.json'):
                             try:
-                                return {'inline': json.loads(body.decode('utf-8'))}
-                            except Exception:
+                                parsed = json.loads(body.decode('utf-8'))
+                                print(f"  Successfully parsed JSON")
+                                return {'inline': parsed}
+                            except Exception as json_err:
+                                print(f"  ERROR parsing JSON: {str(json_err)}, falling back to presigned URL")
                                 return {'presignedUrl': s3_client.generate_presigned_url('get_object', Params={'Bucket': bucket_name, 'Key': key}, ExpiresIn=900), 'key': key}
                         else:
-                            return {'inline': body.decode('utf-8')}
+                            text = body.decode('utf-8')
+                            print(f"  Decoded markdown text ({len(text)} chars)")
+                            return {'inline': text}
                     else:
+                        print(f"  Object is large (>=800KB), generating presigned URL...")
                         url = s3_client.generate_presigned_url('get_object', Params={'Bucket': bucket_name, 'Key': key}, ExpiresIn=900)
+                        print(f"  Generated presigned URL")
                         return {'presignedUrl': url, 'key': key}
                 except Exception as e:
-                    print(f"Error preparing object {key}: {str(e)}")
+                    print(f"ERROR preparing object {key}: {type(e).__name__}: {str(e)}")
+                    import traceback
+                    print(f"Traceback: {traceback.format_exc()}")
                     return None
 
             # Prepare JSON and markdown entries
@@ -192,21 +228,36 @@ def lambda_handler(event, context):
                     print(f"Provided presigned URL for markdown: {book_md_key}")
 
         except Exception as e:
-            print(f"Error loading book files: {str(e)}")
+            error_msg = f"Error loading book files: {type(e).__name__}: {str(e)}"
+            print(f"CRITICAL: {error_msg}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+
+        # Debug: Log final state before 404 check
+        print(f"DEBUG: Final state check - book_data exists: {book_data is not None}, book_content exists: {book_content is not None}")
+        print(f"DEBUG: response_data keys: {list(response_data.keys())}")
+        print(f"DEBUG: bookJsonUrl exists: {response_data.get('bookJsonUrl') is not None}, bookMdUrl exists: {response_data.get('bookMdUrl') is not None}")
 
         # If neither exists, return error
         if not book_data and not book_content and not response_data.get('bookJsonUrl') and not response_data.get('bookMdUrl'):
+            error_details = {
+                "error": "No book data found for this project",
+                "projectFolder": project_folder,
+                "bookType": book_type,
+                "bucket": bucket_name,
+                "searchedPrefix": f"{project_folder}/book/",
+                "diagnostic": "The book files may not have been generated yet, or there may be a filtering mismatch. Check CloudWatch logs for detailed file scanning output."
+            }
+            print(f"RETURNING 404: {json.dumps(error_details)}")
             return {
                 "statusCode": 404,
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Amz-Key,X-Amz-Security-Token",
                     "Access-Control-Allow-Methods": "OPTIONS,GET"
                 },
-                "body": json.dumps({
-                    "error": "No book data found for this project"
-                })
+                "body": json.dumps(error_details)
             }
 
         # Update presence flags and include inlined content if available
