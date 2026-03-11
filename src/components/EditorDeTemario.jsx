@@ -36,14 +36,7 @@ const slugify = (str = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
 
-// ✅ token robusto
-const getAuthToken = () => {
-  return (
-    localStorage.getItem("id_token") ||
-    sessionStorage.getItem("id_token") ||
-    ""
-  );
-};
+
 
 // ✅ headers robustos (Bearer + fallback sin Bearer)
 const buildAuthHeaders = (token) => {
@@ -299,8 +292,12 @@ const moverTemaAbajo = (capIndex, subIndex) => {
     const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
     try {
-      const token = getAuthToken();
-      if (!token) throw new Error("No hay id_token");
+      const session = await fetchAuthSession();
+      const token = session?.tokens?.idToken?.toString();
+
+if (!token) {
+  throw new Error("No se encontró id_token desde Amplify");
+}
 
       const bodyData = {
         cursoId:
@@ -363,9 +360,12 @@ const moverTemaAbajo = (capIndex, subIndex) => {
     setMensaje({ tipo: "", texto: "" });
 
     try {
-      const token = getAuthToken();
-      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
+     const session = await fetchAuthSession();
+const token = session?.tokens?.idToken?.toString();
 
+if (!token) {
+  throw new Error("No se encontró id_token desde Amplify");
+}
       const { h1, h2 } = buildAuthHeaders(token);
 
       // 1) Bearer
