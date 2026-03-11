@@ -5,7 +5,7 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
-import { Plus, Trash2, ArrowUp, ArrowDown, ChevronsUp } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
@@ -262,20 +262,6 @@ const moverTemaAbajo = (capIndex, subIndex) => {
 
   setTemario(nuevo);
   setMensaje({ tipo: "ok", texto: "⬇️ Tema movido hacia abajo" });
-};
-
-// ===== MOVER TEMA AL INICIO =====
-const moverTemaAlInicio = (capIndex, subIndex) => {
-  if (subIndex === 0) return;
-
-  const nuevo = JSON.parse(JSON.stringify(temario));
-  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
-
-  const [tema] = subcapitulos.splice(subIndex, 1);
-  subcapitulos.unshift(tema);
-
-  setTemario(nuevo);
-  setMensaje({ tipo: "ok", texto: "⏫ Tema movido al inicio" });
 };
 
   // ===== AJUSTAR TIEMPOS =====
@@ -942,16 +928,7 @@ const moverTemaAlInicio = (capIndex, subIndex) => {
                   placeholder="sesión"
                   className="input-sesion"
                 />
-<button
-  type="button"
-  className="btn-mover-tema"
-  onClick={() => moverTemaAlInicio(i, j)}
-  title="Mover al inicio"
-  disabled={j === 0}
->
-  <ChevronsUp size={16} strokeWidth={2} />
-  <span>Inicio</span>
-</button>
+
 
 <button
   type="button"
