@@ -286,137 +286,130 @@ const moverTemaAbajo = (capIndex, subIndex) => {
   };
 
   const handleSaveClick = async () => {
-    setGuardando(true);
-    setMensaje({ tipo: "", texto: "" });
+  setGuardando(true);
+  setMensaje({ tipo: "", texto: "" });
 
-    const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
+  const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
-    try {
-      const session = await fetchAuthSession();
-      const token = session?.tokens?.idToken?.toString();
+  try {
+    const session = await fetchAuthSession();
+    const token = session?.tokens?.idToken?.toString();
 
-if (!token) {
-  throw new Error("No se encontró id_token desde Amplify");
-}
+    if (!token) {
+      throw new Error("No se encontró id_token desde Amplify");
+    }
 
-      const bodyData = {
-        cursoId:
-          temario?.nombre_curso?.trim() ||
-          `curso_${Date.now()}`,
-        contenido: temario,
-        autor: userEmail || "sin-correo",
-        nombre_curso: temario?.nombre_curso || "",
-        nota_version: nota,
-        fecha_creacion: new Date().toISOString(),
-      };
+    const bodyData = {
+      cursoId: temario?.nombre_curso?.trim() || `curso_${Date.now()}`,
+      contenido: temario,
+      autor: userEmail || "sin-correo",
+      nombre_curso: temario?.nombre_curso || "",
+      nota_version: nota,
+      fecha_creacion: new Date().toISOString(),
+    };
 
-      const { h1, h2 } = buildAuthHeaders(token);
+    const { h1, h2 } = buildAuthHeaders(token);
 
-      let response = await fetch(API_VERSIONES, {
+    let response = await fetch(API_VERSIONES, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...h1,
+      },
+      body: JSON.stringify(bodyData),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      response = await fetch(API_VERSIONES, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...h1,
+          ...h2,
         },
         body: JSON.stringify(bodyData),
       });
-
-      if (response.status === 401 || response.status === 403) {
-        response = await fetch(API_VERSIONES, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...h2,
-          },
-          body: JSON.stringify(bodyData),
-        });
-      }
-
-      const data = await safeJson(response);
-
-      if (!response.ok) {
-        throw new Error(data?.error || data?.message || "Error al guardar");
-      }
-
-      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
-    } catch (err) {
-      console.error("Error al guardar:", err);
-      setMensaje({
-        tipo: "error",
-        texto: `❌ Error al guardar versión: ${err.message}`,
-      });
-    } finally {
-      setGuardando(false);
-      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
     }
-  };
 
+    const data = await safeJson(response);
+
+    if (!response.ok) {
+      throw new Error(data?.error || data?.message || "Error al guardar");
+    }
+
+    setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
+  } catch (err) {
+    console.error("Error al guardar:", err);
+    setMensaje({
+      tipo: "error",
+      texto: `❌ Error al guardar versión: ${err.message}`,
+    });
+  } finally {
+    setGuardando(false);
+    setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
+  }
+};
 
   // ✅ VER VERSIONES (GET) — Auth robusto + sort seguro
   const verVersionesGuardadas = async () => {
-    setModalVersiones(true);
-    setCargandoVersiones(true);
-    setVersiones([]);
-    setMensaje({ tipo: "", texto: "" });
+  setModalVersiones(true);
+  setCargandoVersiones(true);
+  setVersiones([]);
+  setMensaje({ tipo: "", texto: "" });
 
-    try {
-     const session = await fetchAuthSession();
-const token = session?.tokens?.idToken?.toString();
+  try {
+    const session = await fetchAuthSession();
+    const token = session?.tokens?.idToken?.toString();
 
-if (!token) {
-  throw new Error("No se encontró id_token desde Amplify");
-}
-      const { h1, h2 } = buildAuthHeaders(token);
-
-      // 1) Bearer
-      let response = await fetch(API_VERSIONES, {
-        method: "GET",
-        headers: { ...h1 },
-      });
-
-      // 2) fallback sin Bearer
-      if (response.status === 401 || response.status === 403) {
-        response = await fetch(API_VERSIONES, {
-          method: "GET",
-          headers: { ...h2 },
-        });
-      }
-
-      const data = await safeJson(response);
-
-      if (!response.ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
-      }
-
-      // Normaliza posibles formas de respuesta
-      const arr =
-        Array.isArray(data) ? data :
-        Array.isArray(data?.items) ? data.items :
-        Array.isArray(data?.versiones) ? data.versiones :
-        Array.isArray(data?.data) ? data.data :
-        [];
-
-      // sort seguro
-      const ordenadas = Array.isArray(arr)
-        ? [...arr].sort(
-            (a, b) =>
-              new Date(b?.fecha_creacion || 0) - new Date(a?.fecha_creacion || 0)
-          )
-        : [];
-
-      setVersiones(ordenadas);
-    } catch (err) {
-      console.error("Error al obtener versiones:", err);
-      setMensaje({
-        tipo: "error",
-        texto: `❌ Error al obtener versiones: ${err?.message || "ver consola"}`,
-      });
-      setVersiones([]);
-    } finally {
-      setCargandoVersiones(false);
+    if (!token) {
+      throw new Error("No se encontró id_token desde Amplify");
     }
-  };
 
+    const { h1, h2 } = buildAuthHeaders(token);
+
+    let response = await fetch(API_VERSIONES, {
+      method: "GET",
+      headers: { ...h1 },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      response = await fetch(API_VERSIONES, {
+        method: "GET",
+        headers: { ...h2 },
+      });
+    }
+
+    const data = await safeJson(response);
+
+    if (!response.ok) {
+      throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+    }
+
+    const arr =
+      Array.isArray(data) ? data :
+      Array.isArray(data?.items) ? data.items :
+      Array.isArray(data?.versiones) ? data.versiones :
+      Array.isArray(data?.data) ? data.data :
+      [];
+
+    const ordenadas = Array.isArray(arr)
+      ? [...arr].sort(
+          (a, b) =>
+            new Date(b?.fecha_creacion || 0) - new Date(a?.fecha_creacion || 0)
+        )
+      : [];
+
+    setVersiones(ordenadas);
+  } catch (err) {
+    console.error("Error al obtener versiones:", err);
+    setMensaje({
+      tipo: "error",
+      texto: `❌ Error al obtener versiones: ${err?.message || "ver consola"}`,
+    });
+    setVersiones([]);
+  } finally {
+    setCargandoVersiones(false);
+  }
+};
   const cargarVersionEnEditor = (v) => {
     const contenido = v?.contenido || v;
     if (!contenido || typeof contenido !== "object") {
