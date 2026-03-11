@@ -337,7 +337,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         >
           <div className="step">
             <div className="circle">🎮</div>
-            {!colapsado && <span>Nethoot</span>}
+            {!colapsado && <span>Luminae</span>}
           </div>
         </a>
 
