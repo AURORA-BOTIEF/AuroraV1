@@ -5,7 +5,7 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, ChevronsUp } from "lucide-react";
 
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
@@ -232,6 +232,51 @@ function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) 
     setTemario(nuevo);
     setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
   };
+  // ===== MOVER TEMA HACIA ARRIBA =====
+const moverTemaArriba = (capIndex, subIndex) => {
+  if (subIndex === 0) return;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  [subcapitulos[subIndex - 1], subcapitulos[subIndex]] = [
+    subcapitulos[subIndex],
+    subcapitulos[subIndex - 1],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬆️ Tema movido hacia arriba" });
+};
+
+// ===== MOVER TEMA HACIA ABAJO =====
+const moverTemaAbajo = (capIndex, subIndex) => {
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  if (subIndex >= subcapitulos.length - 1) return;
+
+  [subcapitulos[subIndex], subcapitulos[subIndex + 1]] = [
+    subcapitulos[subIndex + 1],
+    subcapitulos[subIndex],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬇️ Tema movido hacia abajo" });
+};
+
+// ===== MOVER TEMA AL INICIO =====
+const moverTemaAlInicio = (capIndex, subIndex) => {
+  if (subIndex === 0) return;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  const [tema] = subcapitulos.splice(subIndex, 1);
+  subcapitulos.unshift(tema);
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⏫ Tema movido al inicio" });
+};
 
   // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
@@ -897,7 +942,38 @@ function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) 
                   placeholder="sesión"
                   className="input-sesion"
                 />
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaAlInicio(i, j)}
+  title="Mover al inicio"
+  disabled={j === 0}
+>
+  <ChevronsUp size={16} strokeWidth={2} />
+  <span>Inicio</span>
+</button>
 
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaArriba(i, j)}
+  title="Subir tema"
+  disabled={j === 0}
+>
+  <ArrowUp size={16} strokeWidth={2} />
+  <span>Subir</span>
+</button>
+
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaAbajo(i, j)}
+  title="Bajar tema"
+  disabled={j === (cap.subcapitulos || []).length - 1}
+>
+  <ArrowDown size={16} strokeWidth={2} />
+  <span>Bajar</span>
+</button>
                 <button
                   className="btn-eliminar-tema"
                   onClick={() => eliminarTema(i, j)}
