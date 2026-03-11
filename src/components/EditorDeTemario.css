@@ -459,3 +459,26 @@
   color: var(--color-texto-input);
   font-weight: 500;
 }
+
+.btn-mover-tema {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: #e8f4f8;
+  color: #035b6e;
+  cursor: pointer;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.btn-mover-tema:hover {
+  background: #d3ebf2;
+}
+
+.btn-mover-tema:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
