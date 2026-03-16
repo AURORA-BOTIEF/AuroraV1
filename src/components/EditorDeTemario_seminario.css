@@ -356,3 +356,51 @@ textarea {
   font-weight: 600;
   color: #035b6e;
 }
+.subcapitulo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.btn-mover-tema {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: #e8f4f8;
+  color: #035b6e;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-mover-tema:hover {
+  background: #d3ebf2;
+  transform: translateY(-1px);
+}
+
+.btn-mover-tema:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-mover-tema svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 768px) {
+  .btn-mover-tema span {
+    display: none;
+  }
+
+  .subcapitulo-item input {
+    min-width: 100%;
+  }
+}

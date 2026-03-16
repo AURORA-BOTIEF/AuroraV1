@@ -5,7 +5,7 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario.css";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
@@ -36,14 +36,7 @@ const slugify = (str = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "curso";
 
-// ✅ token robusto
-const getAuthToken = () => {
-  return (
-    localStorage.getItem("id_token") ||
-    sessionStorage.getItem("id_token") ||
-    ""
-  );
-};
+
 
 // ✅ headers robustos (Bearer + fallback sin Bearer)
 const buildAuthHeaders = (token) => {
@@ -232,6 +225,37 @@ function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) 
     setTemario(nuevo);
     setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
   };
+  // ===== MOVER TEMA HACIA ARRIBA =====
+const moverTemaArriba = (capIndex, subIndex) => {
+  if (subIndex === 0) return;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  [subcapitulos[subIndex - 1], subcapitulos[subIndex]] = [
+    subcapitulos[subIndex],
+    subcapitulos[subIndex - 1],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬆️ Tema movido hacia arriba" });
+};
+
+// ===== MOVER TEMA HACIA ABAJO =====
+const moverTemaAbajo = (capIndex, subIndex) => {
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  if (subIndex >= subcapitulos.length - 1) return;
+
+  [subcapitulos[subIndex], subcapitulos[subIndex + 1]] = [
+    subcapitulos[subIndex + 1],
+    subcapitulos[subIndex],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬇️ Tema movido hacia abajo" });
+};
 
   // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
@@ -262,130 +286,130 @@ function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) 
   };
 
   const handleSaveClick = async () => {
-    setGuardando(true);
-    setMensaje({ tipo: "", texto: "" });
+  setGuardando(true);
+  setMensaje({ tipo: "", texto: "" });
 
-    const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
+  const nota = window.prompt("Escribe una nota para esta versión (opcional):") || "";
 
-    try {
-      const token = getAuthToken();
-      if (!token) throw new Error("No hay id_token");
+  try {
+    const session = await fetchAuthSession();
+    const token = session?.tokens?.idToken?.toString();
 
-      const bodyData = {
-        cursoId:
-          temario?.nombre_curso?.trim() ||
-          `curso_${Date.now()}`,
-        contenido: temario,
-        autor: userEmail || "sin-correo",
-        nombre_curso: temario?.nombre_curso || "",
-        nota_version: nota,
-        fecha_creacion: new Date().toISOString(),
-      };
+    if (!token) {
+      throw new Error("No se encontró id_token desde Amplify");
+    }
 
-      const { h1, h2 } = buildAuthHeaders(token);
+    const bodyData = {
+      cursoId: temario?.nombre_curso?.trim() || `curso_${Date.now()}`,
+      contenido: temario,
+      autor: userEmail || "sin-correo",
+      nombre_curso: temario?.nombre_curso || "",
+      nota_version: nota,
+      fecha_creacion: new Date().toISOString(),
+    };
 
-      let response = await fetch(API_VERSIONES, {
+    const { h1, h2 } = buildAuthHeaders(token);
+
+    let response = await fetch(API_VERSIONES, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...h1,
+      },
+      body: JSON.stringify(bodyData),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      response = await fetch(API_VERSIONES, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...h1,
+          ...h2,
         },
         body: JSON.stringify(bodyData),
       });
-
-      if (response.status === 401 || response.status === 403) {
-        response = await fetch(API_VERSIONES, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...h2,
-          },
-          body: JSON.stringify(bodyData),
-        });
-      }
-
-      const data = await safeJson(response);
-
-      if (!response.ok) {
-        throw new Error(data?.error || data?.message || "Error al guardar");
-      }
-
-      setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
-    } catch (err) {
-      console.error("Error al guardar:", err);
-      setMensaje({
-        tipo: "error",
-        texto: `❌ Error al guardar versión: ${err.message}`,
-      });
-    } finally {
-      setGuardando(false);
-      setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
     }
-  };
 
+    const data = await safeJson(response);
+
+    if (!response.ok) {
+      throw new Error(data?.error || data?.message || "Error al guardar");
+    }
+
+    setMensaje({ tipo: "ok", texto: "✅ Versión guardada correctamente" });
+  } catch (err) {
+    console.error("Error al guardar:", err);
+    setMensaje({
+      tipo: "error",
+      texto: `❌ Error al guardar versión: ${err.message}`,
+    });
+  } finally {
+    setGuardando(false);
+    setTimeout(() => setMensaje({ tipo: "", texto: "" }), 4000);
+  }
+};
 
   // ✅ VER VERSIONES (GET) — Auth robusto + sort seguro
   const verVersionesGuardadas = async () => {
-    setModalVersiones(true);
-    setCargandoVersiones(true);
-    setVersiones([]);
-    setMensaje({ tipo: "", texto: "" });
+  setModalVersiones(true);
+  setCargandoVersiones(true);
+  setVersiones([]);
+  setMensaje({ tipo: "", texto: "" });
 
-    try {
-      const token = getAuthToken();
-      if (!token) throw new Error("No hay id_token (localStorage/sessionStorage)");
+  try {
+    const session = await fetchAuthSession();
+    const token = session?.tokens?.idToken?.toString();
 
-      const { h1, h2 } = buildAuthHeaders(token);
-
-      // 1) Bearer
-      let response = await fetch(API_VERSIONES, {
-        method: "GET",
-        headers: { ...h1 },
-      });
-
-      // 2) fallback sin Bearer
-      if (response.status === 401 || response.status === 403) {
-        response = await fetch(API_VERSIONES, {
-          method: "GET",
-          headers: { ...h2 },
-        });
-      }
-
-      const data = await safeJson(response);
-
-      if (!response.ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
-      }
-
-      // Normaliza posibles formas de respuesta
-      const arr =
-        Array.isArray(data) ? data :
-        Array.isArray(data?.items) ? data.items :
-        Array.isArray(data?.versiones) ? data.versiones :
-        Array.isArray(data?.data) ? data.data :
-        [];
-
-      // sort seguro
-      const ordenadas = Array.isArray(arr)
-        ? [...arr].sort(
-            (a, b) =>
-              new Date(b?.fecha_creacion || 0) - new Date(a?.fecha_creacion || 0)
-          )
-        : [];
-
-      setVersiones(ordenadas);
-    } catch (err) {
-      console.error("Error al obtener versiones:", err);
-      setMensaje({
-        tipo: "error",
-        texto: `❌ Error al obtener versiones: ${err?.message || "ver consola"}`,
-      });
-      setVersiones([]);
-    } finally {
-      setCargandoVersiones(false);
+    if (!token) {
+      throw new Error("No se encontró id_token desde Amplify");
     }
-  };
 
+    const { h1, h2 } = buildAuthHeaders(token);
+
+    let response = await fetch(API_VERSIONES, {
+      method: "GET",
+      headers: { ...h1 },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      response = await fetch(API_VERSIONES, {
+        method: "GET",
+        headers: { ...h2 },
+      });
+    }
+
+    const data = await safeJson(response);
+
+    if (!response.ok) {
+      throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+    }
+
+    const arr =
+      Array.isArray(data) ? data :
+      Array.isArray(data?.items) ? data.items :
+      Array.isArray(data?.versiones) ? data.versiones :
+      Array.isArray(data?.data) ? data.data :
+      [];
+
+    const ordenadas = Array.isArray(arr)
+      ? [...arr].sort(
+          (a, b) =>
+            new Date(b?.fecha_creacion || 0) - new Date(a?.fecha_creacion || 0)
+        )
+      : [];
+
+    setVersiones(ordenadas);
+  } catch (err) {
+    console.error("Error al obtener versiones:", err);
+    setMensaje({
+      tipo: "error",
+      texto: `❌ Error al obtener versiones: ${err?.message || "ver consola"}`,
+    });
+    setVersiones([]);
+  } finally {
+    setCargandoVersiones(false);
+  }
+};
   const cargarVersionEnEditor = (v) => {
     const contenido = v?.contenido || v;
     if (!contenido || typeof contenido !== "object") {
@@ -898,6 +922,28 @@ function EditorDeTemario({ temarioInicial, onSave, onLoadVersions, isLoading }) 
                   className="input-sesion"
                 />
 
+
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaArriba(i, j)}
+  title="Subir tema"
+  disabled={j === 0}
+>
+  <ArrowUp size={16} strokeWidth={2} />
+  <span>Subir</span>
+</button>
+
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaAbajo(i, j)}
+  title="Bajar tema"
+  disabled={j === (cap.subcapitulos || []).length - 1}
+>
+  <ArrowDown size={16} strokeWidth={2} />
+  <span>Bajar</span>
+</button>
                 <button
                   className="btn-eliminar-tema"
                   onClick={() => eliminarTema(i, j)}

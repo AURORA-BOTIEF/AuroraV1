@@ -14,6 +14,7 @@ const DOMINIOS_PERMITIDOS = new Set([
 ]);
 
 export default function Sidebar({ email = '', nombre, grupo = '' }) {
+
   const [avatar, setAvatar] = useState(null);
   const [colapsado, setColapsado] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -22,11 +23,8 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
   const [pickerAbierto, setPickerAbierto] = useState(false);
   const [authHeader, setAuthHeader] = useState({});
   const [tokenLoaded, setTokenLoaded] = useState(false);
-
-  // ⭐ NUEVO: estado del botón para externos
   const [botonHabilitado, setBotonHabilitado] = useState(false);
 
-  // Pinta inmediatamente desde localStorage (solo avatar, no auth)
   useEffect(() => {
     let cancelled = false;
     try {
@@ -36,28 +34,29 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
     return () => { cancelled = true; };
   }, [email]);
 
-  // ✅ Helper: obtener headers de auth desde Amplify (NO localStorage)
   async function getAuthHeaders() {
     const session = await fetchAuthSession();
     const idToken = session.tokens?.idToken?.toString();
     if (!idToken) return {};
 
-    // En REST API con Cognito Authorizer, a veces funciona sin "Bearer"
-    // y a veces con "Bearer". Aquí intentamos primero SIN Bearer para /perfil,
-    // y para el resto dejamos el que ya usabas (Bearer) si quieres.
-    return { raw: { Authorization: idToken }, bearer: { Authorization: `Bearer ${idToken}` } };
+    return {
+      raw: { Authorization: idToken },
+      bearer: { Authorization: `Bearer ${idToken}` }
+    };
   }
 
-  // ✅ Cargar token (para el resto de endpoints que ya usan authHeader)
   useEffect(() => {
+
     let cancelled = false;
+
     fetchAuthSession()
       .then(session => {
         const idToken = session.tokens?.idToken;
+
         if (idToken && !cancelled) {
-          // Mantengo tu comportamiento para otras rutas (Bearer)
           setAuthHeader({ Authorization: `Bearer ${idToken.toString()}` });
         }
+
         if (!cancelled) setTokenLoaded(true);
       })
       .catch(() => {
@@ -68,42 +67,47 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
       });
 
     return () => { cancelled = true; };
+
   }, []);
 
-  // ✅ PINTAR FOTO: primero intenta con claims de idToken, si no, llama /perfil con token de sesión
   useEffect(() => {
+
     let cancelled = false;
 
     async function pintarFoto() {
-      // 1) Intento 1: tomar "picture" directo del idToken (sin API)
+
       try {
         await getCurrentUser();
         const session = await fetchAuthSession();
         const pic = session.tokens?.idToken?.payload?.picture || '';
+
         if (/^https?:\/\//i.test(pic)) {
           if (!cancelled) setAvatar(pic);
           return;
         }
+
       } catch { }
 
-      // 2) Intento 2: llamar /perfil usando token real de sesión (NO localStorage)
       try {
-        if (!API_BASE) return;
 
         const { raw, bearer } = await getAuthHeaders();
-        if (!raw?.Authorization && !bearer?.Authorization) return;
 
-        // 🔥 Prueba 1: SIN Bearer (muchos Cognito Authorizer REST lo esperan así)
         let r = await fetch(`${API_BASE}/perfil`, { headers: raw });
-        // 🔥 Si falla, prueba 2: CON Bearer
+
         if (!r.ok) {
           r = await fetch(`${API_BASE}/perfil`, { headers: bearer });
         }
 
         if (!r.ok) return;
+
         const d = await r.json().catch(() => ({}));
-        if (!cancelled && d?.photoUrl) setAvatar(d.photoUrl);
+
+        if (!cancelled && d?.photoUrl) {
+          setAvatar(d.photoUrl);
+        }
+
       } catch { }
+
     }
 
     pintarFoto();
@@ -112,83 +116,122 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
       const url = e.detail?.photoUrl;
       if (url !== undefined) setAvatar(url || null);
     };
+
     window.addEventListener('profilePhotoUpdated', onUpd);
 
     return () => {
       cancelled = true;
       window.removeEventListener('profilePhotoUpdated', onUpd);
     };
+
   }, []);
 
   const dominio = useMemo(() => (email.split('@')[1] || '').toLowerCase(), [email]);
   const esNetec = DOMINIOS_PERMITIDOS.has(dominio);
 
-  // Estado de solicitud Netec (tu lógica actual, NO se toca)
   useEffect(() => {
+
     if (!API_BASE || !email || !esNetec || !tokenLoaded) return;
+
     const fetchEstado = async () => {
+
       setError('');
+
       try {
+
         const r = await fetch(`${API_BASE}/obtener-solicitudes-rol`, { headers: authHeader });
+
         if (!r.ok) return;
+
         const data = await r.json().catch(() => ({}));
+
         const lista = Array.isArray(data?.solicitudes) ? data.solicitudes : [];
+
         const it = lista.find(s => (s.correo || '').toLowerCase() === email.toLowerCase());
+
         const e = (it?.estado || '').toLowerCase();
-        if (e === 'aprobado' || e === 'pendiente' || e === 'rechazado') setEstado(e);
-        else setEstado('');
+
+        if (e === 'aprobado' || e === 'pendiente' || e === 'rechazado') {
+          setEstado(e);
+        } else {
+          setEstado('');
+        }
+
       } catch (e) {
-        console.log('No se pudo obtener estado de solicitud', e);
+        console.log('No se pudo obtener estado', e);
       }
+
     };
+
     fetchEstado();
+
   }, [email, esNetec, authHeader, tokenLoaded]);
 
-  // ⭐ NUEVO: obtener boton_habilitado para usuarios externos
   useEffect(() => {
-    if (!email || esNetec === true || !tokenLoaded) return; // Netec siempre ve el botón, no consulta
+
+    if (!email || esNetec === true || !tokenLoaded) return;
 
     const cargarEstado = async () => {
+
       try {
+
         const r = await fetch(`${API_BASE}/boton?correo=${email}`, {
           headers: authHeader
         });
+
         const j = await r.json().catch(() => ({}));
+
         setBotonHabilitado(j.boton_habilitado === true);
+
       } catch {
         setBotonHabilitado(false);
       }
+
     };
 
     cargarEstado();
+
   }, [email, esNetec, authHeader, tokenLoaded]);
 
   const toggle = () => setColapsado(v => !v);
 
   const enviarSolicitud = async () => {
+
     if (!API_BASE || !email) return;
+
     setEnviando(true);
     setError('');
+
     try {
+
       const res = await fetch(`${API_BASE}/solicitar-rol`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ correo: email })
       });
+
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || 'Rechazado por servidor');
+
+      if (!res.ok) throw new Error(j.error || 'Error');
+
       setEstado('pendiente');
+
     } catch (e) {
+
       console.error(e);
-      setError('Error de red al enviar la solicitud.');
+      setError('Error de red');
+
     } finally {
+
       setEnviando(false);
+
     }
+
   };
 
-  // Roles
-  const esAdmin = (grupo === 'admin');
-  const esCreador = (grupo === 'creador');
+  const esAdmin = grupo === 'admin';
+  const esCreador = grupo === 'creador';
+
   const correosAdminPrincipales = [
     'anette.flores@netec.com.mx',
     'mitzi.montiel@netec.com',
@@ -198,16 +241,13 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
 
   const esAdminPrincipal = correosAdminPrincipales.includes(email.toLowerCase());
 
-  // ⭐ NUEVO: botón visible si:
-  // - es Netec (siempre)
-  // - o es externo PERO admin lo habilitó
   const mostrarBoton =
     (esNetec || botonHabilitado) &&
     !(esCreador || esAdminPrincipal);
 
-  // Handlers del AvatarPicker
   const abrirPicker = () => setPickerAbierto(true);
   const cerrarPicker = () => setPickerAbierto(false);
+
   const onAvatarSaved = (url) => {
     setAvatar(url || null);
     window.dispatchEvent(new CustomEvent('profilePhotoUpdated', { detail: { photoUrl: url } }));
@@ -222,11 +262,6 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
               grupo === 'instructor_externo' ? 'Instructor Externo' :
                 'Sin grupo';
 
-  // Check for specific roles based on Cognito groups
-  const esAsignador = grupo === 'asignador' || (typeof grupo === 'string' && grupo.toLowerCase().includes('asignador'));
-  const esEstudiante = grupo === 'estudiante' || (typeof grupo === 'string' && grupo.toLowerCase().includes('estudiante'));
-  const esInstructorExterno = grupo === 'instructor_externo' || (typeof grupo === 'string' && grupo.toLowerCase().includes('instructor'));
-
   const disabled = estado === 'pendiente' || estado === 'aprobado' || enviando;
 
   const label =
@@ -235,23 +270,20 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         : '📩 Solicitar rol de Creador';
 
   return (
+
     <div id="barraLateral" className={`sidebar ${colapsado ? 'sidebar--colapsado' : ''}`}>
+
       <button className="collapse-btn" onClick={toggle}>
         {colapsado ? '▸' : '◂'}
       </button>
 
       <div className="perfilSidebar">
-        <div
-          className="avatar-wrap"
-          title="Foto de perfil"
-          onClick={abrirPicker}
-          style={{ cursor: 'pointer' }}
-        >
+
+        <div className="avatar-wrap" onClick={abrirPicker}>
           <img
             src={avatar || defaultFoto}
             alt="Avatar"
             className="avatar-img"
-            onError={(e) => { e.currentTarget.src = defaultFoto; }}
           />
         </div>
 
@@ -260,54 +292,29 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           <div className="email">{email}</div>
           <div className="grupo">🎖️ Rol: {rolTexto}</div>
 
-          {esNetec && (
-            <button
-              className="solicitar-creador-btn"
-              style={{ marginTop: 8 }}
-              onClick={abrirPicker}
-            >
-              Cambiar avatar
-            </button>
-          )}
-
           {mostrarBoton && (
             <div className="solicitar-creador-card">
-              <button className="solicitar-creador-btn" onClick={enviarSolicitud} disabled={disabled} title={email}>
+              <button
+                className="solicitar-creador-btn"
+                onClick={enviarSolicitud}
+                disabled={disabled}
+              >
                 {label}
               </button>
-              {!!error && <div className="solicitar-creador-error">❌ {error}</div>}
-              {estado === 'rechazado' && (
-                <div className="solicitar-creador-error" style={{ color: '#ffd18a' }}>
-                  ❗ Tu última solicitud fue rechazada. Puedes volver a intentarlo.
-                </div>
-              )}
+
+              {!!error && <div className="solicitar-creador-error">{error}</div>}
             </div>
           )}
         </>}
+
       </div>
 
-      <div id="caminito" className="caminito">
-        <Link to="/resumenes" className="nav-link">
-          <div className="step"><div className="circle">🧠</div>{!colapsado && <span>Resúmenes</span>}</div>
-        </Link>
-        <Link to="/actividades" className="nav-link">
-          <div className="step"><div className="circle">📘</div>{!colapsado && <span>Actividades</span>}</div>
-        </Link>
-        <Link to="/examenes" className="nav-link">
-          <div className="step"><div className="circle">🔬</div>{!colapsado && <span>Examen</span>}</div>
-        </Link>
+      {/* MENÚ */}
 
-        {(esAdmin || esAdminPrincipal) && (
-          <Link to="/admin" className="nav-link" title="Panel de administración">
-            <div className="step">
-              <div className="circle">⚙️</div>
-              {!colapsado && <span>Admin</span>}
-            </div>
-          </Link>
-        )}
+      <div id="caminito" className="caminito">
 
         {(esCreador || esAdminPrincipal) ? (
-          <Link to="/generador-contenidos" className="nav-link" title="Generador de Contenidos">
+          <Link to="/generador-contenidos" className="nav-link">
             <div className="step">
               <div className="circle">✍️</div>
               {!colapsado && <span>Crear</span>}
@@ -322,45 +329,39 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
           </Link>
         )}
 
-        {(esAdmin || esAdminPrincipal || esAsignador) && (
-          <Link to="/asignador" className="nav-link" title="Portal de Asignación">
-            <div className="step">
-              <div className="circle">🎓</div>
-              {!colapsado && <span>Asignar</span>}
-            </div>
-          </Link>
-        )}
-
         <a
           href="https://nethoot-v2-online-479795236799.us-west1.run.app"
           target="_blank"
           rel="noopener noreferrer"
           className="nav-link"
-          title="Nethoot"
         >
           <div className="step">
             <div className="circle">🎮</div>
-            {!colapsado && <span>Nethoot</span>}
+            {!colapsado && <span>Luminae</span>}
           </div>
         </a>
 
-        {esEstudiante && (
-          <Link to="/mis-cursos" className="nav-link" title="Mis Cursos">
-            <div className="step">
-              <div className="circle">📚</div>
-              {!colapsado && <span>Mis Cursos</span>}
-            </div>
-          </Link>
-        )}
+        <Link to="/resumenes" className="nav-link">
+          <div className="step">
+            <div className="circle">🧠</div>
+            {!colapsado && <span>Resúmenes</span>}
+          </div>
+        </Link>
 
-        {esInstructorExterno && (
-          <Link to="/portal-instructor" className="nav-link" title="Portal del Instructor">
-            <div className="step">
-              <div className="circle">👨‍🏫</div>
-              {!colapsado && <span>Mi Portal</span>}
-            </div>
-          </Link>
-        )}
+        <Link to="/actividades" className="nav-link">
+          <div className="step">
+            <div className="circle">📘</div>
+            {!colapsado && <span>Actividades</span>}
+          </div>
+        </Link>
+
+        <Link to="/examenes" className="nav-link">
+          <div className="step">
+            <div className="circle">🔬</div>
+            {!colapsado && <span>Examen</span>}
+          </div>
+        </Link>
+
       </div>
 
       <AvatarPicker
@@ -369,6 +370,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         email={email}
         onSaved={onAvatarSaved}
       />
+
     </div>
   );
 }

@@ -1,14 +1,12 @@
 /* ============================= */
-/* VARIABLES 
+/* VARIABLES */
 /* ============================= */
 :root {
-  /* Colores primarios */
   --color-principal: #035b6e;
   --color-secundario: #197fa6;
   --color-texto-input: #333;
   --color-borde-input: #ccc;
 
-  /* Colores de mensaje */
   --msg-ok-bg: #e6f4ea;
   --msg-ok-color: #1b5e20;
   --msg-ok-border: #a5d6a7;
@@ -16,16 +14,15 @@
   --msg-error-color: #c62828;
   --msg-error-border: #f5b7b1;
 
-  /* Estilos comunes */
   --border-radius-base: 8px;
   --border-radius-lg: 12px;
   --transition-base: all 0.2s ease-in-out;
   --font-family-base: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --shadow-base: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --shadow-base: 0 4px 20px rgba(0,0,0,0.05);
 }
 
 /* ============================= */
-/* CONTENEDOR GLOBAL 
+/* CONTENEDOR */
 /* ============================= */
 .temario-editor-container {
   padding: 2rem 3rem;
@@ -38,7 +35,7 @@
 }
 
 /* ============================= */
-/* MENSAJES 
+/* MENSAJES */
 /* ============================= */
 .msg.ok,
 .msg.error {
@@ -61,7 +58,7 @@
 }
 
 /* ============================= */
-/* CAPÍTULOS 
+/* CAPÍTULOS */
 /* ============================= */
 .capitulo-editor {
   background: #fafafa;
@@ -73,7 +70,7 @@
 }
 
 .capitulo-editor:hover {
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.06);
 }
 
 .capitulo-editor h4 {
@@ -86,7 +83,7 @@
 }
 
 /* ============================= */
-/* INPUTS Y TEXTAREAS COMUNES 
+/* INPUTS */
 /* ============================= */
 .input-capitulo,
 .textarea-objetivos-capitulo {
@@ -106,7 +103,7 @@
 .textarea-objetivos-capitulo:focus {
   outline: none;
   border-color: var(--color-principal);
-  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+  box-shadow: 0 0 4px rgba(3,91,110,0.3);
 }
 
 .textarea-objetivos-capitulo {
@@ -116,7 +113,6 @@
 
 .duracion-total {
   font-size: 0.95rem;
-  color: var(--color-texto-input);
   margin-bottom: 0.8rem;
   display: flex;
   align-items: center;
@@ -124,10 +120,8 @@
 }
 
 /* ============================= */
-/* SUBCAPÍTULOS (VERSIÓN CORREGIDA FINAL)
+/* LISTA TEMAS */
 /* ============================= */
-
-/* Reseteo para la lista <ul> que contiene los <li> */
 .capitulo-editor ul {
   list-style-type: none;
   padding: 0;
@@ -139,16 +133,13 @@
   align-items: center;
   gap: 0.8rem;
   margin-bottom: 0.7rem;
-  flex-wrap: nowrap;
-  /* CLAVE: Fuerza a estar en una línea */
+  flex-wrap: wrap;
 }
 
-/* Base de Input/Span en Subcapítulos */
 .subcapitulo-item span,
 .subcapitulo-item input {
   font-family: inherit;
   font-size: 0.95rem;
-  color: var(--color-texto-input);
 }
 
 .subcapitulo-item input {
@@ -161,46 +152,75 @@
 .subcapitulo-item input:focus {
   outline: none;
   border-color: var(--color-principal);
-  box-shadow: 0 0 3px rgba(3, 91, 110, 0.25);
+  box-shadow: 0 0 3px rgba(3,91,110,0.25);
 }
 
-/* 1. Número de Sesión (7.1, 7.2, etc.) */
-.subcapitulo-item span {
+/* Número de tema */
+.subcapitulo-item > span:first-child {
   font-weight: 600;
   color: var(--color-principal);
-  flex-shrink: 0;
   width: 45px;
 }
 
-/* 2. Input de Texto del Tema */
+/* Nombre del tema */
 .subcapitulo-item input[type="text"] {
   flex: 1;
-  /* Ocupa el espacio restante */
-  min-width: 150px;
+  min-width: 200px;
 }
 
-/* 3. Input de Número (Genérico - se aplica a Duración) */
+/* Duración */
 .subcapitulo-item input[type="number"] {
   width: 60px;
-  /* Ancho para la Duración (ej: "12") */
   text-align: center;
-  flex-shrink: 0;
 }
 
-/* * 4. ¡¡CORRECCIÓN DE ESPECIFICIDAD!!
- * Esta regla ahora es MÁS específica que la anterior (input[type="number"])
- * y SOBRESCRIBE el ancho del input de sesión.
-*/
+/* Sesión */
 .subcapitulo-item input.input-sesion {
   width: 35px;
-  /* Ancho MÍNIMO para el número de sesión ("1") */
   padding: 0.5rem 0.2rem;
-  /* Menos padding lateral */
   text-align: center;
-  flex-shrink: 0;
 }
 
-/* --- ESTILO PARA BOTÓN DE ELIMINAR TEMA (SOLO ÍCONO) --- */
+/* ============================= */
+/* BOTONES MOVER */
+/* ============================= */
+.btn-mover-tema {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: #e8f4f8;
+  color: #035b6e;
+  cursor: pointer;
+  font-weight: 600;
+  margin-left: 4px;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  transition: var(--transition-base);
+}
+
+.btn-mover-tema:hover {
+  background: #d3ebf2;
+  transform: translateY(-1px);
+}
+
+.btn-mover-tema:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-mover-tema svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================= */
+/* BOTÓN ELIMINAR */
+/* ============================= */
 .subcapitulo-item .btn-eliminar-tema {
   background: none;
   border: none;
@@ -209,54 +229,29 @@
   border-radius: 6px;
   font-size: 0.85rem;
   margin-left: 0.3rem;
-  transition: transform 0.2s ease-in-out;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: normal;
-  line-height: 1;
-  flex-shrink: 0;
   cursor: pointer;
+  transition: transform 0.2s ease;
 }
 
-/* Oculta el texto "Eliminar" dentro del botón del subcapítulo */
 .subcapitulo-item .btn-eliminar-tema span {
   display: none;
 }
 
 .subcapitulo-item .btn-eliminar-tema:hover {
   transform: scale(1.25);
-  filter: none;
-  box-shadow: none;
-}
-
-.subcapitulo-item .btn-eliminar-tema:active {
-  transform: scale(1.1);
-  filter: none;
 }
 
 .subcapitulo-item .btn-eliminar-tema svg {
   width: 18px;
   height: 18px;
-  stroke-width: 2;
-  margin-top: 0;
 }
 
-
 /* ============================= */
-/* BOTONES (Generales)
+/* BOTONES GENERALES */
 /* ============================= */
-.btn-base-principal {
-  border: none;
-  border-radius: var(--border-radius-base);
-  padding: 0.7rem 1.4rem;
-  cursor: pointer;
-  font-weight: 600;
-  transition: var(--transition-base);
-  color: #fff;
-  font-family: inherit;
-}
-
 .btn-primario,
 .btn-secundario {
   border: none;
@@ -282,29 +277,9 @@
   filter: brightness(1.1);
 }
 
-.btn-primario:active,
-.btn-secundario:active {
-  background-color: #023f50;
-  transform: scale(0.98);
-}
-
-.btn-guardar {
-  border: none;
-  border-radius: var(--border-radius-base);
-  padding: 0.7rem 1.2rem;
-  cursor: pointer;
-  font-weight: 600;
-  transition: var(--transition-base);
-  color: #fff;
-  font-family: inherit;
-  background: var(--color-principal);
-}
-
-.btn-guardar:hover {
-  filter: brightness(1.1);
-}
-
-/* === BOTONES AGREGAR / ELIMINAR (alineados visualmente) === */
+/* ============================= */
+/* BOTONES AGREGAR */
+/* ============================= */
 .btn-agregar-tema,
 .btn-eliminar-capitulo {
   display: inline-flex;
@@ -314,50 +289,29 @@
   border: none;
   border-radius: var(--border-radius-base);
   padding: 0.65rem 1.4rem;
-  /* mismo padding */
   font-weight: 600;
   cursor: pointer;
-  font-family: inherit;
   font-size: 0.95rem;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.2s ease;
   color: #fff;
   flex: 1;
-  text-align: center;
 }
 
-/* ➕ Agregar */
 .btn-agregar-tema {
-  background: linear-gradient(90deg, #45ab9f, var(--color-principal));
-  margin-top: 0.5rem;
+  background: linear-gradient(90deg,#45ab9f,var(--color-principal));
 }
 
-/* 🗑️ Eliminar Capítulo */
 .btn-eliminar-capitulo {
-  background: linear-gradient(90deg, #c85050, #a62828);
+  background: linear-gradient(90deg,#c85050,#a62828);
 }
 
-/* Efectos hover y active iguales */
 .btn-agregar-tema:hover,
 .btn-eliminar-capitulo:hover {
   transform: scale(1.03);
-  filter: brightness(1.1);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
-}
-
-.btn-agregar-tema:active,
-.btn-eliminar-capitulo:active {
-  transform: scale(0.97);
-  filter: brightness(0.9);
-}
-
-/* Íconos alineados */
-.btn-agregar-tema svg,
-.btn-eliminar-capitulo svg {
-  margin-top: 1px;
 }
 
 /* ============================= */
-/* POSICIÓN Y ACCIONES 
+/* FOOTER */
 /* ============================= */
 .acciones-capitulo {
   display: flex;
@@ -370,7 +324,6 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 1.5rem;
-  margin-bottom: 0.5rem;
 }
 
 .acciones-footer {
@@ -382,12 +335,12 @@
 }
 
 /* ============================= */
-/* MODAL 
+/* MODAL */
 /* ============================= */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0,0,0,0.35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -399,8 +352,7 @@
   border-radius: var(--border-radius-lg);
   padding: 1.5rem;
   width: 320px;
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
-  font-family: inherit;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.15);
 }
 
 .modal-header {
@@ -420,21 +372,7 @@
 }
 
 /* ============================= */
-/* RESPONSIVIDAD 
-/* ============================= */
-@media (max-width: 768px) {
-  .acciones-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .btn-agregar-capitulo-container {
-    justify-content: center;
-  }
-}
-
-/* ============================= */
-/* INPUT DURACIÓN TOTAL (editable por usuario)
+/* INPUT DURACIÓN */
 /* ============================= */
 .input-duracion {
   border: 1px solid var(--color-borde-input);
@@ -443,19 +381,42 @@
   font-size: 0.9rem;
   width: 80px;
   text-align: center;
-  transition: var(--transition-base);
-  color: var(--color-texto-input);
-  background-color: #fff;
 }
 
 .input-duracion:focus {
   outline: none;
   border-color: var(--color-principal);
-  box-shadow: 0 0 4px rgba(3, 91, 110, 0.3);
+  box-shadow: 0 0 4px rgba(3,91,110,0.3);
 }
 
-/* 🔹 Opcional: si quieres que se vea más alineado con el texto “min” */
-.duracion-total span {
-  color: var(--color-texto-input);
-  font-weight: 500;
+/* ============================= */
+/* RESPONSIVE */
+/* ============================= */
+@media (max-width:768px){
+
+  .temario-editor-container{
+    padding:1.2rem;
+  }
+
+  .acciones-footer{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .btn-agregar-capitulo-container{
+    justify-content:center;
+  }
+
+  .subcapitulo-item{
+    align-items:flex-start;
+  }
+
+  .subcapitulo-item input[type="text"]{
+    min-width:100%;
+  }
+
+  .btn-mover-tema span{
+    display:none;
+  }
+
 }
