@@ -134,7 +134,11 @@ function BookBuilderPage() {
                     className="search-input"
                 />
                 <div className="pagination-info">
-                    {searchTerm ? `Resultados: ${totalCount}` : `Total: ${totalCount} proyectos`}
+                    {loading
+                        ? '…'
+                        : searchTerm
+                          ? `Resultados: ${totalCount}`
+                          : `Total: ${totalCount} proyectos`}
                 </div>
             </div>
 
