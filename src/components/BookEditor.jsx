@@ -96,6 +96,9 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [verifiedOutlineKey, setVerifiedOutlineKey] = useState(null);
     // Saving state
     const [isSaving, setIsSaving] = useState(false);
+    const [instructorGithubUser, setInstructorGithubUser] = useState('');
+    const [savingInstructorGithub, setSavingInstructorGithub] = useState(false);
+    const [publishingGithub, setPublishingGithub] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Helper function to clean text (remove encoding artifacts)
@@ -806,6 +809,117 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         discoverOutlineKey();
     }, [projectFolder]);
+
+    useEffect(() => {
+        const loadInstructorGithubUser = async () => {
+            if (!projectFolder) return;
+            try {
+                const response = await fetch(`${API_BASE}/course-instructor-github/${encodeURIComponent(projectFolder)}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                if (data?.githubUserId) {
+                    setInstructorGithubUser(data.githubUserId);
+                } else {
+                    setInstructorGithubUser('');
+                }
+            } catch (error) {
+                console.warn('Could not load instructor GitHub user:', error);
+            }
+        };
+        loadInstructorGithubUser();
+    }, [projectFolder]);
+
+    const saveInstructorGithubUser = async () => {
+        const trimmedUser = (instructorGithubUser || '').trim().replace(/^@/, '');
+        if (!trimmedUser) {
+            showModal('Ingresa el GitHub user id del instructor (ej: NetecGK).', 'Dato requerido');
+            return;
+        }
+        try {
+            setSavingInstructorGithub(true);
+            let updatedBy = 'system';
+            try {
+                const session = await fetchAuthSession();
+                updatedBy = session?.tokens?.idToken?.payload?.email || updatedBy;
+            } catch (e) {
+                console.warn('Could not resolve updatedBy for instructor github id', e);
+            }
+
+            const response = await fetch(`${API_BASE}/course-instructor-github`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    courseId: projectFolder,
+                    githubUserId: trimmedUser,
+                    updatedBy
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data?.error || `HTTP ${response.status}`);
+            }
+            setInstructorGithubUser(trimmedUser);
+            showModal('GitHub user id del instructor guardado correctamente.', 'Guardado');
+        } catch (error) {
+            console.error('Error saving instructor GitHub user:', error);
+            showModal(`No se pudo guardar el GitHub user id: ${error.message}`, 'Error');
+        } finally {
+            setSavingInstructorGithub(false);
+        }
+    };
+
+    const publishLabsToGithub = async () => {
+        if (viewMode !== 'lab') {
+            showModal('Cambia a vista Labs para publicar laboratorios.', 'Acción no disponible');
+            return;
+        }
+
+        const githubUser = (instructorGithubUser || '').trim().replace(/^@/, '');
+        if (!githubUser) {
+            showModal('Antes de publicar, guarda el GitHub user id del instructor.', 'Falta dato');
+            return;
+        }
+
+        const confirmed = await showConfirmModal(
+            `Se publicarán/actualizarán los laboratorios del curso ${projectFolder} en GitHub.\n\nRepositorio: ${projectFolder}\nInstructor: @${githubUser}\n\n¿Deseas continuar?`,
+            'Publicar laboratorios en GitHub'
+        );
+        if (!confirmed) return;
+
+        try {
+            setPublishingGithub(true);
+            const response = await fetch(`${API_BASE}/publish-labs-github`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_folder: projectFolder,
+                    instructor_github_user: githubUser
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data?.error || `HTTP ${response.status}`);
+            }
+
+            const repoUrl = data?.repository_url;
+            if (repoUrl) {
+                const openRepo = await showConfirmModal(
+                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}\n\n¿Deseas abrir el repositorio ahora?`,
+                    'Publicación exitosa'
+                );
+                if (openRepo) {
+                    window.open(repoUrl, '_blank');
+                }
+            } else {
+                showModal('Publicación completada correctamente.', 'Éxito');
+            }
+        } catch (error) {
+            console.error('Error publishing labs to GitHub:', error);
+            showModal(`No se pudo publicar en GitHub: ${error.message}`, 'Error');
+        } finally {
+            setPublishingGithub(false);
+        }
+    };
 
     // ReactQuill removed; lexical is preferred
 
@@ -4434,6 +4548,35 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 </>
                             )}
                         </button>
+                    )}
+
+                    {!viewOnly && viewMode === 'lab' && (
+                        <div className="github-publish-controls">
+                            <input
+                                type="text"
+                                className="github-user-input"
+                                placeholder="GitHub user id instructor"
+                                value={instructorGithubUser}
+                                onChange={(e) => setInstructorGithubUser(e.target.value)}
+                                disabled={savingInstructorGithub || publishingGithub}
+                            />
+                            <button
+                                className="btn-icon btn-secondary"
+                                onClick={saveInstructorGithubUser}
+                                disabled={savingInstructorGithub || publishingGithub}
+                                title="Guardar GitHub user id del instructor"
+                            >
+                                <span>{savingInstructorGithub ? 'Guardando...' : 'Guardar GH'}</span>
+                            </button>
+                            <button
+                                className="btn-icon btn-secondary"
+                                onClick={publishLabsToGithub}
+                                disabled={publishingGithub || savingInstructorGithub}
+                                title="Publicar laboratorios en GitHub"
+                            >
+                                <span>{publishingGithub ? 'Publicando...' : 'Publicar GH'}</span>
+                            </button>
+                        </div>
                     )}
 
                     {/* Download PDF - Hidden in viewOnly mode (students) */}

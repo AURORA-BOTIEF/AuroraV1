@@ -183,6 +183,29 @@
     flex-shrink: 0;
 }
 
+.github-publish-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.github-user-input {
+    height: 38px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 0 0.65rem;
+    min-width: 180px;
+    font-size: 0.85rem;
+    color: #334155;
+    background: #fff;
+}
+
+.github-user-input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
 /* Icon Button Base Style - Scoped to book editor to prevent CSS conflicts */
 .book-editor .btn-icon {
     display: flex;

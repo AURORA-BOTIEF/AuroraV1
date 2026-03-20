@@ -1095,6 +1095,20 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
+        CourseInstructorGithubOptions:
+          Type: Api
+          Properties:
+            Path: /course-instructor-github/{projectFolder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PublishLabsGithubOptions:
+          Type: Api
+          Properties:
+            Path: /publish-labs-github
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   StarterApiFunction:
     Type: AWS::Serverless::Function
@@ -1294,6 +1308,18 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  CourseInstructorGithubTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CourseInstructorGithub
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: courseId
+          KeyType: HASH
+
   PostConfirmationFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1474,6 +1500,111 @@ Resources:
           Properties:
             Path: /assignments
             Method: delete
+            Auth:
+              Authorizer: NONE
+
+  UpsertCourseInstructorGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: UpsertCourseInstructorGithubFunction
+      Description: Save instructor GitHub user id by course
+      Runtime: python3.12
+      Handler: assignments/upsert_course_instructor_github.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          INSTRUCTOR_GITHUB_TABLE: !Ref CourseInstructorGithubTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt CourseInstructorGithubTable.Arn
+      Events:
+        UpsertCourseInstructorGithubApi:
+          Type: Api
+          Properties:
+            Path: /course-instructor-github
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  GetCourseInstructorGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: GetCourseInstructorGithubFunction
+      Description: Read instructor GitHub user id by course
+      Runtime: python3.12
+      Handler: assignments/get_course_instructor_github.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          INSTRUCTOR_GITHUB_TABLE: !Ref CourseInstructorGithubTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt CourseInstructorGithubTable.Arn
+      Events:
+        GetCourseInstructorGithubApi:
+          Type: Api
+          Properties:
+            Path: /course-instructor-github/{projectFolder}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  PublishLabsGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PublishLabsGithubFunction
+      Description: Publish lab guides and images to GitHub repository
+      Runtime: python3.12
+      Handler: publish_to_github.lambda_handler
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          INSTRUCTOR_GITHUB_TABLE: !Ref CourseInstructorGithubTable
+          # JSON: app_id, installation_id, private_key, org (see docs/GITHUB_APP_NETEC_MX.md)
+          GITHUB_APP_SECRET_NAME: netec/github-app/aurora-publisher
+          GITHUB_ORG: Netec-Mx
+          CODE_OWNER_USERNAME: NetecGK
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt CourseInstructorGithubTable.Arn
+      Events:
+        PublishLabsGithubApi:
+          Type: Api
+          Properties:
+            Path: /publish-labs-github
+            Method: post
             Auth:
               Authorizer: NONE
 
