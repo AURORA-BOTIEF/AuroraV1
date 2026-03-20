@@ -7,6 +7,7 @@ import { downloadExcelTemario } from "../utils/downloadExcel";
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_seminario.css";
+import { ArrowUp, ArrowDown } from "lucide-react";
 
 // === Utilidades de limpieza ===
 const cleanTitleNivel = (title = "") =>
@@ -210,17 +211,31 @@ export default function EditorDeTemario_seminario({
 
   // === Agregar tema ===
   const agregarTema = (capIndex) => {
-    const nuevo = JSON.parse(JSON.stringify(temario));
-    if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
-      nuevo.temario[capIndex].subcapitulos = [];
-    nuevo.temario[capIndex].subcapitulos.push({
-      nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1
-        }`,
-      tiempo_subcapitulo_min: 30,
-      sesion: 1,
-    });
-    setTemario(nuevo);
-  };
+  const nuevo = JSON.parse(JSON.stringify(temario));
+
+  if (!Array.isArray(nuevo.temario[capIndex].subcapitulos)) {
+    nuevo.temario[capIndex].subcapitulos = [];
+  }
+
+  nuevo.temario[capIndex].subcapitulos.push({
+    nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1}`,
+    tiempo_subcapitulo_min: 30,
+    sesion: 1,
+  });
+
+  nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[capIndex].subcapitulos.reduce(
+    (sum, s) => sum + (parseFloat(s.tiempo_subcapitulo_min) || 0),
+    0
+  );
+
+  const totalMin = nuevo.temario.reduce(
+    (acc, cap) => acc + (parseFloat(cap.tiempo_capitulo_min) || 0),
+    0
+  );
+  nuevo.horas_totales = parseFloat((totalMin / 60).toFixed(1));
+
+  setTemario(nuevo);
+};
 
   // === Eliminar subtema ===
   const eliminarTema = (capIndex, subIndex) => {
@@ -234,6 +249,35 @@ export default function EditorDeTemario_seminario({
       (sum, s) => sum + (parseFloat(s.tiempo_subcapitulo_min) || 0),
       0
     );
+    const moverTemaArriba = (capIndex, subIndex) => {
+  if (subIndex === 0) return;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  [subcapitulos[subIndex - 1], subcapitulos[subIndex]] = [
+    subcapitulos[subIndex],
+    subcapitulos[subIndex - 1],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬆️ Tema movido hacia arriba" });
+};
+
+const moverTemaAbajo = (capIndex, subIndex) => {
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  if (subIndex >= subcapitulos.length - 1) return;
+
+  [subcapitulos[subIndex], subcapitulos[subIndex + 1]] = [
+    subcapitulos[subIndex + 1],
+    subcapitulos[subIndex],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬇️ Tema movido hacia abajo" });
+};
 
     // Recalcular total general
     const totalMin = nuevo.temario.reduce(
@@ -951,12 +995,34 @@ export default function EditorDeTemario_seminario({
                   placeholder="min"
                 />
                 <button
-                  className="btn-eliminar-tema"
-                  onClick={() => eliminarTema(i, j)}
-                  title="Eliminar subtema"
-                >
-                  🗑️
-                </button>
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaArriba(i, j)}
+  title="Subir tema"
+  disabled={j === 0}
+>
+  <ArrowUp size={16} strokeWidth={2} />
+  <span>Subir</span>
+</button>
+
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaAbajo(i, j)}
+  title="Bajar tema"
+  disabled={j === (cap.subcapitulos || []).length - 1}
+>
+  <ArrowDown size={16} strokeWidth={2} />
+  <span>Bajar</span>
+</button>
+
+<button
+  className="btn-eliminar-tema"
+  onClick={() => eliminarTema(i, j)}
+  title="Eliminar subtema"
+>
+  🗑️
+</button>
               </li>
             ))}
           </ul>

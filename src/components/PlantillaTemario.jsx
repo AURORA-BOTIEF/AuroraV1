@@ -354,143 +354,187 @@ export default function PlantillaTemario() {
 
   // ================== EXPORTAR PDF ==================
   const exportarPDF = async () => {
-    if (!temario.temario.length) return alert("No hay contenido");
-
-    const doc = new jsPDF({ unit: "pt", format: "letter" });
-    const azul = "#005A9C";
-    const negro = "#000000";
-    const pageW = doc.internal.pageSize.getWidth();
-    const pageH = doc.internal.pageSize.getHeight();
-    const margin = { top: 230, bottom: 100, left: 60, right: 60 };
-    const contentW = pageW - margin.left - margin.right;
-    // 👇 AGREGA AQUÍ
-    const rightColWidth = 140;
-    const leftColX = margin.left + 25;
-    const rightColX = pageW - margin.right;
-    const leftColWidth = contentW - rightColWidth - 20;
-
-    const enc = await toDataURL(encabezadoImagen);
-    const pie = await toDataURL(pieDePaginaImagen);
-
-    let y = margin.top;
-    const addPageIfNeeded = (extra = 40) => {
-      if (y + extra > pageH - margin.bottom) {
-        doc.addPage();
-        y = margin.top;
+    try {
+      if (!Array.isArray(temario.temario) || temario.temario.length === 0) {
+        alert("No hay contenido para exportar.");
+        return;
       }
-    };
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(azul);
-    doc.text(temario.nombre_curso || "Temario", pageW / 2, y, { align: "center" });
-    y += 30;
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const azul = "#005A9C";
+      const negro = "#000000";
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = { top: 230, bottom: 100, left: 60, right: 60 };
+      const contentWidth = pageWidth - margin.left - margin.right;
 
-    const secciones = [
-      { titulo: "Descripción General", texto: temario.descripcion_general },
-      { titulo: "Audiencia", texto: temario.audiencia },
-      { titulo: "Prerrequisitos", texto: temario.prerrequisitos },
-      { titulo: "Objetivos", texto: temario.objetivos },
-      { titulo: "Notas", texto: temario.notas_generales },
-    ];
+      const encabezado = await toDataURL(encabezadoImagen);
+      const pie = await toDataURL(pieDePaginaImagen);
 
-    secciones.forEach((s) => {
-      if (!s.texto) return;
-      addPageIfNeeded(60);
+      let y = margin.top;
+
+      const addPageIfNeeded = (extra = 40) => {
+        if (y + extra > pageHeight - margin.bottom) {
+          doc.addPage();
+          y = margin.top;
+        }
+      };
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
+      doc.setFontSize(22);
       doc.setTextColor(azul);
-      doc.text(s.titulo, margin.left, y);
-      y += 18;
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
-      doc.setTextColor(negro);
+      const tituloCurso = temario?.nombre_curso || "Temario del Curso";
+      const lineasCurso = doc.splitTextToSize(tituloCurso, contentWidth - 40);
+      lineasCurso.forEach((linea) => {
+        doc.text(linea, pageWidth / 2, y, { align: "center" });
+        y += 18;
+      });
 
-      doc.splitTextToSize(s.texto, contentW).forEach((line) => {
-        addPageIfNeeded(14);
-        doc.text(line, margin.left, y);
-        y += 14;
+      y += 20;
+
+      doc.setFont("helvetica", "bolditalic");
+      doc.setFontSize(12);
+      doc.setTextColor(azul);
+      const duracionTexto = `Duración total del curso: ${temario?.horas_total_curso || 0} horas`;
+      doc.text(duracionTexto, pageWidth - margin.right, y + 10, { align: "right" });
+      y += 30;
+
+      const secciones = [
+        { titulo: "Descripción General", texto: temario?.descripcion_general },
+        { titulo: "Audiencia", texto: temario?.audiencia },
+        { titulo: "Prerrequisitos", texto: temario?.prerrequisitos },
+        { titulo: "Objetivos", texto: temario?.objetivos },
+      ];
+
+      secciones.forEach((s) => {
+        if (!s.texto) return;
+        addPageIfNeeded(60);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(azul);
+        doc.text(s.titulo, margin.left, y);
+        y += 18;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(negro);
+
+        const lineas = doc.splitTextToSize(s.texto, contentWidth);
+        lineas.forEach((linea) => {
+          addPageIfNeeded(14);
+          doc.text(linea, margin.left, y, { align: "justify" });
+          y += 14;
+        });
+
+        y += 10;
       });
 
       y += 10;
-    });
+      doc.setDrawColor(150, 150, 150);
+      doc.setLineWidth(0.8);
+      doc.line(margin.left, y, pageWidth - margin.right, y);
+      y += 25;
 
-    addPageIfNeeded(60);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.setTextColor(azul);
-    doc.text("Temario", margin.left, y);
-    y += 25;
-
-    temario.temario.forEach((cap, i) => {
-      addPageIfNeeded(60);
-
+      addPageIfNeeded(70);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
+      doc.setFontSize(20);
       doc.setTextColor(azul);
+      doc.text("Temario", margin.left, y);
+      y += 35;
 
-      const tituloCap = `Capítulo ${i + 1}: ${cap.capitulo}`;
-      const lineasCap = doc.splitTextToSize(tituloCap, contentW);
+      temario.temario.forEach((cap, i) => {
+        addPageIfNeeded(60);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(azul);
 
-      addPageIfNeeded(lineasCap.length * 16);
-
-      // título del capítulo (con salto automático)
-      doc.text(lineasCap, margin.left, y);
-
-      // mover y según alto real del título
-      y += lineasCap.length * 16;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(negro);
-
-      // duración debajo del título
-      doc.text(
-        `Duración total: ${formatDuration(cap.tiempo_capitulo_min)}`,
-        margin.left + 10,
-        y
-      );
-
-      y += 14;
-      
-
-      cap.subcapitulos.forEach((sub, j) => {
-        doc.setFontSize(10);
-
-        const textoIzq = `${i + 1}.${j + 1} ${sub.nombre}`;
-        const lineasIzq = doc.splitTextToSize(textoIzq, leftColWidth);
-
-        const blockHeight = lineasIzq.length * 12;
-
-        addPageIfNeeded(blockHeight);
-
-        // columna izquierda (texto largo)
-        doc.text(lineasIzq, leftColX, y);
-
-        // columna derecha (tiempo / sesión)
-        doc.text(
-          `${formatDuration(sub.tiempo_subcapitulo_min)} • Sesión ${sub.sesion || 1}`,
-          rightColX,
-          y,
-          { align: "right" }
-        );
-
-        y += blockHeight + 4;
+        const tituloCap = `Capítulo ${i + 1}: ${cap.capitulo}`;
+        const lineasCap = doc.splitTextToSize(tituloCap, contentWidth - 40);
+        lineasCap.forEach((linea) => {
+          doc.text(linea, margin.left, y);
+          y += 14;
         });
+        y += 6;
+
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(9);
+        doc.setTextColor(negro);
+        doc.text(`Duración total: ${cap.tiempo_capitulo_min || 0} min`, margin.left + 10, y);
+        y += 14;
+
+        if (cap.objetivos_capitulo) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          const objetivos = Array.isArray(cap.objetivos_capitulo)
+            ? cap.objetivos_capitulo.join(" ")
+            : cap.objetivos_capitulo;
+
+          const lines = doc.splitTextToSize(`Objetivos: ${objetivos}`, contentWidth);
+          lines.forEach((line) => {
+            addPageIfNeeded(12);
+            doc.text(line, margin.left + 15, y, { align: "justify" });
+            y += 12;
+          });
+          y += 10;
+        }
+
+        (cap.subcapitulos || []).forEach((sub, j) => {
+          addPageIfNeeded(18);
+          const subObj = typeof sub === "object" ? sub : { nombre: sub };
+          const meta = `${subObj.tiempo_subcapitulo_min || 0} min • Sesión ${subObj.sesion || 1}`;
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+
+          const subTitulo = `${i + 1}.${j + 1} ${subObj.nombre}`;
+          const subLineas = doc.splitTextToSize(subTitulo, contentWidth - 120);
+
+          subLineas.forEach((linea, idx) => {
+            addPageIfNeeded(12);
+            doc.text(linea, margin.left + 25, y);
+            if (idx === 0) {
+              doc.text(meta, pageWidth - margin.right, y, { align: "right" });
+            }
+            y += 12;
+          });
+        });
+
+        y += 20;
       });
 
-    const totalPages = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.addImage(enc, "PNG", 0, 0, pageW, 200);
-      doc.addImage(pie, "PNG", 0, pageH - 80, pageW, 80);
-      doc.text(`Página ${i} de ${totalPages}`, pageW / 2, pageH - 55, { align: "center" });
-    }
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
 
-    doc.save(`Temario_${slugify(temario.nombre_curso)}.pdf`);
+        const propsEnc = doc.getImageProperties(encabezado);
+        const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
+        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+
+        const propsPie = doc.getImageProperties(pie);
+        const altoPie = (propsPie.height / propsPie.width) * pageWidth;
+        doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+
+        doc.setFontSize(8);
+        doc.setTextColor("#666");
+        doc.text(
+          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
+          margin.left,
+          pageHeight - 70
+        );
+        doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
+          align: "center",
+        });
+      }
+
+      doc.save(`Temario_${slugify(temario?.nombre_curso)}.pdf`);
+    } catch (err) {
+      console.error(err);
+      alert("Error al generar PDF");
+    }
   };
+
 
   // ================== Estilos filtros (mejorados) ==================
   const filterWrap = {

@@ -7,7 +7,7 @@ import { downloadExcelTemario } from "../utils/downloadExcelcopia"; // Prueba de
 import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_KNTR.css";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 
 
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
@@ -177,28 +177,73 @@ function EditorDeTemario_KNTR({ temarioInicial, onSave, isLoading }) {
 
   // ===== AGREGAR TEMA =====
   const agregarTema = (capIndex) => {
-    const nuevo = JSON.parse(JSON.stringify(temario));
-    if (!Array.isArray(nuevo.temario)) return;
-    if (!Array.isArray(nuevo.temario[capIndex].subcapitulos))
-      nuevo.temario[capIndex].subcapitulos = [];
-    nuevo.temario[capIndex].subcapitulos.push({
-      nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1}`,
-      tiempo_subcapitulo_min: 30,
-      sesion: 1,
-    });
-    setTemario(nuevo);
-  };
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  if (!Array.isArray(nuevo.temario)) return;
 
+  if (!Array.isArray(nuevo.temario[capIndex].subcapitulos)) {
+    nuevo.temario[capIndex].subcapitulos = [];
+  }
+
+  nuevo.temario[capIndex].subcapitulos.push({
+    nombre: `Nuevo tema ${nuevo.temario[capIndex].subcapitulos.length + 1}`,
+    tiempo_subcapitulo_min: 30,
+    sesion: 1,
+  });
+
+  nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[capIndex].subcapitulos.reduce(
+    (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min, 10) || 0),
+    0
+  );
+
+  setTemario(nuevo);
+};
   // ===== ELIMINAR TEMA =====
   const eliminarTema = (capIndex, subIndex) => {
-    if (!window.confirm("¿Seguro que deseas eliminar este tema?")) return;
-    const nuevo = JSON.parse(JSON.stringify(temario));
-    nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
-    setTemario(nuevo);
-    setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
-  };
+  if (!window.confirm("¿Seguro que deseas eliminar este tema?")) return;
 
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  nuevo.temario[capIndex].subcapitulos.splice(subIndex, 1);
 
+  nuevo.temario[capIndex].tiempo_capitulo_min = nuevo.temario[capIndex].subcapitulos.reduce(
+    (sum, s) => sum + (parseInt(s.tiempo_subcapitulo_min, 10) || 0),
+    0
+  );
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "🗑️ Tema eliminado correctamente" });
+};
+
+  const moverTemaArriba = (capIndex, subIndex) => {
+  if (subIndex === 0) return;
+
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  [subcapitulos[subIndex - 1], subcapitulos[subIndex]] = [
+    subcapitulos[subIndex],
+    subcapitulos[subIndex - 1],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬆️ Tema movido hacia arriba" });
+};
+
+const moverTemaAbajo = (capIndex, subIndex) => {
+  const nuevo = JSON.parse(JSON.stringify(temario));
+  const subcapitulos = nuevo.temario?.[capIndex]?.subcapitulos || [];
+
+  if (subIndex >= subcapitulos.length - 1) return;
+
+  [subcapitulos[subIndex], subcapitulos[subIndex + 1]] = [
+    subcapitulos[subIndex + 1],
+    subcapitulos[subIndex],
+  ];
+
+  setTemario(nuevo);
+  setMensaje({ tipo: "ok", texto: "⬇️ Tema movido hacia abajo" });
+};
+
+  
   // ===== AJUSTAR TIEMPOS =====
   const ajustarTiempos = () => {
     if (!Array.isArray(temario.temario) || temario.temario.length === 0) return;
@@ -781,13 +826,35 @@ const exportarYAML = () => {
                 />
 
                 <button
-                  className="btn-eliminar-tema"
-                  onClick={() => eliminarTema(i, j)}
-                  title="Eliminar tema"
-                >
-                  <Trash2 size={18} strokeWidth={2} />
-                  <span>Eliminar</span>
-                </button>
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaArriba(i, j)}
+  title="Subir tema"
+  disabled={j === 0}
+>
+  <ArrowUp size={16} strokeWidth={2} />
+  <span>Subir</span>
+</button>
+
+<button
+  type="button"
+  className="btn-mover-tema"
+  onClick={() => moverTemaAbajo(i, j)}
+  title="Bajar tema"
+  disabled={j === (cap.subcapitulos || []).length - 1}
+>
+  <ArrowDown size={16} strokeWidth={2} />
+  <span>Bajar</span>
+</button>
+
+<button
+  className="btn-eliminar-tema"
+  onClick={() => eliminarTema(i, j)}
+  title="Eliminar tema"
+>
+  <Trash2 size={18} strokeWidth={2} />
+  <span>Eliminar</span>
+</button>
               </li>
             ))}
           </ul>
