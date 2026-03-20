@@ -19,7 +19,6 @@ except Exception:  # pragma: no cover
 
 s3_client = boto3.client("s3")
 secrets_client = boto3.client("secretsmanager")
-dynamodb = boto3.resource("dynamodb")
 
 
 def cors_headers():
@@ -149,18 +148,6 @@ def list_latest_labs_by_module(bucket, project_folder):
 
 def read_s3_text(bucket, key):
     return s3_client.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
-
-
-def list_images(bucket, project_folder):
-    prefix = f"{project_folder}/images/"
-    listed = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1000)
-    keys = []
-    for obj in listed.get("Contents", []):
-        key = obj["Key"]
-        if key.endswith("/"):
-            continue
-        keys.append(key)
-    return keys
 
 
 def ensure_repo(org, repo_name, token):
@@ -295,25 +282,12 @@ def build_root_readme(project_folder, outline):
         f"# {title}\n\n"
         f"{description}\n\n"
         "## Estructura\n\n"
-        "- `images/`: imágenes compartidas de laboratorios.\n"
-        "- `CapituloXX/README.md`: laboratorio por capítulo.\n\n"
+        "- `CapituloXX/README.md`: guía de laboratorio por capítulo.\n\n"
         "## Flujo de colaboración\n\n"
         "- Trabajar en `changes_course`.\n"
         "- Crear Pull Request hacia `main`.\n"
         "- Merge por `Squash and merge`.\n"
     )
-
-
-def get_instructor_github_user(project_folder, body):
-    if body.get("instructor_github_user"):
-        return str(body.get("instructor_github_user")).strip().lstrip("@")
-    table_name = os.getenv("INSTRUCTOR_GITHUB_TABLE", "CourseInstructorGithub")
-    table = dynamodb.Table(table_name)
-    response = table.get_item(Key={"courseId": project_folder})
-    item = response.get("Item")
-    if not item:
-        return ""
-    return str(item.get("githubUserId", "")).strip().lstrip("@")
 
 
 def parse_event_body(event):
@@ -371,13 +345,6 @@ def lambda_handler(event, context):
         codeowners = f"* @{lucy_owner}\n"
         put_file(org, repo_name, ".github/CODEOWNERS", codeowners.encode("utf-8"), token, "chore: configure code owners")
 
-        # Ensure image directory exists in git.
-        put_file(org, repo_name, "images/.gitkeep", b"", token, "chore: ensure images directory")
-        for image_key in list_images(bucket, project_folder):
-            filename = image_key.split("/")[-1]
-            image_bytes = s3_client.get_object(Bucket=bucket, Key=image_key)["Body"].read()
-            put_file(org, repo_name, f"images/{filename}", image_bytes, token, f"chore: sync image {filename}")
-
         module_labs = list_latest_labs_by_module(bucket, project_folder)
         for module_number, labs in module_labs.items():
             chapter_dir = f"Capitulo{module_number:02d}"
@@ -400,7 +367,7 @@ def lambda_handler(event, context):
         configure_branch_protection_main(org, repo_name, token)
         configure_branch_protection_changes(org, repo_name, token)
 
-        instructor_user = get_instructor_github_user(project_folder, body)
+        instructor_user = str(body.get("instructor_github_user") or "").strip().lstrip("@")
         invite_ok, invite_detail = invite_collaborator(org, repo_name, token, instructor_user)
 
         response_body = {

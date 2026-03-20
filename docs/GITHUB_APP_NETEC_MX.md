@@ -35,5 +35,18 @@ THOR usa una **GitHub App** instalada en la organización **Netec-Mx** para crea
 
 - Función: `PublishLabsGithubFunction`
 - Variables de entorno relevantes: `GITHUB_APP_SECRET_NAME`, `GITHUB_ORG`, `CODE_OWNER_USERNAME`
+- **Contenido:** solo se suben los markdown de laboratorio por capítulo (`CapituloXX/README.md`). **No** se sincroniza la carpeta `images/` ni archivos de imágenes de teoría.
+
+### GitHub user del instructor (Cognito)
+
+La UI del book editor guarda el **GitHub username** del usuario que inició sesión en DynamoDB:
+
+- Tabla: **`UserInstructorGithub`** (clave `userId`: email del *id token* de Cognito, o `sub` si no hay email).
+- **`GET /user-instructor-github`** — header `Authorization: Bearer <Cognito id token>`. Respuesta: `githubUserId`, `updatedAt`.
+- **`POST /user-instructor-github`** — mismo header; cuerpo JSON: `{ "githubUserId": "NetecGK" }` (sin `@`).
+
+Al abrir el editor en modo lab, el campo se rellena solo si ya existe un registro para ese usuario. La publicación (`POST /publish-labs-github`) envía `instructor_github_user` en el body; no consulta Dynamo por curso.
+
+> La tabla legada **`CourseInstructorGithub`** puede seguir existiendo en la cuenta por compatibilidad con despliegues anteriores; el flujo actual usa **`UserInstructorGithub`**.
 
 Tras rotar la app o la llave, actualiza el secreto en Secrets Manager y redeploy si cambias `template.yaml`.

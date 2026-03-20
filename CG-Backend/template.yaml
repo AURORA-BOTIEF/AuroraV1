@@ -1095,18 +1095,10 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
-        CourseInstructorGithubOptions:
+        UserInstructorGithubOptions:
           Type: Api
           Properties:
-            Path: /course-instructor-github/{projectFolder}
-            Method: options
-            Auth:
-              Authorizer: NONE
-        # POST /course-instructor-github (body JSON) — preflight must match this path
-        CourseInstructorGithubPostOptions:
-          Type: Api
-          Properties:
-            Path: /course-instructor-github
+            Path: /user-instructor-github
             Method: options
             Auth:
               Authorizer: NONE
@@ -1328,6 +1320,18 @@ Resources:
         - AttributeName: courseId
           KeyType: HASH
 
+  UserInstructorGithubTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: UserInstructorGithub
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
   PostConfirmationFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1511,60 +1515,60 @@ Resources:
             Auth:
               Authorizer: NONE
 
-  UpsertCourseInstructorGithubFunction:
+  UpsertUserInstructorGithubFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: UpsertCourseInstructorGithubFunction
-      Description: Save instructor GitHub user id by course
+      FunctionName: UpsertUserInstructorGithubFunction
+      Description: Save GitHub username for the signed-in Cognito user
       Runtime: python3.12
-      Handler: assignments/upsert_course_instructor_github.lambda_handler
-      CodeUri: lambda/
+      Handler: upsert_user_instructor_github.lambda_handler
+      CodeUri: lambda/assignments/
       Timeout: 30
       MemorySize: 128
       Environment:
         Variables:
-          INSTRUCTOR_GITHUB_TABLE: !Ref CourseInstructorGithubTable
+          USER_INSTRUCTOR_GITHUB_TABLE: !Ref UserInstructorGithubTable
       Policies:
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
               Action:
                 - dynamodb:PutItem
-              Resource: !GetAtt CourseInstructorGithubTable.Arn
+              Resource: !GetAtt UserInstructorGithubTable.Arn
       Events:
-        UpsertCourseInstructorGithubApi:
+        UpsertUserInstructorGithubApi:
           Type: Api
           Properties:
-            Path: /course-instructor-github
+            Path: /user-instructor-github
             Method: post
             Auth:
               Authorizer: NONE
 
-  GetCourseInstructorGithubFunction:
+  GetUserInstructorGithubFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: GetCourseInstructorGithubFunction
-      Description: Read instructor GitHub user id by course
+      FunctionName: GetUserInstructorGithubFunction
+      Description: Read GitHub username for the signed-in Cognito user
       Runtime: python3.12
-      Handler: assignments/get_course_instructor_github.lambda_handler
-      CodeUri: lambda/
+      Handler: get_user_instructor_github.lambda_handler
+      CodeUri: lambda/assignments/
       Timeout: 30
       MemorySize: 128
       Environment:
         Variables:
-          INSTRUCTOR_GITHUB_TABLE: !Ref CourseInstructorGithubTable
+          USER_INSTRUCTOR_GITHUB_TABLE: !Ref UserInstructorGithubTable
       Policies:
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
-              Resource: !GetAtt CourseInstructorGithubTable.Arn
+              Resource: !GetAtt UserInstructorGithubTable.Arn
       Events:
-        GetCourseInstructorGithubApi:
+        GetUserInstructorGithubApi:
           Type: Api
           Properties:
-            Path: /course-instructor-github/{projectFolder}
+            Path: /user-instructor-github
             Method: get
             Auth:
               Authorizer: NONE
@@ -1573,7 +1577,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: PublishLabsGithubFunction
-      Description: Publish lab guides and images to GitHub repository
+      Description: Publish lab guides (markdown) to GitHub repository (no theory images)
       Runtime: python3.12
       Handler: publish_to_github.lambda_handler
       CodeUri: lambda/
@@ -1584,7 +1588,6 @@ Resources:
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
-          INSTRUCTOR_GITHUB_TABLE: !Ref CourseInstructorGithubTable
           # JSON: app_id, installation_id, private_key, org (see docs/GITHUB_APP_NETEC_MX.md)
           GITHUB_APP_SECRET_NAME: netec/github-app/aurora-publisher
           GITHUB_ORG: Netec-Mx
@@ -1603,10 +1606,6 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource: '*'
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-              Resource: !GetAtt CourseInstructorGithubTable.Arn
       Events:
         PublishLabsGithubApi:
           Type: Api

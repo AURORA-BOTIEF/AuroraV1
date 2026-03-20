@@ -812,9 +812,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
     useEffect(() => {
         const loadInstructorGithubUser = async () => {
-            if (!projectFolder) return;
+            if (!projectFolder || !API_BASE) return;
             try {
-                const response = await fetch(`${API_BASE}/course-instructor-github/${encodeURIComponent(projectFolder)}`);
+                const session = await fetchAuthSession();
+                const idToken = session?.tokens?.idToken?.toString();
+                if (!idToken) return;
+                const response = await fetch(`${API_BASE}/user-instructor-github`, {
+                    headers: { Authorization: `Bearer ${idToken}` }
+                });
+                if (response.status === 401) return;
                 if (!response.ok) return;
                 const data = await response.json();
                 if (data?.githubUserId) {
@@ -832,34 +838,32 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const saveInstructorGithubUser = async () => {
         const trimmedUser = (instructorGithubUser || '').trim().replace(/^@/, '');
         if (!trimmedUser) {
-            showModal('Ingresa el GitHub user id del instructor (ej: NetecGK).', 'Dato requerido');
+            showModal('Ingresa tu GitHub username (ej: NetecGK), sin @.', 'Dato requerido');
             return;
         }
         try {
             setSavingInstructorGithub(true);
-            let updatedBy = 'system';
-            try {
-                const session = await fetchAuthSession();
-                updatedBy = session?.tokens?.idToken?.payload?.email || updatedBy;
-            } catch (e) {
-                console.warn('Could not resolve updatedBy for instructor github id', e);
+            const session = await fetchAuthSession();
+            const idToken = session?.tokens?.idToken?.toString();
+            if (!idToken) {
+                showModal('Inicia sesión para guardar tu GitHub user id.', 'Sesión requerida');
+                return;
             }
 
-            const response = await fetch(`${API_BASE}/course-instructor-github`, {
+            const response = await fetch(`${API_BASE}/user-instructor-github`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    courseId: projectFolder,
-                    githubUserId: trimmedUser,
-                    updatedBy
-                })
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${idToken}`
+                },
+                body: JSON.stringify({ githubUserId: trimmedUser })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 throw new Error(data?.error || `HTTP ${response.status}`);
             }
             setInstructorGithubUser(trimmedUser);
-            showModal('GitHub user id del instructor guardado correctamente.', 'Guardado');
+            showModal('Tu GitHub user id quedó guardado y se rellenará automáticamente en futuras sesiones.', 'Guardado');
         } catch (error) {
             console.error('Error saving instructor GitHub user:', error);
             showModal(`No se pudo guardar el GitHub user id: ${error.message}`, 'Error');
@@ -876,7 +880,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
         const githubUser = (instructorGithubUser || '').trim().replace(/^@/, '');
         if (!githubUser) {
-            showModal('Antes de publicar, guarda el GitHub user id del instructor.', 'Falta dato');
+            showModal('Antes de publicar, ingresa y guarda tu GitHub user id (queda ligado a tu sesión de Cognito).', 'Falta dato');
             return;
         }
 
@@ -906,7 +910,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             const inviteDetail = data?.collaborator_invite_detail;
             let extra = '';
             if (!inviteOk && inviteDetail) {
-                extra = '\n\n⚠️ No se pudo agregar al instructor como colaborador (límite de asientos en GitHub u otro error). El repositorio sí se publicó. Detalle técnico:\n' + String(inviteDetail).slice(0, 500);
+                const raw = String(inviteDetail);
+                let friendly = '';
+                if (/seat_limit|purchase at least one more seat/i.test(raw)) {
+                    friendly =
+                        'GitHub indicó límite de asientos en la organización: hay que contratar más asientos para invitar colaboradores. El repositorio ya está publicado.';
+                } else {
+                    friendly = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+                }
+                extra = `\n\n⚠️ No se pudo agregar al instructor como colaborador. El repositorio sí se publicó.\n${friendly}`;
             }
             if (repoUrl) {
                 const openRepo = await showConfirmModal(
@@ -4561,7 +4573,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                             <input
                                 type="text"
                                 className="github-user-input"
-                                placeholder="GitHub user id instructor"
+                                placeholder="Tu GitHub username (se guarda en tu cuenta)"
                                 value={instructorGithubUser}
                                 onChange={(e) => setInstructorGithubUser(e.target.value)}
                                 disabled={savingInstructorGithub || publishingGithub}
@@ -4570,7 +4582,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 className="btn-icon btn-secondary"
                                 onClick={saveInstructorGithubUser}
                                 disabled={savingInstructorGithub || publishingGithub}
-                                title="Guardar GitHub user id del instructor"
+                                title="Guardar tu GitHub username (asociado a tu usuario de Cognito)"
                             >
                                 <span>{savingInstructorGithub ? 'Guardando...' : 'Guardar GH'}</span>
                             </button>
