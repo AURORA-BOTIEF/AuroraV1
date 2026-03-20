@@ -907,29 +907,22 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             const repoUrl = data?.repository_url;
             const inviteOk = data?.collaborator_invite_ok !== false;
-            const inviteDetail = data?.collaborator_invite_detail;
-            let extra = '';
-            if (!inviteOk && inviteDetail) {
-                const raw = String(inviteDetail);
-                let friendly = '';
-                if (/seat_limit|purchase at least one more seat/i.test(raw)) {
-                    friendly =
-                        'GitHub indicó límite de asientos en la organización: hay que contratar más asientos para invitar colaboradores. El repositorio ya está publicado.';
-                } else {
-                    friendly = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
-                }
-                extra = `\n\n⚠️ No se pudo agregar al instructor como colaborador. El repositorio sí se publicó.\n${friendly}`;
+            if (!inviteOk && data?.collaborator_invite_detail) {
+                console.info(
+                    '[publish-labs-github] Colaborador no invitado (no crítico):',
+                    data.collaborator_invite_detail
+                );
             }
             if (repoUrl) {
                 const openRepo = await showConfirmModal(
-                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}${extra}\n\n¿Deseas abrir el repositorio ahora?`,
-                    inviteOk ? 'Publicación exitosa' : 'Publicación con advertencia'
+                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}\n\n¿Deseas abrir el repositorio ahora?`,
+                    'Publicación exitosa'
                 );
                 if (openRepo) {
                     window.open(repoUrl, '_blank');
                 }
             } else {
-                showModal('Publicación completada correctamente.' + extra, inviteOk ? 'Éxito' : 'Aviso');
+                showModal('Publicación completada correctamente.', 'Éxito');
             }
         } catch (error) {
             console.error('Error publishing labs to GitHub:', error);
