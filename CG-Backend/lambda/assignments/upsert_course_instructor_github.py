@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from datetime import datetime, timezone
@@ -5,6 +6,20 @@ import boto3
 
 dynamodb = boto3.resource("dynamodb")
 TABLE_NAME = os.environ.get("INSTRUCTOR_GITHUB_TABLE", "CourseInstructorGithub")
+
+
+def parse_event_body(event):
+    """Decode API Gateway body (may be base64 when BinaryMediaTypes includes */*)."""
+    if not isinstance(event, dict):
+        return {}
+    if isinstance(event.get("body"), dict):
+        return event["body"]
+    raw = event.get("body")
+    if raw is None or raw == "":
+        raw = "{}"
+    if event.get("isBase64Encoded", False) and raw and raw != "{}":
+        raw = base64.b64decode(raw).decode("utf-8")
+    return json.loads(raw)
 
 
 def cors_headers():
@@ -18,7 +33,7 @@ def cors_headers():
 
 def lambda_handler(event, context):
     try:
-        body = json.loads(event.get("body") or "{}")
+        body = parse_event_body(event)
         project_folder = (body.get("courseId") or "").strip()
         github_user_id = (body.get("githubUserId") or "").strip().lstrip("@")
         updated_by = (body.get("updatedBy") or "system").strip()

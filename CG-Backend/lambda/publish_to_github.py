@@ -268,8 +268,12 @@ def configure_branch_protection_changes(org, repo, token):
 
 
 def invite_collaborator(org, repo, token, github_user):
+    """
+    Invite instructor as collaborator (push). Does not raise: org may hit seat limits (422 seat_limit).
+    Returns (success: bool, detail: str|None).
+    """
     if not github_user:
-        return
+        return True, None
     payload = {"permission": "push"}
     status, data = gh_request(
         "PUT",
@@ -277,8 +281,11 @@ def invite_collaborator(org, repo, token, github_user):
         token,
         payload=payload,
     )
-    if status not in (200, 201, 204):
-        raise RuntimeError(f"Failed to invite collaborator @{github_user}: {status} {data}")
+    if status in (200, 201, 204):
+        return True, None
+    # Common: 422 seat_limit — billing must add seats; repo is still usable
+    msg = f"{status} {data}"
+    return False, msg
 
 
 def build_root_readme(project_folder, outline):
@@ -394,7 +401,7 @@ def lambda_handler(event, context):
         configure_branch_protection_changes(org, repo_name, token)
 
         instructor_user = get_instructor_github_user(project_folder, body)
-        invite_collaborator(org, repo_name, token, instructor_user)
+        invite_ok, invite_detail = invite_collaborator(org, repo_name, token, instructor_user)
 
         response_body = {
             "message": "Repositorio publicado/actualizado en GitHub",
@@ -404,6 +411,8 @@ def lambda_handler(event, context):
             "created": repo_created,
             "instructor_github_user": instructor_user or None,
             "chapters_synced": len(module_labs),
+            "collaborator_invite_ok": invite_ok,
+            "collaborator_invite_detail": invite_detail,
         }
         return {"statusCode": 200, "headers": cors_headers(), "body": json.dumps(response_body)}
     except Exception as e:

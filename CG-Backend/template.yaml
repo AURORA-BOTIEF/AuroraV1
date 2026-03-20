@@ -1102,6 +1102,14 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
+        # POST /course-instructor-github (body JSON) — preflight must match this path
+        CourseInstructorGithubPostOptions:
+          Type: Api
+          Properties:
+            Path: /course-instructor-github
+            Method: options
+            Auth:
+              Authorizer: NONE
         PublishLabsGithubOptions:
           Type: Api
           Properties:

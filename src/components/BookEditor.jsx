@@ -902,16 +902,22 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             }
 
             const repoUrl = data?.repository_url;
+            const inviteOk = data?.collaborator_invite_ok !== false;
+            const inviteDetail = data?.collaborator_invite_detail;
+            let extra = '';
+            if (!inviteOk && inviteDetail) {
+                extra = '\n\n⚠️ No se pudo agregar al instructor como colaborador (límite de asientos en GitHub u otro error). El repositorio sí se publicó. Detalle técnico:\n' + String(inviteDetail).slice(0, 500);
+            }
             if (repoUrl) {
                 const openRepo = await showConfirmModal(
-                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}\n\n¿Deseas abrir el repositorio ahora?`,
-                    'Publicación exitosa'
+                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}${extra}\n\n¿Deseas abrir el repositorio ahora?`,
+                    inviteOk ? 'Publicación exitosa' : 'Publicación con advertencia'
                 );
                 if (openRepo) {
                     window.open(repoUrl, '_blank');
                 }
             } else {
-                showModal('Publicación completada correctamente.', 'Éxito');
+                showModal('Publicación completada correctamente.' + extra, inviteOk ? 'Éxito' : 'Aviso');
             }
         } catch (error) {
             console.error('Error publishing labs to GitHub:', error);
