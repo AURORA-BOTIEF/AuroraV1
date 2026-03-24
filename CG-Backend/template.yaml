@@ -1592,6 +1592,8 @@ Resources:
           GITHUB_APP_SECRET_NAME: netec/github-app/aurora-publisher
           GITHUB_ORG: Netec-Mx
           CODE_OWNER_USERNAME: NetecGK
+          # Optional: org team slug — grant push on every new lab repo (instructors as org members in that team)
+          GITHUB_INSTRUCTORS_TEAM_SLUG: ''
       Policies:
         - Version: '2012-10-17'
           Statement:

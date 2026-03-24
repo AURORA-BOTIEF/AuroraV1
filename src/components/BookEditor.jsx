@@ -914,8 +914,10 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 );
             }
             if (repoUrl) {
+                const privateNote =
+                    '\n\nEl repositorio es privado: solo podrás abrirlo en GitHub si tu usuario tiene acceso (miembro de la org / equipo autorizado o invitación aceptada). Si ves 404, revisa tu correo por una invitación de GitHub o pide acceso al administrador de la organización.';
                 const openRepo = await showConfirmModal(
-                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}\n\n¿Deseas abrir el repositorio ahora?`,
+                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}${privateNote}\n\n¿Deseas abrir el repositorio ahora?`,
                     'Publicación exitosa'
                 );
                 if (openRepo) {

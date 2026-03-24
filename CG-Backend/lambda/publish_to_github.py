@@ -275,6 +275,29 @@ def invite_collaborator(org, repo, token, github_user):
     return False, msg
 
 
+def grant_instructors_team_repo_access(org, repo, team_slug, token):
+    """
+    Grant an org team push access to the repo so all team members (org members) can open the
+    private repo without per-repo outside-collaborator seats.
+
+    Set env GITHUB_INSTRUCTORS_TEAM_SLUG (e.g. aurora-lab-instructors). Requires GitHub App
+    installation to have permission to manage team repo access (repository Administration).
+
+    Returns (success: bool, detail: str|None). If team_slug is empty, returns (True, None) (no-op).
+    """
+    slug = (team_slug or "").strip()
+    if not slug:
+        return True, None
+
+    # GitHub slugs (org, team, repo) are URL-safe; avoid over-encoding hyphens.
+    path = f"/orgs/{org}/teams/{slug}/repos/{org}/{repo}"
+    status, data = gh_request("PUT", path, token, payload={"permission": "push"})
+    if status in (200, 201, 204):
+        return True, None
+    msg = f"{status} {data}"
+    return False, msg
+
+
 def build_root_readme(project_folder, outline):
     title = outline.get("title") or project_folder
     description = outline.get("description") or "Repositorio de laboratorios generado por THOR."
@@ -367,6 +390,9 @@ def lambda_handler(event, context):
         configure_branch_protection_main(org, repo_name, token)
         configure_branch_protection_changes(org, repo_name, token)
 
+        team_slug = os.getenv("GITHUB_INSTRUCTORS_TEAM_SLUG", "").strip()
+        team_ok, team_detail = grant_instructors_team_repo_access(org, repo_name, team_slug, token)
+
         instructor_user = str(body.get("instructor_github_user") or "").strip().lstrip("@")
         invite_ok, invite_detail = invite_collaborator(org, repo_name, token, instructor_user)
 
@@ -375,9 +401,13 @@ def lambda_handler(event, context):
             "organization": org,
             "repository": repo_name,
             "repository_url": f"https://github.com/{org}/{repo_name}",
+            "repository_visibility": "private",
             "created": repo_created,
             "instructor_github_user": instructor_user or None,
             "chapters_synced": len(module_labs),
+            "instructors_team_slug_configured": bool(team_slug),
+            "instructors_team_access_ok": team_ok if team_slug else None,
+            "instructors_team_access_detail": team_detail if team_slug and not team_ok else None,
             "collaborator_invite_ok": invite_ok,
             "collaborator_invite_detail": invite_detail,
         }
