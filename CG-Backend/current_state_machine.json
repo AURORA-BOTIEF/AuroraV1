@@ -1045,7 +1045,7 @@
       "Default": "CombineResultsAndBuildBook"
     },
     "ProcessLabBatchesInParallel": {
-      "Comment": "Process 2 lab batches concurrently",
+      "Comment": "Process lab batches concurrently (1 lab per batch)",
       "ItemsPath": "$.lab_batch_expansion.Payload.batches",
       "Iterator": {
         "StartAt": "GenerateLabBatch",
@@ -1060,7 +1060,7 @@
                 "ResultPath": "$.error"
               }
             ],
-            "Comment": "Generate labs for this batch (max 2 labs per batch)",
+            "Comment": "Generate labs for this batch (1 lab per batch)",
             "Next": "LabBatchComplete",
             "Parameters": {
               "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsLabWriter",

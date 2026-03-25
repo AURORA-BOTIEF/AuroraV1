@@ -232,7 +232,7 @@ Resources:
         - arm64
       Environment:
         Variables:
-          MAX_LABS_PER_BATCH: '2'
+          MAX_LABS_PER_BATCH: '1'
       Policies:
         - Version: '2012-10-17'
           Statement:

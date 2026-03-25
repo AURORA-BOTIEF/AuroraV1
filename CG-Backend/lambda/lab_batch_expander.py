@@ -20,7 +20,7 @@ Output:
             {
                 "batch_index": 1,
                 "total_batches": 5,
-                "lab_ids": ["01-01-01", "01-01-02"],
+                "lab_ids": ["01-01-01"],
                 "course_bucket": "...",
                 "master_plan_key": "...",
                 "project_folder": "...",
@@ -32,14 +32,14 @@ Output:
 """
 
 import json
+import os
 import boto3
 from typing import List, Dict, Any
 
 s3_client = boto3.client('s3')
 
-# Maximum labs per batch
-# LabWriter already processes 2 labs per internal batch, so we keep it aligned
-MAX_LABS_PER_BATCH = 2
+# One lab per Step Functions batch item so StrandsLabWriter stays under Lambda 15m limit.
+MAX_LABS_PER_BATCH = max(1, int(os.getenv("MAX_LABS_PER_BATCH", "1")))
 
 
 def lambda_handler(event, context):
