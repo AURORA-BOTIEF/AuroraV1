@@ -616,6 +616,19 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
     return master_plan
 
 
+def load_master_plan_from_s3(bucket: str, project_folder: str) -> Optional[dict]:
+    """Load existing lab-master-plan.json if present (for partial regeneration)."""
+    key = f"{project_folder}/labguide/lab-master-plan.json"
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        data = json.loads(response["Body"].read().decode("utf-8"))
+        print(f"📥 Loaded existing master plan from s3://{bucket}/{key}")
+        return data
+    except Exception as e:
+        print(f"⚠️  No existing master plan to merge (ok for full runs): {e}")
+        return None
+
+
 def save_master_plan_to_s3(
     bucket: str,
     project_folder: str,
@@ -742,9 +755,44 @@ def lambda_handler(event, context):
 
         outline_fallback = master_plan.pop('_outline_fallback_used', False)
 
+        if lab_ids_to_regenerate:
+            regen_set = {x for x in lab_ids_to_regenerate if x}
+            existing = load_master_plan_from_s3(course_bucket, project_folder)
+            if not existing or not existing.get("lab_plans"):
+                raise ValueError(
+                    "lab_ids_to_regenerate requires existing "
+                    f"{project_folder}/labguide/lab-master-plan.json on s3://{course_bucket}"
+                )
+            fresh_by_id = {
+                p["lab_id"]: p
+                for p in master_plan.get("lab_plans", [])
+                if p.get("lab_id")
+            }
+            merged_plans: List[Dict[str, Any]] = []
+            for p in existing["lab_plans"]:
+                lid = p.get("lab_id")
+                if lid in regen_set and lid in fresh_by_id:
+                    merged_plans.append(fresh_by_id[lid])
+                else:
+                    merged_plans.append(p)
+            existing_ids = {p.get("lab_id") for p in existing["lab_plans"]}
+            for lid, plan in fresh_by_id.items():
+                if lid in regen_set and lid not in existing_ids:
+                    merged_plans.append(plan)
+            master_plan = {**existing, "lab_plans": merged_plans}
+            print(
+                f"🔀 Merged replan: {len(fresh_by_id)} lab(s) refreshed, "
+                f"{len(merged_plans)} total in master plan"
+            )
+
+        lab_plan_list = master_plan.get("lab_plans") or []
+        duration_sum = sum(
+            int(p.get("estimated_duration") or p.get("duration_minutes") or 30)
+            for p in lab_plan_list
+        )
+
         # CRITICAL: Add total_labs to root level for State Machine validation
-        # The ValidateLabPlanExists choice state needs this at root level
-        master_plan['total_labs'] = len(labs)
+        master_plan["total_labs"] = len(lab_plan_list)
 
         # Add metadata (including language for LabWriter)
         course_language = course_info.get('language', 'en')
@@ -753,11 +801,11 @@ def lambda_handler(event, context):
             'model_provider': model_provider,
             'course_title': course_info.get('title', 'Unknown'),
             'course_language': course_language,  # Pass language to LabWriter
-            'total_labs': len(labs),
-            'total_duration_minutes': sum(lab['duration_minutes'] for lab in labs),
+            'total_labs': len(lab_plan_list),
+            'total_duration_minutes': duration_sum,
             'additional_requirements': lab_requirements,
             'lab_plans_source': 'outline_fallback' if outline_fallback else 'ai',
-            'lab_plans_count': len(master_plan.get('lab_plans') or []),
+            'lab_plans_count': len(lab_plan_list),
         }
         
         # Step 4: Save to S3
@@ -774,8 +822,8 @@ def lambda_handler(event, context):
         return {
             'statusCode': 200,
             'master_plan_key': master_plan_key,
-            'total_labs': len(labs),
-            'total_duration_minutes': sum(lab['duration_minutes'] for lab in labs),
+            'total_labs': len(lab_plan_list),
+            'total_duration_minutes': duration_sum,
             'project_folder': project_folder,
             'bucket': course_bucket,
             'model_provider': model_provider,

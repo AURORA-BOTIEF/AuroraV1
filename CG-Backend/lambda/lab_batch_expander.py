@@ -70,9 +70,18 @@ def lambda_handler(event, context):
         plan_content = plan_obj['Body'].read().decode('utf-8')
         master_plan = json.loads(plan_content)
         
-        # Get all labs
+        # Get all labs (optional: only labs listed in lab_ids_to_regenerate)
         lab_plans = master_plan.get('lab_plans', [])
-        
+        lab_ids_filter = event.get('lab_ids_to_regenerate')
+        if lab_ids_filter:
+            only = {x for x in lab_ids_filter if x}
+            before = len(lab_plans)
+            lab_plans = [p for p in lab_plans if p.get('lab_id') in only]
+            print(
+                f"🎯 Partial lab generation: filtered {before} → {len(lab_plans)} "
+                f"lab plan(s) ({', '.join(sorted(only))})"
+            )
+
         if not lab_plans:
             print("⚠️  No labs found in master plan")
             return {
