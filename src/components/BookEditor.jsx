@@ -973,7 +973,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                 const logoBlob = await logoResponse.Body.transformToByteArray();
                 const logoBase64 = btoa(String.fromCharCode(...logoBlob));
-                setLogoUrl(`data: image / png; base64, ${logoBase64} `);
+                setLogoUrl(`data:image/png;base64,${logoBase64}`);
             } catch (error) {
                 console.error('Error loading logo:', error);
             }
