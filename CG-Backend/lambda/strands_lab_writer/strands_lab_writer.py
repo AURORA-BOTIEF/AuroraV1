@@ -31,6 +31,9 @@ secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
+# Retries per lab before failing the batch (Step Functions should not succeed with partial labs)
+MAX_LAB_GENERATION_ATTEMPTS = int(os.getenv("MAX_LAB_GENERATION_ATTEMPTS", "3"))
+
 
 def get_secret(secret_name: str) -> dict:
     """Retrieve secret from AWS Secrets Manager."""
@@ -1049,26 +1052,41 @@ def lambda_handler(event, context):
         for idx, lab_plan in enumerate(lab_plans, start=1):
             lab_id = lab_plan['lab_id']
             print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
-            
+
             # Load specific lesson content if available
             lesson_content = ""
             if lab_id in lab_lesson_keys:
                 lesson_key = lab_lesson_keys[lab_id]
                 lesson_content = load_lesson_content(course_bucket, lesson_key)
 
-            try:
-                # Generate ONE lab at a time (pass as single-item list)
-                batch_results = generate_all_labs_batch(
-                    lab_plans=[lab_plan],  # Always single lab for reliability
-                    master_context=master_context,
-                    model_provider=model_provider,
-                    lesson_content=lesson_content
-                )
-                labs_markdown.update(batch_results)
-            except Exception as e:
-                print(f"❌ Lab {lab_id} generation failed: {e}")
-                # Continue with next lab instead of failing completely
-                continue
+            last_error: Optional[Exception] = None
+            for attempt in range(1, MAX_LAB_GENERATION_ATTEMPTS + 1):
+                try:
+                    batch_results = generate_all_labs_batch(
+                        lab_plans=[lab_plan],
+                        master_context=master_context,
+                        model_provider=model_provider,
+                        lesson_content=lesson_content,
+                    )
+                    if lab_id in batch_results and (batch_results[lab_id] or "").strip():
+                        labs_markdown[lab_id] = batch_results[lab_id]
+                        print(f"  ✅ Lab {lab_id} generated (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
+                        break
+                    last_error = ValueError(f"Model returned no content for {lab_id}")
+                    print(f"  ⚠️ Empty content for {lab_id} on attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS}")
+                except Exception as e:
+                    last_error = e
+                    print(
+                        f"  ❌ Lab {lab_id} attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS} failed: {e}"
+                    )
+                if attempt < MAX_LAB_GENERATION_ATTEMPTS:
+                    print("  🔁 Retrying...")
+
+            if lab_id not in labs_markdown:
+                msg = f"Lab {lab_id} failed after {MAX_LAB_GENERATION_ATTEMPTS} attempts"
+                if last_error:
+                    msg += f": {last_error}"
+                raise RuntimeError(msg)
         
         # Step 3: Save each lab guide to S3
         lab_guide_keys = []
@@ -1093,13 +1111,18 @@ def lambda_handler(event, context):
                 print(f"  ✅ Saved lab {lab_id}")
             except Exception as e:
                 print(f"  ❌ Failed to save lab {lab_id}: {e}")
-                continue
-        
+                raise RuntimeError(f"Failed to save lab guide {lab_id} to S3: {e}") from e
+
+        if len(lab_guide_keys) != len(lab_plans):
+            raise RuntimeError(
+                f"Expected {len(lab_plans)} lab files saved, got {len(lab_guide_keys)}"
+            )
+
         print(f"\n{'='*70}")
         print(f"✅ LAB WRITING COMPLETED")
         print(f"   Generated: {len(lab_guide_keys)}/{len(lab_plans)} labs")
         print(f"{'='*70}\n")
-        
+
         return {
             'statusCode': 200,
             'lab_guides_generated': len(lab_guide_keys),
