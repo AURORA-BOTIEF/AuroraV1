@@ -568,6 +568,51 @@ def save_lab_guide_to_s3(
         raise
 
 
+def _strip_outer_markdown_fence(text: str) -> str:
+    """If the model wrapped the whole lab in ```markdown ... ```, unwrap it."""
+    t = (text or "").strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.split("\n")
+    if not lines:
+        return t
+    first = lines[0].strip()
+    if not first.startswith("```"):
+        return t
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "```":
+            return "\n".join(lines[1:i]).strip()
+    return t
+
+
+def _looks_like_lab_markdown(text: str) -> bool:
+    """Heuristic: enough structure to treat as a lab guide when delimiters/JSON fail."""
+    s = text.strip()
+    if len(s) < 400:
+        return False
+    head = s[:4000]
+    if s.startswith("#") or s.startswith("```"):
+        return True
+    if "##" in head:
+        return True
+    # Spanish / English common lab section cues
+    cues = (
+        "Metadatos",
+        "Metadata",
+        "Descripción",
+        "Overview",
+        "Objetivos",
+        "Prerrequisitos",
+        "Prerequisites",
+        "Instrucciones",
+        "Step-by-Step",
+        "Paso ",
+        "Laboratorio",
+        "Lab ",
+    )
+    return any(c in head for c in cues)
+
+
 def generate_all_labs_batch(
     lab_plans: List[Dict[str, Any]],
     master_context: dict,
@@ -881,6 +926,8 @@ Generate ALL {len(lab_plans)} labs now:
             response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
         
         print("✅ AI response received, parsing with delimiters...")
+        # Keep full model output for fallbacks (JSON branch mutates working copies)
+        original_response_text = response_text
         
         # Parse using delimiters instead of JSON
         labs_dict = {}
@@ -912,12 +959,13 @@ Generate ALL {len(lab_plans)} labs now:
             print("⚠️  No labs found in response, trying fallback JSON parsing...")
             # Fallback to JSON if delimiter format failed
             try:
-                if "```json" in response_text:
-                    response_text = response_text.split("```json")[1].split("```")[0]
-                elif "```" in response_text:
-                    response_text = response_text.split("```")[1].split("```")[0]
+                json_candidate = original_response_text
+                if "```json" in json_candidate:
+                    json_candidate = json_candidate.split("```json")[1].split("```")[0]
+                elif "```" in json_candidate:
+                    json_candidate = json_candidate.split("```")[1].split("```")[0]
                 
-                result = json.loads(response_text.strip())
+                result = json.loads(json_candidate.strip())
                 for lab_data in result.get('labs', []):
                     lab_id = lab_data['lab_id']
                     markdown = lab_data['markdown']
@@ -929,14 +977,14 @@ Generate ALL {len(lab_plans)} labs now:
                 # Third fallback: If only ONE lab requested and response looks like markdown, use it directly
                 if len(lab_plans) == 1:
                     print("🔄 Trying raw markdown fallback for single lab...")
-                    raw_response = response_text if 'response_text' in dir() else ""
-                    # Check if the response looks like valid markdown (starts with # or has markdown patterns)
-                    if raw_response and (raw_response.strip().startswith('#') or 
-                                        raw_response.strip().startswith('```') or
-                                        '##' in raw_response[:500]):
+                    raw_response = _strip_outer_markdown_fence(original_response_text)
+                    # Delimiter/JSON failed; accept substantial markdown (incl. Spanish section titles)
+                    if raw_response and _looks_like_lab_markdown(raw_response):
                         lab_id = lab_plans[0]['lab_id']
                         labs_dict[lab_id] = raw_response.strip()
-                        print(f"  ✓ Lab {lab_id}: {len(raw_response)} characters (from raw markdown)")
+                        print(
+                            f"  ✓ Lab {lab_id}: {len(raw_response)} characters (from raw markdown)"
+                        )
                     else:
                         raise ValueError("Could not parse labs from AI response in any format")
                 else:
@@ -947,7 +995,8 @@ Generate ALL {len(lab_plans)} labs now:
     
     except Exception as e:
         print(f"❌ Error generating batch labs: {e}")
-        print(f"Response preview: {response_text[:1000] if 'response_text' in locals() else 'N/A'}...")
+        preview = locals().get("response_text")
+        print(f"Response preview: {preview[:1000] if preview else 'N/A'}...")
         raise
 
 
@@ -1006,10 +1055,7 @@ def lambda_handler(event, context):
         lab_plans = master_plan.get('lab_plans', [])
         if not lab_plans:
             print("⚠️  No lab plans found in master plan!")
-            return {
-                'statusCode': 400,
-                'error': 'No lab plans found in master plan'
-            }
+            raise ValueError("No lab plans found in master plan")
         
         # NEW: Filter to only process specified labs if batch mode
         if lab_ids_to_process:
@@ -1134,16 +1180,10 @@ def lambda_handler(event, context):
     
     except KeyError as e:
         print(f"❌ Missing required parameter: {e}")
-        return {
-            'statusCode': 400,
-            'error': f'Missing required parameter: {e}'
-        }
-    
+        raise ValueError(f"Missing required parameter: {e}") from e
+
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            'statusCode': 500,
-            'error': str(e)
-        }
+        raise
