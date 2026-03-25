@@ -150,8 +150,21 @@ def read_s3_text(bucket, key):
     return s3_client.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
 
 
-def ensure_repo(org, repo_name, token):
-    status, _ = gh_request("GET", f"/repos/{org}/{repo_name}", token)
+def resolve_owner_type():
+    """organization = repos under a GitHub org (uses org seats). personal = user account (typical free tier)."""
+    v = os.getenv("GITHUB_OWNER_TYPE", "organization").strip().lower()
+    if v in ("personal", "user"):
+        return "personal"
+    return "organization"
+
+
+def ensure_repo(owner, repo_name, token, owner_type="organization", create_repo_token=None):
+    """
+    Create repo if missing. For owner_type=personal, GitHub does NOT allow POST /user/repos with an
+    App *installation* token (403 Resource not accessible by integration); use create_repo_token
+    (PAT of the user) only for the create call.
+    """
+    status, _ = gh_request("GET", f"/repos/{owner}/{repo_name}", token)
     if status == 200:
         return False
 
@@ -164,7 +177,16 @@ def ensure_repo(org, repo_name, token):
         "has_projects": False,
         "has_wiki": False,
     }
-    status, data = gh_request("POST", f"/orgs/{org}/repos", token, payload=payload)
+    if owner_type == "personal":
+        if not (create_repo_token or "").strip():
+            raise RuntimeError(
+                "GITHUB_OWNER_TYPE=personal requires personal_access_token in the GitHub secret "
+                "(or env GITHUB_PERSONAL_ACCESS_TOKEN). App installation tokens cannot create "
+                "user-owned repositories (GitHub API limitation)."
+            )
+        status, data = gh_request("POST", "/user/repos", create_repo_token.strip(), payload=payload)
+    else:
+        status, data = gh_request("POST", f"/orgs/{owner}/repos", token, payload=payload)
     if status not in (200, 201):
         raise RuntimeError(f"Failed to create repository: {status} {data}")
     return True
@@ -220,7 +242,11 @@ def create_branch_if_missing(org, repo, token, branch_name, source_branch="main"
         raise RuntimeError(f"Failed to create branch {branch_name}: {status} {data}")
 
 
-def configure_branch_protection_main(org, repo, token):
+def try_configure_branch_protection_main(owner, repo, token):
+    """
+    Best-effort: GitHub Free on personal accounts often rejects advanced branch protection.
+    Returns (ok: bool, detail: str|None).
+    """
     payload = {
         "required_status_checks": None,
         "enforce_admins": False,
@@ -234,12 +260,14 @@ def configure_branch_protection_main(org, repo, token):
         "allow_force_pushes": False,
         "allow_deletions": False,
     }
-    status, data = gh_request("PUT", f"/repos/{org}/{repo}/branches/main/protection", token, payload=payload)
-    if status not in (200, 201):
-        raise RuntimeError(f"Failed to configure main branch protection: {status} {data}")
+    status, data = gh_request("PUT", f"/repos/{owner}/{repo}/branches/main/protection", token, payload=payload)
+    if status in (200, 201):
+        return True, None
+    return False, f"main branch protection: {status} {data}"
 
 
-def configure_branch_protection_changes(org, repo, token):
+def try_configure_branch_protection_changes(owner, repo, token):
+    """Best-effort branch protection for changes_course. Returns (ok, detail)."""
     payload = {
         "required_status_checks": None,
         "enforce_admins": False,
@@ -249,14 +277,18 @@ def configure_branch_protection_changes(org, repo, token):
         "allow_force_pushes": False,
         "allow_deletions": False,
     }
-    status, data = gh_request("PUT", f"/repos/{org}/{repo}/branches/changes_course/protection", token, payload=payload)
-    if status not in (200, 201):
-        raise RuntimeError(f"Failed to configure changes_course branch protection: {status} {data}")
+    status, data = gh_request(
+        "PUT", f"/repos/{owner}/{repo}/branches/changes_course/protection", token, payload=payload
+    )
+    if status in (200, 201):
+        return True, None
+    return False, f"changes_course branch protection: {status} {data}"
 
 
 def invite_collaborator(org, repo, token, github_user):
     """
-    Invite instructor as collaborator (push). Does not raise: org may hit seat limits (422 seat_limit).
+    Invite instructor as collaborator (push). Does not raise.
+    Organization-owned repos may return 422 seat_limit; user-owned repos typically avoid org seat billing.
     Returns (success: bool, detail: str|None).
     """
     if not github_user:
@@ -275,7 +307,7 @@ def invite_collaborator(org, repo, token, github_user):
     return False, msg
 
 
-def grant_instructors_team_repo_access(org, repo, team_slug, token):
+def grant_instructors_team_repo_access(owner, repo, team_slug, token, owner_type="organization"):
     """
     Grant an org team push access to the repo so all team members (org members) can open the
     private repo without per-repo outside-collaborator seats.
@@ -284,13 +316,18 @@ def grant_instructors_team_repo_access(org, repo, team_slug, token):
     installation to have permission to manage team repo access (repository Administration).
 
     Returns (success: bool, detail: str|None). If team_slug is empty, returns (True, None) (no-op).
+    Not applicable when owner_type is personal (no org teams).
     """
     slug = (team_slug or "").strip()
+    if owner_type == "personal":
+        if slug:
+            return False, "GitHub teams only apply to organization-owned repos; unset GITHUB_INSTRUCTORS_TEAM_SLUG for personal owner"
+        return True, None
     if not slug:
         return True, None
 
     # GitHub slugs (org, team, repo) are URL-safe; avoid over-encoding hyphens.
-    path = f"/orgs/{org}/teams/{slug}/repos/{org}/{repo}"
+    path = f"/orgs/{owner}/teams/{slug}/repos/{owner}/{repo}"
     status, data = gh_request("PUT", path, token, payload={"permission": "push"})
     if status in (200, 201, 204):
         return True, None
@@ -353,13 +390,18 @@ def lambda_handler(event, context):
             raise RuntimeError("GitHub App secret is incomplete (app_id, private_key).")
         if not installation_id:
             raise RuntimeError(
-                "GitHub App installation_id is missing: install the App on the org (Netec-Mx), "
-                "add installation_id to Secrets Manager JSON, or set GITHUB_INSTALLATION_ID on the Lambda."
+                "GitHub App installation_id is missing: install the App on the GitHub org or user "
+                "that will own the repositories, add installation_id to Secrets Manager JSON, "
+                "or set GITHUB_INSTALLATION_ID on the Lambda."
             )
 
+        owner_type = resolve_owner_type()
         token = get_installation_token(app_id, private_key, installation_id)
+        pat = (secret.get("personal_access_token") or os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or "").strip() or None
         repo_name = sanitize_repo_name(project_folder)
-        repo_created = ensure_repo(org, repo_name, token)
+        repo_created = ensure_repo(
+            org, repo_name, token, owner_type=owner_type, create_repo_token=pat
+        )
 
         outline = get_outline_metadata(bucket, project_folder)
         readme_text = build_root_readme(project_folder, outline)
@@ -387,27 +429,49 @@ def lambda_handler(event, context):
 
         configure_repo_settings(org, repo_name, token)
         create_branch_if_missing(org, repo_name, token, "changes_course", source_branch="main")
-        configure_branch_protection_main(org, repo_name, token)
-        configure_branch_protection_changes(org, repo_name, token)
+        bp_main_ok, bp_main_detail = try_configure_branch_protection_main(org, repo_name, token)
+        bp_changes_ok, bp_changes_detail = try_configure_branch_protection_changes(
+            org, repo_name, token
+        )
+        if not bp_main_ok:
+            print(f"WARN branch protection main: {bp_main_detail}")
+        if not bp_changes_ok:
+            print(f"WARN branch protection changes_course: {bp_changes_detail}")
 
         team_slug = os.getenv("GITHUB_INSTRUCTORS_TEAM_SLUG", "").strip()
-        team_ok, team_detail = grant_instructors_team_repo_access(org, repo_name, team_slug, token)
+        team_ok, team_detail = grant_instructors_team_repo_access(
+            org, repo_name, team_slug, token, owner_type=owner_type
+        )
 
         instructor_user = str(body.get("instructor_github_user") or "").strip().lstrip("@")
         invite_ok, invite_detail = invite_collaborator(org, repo_name, token, instructor_user)
 
         response_body = {
             "message": "Repositorio publicado/actualizado en GitHub",
+            "repository_owner": org,
+            "repository_owner_type": owner_type,
             "organization": org,
             "repository": repo_name,
             "repository_url": f"https://github.com/{org}/{repo_name}",
             "repository_visibility": "private",
             "created": repo_created,
+            "branch_protection_main_ok": bp_main_ok,
+            "branch_protection_main_detail": bp_main_detail,
+            "branch_protection_changes_ok": bp_changes_ok,
+            "branch_protection_changes_detail": bp_changes_detail,
             "instructor_github_user": instructor_user or None,
             "chapters_synced": len(module_labs),
             "instructors_team_slug_configured": bool(team_slug),
-            "instructors_team_access_ok": team_ok if team_slug else None,
-            "instructors_team_access_detail": team_detail if team_slug and not team_ok else None,
+            "instructors_team_access_ok": (
+                None
+                if owner_type == "personal"
+                else (team_ok if team_slug else None)
+            ),
+            "instructors_team_access_detail": (
+                team_detail
+                if owner_type == "personal" and team_slug
+                else (team_detail if team_slug and not team_ok else None)
+            ),
             "collaborator_invite_ok": invite_ok,
             "collaborator_invite_detail": invite_detail,
         }
