@@ -150,43 +150,25 @@ def read_s3_text(bucket, key):
     return s3_client.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
 
 
-def resolve_owner_type():
-    """organization = repos under a GitHub org (uses org seats). personal = user account (typical free tier)."""
-    v = os.getenv("GITHUB_OWNER_TYPE", "organization").strip().lower()
-    if v in ("personal", "user"):
-        return "personal"
-    return "organization"
-
-
-def ensure_repo(owner, repo_name, token, owner_type="organization", create_repo_token=None):
-    """
-    Create repo if missing. For owner_type=personal, GitHub does NOT allow POST /user/repos with an
-    App *installation* token (403 Resource not accessible by integration); use create_repo_token
-    (PAT of the user) only for the create call.
-    """
-    status, _ = gh_request("GET", f"/repos/{owner}/{repo_name}", token)
+def ensure_repo(org, repo_name, token):
+    status, _ = gh_request("GET", f"/repos/{org}/{repo_name}", token)
     if status == 200:
+        # Keep org repos public for instructor/student access without team seats.
+        status, data = gh_request("PATCH", f"/repos/{org}/{repo_name}", token, payload={"private": False})
+        if status not in (200, 201):
+            raise RuntimeError(f"Failed to set repository visibility to public: {status} {data}")
         return False
 
     payload = {
         "name": repo_name,
-        "private": True,
+        "private": False,
         "auto_init": True,
         "description": f"Laboratorios del curso {repo_name}",
         "has_issues": True,
         "has_projects": False,
         "has_wiki": False,
     }
-    if owner_type == "personal":
-        if not (create_repo_token or "").strip():
-            raise RuntimeError(
-                "GITHUB_OWNER_TYPE=personal requires personal_access_token in the GitHub secret "
-                "(or env GITHUB_PERSONAL_ACCESS_TOKEN). App installation tokens cannot create "
-                "user-owned repositories (GitHub API limitation)."
-            )
-        status, data = gh_request("POST", "/user/repos", create_repo_token.strip(), payload=payload)
-    else:
-        status, data = gh_request("POST", f"/orgs/{owner}/repos", token, payload=payload)
+    status, data = gh_request("POST", f"/orgs/{org}/repos", token, payload=payload)
     if status not in (200, 201):
         raise RuntimeError(f"Failed to create repository: {status} {data}")
     return True
@@ -307,47 +289,85 @@ def invite_collaborator(org, repo, token, github_user):
     return False, msg
 
 
-def grant_instructors_team_repo_access(owner, repo, team_slug, token, owner_type="organization"):
-    """
-    Grant an org team push access to the repo so all team members (org members) can open the
-    private repo without per-repo outside-collaborator seats.
-
-    Set env GITHUB_INSTRUCTORS_TEAM_SLUG (e.g. aurora-lab-instructors). Requires GitHub App
-    installation to have permission to manage team repo access (repository Administration).
-
-    Returns (success: bool, detail: str|None). If team_slug is empty, returns (True, None) (no-op).
-    Not applicable when owner_type is personal (no org teams).
-    """
-    slug = (team_slug or "").strip()
-    if owner_type == "personal":
-        if slug:
-            return False, "GitHub teams only apply to organization-owned repos; unset GITHUB_INSTRUCTORS_TEAM_SLUG for personal owner"
-        return True, None
-    if not slug:
-        return True, None
-
-    # GitHub slugs (org, team, repo) are URL-safe; avoid over-encoding hyphens.
-    path = f"/orgs/{owner}/teams/{slug}/repos/{owner}/{repo}"
-    status, data = gh_request("PUT", path, token, payload={"permission": "push"})
-    if status in (200, 201, 204):
-        return True, None
-    msg = f"{status} {data}"
-    return False, msg
+def clean_lab_title(raw_title):
+    title = (raw_title or "").strip()
+    title = re.sub(r"^lab\s+\d{2}-\d{2}-\d{2}\s*:\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(laboratorio|laboratorio:)\s*:\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^práctica\s*\d+\s*[:.-]\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^practica\s*\d+\s*[:.-]\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^\d+\s*[:.-]\s*", "", title)
+    return title.strip() or (raw_title or "").strip()
 
 
-def build_root_readme(project_folder, outline):
+def parse_lab_summary(markdown_text, module_number, lesson_number, lab_number):
+    lines = [ln.strip() for ln in markdown_text.splitlines() if ln.strip()]
+    title = f"Laboratorio {module_number}.{lesson_number}.{lab_number}"
+    description = None
+    duration = None
+    for line in lines:
+        if line.startswith("#"):
+            title = re.sub(r"^#+\s*", "", line).strip() or title
+            break
+    title = clean_lab_title(title)
+    for line in lines:
+        normalized = line.lstrip("-* ").replace("**", "").strip()
+        low = normalized.lower()
+        if description is None and low.startswith(("descripción", "descripcion")):
+            description = re.sub(r"^(descripción|descripcion)\s*:\s*", "", normalized, flags=re.IGNORECASE).strip()
+        if duration is None and (low.startswith("duración") or low.startswith("duracion")):
+            duration = re.sub(r"^(duración|duracion)\s*(estimada)?\s*:\s*", "", normalized, flags=re.IGNORECASE).strip()
+        if description and duration:
+            break
+    return {"title": title, "description": description, "duration": duration}
+
+
+def markdown_anchor(text):
+    slug = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE).strip().lower()
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug or "laboratorio"
+
+
+def normalize_lab_markdown(markdown_text):
+    lines = markdown_text.splitlines()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            raw_title = re.sub(r"^#+\s*", "", stripped).strip()
+            cleaned_title = clean_lab_title(raw_title)
+            lines[idx] = f"# {cleaned_title}"
+            break
+    return "\n".join(lines).strip()
+
+
+def build_root_readme(project_folder, outline, module_index):
     title = outline.get("title") or project_folder
     description = outline.get("description") or "Repositorio de laboratorios generado por THOR."
-    return (
+    parts = [
         f"# {title}\n\n"
         f"{description}\n\n"
         "## Estructura\n\n"
-        "- `CapituloXX/README.md`: guía de laboratorio por capítulo.\n\n"
+        "- `CapituloXX/README.md`: guía de laboratorio por capítulo.\n\n",
+        "## Lista de laboratorios\n\n",
+    ]
+    for module_number in sorted(module_index.keys()):
+        parts.append(f"### Capítulo {module_number}\n\n")
+        for lab in module_index[module_number]:
+            chapter_path = f"Capitulo{module_number:02d}/README.md"
+            anchor = markdown_anchor(lab["title"])
+            parts.append(f"- [{lab['title']}]({chapter_path}#{anchor})\n")
+            if lab.get("description"):
+                parts.append(f"  - Descripción: {lab['description']}\n")
+            if lab.get("duration"):
+                parts.append(f"  - Duración estimada: {lab['duration']}\n")
+        parts.append("\n")
+    parts.append(
         "## Flujo de colaboración\n\n"
         "- Trabajar en `changes_course`.\n"
         "- Crear Pull Request hacia `main`.\n"
         "- Merge por `Squash and merge`.\n"
     )
+    return "".join(parts)
 
 
 def parse_event_body(event):
@@ -395,28 +415,30 @@ def lambda_handler(event, context):
                 "or set GITHUB_INSTALLATION_ID on the Lambda."
             )
 
-        owner_type = resolve_owner_type()
         token = get_installation_token(app_id, private_key, installation_id)
-        pat = (secret.get("personal_access_token") or os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or "").strip() or None
         repo_name = sanitize_repo_name(project_folder)
-        repo_created = ensure_repo(
-            org, repo_name, token, owner_type=owner_type, create_repo_token=pat
-        )
-
-        outline = get_outline_metadata(bucket, project_folder)
-        readme_text = build_root_readme(project_folder, outline)
-        put_file(org, repo_name, "README.md", readme_text.encode("utf-8"), token, "chore: initialize course labs repository")
+        repo_created = ensure_repo(org, repo_name, token)
 
         codeowners = f"* @{lucy_owner}\n"
         put_file(org, repo_name, ".github/CODEOWNERS", codeowners.encode("utf-8"), token, "chore: configure code owners")
 
         module_labs = list_latest_labs_by_module(bucket, project_folder)
+        module_index = {}
         for module_number, labs in module_labs.items():
             chapter_dir = f"Capitulo{module_number:02d}"
             parts = []
+            module_index[module_number] = []
             for lab in labs:
-                content = read_s3_text(bucket, lab["key"]).strip()
+                content = normalize_lab_markdown(read_s3_text(bucket, lab["key"]))
                 parts.append(content)
+                module_index[module_number].append(
+                    parse_lab_summary(
+                        content,
+                        module_number=lab["module"],
+                        lesson_number=lab["lesson"],
+                        lab_number=lab["lab"],
+                    )
+                )
             chapter_md = "\n\n---\n\n".join(parts) + "\n"
             put_file(
                 org,
@@ -426,6 +448,10 @@ def lambda_handler(event, context):
                 token,
                 f"docs: sync chapter {module_number:02d} lab guide",
             )
+
+        outline = get_outline_metadata(bucket, project_folder)
+        readme_text = build_root_readme(project_folder, outline, module_index)
+        put_file(org, repo_name, "README.md", readme_text.encode("utf-8"), token, "docs: update repository root index")
 
         configure_repo_settings(org, repo_name, token)
         create_branch_if_missing(org, repo_name, token, "changes_course", source_branch="main")
@@ -438,22 +464,17 @@ def lambda_handler(event, context):
         if not bp_changes_ok:
             print(f"WARN branch protection changes_course: {bp_changes_detail}")
 
-        team_slug = os.getenv("GITHUB_INSTRUCTORS_TEAM_SLUG", "").strip()
-        team_ok, team_detail = grant_instructors_team_repo_access(
-            org, repo_name, team_slug, token, owner_type=owner_type
-        )
-
         instructor_user = str(body.get("instructor_github_user") or "").strip().lstrip("@")
         invite_ok, invite_detail = invite_collaborator(org, repo_name, token, instructor_user)
 
         response_body = {
             "message": "Repositorio publicado/actualizado en GitHub",
             "repository_owner": org,
-            "repository_owner_type": owner_type,
+            "repository_owner_type": "organization",
             "organization": org,
             "repository": repo_name,
             "repository_url": f"https://github.com/{org}/{repo_name}",
-            "repository_visibility": "private",
+            "repository_visibility": "public",
             "created": repo_created,
             "branch_protection_main_ok": bp_main_ok,
             "branch_protection_main_detail": bp_main_detail,
@@ -461,17 +482,6 @@ def lambda_handler(event, context):
             "branch_protection_changes_detail": bp_changes_detail,
             "instructor_github_user": instructor_user or None,
             "chapters_synced": len(module_labs),
-            "instructors_team_slug_configured": bool(team_slug),
-            "instructors_team_access_ok": (
-                None
-                if owner_type == "personal"
-                else (team_ok if team_slug else None)
-            ),
-            "instructors_team_access_detail": (
-                team_detail
-                if owner_type == "personal" and team_slug
-                else (team_detail if team_slug and not team_ok else None)
-            ),
             "collaborator_invite_ok": invite_ok,
             "collaborator_invite_detail": invite_detail,
         }

@@ -1590,11 +1590,11 @@ Resources:
           COURSE_BUCKET: crewai-course-artifacts
           # JSON: app_id, installation_id, private_key, org (see docs/GITHUB_APP_NETEC_MX.md)
           GITHUB_APP_SECRET_NAME: netec/github-app/aurora-publisher
-          GITHUB_ORG: NetecGk
-          # organization = repos under GitHub org (needs org seats). personal = user account (typical free tier, no org seats).
-          GITHUB_OWNER_TYPE: personal
+          GITHUB_ORG: Netec-Mx
+          # organization = repos under GitHub org (default/recommended for org URLs).
+          GITHUB_OWNER_TYPE: organization
           CODE_OWNER_USERNAME: NetecGK
-          # Optional: org team slug — grant push on every new lab repo (instructors as org members in that team)
+          # Optional org team slug (unused for public repos).
           GITHUB_INSTRUCTORS_TEAM_SLUG: ''
       Policies:
         - Version: '2012-10-17'

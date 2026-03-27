@@ -96,8 +96,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [verifiedOutlineKey, setVerifiedOutlineKey] = useState(null);
     // Saving state
     const [isSaving, setIsSaving] = useState(false);
-    const [instructorGithubUser, setInstructorGithubUser] = useState('');
-    const [savingInstructorGithub, setSavingInstructorGithub] = useState(false);
     const [publishingGithub, setPublishingGithub] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
@@ -810,82 +808,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         discoverOutlineKey();
     }, [projectFolder]);
 
-    useEffect(() => {
-        const loadInstructorGithubUser = async () => {
-            if (!projectFolder || !API_BASE) return;
-            try {
-                const session = await fetchAuthSession();
-                const idToken = session?.tokens?.idToken?.toString();
-                if (!idToken) return;
-                const response = await fetch(`${API_BASE}/user-instructor-github`, {
-                    headers: { Authorization: `Bearer ${idToken}` }
-                });
-                if (response.status === 401) return;
-                if (!response.ok) return;
-                const data = await response.json();
-                if (data?.githubUserId) {
-                    setInstructorGithubUser(data.githubUserId);
-                } else {
-                    setInstructorGithubUser('');
-                }
-            } catch (error) {
-                console.warn('Could not load instructor GitHub user:', error);
-            }
-        };
-        loadInstructorGithubUser();
-    }, [projectFolder]);
-
-    const saveInstructorGithubUser = async () => {
-        const trimmedUser = (instructorGithubUser || '').trim().replace(/^@/, '');
-        if (!trimmedUser) {
-            showModal('Ingresa tu GitHub username (ej: NetecGK), sin @.', 'Dato requerido');
-            return;
-        }
-        try {
-            setSavingInstructorGithub(true);
-            const session = await fetchAuthSession();
-            const idToken = session?.tokens?.idToken?.toString();
-            if (!idToken) {
-                showModal('Inicia sesión para guardar tu GitHub user id.', 'Sesión requerida');
-                return;
-            }
-
-            const response = await fetch(`${API_BASE}/user-instructor-github`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${idToken}`
-                },
-                body: JSON.stringify({ githubUserId: trimmedUser })
-            });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data?.error || `HTTP ${response.status}`);
-            }
-            setInstructorGithubUser(trimmedUser);
-            showModal('Tu GitHub user id quedó guardado y se rellenará automáticamente en futuras sesiones.', 'Guardado');
-        } catch (error) {
-            console.error('Error saving instructor GitHub user:', error);
-            showModal(`No se pudo guardar el GitHub user id: ${error.message}`, 'Error');
-        } finally {
-            setSavingInstructorGithub(false);
-        }
-    };
-
     const publishLabsToGithub = async () => {
         if (viewMode !== 'lab') {
             showModal('Cambia a vista Labs para publicar laboratorios.', 'Acción no disponible');
             return;
         }
 
-        const githubUser = (instructorGithubUser || '').trim().replace(/^@/, '');
-        if (!githubUser) {
-            showModal('Antes de publicar, ingresa y guarda tu GitHub user id (queda ligado a tu sesión de Cognito).', 'Falta dato');
-            return;
-        }
-
         const confirmed = await showConfirmModal(
-            `Se publicarán/actualizarán los laboratorios del curso ${projectFolder} en GitHub.\n\nRepositorio: ${projectFolder}\nInstructor: @${githubUser}\n\n¿Deseas continuar?`,
+            `Se publicarán/actualizarán los laboratorios del curso ${projectFolder} en GitHub.\n\nRepositorio: ${projectFolder}\nVisibilidad: público\n\n¿Deseas continuar?`,
             'Publicar laboratorios en GitHub'
         );
         if (!confirmed) return;
@@ -896,8 +826,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    project_folder: projectFolder,
-                    instructor_github_user: githubUser
+                    project_folder: projectFolder
                 })
             });
             const data = await response.json().catch(() => ({}));
@@ -914,10 +843,8 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 );
             }
             if (repoUrl) {
-                const privateNote =
-                    '\n\nEl repositorio es privado: solo podrás abrirlo en GitHub si tu usuario tiene acceso (miembro de la org / equipo autorizado o invitación aceptada). Si ves 404, revisa tu correo por una invitación de GitHub o pide acceso al administrador de la organización.';
                 const openRepo = await showConfirmModal(
-                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}${privateNote}\n\n¿Deseas abrir el repositorio ahora?`,
+                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}\n\n¿Deseas abrir el repositorio ahora?`,
                     'Publicación exitosa'
                 );
                 if (openRepo) {
@@ -4565,27 +4492,11 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                     {!viewOnly && viewMode === 'lab' && (
                         <div className="github-publish-controls">
-                            <input
-                                type="text"
-                                className="github-user-input"
-                                placeholder="Tu GitHub username (se guarda en tu cuenta)"
-                                value={instructorGithubUser}
-                                onChange={(e) => setInstructorGithubUser(e.target.value)}
-                                disabled={savingInstructorGithub || publishingGithub}
-                            />
-                            <button
-                                className="btn-icon btn-secondary"
-                                onClick={saveInstructorGithubUser}
-                                disabled={savingInstructorGithub || publishingGithub}
-                                title="Guardar tu GitHub username (asociado a tu usuario de Cognito)"
-                            >
-                                <span>{savingInstructorGithub ? 'Guardando...' : 'Guardar GH'}</span>
-                            </button>
                             <button
                                 className="btn-icon btn-secondary"
                                 onClick={publishLabsToGithub}
-                                disabled={publishingGithub || savingInstructorGithub}
-                                title="Publicar laboratorios en GitHub"
+                                disabled={publishingGithub}
+                                title="Publicar laboratorios en GitHub (repositorio público)"
                             >
                                 <span>{publishingGithub ? 'Publicando...' : 'Publicar GH'}</span>
                             </button>
