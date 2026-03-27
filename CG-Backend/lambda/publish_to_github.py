@@ -97,7 +97,7 @@ def sanitize_repo_name(name):
     return sanitized.strip("-")
 
 
-def get_outline_metadata(bucket, project_folder):
+def get_outline_data(bucket, project_folder):
     prefix = f"{project_folder}/outline/"
     listed = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=20)
     yaml_key = None
@@ -113,6 +113,13 @@ def get_outline_metadata(bucket, project_folder):
         import yaml
         data = yaml.safe_load(body) or {}
     except Exception:
+        return {}
+    return data
+
+
+def get_outline_metadata(bucket, project_folder):
+    data = get_outline_data(bucket, project_folder)
+    if not isinstance(data, dict):
         return {}
     return data.get("course", data)
 
@@ -321,6 +328,112 @@ def parse_lab_summary(markdown_text, module_number, lesson_number, lab_number):
     return {"title": title, "description": description, "duration": duration}
 
 
+def build_outline_lab_metadata_map(outline_data):
+    """
+    Build metadata map keyed as (module_number, lesson_number, lab_number):
+    {
+      "title": "...",
+      "description": "...",
+      "duration": "60 min"
+    }
+    """
+    mapping = {}
+    modules = []
+    if isinstance(outline_data, dict):
+        modules = outline_data.get("modules") or []
+        if not modules and isinstance(outline_data.get("course"), dict):
+            modules = outline_data["course"].get("modules") or []
+    if not isinstance(modules, list):
+        return mapping
+
+    def format_duration(value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        if re.search(r"\b(min|mins|minutos|minutes)\b", text, flags=re.IGNORECASE):
+            return text
+        if text.isdigit():
+            return f"{text} min"
+        return text
+
+    for mod_idx, module in enumerate(modules, 1):
+        if not isinstance(module, dict):
+            continue
+
+        module_labs = module.get("labs", []) or module.get("lab_activities", [])
+        if isinstance(module_labs, list):
+            for lab_idx, lab in enumerate(module_labs, 1):
+                if isinstance(lab, dict):
+                    try:
+                        lab_number = int(lab.get("number", lab_idx))
+                    except Exception:
+                        lab_number = lab_idx
+                    title = clean_lab_title(str(lab.get("title", f"Laboratorio {mod_idx}.{lab_number}")))
+                    description = (lab.get("description") or "").strip() or None
+                    duration = format_duration(lab.get("duration_minutes"))
+                else:
+                    lab_number = lab_idx
+                    title = clean_lab_title(str(lab))
+                    description = None
+                    duration = None
+                mapping[(mod_idx, 0, lab_number)] = {
+                    "title": title,
+                    "description": description,
+                    "duration": duration,
+                }
+
+        lessons = module.get("lessons", [])
+        if not isinstance(lessons, list):
+            continue
+        for les_idx, lesson in enumerate(lessons, 1):
+            if not isinstance(lesson, dict):
+                continue
+            lesson_labs = lesson.get("lab_activities", [])
+            if not isinstance(lesson_labs, list):
+                continue
+            for lab_idx, lab in enumerate(lesson_labs, 1):
+                if isinstance(lab, dict):
+                    title = clean_lab_title(str(lab.get("title", f"Laboratorio {mod_idx}.{les_idx}.{lab_idx}")))
+                    description = (lab.get("description") or "").strip() or None
+                    duration = format_duration(lab.get("duration_minutes"))
+                else:
+                    title = clean_lab_title(str(lab))
+                    description = None
+                    duration = None
+                mapping[(mod_idx, les_idx, lab_idx)] = {
+                    "title": title,
+                    "description": description,
+                    "duration": duration,
+                }
+    return mapping
+
+
+def find_outline_lab_metadata(outline_map, module_number, lesson_number, lab_number, title):
+    """
+    Resolve outline metadata with multiple strategies:
+    1) exact (module, lesson, lab)
+    2) module-level fallback (module, 0, lab)
+    3) title match within same module
+    """
+    meta = outline_map.get((module_number, lesson_number, lab_number))
+    if meta:
+        return meta
+    meta = outline_map.get((module_number, 0, lab_number))
+    if meta:
+        return meta
+    cleaned_title = clean_lab_title(title).strip().lower()
+    if cleaned_title:
+        for (mod, _les, _lab), candidate in outline_map.items():
+            if mod != module_number:
+                continue
+            ctitle = clean_lab_title(candidate.get("title") or "").strip().lower()
+            if ctitle and ctitle == cleaned_title:
+                return candidate
+    return {}
+
+
 def markdown_anchor(text):
     slug = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE).strip().lower()
     slug = re.sub(r"[\s_]+", "-", slug)
@@ -422,6 +535,8 @@ def lambda_handler(event, context):
         codeowners = f"* @{lucy_owner}\n"
         put_file(org, repo_name, ".github/CODEOWNERS", codeowners.encode("utf-8"), token, "chore: configure code owners")
 
+        outline_data = get_outline_data(bucket, project_folder)
+        outline_lab_map = build_outline_lab_metadata_map(outline_data)
         module_labs = list_latest_labs_by_module(bucket, project_folder)
         module_index = {}
         for module_number, labs in module_labs.items():
@@ -431,14 +546,26 @@ def lambda_handler(event, context):
             for lab in labs:
                 content = normalize_lab_markdown(read_s3_text(bucket, lab["key"]))
                 parts.append(content)
-                module_index[module_number].append(
-                    parse_lab_summary(
-                        content,
-                        module_number=lab["module"],
-                        lesson_number=lab["lesson"],
-                        lab_number=lab["lab"],
-                    )
+                summary = parse_lab_summary(
+                    content,
+                    module_number=lab["module"],
+                    lesson_number=lab["lesson"],
+                    lab_number=lab["lab"],
                 )
+                outline_meta = find_outline_lab_metadata(
+                    outline_lab_map,
+                    module_number=lab["module"],
+                    lesson_number=lab["lesson"],
+                    lab_number=lab["lab"],
+                    title=summary.get("title", ""),
+                )
+                if outline_meta.get("title"):
+                    summary["title"] = outline_meta["title"]
+                if outline_meta.get("description"):
+                    summary["description"] = outline_meta["description"]
+                if outline_meta.get("duration"):
+                    summary["duration"] = outline_meta["duration"]
+                module_index[module_number].append(summary)
             chapter_md = "\n\n---\n\n".join(parts) + "\n"
             put_file(
                 org,
@@ -449,7 +576,7 @@ def lambda_handler(event, context):
                 f"docs: sync chapter {module_number:02d} lab guide",
             )
 
-        outline = get_outline_metadata(bucket, project_folder)
+        outline = outline_data.get("course", outline_data) if isinstance(outline_data, dict) else {}
         readme_text = build_root_readme(project_folder, outline, module_index)
         put_file(org, repo_name, "README.md", readme_text.encode("utf-8"), token, "docs: update repository root index")
 
