@@ -32,7 +32,7 @@ const toDataURL = async (url) => {
   });
 };
 
-const resizeImage = async (base64, maxWidth = 600) => {
+const resizeImage = async (base64, maxWidth = 900, quality = 0.6) => {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64;
@@ -44,9 +44,10 @@ const resizeImage = async (base64, maxWidth = 600) => {
       canvas.height = img.height * scale;
 
       const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      resolve(canvas.toDataURL("image/jpeg", 0.4));
+      resolve(canvas.toDataURL("image/jpeg", quality)); // 🔥 usa quality dinámico
     };
   });
 };
@@ -370,8 +371,8 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         const encabezadoRaw = await toDataURL(encabezadoImagen);
         const pieRaw = await toDataURL(pieDePaginaImagen);
 
-        cachedHeader = await resizeImage(encabezadoRaw);
-        cachedFooter = await resizeImage(pieRaw);
+        cachedHeader = await resizeImage(encabezadoRaw, 900, 0.6);
+        cachedFooter = await resizeImage(pieRaw, 1000, 0.8);
       }
 
       const encabezado = cachedHeader;
@@ -1012,8 +1013,8 @@ export const exportarPDF = async (temarioData) => {
     const encabezadoRaw = await toDataURL("/src/assets/encabezado.png");
     const pieRaw = await toDataURL("/src/assets/pie_de_pagina.png");
 
-    cachedHeader = await resizeImage(encabezadoRaw);
-    cachedFooter = await resizeImage(pieRaw);
+    cachedHeader = await resizeImage(encabezadoRaw, 900, 0.6);
+    cachedFooter = await resizeImage(pieRaw, 1000, 0.8);
   }
 
   const encabezado = cachedHeader;
