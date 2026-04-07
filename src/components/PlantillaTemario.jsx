@@ -541,14 +541,6 @@ export default function PlantillaTemario() {
         const propsPie = doc.getImageProperties(pie);
         const altoPie = (propsPie.height / propsPie.width) * pageWidth;
         doc.addImage(pie, "JPEG", 0, pageHeight - altoPie, pageWidth, altoPie);
-
-        doc.setFontSize(8);
-        doc.setTextColor("#666");
-        doc.text(
-          "Documento generado mediante tecnología de IA bajo la supervisión y aprobación de Netec.",
-          margin.left,
-          pageHeight - 70
-        );
         doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 55, {
           align: "center",
         });
