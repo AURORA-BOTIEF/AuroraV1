@@ -9,6 +9,9 @@ import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_seminario.css";
 import { ArrowUp, ArrowDown } from "lucide-react";
 
+let cachedHeader = null;
+let cachedFooter = null;
+
 // === Utilidades de limpieza ===
 const cleanTitleNivel = (title = "") =>
   String(title)
@@ -41,6 +44,27 @@ const toDataURL = async (url) => {
     reader.onloadend = () => resolve(reader.result);
     reader.onerror = reject;
     reader.readAsDataURL(blob);
+  });
+};
+
+const resizeImage = async (base64, maxWidth = 800, quality = 0.6) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+
+      const scale = maxWidth / img.width;
+      canvas.width = maxWidth;
+      canvas.height = img.height * scale;
+
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
   });
 };
 
@@ -381,6 +405,7 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         orientation: "portrait",
         unit: "pt",
         format: "letter",
+        compress: true
       });
       const azul = "#005A9C";
       const negro = "#000";
@@ -388,10 +413,18 @@ const moverTemaAbajo = (capIndex, subIndex) => {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
 
-      const [encabezado, pie] = await Promise.all([
-        toDataURL(encabezadoImagen),
-        toDataURL(pieDePaginaImagen),
-      ]);
+      if (!cachedHeader || !cachedFooter) {
+        const [encabezadoRaw, pieRaw] = await Promise.all([
+          toDataURL(encabezadoImagen),
+          toDataURL(pieDePaginaImagen),
+        ]);
+
+        cachedHeader = await resizeImage(encabezadoRaw, 800, 0.6);
+        cachedFooter = await resizeImage(pieRaw, 1000, 0.8);
+      }
+
+      const encabezado = cachedHeader;
+      const pie = cachedFooter;
 
       const encProps = doc.getImageProperties(encabezado);
       const encAlto = (encProps.height / encProps.width) * pageWidth;
@@ -409,8 +442,8 @@ const moverTemaAbajo = (capIndex, subIndex) => {
 
       // === Dibuja solo encabezado y pie gráfico (sin texto) ===
       const drawHeaderFooter = () => {
-        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, encAlto);
-        doc.addImage(pie, "PNG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
+        doc.addImage(encabezado, "JPEG", 0, 0, pageWidth, encAlto);
+        doc.addImage(pie, "JPEG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
       };
 
 
@@ -619,8 +652,8 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         doc.setPage(i);
 
         // Redibujar encabezado y pie gráfico
-        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, encAlto);
-        doc.addImage(pie, "PNG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
+        doc.addImage(encabezado, "JPEG", 0, 0, pageWidth, encAlto);
+        doc.addImage(pie, "JPEG", 0, pageHeight - pieAlto, pageWidth, pieAlto);
 
         // Texto centrado
         doc.setFont("helvetica", "italic");
@@ -632,7 +665,7 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         const pageNum = `Página ${i} de ${totalPages}`;
 
         const footerX = pageWidth / 2;
-        doc.text(footerText, footerX, pageHeight - 70, { align: "left" });
+        doc.text(footerText, footerX, pageHeight - 70, { align: "center" });
         doc.text(pageNum, footerX, pageHeight - 55, { align: "center" });
       }
 

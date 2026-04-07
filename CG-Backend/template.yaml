@@ -232,7 +232,7 @@ Resources:
         - arm64
       Environment:
         Variables:
-          MAX_LABS_PER_BATCH: '2'
+          MAX_LABS_PER_BATCH: '1'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -670,8 +670,8 @@ Resources:
       Handler: list_projects.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
-      MemorySize: 256
-      Timeout: 30
+      MemorySize: 512
+      Timeout: 60
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
@@ -1095,6 +1095,20 @@ Resources:
             Method: options
             Auth:
               Authorizer: NONE
+        UserInstructorGithubOptions:
+          Type: Api
+          Properties:
+            Path: /user-instructor-github
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PublishLabsGithubOptions:
+          Type: Api
+          Properties:
+            Path: /publish-labs-github
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   StarterApiFunction:
     Type: AWS::Serverless::Function
@@ -1294,6 +1308,30 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  CourseInstructorGithubTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CourseInstructorGithub
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: courseId
+          KeyType: HASH
+
+  UserInstructorGithubTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: UserInstructorGithub
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
   PostConfirmationFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1474,6 +1512,110 @@ Resources:
           Properties:
             Path: /assignments
             Method: delete
+            Auth:
+              Authorizer: NONE
+
+  UpsertUserInstructorGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: UpsertUserInstructorGithubFunction
+      Description: Save GitHub username for the signed-in Cognito user
+      Runtime: python3.12
+      Handler: upsert_user_instructor_github.lambda_handler
+      CodeUri: lambda/assignments/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          USER_INSTRUCTOR_GITHUB_TABLE: !Ref UserInstructorGithubTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt UserInstructorGithubTable.Arn
+      Events:
+        UpsertUserInstructorGithubApi:
+          Type: Api
+          Properties:
+            Path: /user-instructor-github
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  GetUserInstructorGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: GetUserInstructorGithubFunction
+      Description: Read GitHub username for the signed-in Cognito user
+      Runtime: python3.12
+      Handler: get_user_instructor_github.lambda_handler
+      CodeUri: lambda/assignments/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          USER_INSTRUCTOR_GITHUB_TABLE: !Ref UserInstructorGithubTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt UserInstructorGithubTable.Arn
+      Events:
+        GetUserInstructorGithubApi:
+          Type: Api
+          Properties:
+            Path: /user-instructor-github
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  PublishLabsGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PublishLabsGithubFunction
+      Description: Publish lab guides (markdown) to GitHub repository (no theory images)
+      Runtime: python3.12
+      Handler: publish_to_github.lambda_handler
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          # JSON: app_id, installation_id, private_key, org (see docs/GITHUB_APP_NETEC_MX.md)
+          GITHUB_APP_SECRET_NAME: netec/github-app/aurora-publisher
+          GITHUB_ORG: Netec-Mx
+          # organization = repos under GitHub org (default/recommended for org URLs).
+          GITHUB_OWNER_TYPE: organization
+          CODE_OWNER_USERNAME: NetecGK
+          # Optional org team slug (unused for public repos).
+          GITHUB_INSTRUCTORS_TEAM_SLUG: ''
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: '*'
+      Events:
+        PublishLabsGithubApi:
+          Type: Api
+          Properties:
+            Path: /publish-labs-github
+            Method: post
             Auth:
               Authorizer: NONE
 

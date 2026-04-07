@@ -20,7 +20,7 @@ Output:
             {
                 "batch_index": 1,
                 "total_batches": 5,
-                "lab_ids": ["01-01-01", "01-01-02"],
+                "lab_ids": ["01-01-01"],
                 "course_bucket": "...",
                 "master_plan_key": "...",
                 "project_folder": "...",
@@ -32,14 +32,14 @@ Output:
 """
 
 import json
+import os
 import boto3
 from typing import List, Dict, Any
 
 s3_client = boto3.client('s3')
 
-# Maximum labs per batch
-# LabWriter already processes 2 labs per internal batch, so we keep it aligned
-MAX_LABS_PER_BATCH = 2
+# One lab per Step Functions batch item so StrandsLabWriter stays under Lambda 15m limit.
+MAX_LABS_PER_BATCH = max(1, int(os.getenv("MAX_LABS_PER_BATCH", "1")))
 
 
 def lambda_handler(event, context):
@@ -70,9 +70,18 @@ def lambda_handler(event, context):
         plan_content = plan_obj['Body'].read().decode('utf-8')
         master_plan = json.loads(plan_content)
         
-        # Get all labs
+        # Get all labs (optional: only labs listed in lab_ids_to_regenerate)
         lab_plans = master_plan.get('lab_plans', [])
-        
+        lab_ids_filter = event.get('lab_ids_to_regenerate')
+        if lab_ids_filter:
+            only = {x for x in lab_ids_filter if x}
+            before = len(lab_plans)
+            lab_plans = [p for p in lab_plans if p.get('lab_id') in only]
+            print(
+                f"🎯 Partial lab generation: filtered {before} → {len(lab_plans)} "
+                f"lab plan(s) ({', '.join(sorted(only))})"
+            )
+
         if not lab_plans:
             print("⚠️  No labs found in master plan")
             return {

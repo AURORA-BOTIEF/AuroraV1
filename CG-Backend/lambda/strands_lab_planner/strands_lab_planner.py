@@ -276,6 +276,80 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
         raise
 
 
+def build_fallback_lab_plans_from_outline(
+    labs: List[Dict[str, Any]],
+    course_language: str = "en",
+) -> List[Dict[str, Any]]:
+    """
+    Minimal lab_plans when the LLM returns nothing or unparsable JSON, so LabBatchExpander
+    still receives lab_id entries and the writer can run.
+    """
+    spanish = str(course_language).lower().startswith("es")
+    out: List[Dict[str, Any]] = []
+    for lab in labs:
+        lab_id = lab.get("lab_id")
+        if not lab_id:
+            continue
+        duration = int(lab.get("duration_minutes") or 30)
+        title = lab.get("lab_title") or "Lab"
+        lesson_title = lab.get("lesson_title") or ""
+        objectives = lab.get("objectives") or []
+        if not objectives:
+            objectives = (
+                [f"Aplicar en la práctica: {title}."]
+                if spanish
+                else [f"Hands-on practice: {title}."]
+            )
+        if spanish:
+            scope = (
+                f"Práctica alineada con la lección «{lesson_title}», enfocada en {title}. "
+                f"Usa los conceptos del módulo y el material teórico de la lección."
+            )
+            outcomes = [f"Completar los objetivos del laboratorio {lab_id}."]
+        else:
+            scope = (
+                f"Hands-on practice aligned with lesson «{lesson_title}», focused on {title}. "
+                f"Apply module concepts and lesson theory."
+            )
+            outcomes = [f"Complete the practical objectives for lab {lab_id}."]
+        topics = [t for t in (lab.get("context_topics") or []) if t][:8]
+        out.append(
+            {
+                "lab_id": lab_id,
+                "lab_title": title,
+                "objectives": objectives,
+                "scope": scope,
+                "estimated_duration": duration,
+                "bloom_level": lab.get("bloom_level") or "Apply",
+                "prerequisites": [],
+                "key_technologies": topics,
+                "expected_outcomes": outcomes,
+                "complexity": "medium",
+                "module_number": lab.get("module_number"),
+            }
+        )
+    return out
+
+
+def _parse_batch_plan_json(response_text: str) -> dict:
+    """Parse JSON from model output; tolerate fenced blocks and trailing text."""
+    text = response_text.strip()
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in text:
+        text = text.split("```", 1)[1].split("```", 1)[0]
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        return json.loads(text[start : end + 1])
+    raise json.JSONDecodeError("No JSON object found in model response", text, 0)
+
+
 def call_openai_agent(prompt: str, api_key: str, model_id: str = "gpt-5") -> str:
     """Call OpenAI API with GPT-5 compatibility."""
     try:
@@ -351,7 +425,10 @@ def generate_lab_master_plan(
     # For large courses, process labs in batches to avoid token limits and timeouts
     num_batches = (len(labs) + batch_size - 1) // batch_size
     print(f"📦 Processing {len(labs)} labs in {num_batches} batch(es)")
-    
+
+    course_language = (course_info or {}).get("language") or "en"
+    BATCH_MAX_ATTEMPTS = 3
+
     all_lab_plans = []
     all_hardware_reqs = set()
     all_software_reqs = []
@@ -428,28 +505,46 @@ Return JSON with:
 
 BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
 """
-        
-        try:
-            if model_provider == "openai":
-                secret_data = get_secret("aurora/openai-api-key")
-                api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
-                if not api_key:
-                    print("⚠️  OpenAI API key not found, falling back to Bedrock")
-                    model_provider = "bedrock"
+
+        batch_plan = None
+        for attempt in range(BATCH_MAX_ATTEMPTS):
+            try:
+                effective_provider = model_provider
+                if effective_provider == "openai":
+                    secret_data = get_secret("aurora/openai-api-key")
+                    api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
+                    if not api_key:
+                        print("⚠️  OpenAI API key not found, falling back to Bedrock")
+                        effective_provider = "bedrock"
+                    else:
+                        response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+
+                if effective_provider == "bedrock":
+                    response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+
+                batch_plan = _parse_batch_plan_json(response_text)
+                lp = batch_plan.get("lab_plans") or []
+                if not lp:
+                    raise ValueError("Model returned empty lab_plans")
+                if len(lp) < len(batch_labs):
+                    raise ValueError(
+                        f"Incomplete lab_plans: expected {len(batch_labs)}, got {len(lp)}"
+                    )
+                break
+            except Exception as e:
+                print(
+                    f"❌ Batch {batch_idx + 1} attempt {attempt + 1}/{BATCH_MAX_ATTEMPTS}: {e}"
+                )
+                if attempt == BATCH_MAX_ATTEMPTS - 1:
+                    print("⚠️  Batch failed after retries; continuing to next batch")
+                    batch_plan = None
                 else:
-                    response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
-            
-            if model_provider == "bedrock":
-                response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
-            
-            # Parse JSON from response
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-            
-            batch_plan = json.loads(response_text.strip())
-            
+                    print("🔁 Retrying batch with same prompt...")
+
+        if not batch_plan:
+            continue
+
+        try:
             # Aggregate results from this batch
             # IMPORTANT: Override AI-generated titles with exact titles from outline
             # AND extract module_number from lab_id (format: "MM-LL-NN")
@@ -472,26 +567,34 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
                     except (ValueError, IndexError):
                         lab_plan['module_number'] = None
                         print(f"  ❌ Lab {lab_id}: Could not extract module number")
-                    
+
             all_lab_plans.extend(batch_plan.get('lab_plans', []))
             all_hardware_reqs.update(batch_plan.get('hardware_requirements', []))
-            
+
             # Merge software requirements (avoid duplicates by name)
             for sw in batch_plan.get('software_requirements', []):
-                if not any(s['name'] == sw['name'] for s in all_software_reqs):
-                    all_software_reqs.append(sw)
-            
+                if isinstance(sw, dict) and sw.get('name'):
+                    if not any(s.get('name') == sw['name'] for s in all_software_reqs):
+                        all_software_reqs.append(sw)
+
             all_overall_objectives.update(batch_plan.get('overall_objectives', []))
             all_special_considerations.extend(batch_plan.get('special_considerations', []))
-            
+
             print(f"✅ Batch {batch_idx + 1} completed: {len(batch_plan.get('lab_plans', []))} lab plans generated")
-        
+
         except Exception as e:
-            print(f"❌ Error processing batch {batch_idx + 1}: {e}")
-            # Continue with next batch instead of failing completely
-            print(f"⚠️  Continuing with remaining batches...")
+            print(f"❌ Error merging batch {batch_idx + 1} results: {e}")
             continue
-    
+
+    outline_fallback = False
+    if labs and not all_lab_plans:
+        print(
+            "⚠️ No lab_plans from model after all batches — using outline-derived fallback "
+            "(downstream lab generation will still run)."
+        )
+        all_lab_plans = build_fallback_lab_plans_from_outline(labs, course_language=course_language)
+        outline_fallback = True
+
     # Compile final master plan
     master_plan = {
         'overall_objectives': list(all_overall_objectives),
@@ -500,7 +603,9 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
         'lab_plans': all_lab_plans,
         'special_considerations': all_special_considerations
     }
-    
+    if outline_fallback:
+        master_plan['_outline_fallback_used'] = True
+
     print(f"\n✅ Master plan generation complete")
     print(f"   - Overall objectives: {len(master_plan['overall_objectives'])}")
     print(f"   - Hardware requirements: {len(master_plan['hardware_requirements'])}")
@@ -509,6 +614,19 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
     print(f"   - Special considerations: {len(master_plan['special_considerations'])}")
     
     return master_plan
+
+
+def load_master_plan_from_s3(bucket: str, project_folder: str) -> Optional[dict]:
+    """Load existing lab-master-plan.json if present (for partial regeneration)."""
+    key = f"{project_folder}/labguide/lab-master-plan.json"
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        data = json.loads(response["Body"].read().decode("utf-8"))
+        print(f"📥 Loaded existing master plan from s3://{bucket}/{key}")
+        return data
+    except Exception as e:
+        print(f"⚠️  No existing master plan to merge (ok for full runs): {e}")
+        return None
 
 
 def save_master_plan_to_s3(
@@ -627,28 +745,67 @@ def lambda_handler(event, context):
                 'message': 'No lab activities found in outline - skipping lab generation'
             }
         
-        # Step 3: Generate master plan with AI
+        # Step 3: Generate master plan with AI (with retries + outline fallback if model yields nothing)
         master_plan = generate_lab_master_plan(
             labs=labs,
             course_info=course_info,
             additional_requirements=lab_requirements,
             model_provider=model_provider
         )
-        
+
+        outline_fallback = master_plan.pop('_outline_fallback_used', False)
+
+        if lab_ids_to_regenerate:
+            regen_set = {x for x in lab_ids_to_regenerate if x}
+            existing = load_master_plan_from_s3(course_bucket, project_folder)
+            if not existing or not existing.get("lab_plans"):
+                raise ValueError(
+                    "lab_ids_to_regenerate requires existing "
+                    f"{project_folder}/labguide/lab-master-plan.json on s3://{course_bucket}"
+                )
+            fresh_by_id = {
+                p["lab_id"]: p
+                for p in master_plan.get("lab_plans", [])
+                if p.get("lab_id")
+            }
+            merged_plans: List[Dict[str, Any]] = []
+            for p in existing["lab_plans"]:
+                lid = p.get("lab_id")
+                if lid in regen_set and lid in fresh_by_id:
+                    merged_plans.append(fresh_by_id[lid])
+                else:
+                    merged_plans.append(p)
+            existing_ids = {p.get("lab_id") for p in existing["lab_plans"]}
+            for lid, plan in fresh_by_id.items():
+                if lid in regen_set and lid not in existing_ids:
+                    merged_plans.append(plan)
+            master_plan = {**existing, "lab_plans": merged_plans}
+            print(
+                f"🔀 Merged replan: {len(fresh_by_id)} lab(s) refreshed, "
+                f"{len(merged_plans)} total in master plan"
+            )
+
+        lab_plan_list = master_plan.get("lab_plans") or []
+        duration_sum = sum(
+            int(p.get("estimated_duration") or p.get("duration_minutes") or 30)
+            for p in lab_plan_list
+        )
+
         # CRITICAL: Add total_labs to root level for State Machine validation
-        # The ValidateLabPlanExists choice state needs this at root level
-        master_plan['total_labs'] = len(labs)
-        
+        master_plan["total_labs"] = len(lab_plan_list)
+
         # Add metadata (including language for LabWriter)
         course_language = course_info.get('language', 'en')
         master_plan['metadata'] = {
             'generated_at': datetime.utcnow().isoformat(),
             'model_provider': model_provider,
             'course_title': course_info.get('title', 'Unknown'),
-            'course_language': course_language,  # NEW: Pass language to LabWriter
-            'total_labs': len(labs),
-            'total_duration_minutes': sum(lab['duration_minutes'] for lab in labs),
-            'additional_requirements': lab_requirements
+            'course_language': course_language,  # Pass language to LabWriter
+            'total_labs': len(lab_plan_list),
+            'total_duration_minutes': duration_sum,
+            'additional_requirements': lab_requirements,
+            'lab_plans_source': 'outline_fallback' if outline_fallback else 'ai',
+            'lab_plans_count': len(lab_plan_list),
         }
         
         # Step 4: Save to S3
@@ -665,11 +822,12 @@ def lambda_handler(event, context):
         return {
             'statusCode': 200,
             'master_plan_key': master_plan_key,
-            'total_labs': len(labs),
-            'total_duration_minutes': sum(lab['duration_minutes'] for lab in labs),
+            'total_labs': len(lab_plan_list),
+            'total_duration_minutes': duration_sum,
             'project_folder': project_folder,
             'bucket': course_bucket,
-            'model_provider': model_provider
+            'model_provider': model_provider,
+            'lab_plans_source': master_plan['metadata'].get('lab_plans_source', 'ai'),
         }
     
     except KeyError as e:

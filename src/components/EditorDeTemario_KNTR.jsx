@@ -8,7 +8,8 @@ import encabezadoImagen from "../assets/encabezado.png";
 import pieDePaginaImagen from "../assets/pie_de_pagina.png";
 import "./EditorDeTemario_KNTR.css";
 import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
-
+let cachedHeader = null;
+let cachedFooter = null;
 
 // 🔹 Convierte minutos en formato legible (ej: "1 hr 6 min")
 const formatDuration = (minutos) => {
@@ -28,6 +29,26 @@ const toDataURL = async (url) => {
     reader.onloadend = () => resolve(reader.result);
     reader.onerror = reject;
     reader.readAsDataURL(blob);
+  });
+};
+
+const resizeImage = async (base64, maxWidth = 900, quality = 0.6) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+
+      const scale = maxWidth / img.width;
+      canvas.width = maxWidth;
+      canvas.height = img.height * scale;
+
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      resolve(canvas.toDataURL("image/jpeg", quality)); // 🔥 usa quality dinámico
+    };
   });
 };
 
@@ -334,15 +355,28 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         return;
       }
 
-      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "pt",
+        format: "letter",
+        compress: true
+      });
       const azul = "#005A9C";
       const negro = "#000000";
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = { top: 230, bottom: 100, left: 60, right: 60 }; // ✅ más margen
       const contentWidth = pageWidth - margin.left - margin.right;
-      const encabezado = await toDataURL(encabezadoImagen);
-      const pie = await toDataURL(pieDePaginaImagen);
+      if (!cachedHeader || !cachedFooter) {
+        const encabezadoRaw = await toDataURL(encabezadoImagen);
+        const pieRaw = await toDataURL(pieDePaginaImagen);
+
+        cachedHeader = await resizeImage(encabezadoRaw, 900, 0.6);
+        cachedFooter = await resizeImage(pieRaw, 1000, 0.8);
+      }
+
+      const encabezado = cachedHeader;
+      const pie = cachedFooter;
       let y = margin.top;
 
       const addPageIfNeeded = (extra = 40) => {
@@ -474,10 +508,10 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         doc.setPage(i);
         const propsEnc = doc.getImageProperties(encabezado);
         const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
-        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+        doc.addImage(encabezado, "JPEG", 0, 0, pageWidth, altoEnc);
         const propsPie = doc.getImageProperties(pie);
         const altoPie = (propsPie.height / propsPie.width) * pageWidth;
-        doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+        doc.addImage(pie, "JPEG", 0, pageHeight - altoPie, pageWidth, altoPie);
         doc.setFontSize(8);
         doc.setTextColor("#666");
         doc.text(
@@ -975,10 +1009,22 @@ export const exportarPDF = async (temarioData) => {
     });
   };
 
-  const encabezado = await toDataURL("/src/assets/encabezado.png");
-  const pie = await toDataURL("/src/assets/pie_de_pagina.png");
+  if (!cachedHeader || !cachedFooter) {
+    const encabezadoRaw = await toDataURL("/src/assets/encabezado.png");
+    const pieRaw = await toDataURL("/src/assets/pie_de_pagina.png");
 
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+    cachedHeader = await resizeImage(encabezadoRaw, 900, 0.6);
+    cachedFooter = await resizeImage(pieRaw, 1000, 0.8);
+  }
+
+  const encabezado = cachedHeader;
+  const pie = cachedFooter;
+  const doc = new jsPDF({
+  orientation: "portrait",
+  unit: "pt",
+  format: "letter",
+  compress: true
+  });
   const azul = "#005A9C";
   const negro = "#000000";
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1103,10 +1149,10 @@ export const exportarPDF = async (temarioData) => {
     doc.setPage(i);
     const propsEnc = doc.getImageProperties(encabezado);
     const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
-    doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+    doc.addImage(encabezado, "JPEG", 0, 0, pageWidth, altoEnc);
     const propsPie = doc.getImageProperties(pie);
     const altoPie = (propsPie.height / propsPie.width) * pageWidth;
-    doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+    doc.addImage(pie, "JPEG", 0, pageHeight - altoPie, pageWidth, altoPie);
     doc.setFontSize(8);
     doc.setTextColor("#666");
     doc.text(

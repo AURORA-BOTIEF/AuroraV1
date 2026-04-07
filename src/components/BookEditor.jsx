@@ -96,6 +96,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const [verifiedOutlineKey, setVerifiedOutlineKey] = useState(null);
     // Saving state
     const [isSaving, setIsSaving] = useState(false);
+    const [publishingGithub, setPublishingGithub] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Helper function to clean text (remove encoding artifacts)
@@ -807,6 +808,59 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         discoverOutlineKey();
     }, [projectFolder]);
 
+    const publishLabsToGithub = async () => {
+        if (viewMode !== 'lab') {
+            showModal('Cambia a vista Labs para publicar laboratorios.', 'Acción no disponible');
+            return;
+        }
+
+        const confirmed = await showConfirmModal(
+            `Se publicarán/actualizarán los laboratorios del curso ${projectFolder} en GitHub.\n\nRepositorio: ${projectFolder}\nVisibilidad: público\n\n¿Deseas continuar?`,
+            'Publicar laboratorios en GitHub'
+        );
+        if (!confirmed) return;
+
+        try {
+            setPublishingGithub(true);
+            const response = await fetch(`${API_BASE}/publish-labs-github`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_folder: projectFolder
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data?.error || `HTTP ${response.status}`);
+            }
+
+            const repoUrl = data?.repository_url;
+            const inviteOk = data?.collaborator_invite_ok !== false;
+            if (!inviteOk && data?.collaborator_invite_detail) {
+                console.info(
+                    '[publish-labs-github] Colaborador no invitado (no crítico):',
+                    data.collaborator_invite_detail
+                );
+            }
+            if (repoUrl) {
+                const openRepo = await showConfirmModal(
+                    `Publicación completada.\n\nRepositorio: ${repoUrl}\nCapítulos sincronizados: ${data?.chapters_synced ?? 'N/A'}\n\n¿Deseas abrir el repositorio ahora?`,
+                    'Publicación exitosa'
+                );
+                if (openRepo) {
+                    window.open(repoUrl, '_blank');
+                }
+            } else {
+                showModal('Publicación completada correctamente.', 'Éxito');
+            }
+        } catch (error) {
+            console.error('Error publishing labs to GitHub:', error);
+            showModal(`No se pudo publicar en GitHub: ${error.message}`, 'Error');
+        } finally {
+            setPublishingGithub(false);
+        }
+    };
+
     // ReactQuill removed; lexical is preferred
 
     // Dynamically import Lexical editor wrapper (preferred editor)
@@ -846,7 +900,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
                 const logoBlob = await logoResponse.Body.transformToByteArray();
                 const logoBase64 = btoa(String.fromCharCode(...logoBlob));
-                setLogoUrl(`data: image / png; base64, ${logoBase64} `);
+                setLogoUrl(`data:image/png;base64,${logoBase64}`);
             } catch (error) {
                 console.error('Error loading logo:', error);
             }
@@ -4434,6 +4488,19 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 </>
                             )}
                         </button>
+                    )}
+
+                    {!viewOnly && viewMode === 'lab' && (
+                        <div className="github-publish-controls">
+                            <button
+                                className="btn-icon btn-secondary"
+                                onClick={publishLabsToGithub}
+                                disabled={publishingGithub}
+                                title="Publicar laboratorios en GitHub (repositorio público)"
+                            >
+                                <span>{publishingGithub ? 'Publicando...' : 'Publicar GH'}</span>
+                            </button>
+                        </div>
                     )}
 
                     {/* Download PDF - Hidden in viewOnly mode (students) */}

@@ -78,3 +78,4 @@ __pycache__/
 # Local environment and agent files
 .envrc
 AGENTS.md
+GithubApp/

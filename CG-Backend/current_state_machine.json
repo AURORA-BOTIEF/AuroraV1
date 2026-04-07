@@ -16,6 +16,7 @@
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "image_model.$": "$.image_model",
+        "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate",
         "lesson_to_generate": null,
         "lesson_requirements": null
       },
@@ -340,7 +341,8 @@
         "outline_s3_key.$": "$.outline_s3_key",
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
-        "master_lab_plan_result.$": "$.master_lab_plan_result"
+        "master_lab_plan_result.$": "$.master_lab_plan_result",
+        "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
       },
       "Type": "Pass"
     },
@@ -449,7 +451,8 @@
           "course_bucket.$": "$.course_bucket",
           "master_plan_key.$": "$.lab_planner_result.Payload.master_plan_key",
           "model_provider.$": "$.model_provider",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -486,7 +489,8 @@
           "course_bucket.$": "$.course_bucket",
           "master_plan_key.$": "$.master_lab_plan_result.Payload.master_plan_key",
           "model_provider.$": "$.model_provider",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -567,7 +571,8 @@
           "model_provider.$": "$.model_provider",
           "modules_to_generate.$": "$.modules_to_generate",
           "outline_s3_key.$": "$.outline_s3_key",
-          "project_folder.$": "$.project_folder"
+          "project_folder.$": "$.project_folder",
+          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
         }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -1045,7 +1050,7 @@
       "Default": "CombineResultsAndBuildBook"
     },
     "ProcessLabBatchesInParallel": {
-      "Comment": "Process 2 lab batches concurrently",
+      "Comment": "Process lab batches concurrently (1 lab per batch)",
       "ItemsPath": "$.lab_batch_expansion.Payload.batches",
       "Iterator": {
         "StartAt": "GenerateLabBatch",
@@ -1060,7 +1065,7 @@
                 "ResultPath": "$.error"
               }
             ],
-            "Comment": "Generate labs for this batch (max 2 labs per batch)",
+            "Comment": "Generate labs for this batch (1 lab per batch)",
             "Next": "LabBatchComplete",
             "Parameters": {
               "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsLabWriter",
