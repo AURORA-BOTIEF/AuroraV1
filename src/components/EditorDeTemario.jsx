@@ -28,6 +28,24 @@ const toDataURL = async (url) => {
   });
 };
 
+const resizeImage = async (base64, maxWidth = 1000) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+
+      const scale = maxWidth / img.width;
+      canvas.width = maxWidth;
+      canvas.height = img.height * scale;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      resolve(canvas.toDataURL("image/jpeg", 0.6));
+    };
+  });
+};
 const slugify = (str = "") =>
   String(str)
     .normalize("NFD")
@@ -435,7 +453,12 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         return;
       }
 
-      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "pt",
+        format: "letter",
+        compress: true
+      });
       const azul = "#005A9C";
       const negro = "#000000";
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -443,8 +466,11 @@ const moverTemaAbajo = (capIndex, subIndex) => {
       const margin = { top: 230, bottom: 100, left: 60, right: 60 };
       const contentWidth = pageWidth - margin.left - margin.right;
 
-      const encabezado = await toDataURL(encabezadoImagen);
-      const pie = await toDataURL(pieDePaginaImagen);
+      const encabezadoRaw = await toDataURL(encabezadoImagen);
+      const pieRaw = await toDataURL(pieDePaginaImagen);
+
+      const encabezado = await resizeImage(encabezadoRaw);
+      const pie = await resizeImage(pieRaw);
 
       let y = margin.top;
 
@@ -583,11 +609,11 @@ const moverTemaAbajo = (capIndex, subIndex) => {
 
         const propsEnc = doc.getImageProperties(encabezado);
         const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
-        doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+        doc.addImage(encabezado, "JPEG", 0, 0, pageWidth, altoEnc);
 
         const propsPie = doc.getImageProperties(pie);
         const altoPie = (propsPie.height / propsPie.width) * pageWidth;
-        doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+        doc.addImage(pie, "JPEG", 0, pageHeight - altoPie, pageWidth, altoPie);
 
         doc.setFontSize(8);
         doc.setTextColor("#666");
@@ -1143,10 +1169,16 @@ export const exportarPDF = async (temarioData) => {
     });
   };
 
-  const encabezado = await toDataURL2("/src/assets/encabezado.png");
-  const pie = await toDataURL2("/src/assets/pie_de_pagina.png");
-
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+  const encabezadoRaw = await toDataURL2("/src/assets/encabezado.png");
+  const pieRaw = await toDataURL2("/src/assets/pie_de_pagina.png");
+  const encabezado = await resizeImage(encabezadoRaw);
+  const pie = await resizeImage(pieRaw);
+  const doc = new jsPDF({
+  orientation: "portrait",
+  unit: "pt",
+  format: "letter",
+  compress: true
+  });
   const azul = "#005A9C";
   const negro = "#000000";
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1282,11 +1314,11 @@ export const exportarPDF = async (temarioData) => {
 
     const propsEnc = doc.getImageProperties(encabezado);
     const altoEnc = (propsEnc.height / propsEnc.width) * pageWidth;
-    doc.addImage(encabezado, "PNG", 0, 0, pageWidth, altoEnc);
+    doc.addImage(encabezado, "JPEG", 0, 0, pageWidth, altoEnc);
 
     const propsPie = doc.getImageProperties(pie);
     const altoPie = (propsPie.height / propsPie.width) * pageWidth;
-    doc.addImage(pie, "PNG", 0, pageHeight - altoPie, pageWidth, altoPie);
+    doc.addImage(pie, "JPEG", 0, pageHeight - altoPie, pageWidth, altoPie);
 
     doc.setFontSize(8);
     doc.setTextColor("#666");
