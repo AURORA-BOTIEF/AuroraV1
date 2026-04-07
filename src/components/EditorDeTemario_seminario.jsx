@@ -665,7 +665,7 @@ const moverTemaAbajo = (capIndex, subIndex) => {
         const pageNum = `Página ${i} de ${totalPages}`;
 
         const footerX = pageWidth / 2;
-        doc.text(footerText, footerX, pageHeight - 70, { align: "left" });
+        doc.text(footerText, footerX, pageHeight - 70, { align: "center" });
         doc.text(pageNum, footerX, pageHeight - 55, { align: "center" });
       }
 
