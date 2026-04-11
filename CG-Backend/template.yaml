@@ -1,0 +1,1712 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: NETEC Course Generator with Strands Agents (NO DOCKER!)
+
+Globals:
+  Api:
+    Cors:
+      AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+      AllowOrigin: "'*'"
+    BinaryMediaTypes:
+      - "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      - "application/octet-stream"
+      - "*/*"
+    Auth:
+      ApiKeyRequired: false
+      DefaultAuthorizer: AWS_IAM
+    GatewayResponses:
+      UNAUTHORIZED:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      MISSING_AUTHENTICATION_TOKEN:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      ACCESS_DENIED:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      INVALID_SIGNATURE:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      DEFAULT_5XX:
+        StatusCode: 500
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+
+Resources:
+  # ======================================
+  # LAMBDA LAYERS
+  # ======================================
+  StrandsAgentsLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: strands-agents-dependencies
+      Description: Strands Agents SDK for AWS-native agent deployment
+      Content: ./lambda-layers/strands-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
+  GeminiLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: gemini-dependencies
+      Description: Google Gemini API + Pillow for image generation
+      Content: ./lambda-layers/gemini-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
+  PPTLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: ppt-dependencies
+      Description: PowerPoint generation dependencies (python-pptx)
+      ContentUri: ./lambda-layers/ppt_layer/
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+    Metadata:
+      BuildMethod: python3.12
+
+  PdfLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: pdf-dependencies
+      Description: PDF generation dependencies (xhtml2pdf, jinja2)
+      ContentUri: ./lambda-layers/pdf_layer/
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+    Metadata:
+      BuildMethod: python3.12
+
+  # ======================================
+  # STRANDS AGENTS - COURSE GENERATION
+  # ======================================
+  StrandsContentGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsContentGen
+      Description: Generate course lesson content using Strands Agents (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_content_gen.lambda_handler
+      CodeUri: ./lambda/strands_content_gen/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+          OPENAI_API_KEY: ""  # Will be set via environment or Secrets Manager
+          UPDATED_AT: "2025-10-12-16:45"
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - aws-marketplace:ViewSubscriptions
+                - aws-marketplace:Subscribe
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  ContentValidator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ContentValidator
+      Description: Validate generated lesson and lab content against Aurora schemas
+      Runtime: python3.12
+      Handler: content_validator.lambda_handler
+      CodeUri: ./lambda/content_validator/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 120
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          SCHEMA_BUCKET: crewai-course-artifacts
+          SCHEMA_PREFIX: schemas
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+  
+  BatchExpander:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BatchExpander
+      Description: Expand modules into individual batch tasks for parallel processing
+      Runtime: python3.12
+      Handler: batch_expander.lambda_handler
+      CodeUri: ./lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 60
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          MAX_LESSONS_PER_BATCH: '1'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+
+  LabBatchExpander:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: LabBatchExpander
+      Description: Expand labs into individual batch tasks for parallel processing
+      Runtime: python3.12
+      Handler: lab_batch_expander.lambda_handler
+      CodeUri: ./lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 60
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          MAX_LABS_PER_BATCH: '1'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+
+  StrandsVisualPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsVisualPlanner
+      Description: Extract visual tags and create image generation prompts using Strands Agents (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_visual_planner.lambda_handler
+      CodeUri: ./lambda/strands_visual_planner/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - aws-marketplace:ViewSubscriptions
+                - aws-marketplace:Subscribe
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  PptBatchOrchestrator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PptBatchOrchestrator
+      Description: Orchestrate PPT batch generation via Step Functions for large courses
+      Runtime: python3.12
+      Handler: ppt_batch_orchestrator.lambda_handler
+      CodeUri: ./lambda/ppt_batch_orchestrator/
+      Timeout: 60
+      MemorySize: 512
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          PPT_ORCHESTRATOR_STATE_MACHINE_ARN: !Ref PptBatchOrchestratorStateMachine
+          MAX_LESSONS_PER_BATCH: '3'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource:
+                - !Ref PptBatchOrchestratorStateMachine
+      Events:
+        GenerateInfographicApi:
+          Type: Api
+          Properties:
+            Path: /generate-infographic
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  StrandsPptMerger:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsPptMerger
+      Description: Merge batch structures, generate final HTML, and create ONE PPT from complete HTML
+      Runtime: python3.12
+      Handler: ppt_merger.lambda_handler
+      CodeUri: ./lambda/ppt_merger/
+      Layers:
+        - !Ref StrandsAgentsLayer
+        - !Ref PPTLayer
+      Timeout: 600
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:DeleteObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
+  StrandsInfographicGenerator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsInfographicGenerator
+      Description: Generate HTML infographics and export to editable PowerPoint presentations using Strands Agents
+      Runtime: python3.12
+      Handler: infographic_generator.lambda_handler
+      CodeUri: ./lambda/strands_infographic_generator/
+      Layers:
+        - !Ref StrandsAgentsLayer
+        - !Ref PPTLayer
+      Timeout: 900
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-haiku-4-5-20251001-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  StrandsVisualOptimizer:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsVisualOptimizer
+      Description: Agent 2 - Intelligently optimizes oversized slides using Claude Haiku 4.5 (post-processing)
+      Runtime: python3.12
+      Handler: visual_optimizer.lambda_handler
+      CodeUri: ./lambda/strands_visual_optimizer/
+      Timeout: 600
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Layers:
+        - !Ref StrandsAgentsLayer
+        - !Ref PPTLayer
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          PYTHONPATH: /opt/python
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:Converse
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
+  ImagesGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ImagesGen
+      Description: Generate images from prompts using Google Gemini API or Imagen 4.0
+      Runtime: python3.12
+      Handler: images_gen.lambda_handler
+      CodeUri: ./lambda/images_gen/
+      Layers:
+        - !Ref GeminiLayer
+      Timeout: 900
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          IMAGES_BACKEND_MAX: '50'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
+
+  # ======================================
+  # STRANDS AGENTS - LAB GUIDE GENERATION
+  # ======================================
+  StrandsLabPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsLabPlanner
+      Description: Generate master plan for lab guides (Agent 1)
+      Runtime: python3.12
+      Handler: strands_lab_planner.lambda_handler
+      CodeUri: ./lambda/strands_lab_planner/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 600
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - aws-marketplace:ViewSubscriptions
+                - aws-marketplace:Subscribe
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  StrandsLabWriter:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsLabWriter
+      Description: Generate detailed step-by-step lab guides (Agent 2)
+      Runtime: python3.12
+      Handler: strands_lab_writer.lambda_handler
+      CodeUri: ./lambda/strands_lab_writer/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  StrandsNotification:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsNotification
+      Description: Sends email notifications upon workflow completion
+      Runtime: python3.12
+      Handler: strands_notification.lambda_handler
+      CodeUri: ./lambda/strands_notification/
+      Timeout: 60
+      MemorySize: 128
+      Architectures:
+        - arm64
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+
+  # ======================================
+  # SUPPORTING LAMBDAS
+  # ======================================
+  BookBuilder:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Builds complete books by combining lessons and images
+      Handler: book_builder.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 300
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        BuildBookApi:
+          Type: Api
+          Properties:
+            Path: /build-book
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  LabGuideBuilder:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Builds complete lab guide books by combining lab exercises
+      Handler: lab_guide_builder.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      MemorySize: 512
+      Timeout: 300
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        BuildLabGuideApi:
+          Type: Api
+          Properties:
+            Path: /build-lab-guide
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  ListProjectsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lists available course projects for the Book Builder interface
+      Handler: list_projects.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        ListProjectsApi:
+          Type: Api
+          Properties:
+            Path: /list-projects
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  ListInfographicsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lists available infographic presentations
+      Handler: list_infographics.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:HeadObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        ListInfographicsApi:
+          Type: Api
+          Properties:
+            Path: /list-infographics
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  GetInfographicFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Gets infographic details and structure for viewing/editing
+      Handler: get_infographic.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:HeadObject
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        GetInfographicApi:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  UpdateInfographicFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Updates infographic slides and regenerates HTML
+      Handler: update_infographic.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          PYTHONPATH: /opt/python
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        UpdateInfographicApi:
+          Type: Api
+          Properties:
+            Path: /infographic
+            Method: put
+            Auth:
+              Authorizer: NONE
+            Auth:
+              Authorizer: NONE
+
+  ExportPptFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Exports infographic as PowerPoint
+      Handler: export_ppt.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/ppt_merger/
+      Layers:
+        - !Ref PPTLayer
+        - !Ref StrandsAgentsLayer
+      Architectures:
+        - arm64
+      MemorySize: 2048
+      Timeout: 120
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          PYTHONPATH: /opt/python
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        ExportPptApi:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}/ppt
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  BookToPdfFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Generates PDF from book data (Server-Side) using xhtml2pdf
+      Handler: book_to_pdf.lambda_handler
+      Runtime: python3.12
+      CodeUri: ./lambda/book_to_pdf/
+      Layers:
+        - !Ref PdfLayer
+      Architectures:
+        - arm64
+      MemorySize: 3008
+      Timeout: 900
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+        # Removed lambda:InvokeFunction (no longer needed for self-invocation)
+      # Events removed - now triggered by Step Function
+
+  PdfStarterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PdfStarterFunction
+      Description: API handler to start/check PDF State Machine
+      Runtime: python3.12
+      Handler: pdf_starter.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref PdfGenerationStateMachine
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref PdfGenerationStateMachine
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+              Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:PdfGenerationStateMachine:*"
+      Events:
+        BuildPdfApi:
+          Type: Api
+          Properties:
+            Path: /build-pdf
+            Method: post
+            Auth:
+              Authorizer: NONE
+        BuildPdfApiOptions:
+          Type: Api
+          Properties:
+            Path: /build-pdf
+            Method: options
+            Auth:
+              Authorizer: NONE
+
+  LoadBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Loads book data for the Book Editor interface
+      Handler: load_book.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:GetObjectAcl
+            - s3:HeadObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        LoadBookApi:
+          Type: Api
+          Properties:
+            Path: /load-book/{projectFolder}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  SaveBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Saves book data from the Book Editor interface
+      Handler: save_book.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:GetObjectAcl
+            - s3:HeadObject
+            - s3:ListBucket
+            - s3:PutObject
+            - s3:PutObjectAcl
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        SaveBookApi:
+          Type: Api
+          Properties:
+            Path: /save-book
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  # ======================================
+  # API ENDPOINTS
+  # ======================================
+  CorsHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Handles CORS preflight OPTIONS requests
+      Handler: cors_handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 5
+      Events:
+        StartJobOptions:
+          Type: Api
+          Properties:
+            Path: /start-job
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ExecStatusOptions:
+          Type: Api
+          Properties:
+            Path: /exec-status/{executionArn}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ListProjectsOptions:
+          Type: Api
+          Properties:
+            Path: /list-projects
+            Method: options
+            Auth:
+              Authorizer: NONE
+        LoadBookOptions:
+          Type: Api
+          Properties:
+            Path: /load-book/{projectFolder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        SaveBookOptions:
+          Type: Api
+          Properties:
+            Path: /save-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        BuildBookOptions:
+          Type: Api
+          Properties:
+            Path: /build-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        BuildLabGuideOptions:
+          Type: Api
+          Properties:
+            Path: /build-lab-guide
+            Method: options
+            Auth:
+              Authorizer: NONE
+        GenerateInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /generate-infographic
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ListInfographicsOptions:
+          Type: Api
+          Properties:
+            Path: /list-infographics
+            Method: options
+            Auth:
+              Authorizer: NONE
+        GetInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /infographic/{folder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UpdateInfographicOptions:
+          Type: Api
+          Properties:
+            Path: /infographic
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PresignOptions:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: options
+            Auth:
+              Authorizer: NONE
+        AssignmentsOptions:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: options
+            Auth:
+              Authorizer: NONE
+        StudentCoursesOptions:
+          Type: Api
+          Properties:
+            Path: /student-courses/{userId}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UsersOptions:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UserInstructorGithubOptions:
+          Type: Api
+          Properties:
+            Path: /user-instructor-github
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PublishLabsGithubOptions:
+          Type: Api
+          Properties:
+            Path: /publish-labs-github
+            Method: options
+            Auth:
+              Authorizer: NONE
+
+  StarterApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: API endpoint to start the ContentGen -> VisualPlanner state machine
+      Handler: starter_api.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref CourseGeneratorStateMachine
+          SKIP_S3_HEAD_CHECK: 'true'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref CourseGeneratorStateMachine
+            - Effect: Allow
+              Action:
+                - s3:HeadObject
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        StartJobApi:
+          Type: Api
+          Properties:
+            Path: /start-job
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  PresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Issues presigned URLs for outline uploads
+      Handler: presign.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          UPLOAD_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        PresignApi:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: post
+
+  ExecStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Returns Step Functions execution status for a given arn
+      Handler: exec_status.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 10
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+                - states:GetExecutionHistory
+              Resource: 
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${CourseGeneratorStateMachine.Name}:*"
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${CourseGeneratorStateMachine.Name}"
+      Events:
+        ExecStatusApi:
+          Type: Api
+          Properties:
+            Path: /exec-status/{executionArn}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  # ======================================
+  # STEP FUNCTIONS STATE MACHINE
+  # ======================================
+  CourseGeneratorStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: CourseGeneratorStateMachine
+      DefinitionUri: current_state_machine.json
+      DefinitionSubstitutions:
+        BatchExpanderArn: !GetAtt BatchExpander.Arn
+        LabBatchExpanderArn: !GetAtt LabBatchExpander.Arn
+        StrandsContentGenArn: !GetAtt StrandsContentGen.Arn
+        StrandsVisualPlannerArn: !GetAtt StrandsVisualPlanner.Arn
+        ImagesGenArn: !GetAtt ImagesGen.Arn
+        BookBuilderArn: !GetAtt BookBuilder.Arn
+        LabGuideBuilderArn: !GetAtt LabGuideBuilder.Arn
+        StrandsLabPlannerArn: !GetAtt StrandsLabPlanner.Arn
+        StrandsLabWriterArn: !GetAtt StrandsLabWriter.Arn
+        StrandsNotificationArn: !GetAtt StrandsNotification.Arn
+      Type: STANDARD
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt StrandsContentGen.Arn
+                - !GetAtt BatchExpander.Arn
+                - !GetAtt LabBatchExpander.Arn
+                - !GetAtt StrandsVisualPlanner.Arn
+                - !GetAtt ImagesGen.Arn
+                - !GetAtt BookBuilder.Arn
+                - !GetAtt LabGuideBuilder.Arn
+                - !GetAtt StrandsLabPlanner.Arn
+                - !GetAtt StrandsLabWriter.Arn
+                - !GetAtt StrandsNotification.Arn
+                - !GetAtt ContentValidator.Arn
+
+  PptBatchOrchestratorStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: PptBatchOrchestrator
+      DefinitionUri: ppt_batch_orchestrator_state_machine.json
+      DefinitionSubstitutions:
+        StrandsInfographicGeneratorArn: !GetAtt StrandsInfographicGenerator.Arn
+        StrandsPptMergerArn: !GetAtt StrandsPptMerger.Arn
+        StrandsVisualOptimizerArn: !GetAtt StrandsVisualOptimizer.Arn
+      Type: STANDARD
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt StrandsInfographicGenerator.Arn
+                - !GetAtt StrandsPptMerger.Arn
+                - !GetAtt StrandsVisualOptimizer.Arn
+                - !GetAtt StrandsNotification.Arn
+
+  PdfGenerationStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: PdfGenerationStateMachine
+      DefinitionUri: pdf_generation_state_machine.json
+      DefinitionSubstitutions:
+        BookToPdfFunctionArn: !GetAtt BookToPdfFunction.Arn
+      Type: STANDARD
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt BookToPdfFunction.Arn
+                - !GetAtt StrandsNotification.Arn
+
+  # ======================================
+  # SECURITY & ASSIGNMENTS
+  # ======================================
+  CourseAssignmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CourseAssignments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: courseId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: CourseIndex
+          KeySchema:
+            - AttributeName: courseId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  CourseInstructorGithubTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CourseInstructorGithub
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: courseId
+          KeyType: HASH
+
+  UserInstructorGithubTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: UserInstructorGithub
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PostConfirmationFunction
+      Description: Post-confirmation trigger to add new users to Estudiantes group
+      Runtime: python3.12
+      Handler: auth/post_confirmation.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminAddUserToGroup
+              Resource: '*'
+
+  # ======================================
+  # ASSIGNMENTS API
+  # ======================================
+  AssignCourseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AssignCourseFunction
+      Description: Assign courses to users
+      Runtime: python3.12
+      Handler: assignments/assign_course.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt CourseAssignmentsTable.Arn
+      Events:
+        AssignCourseApi:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  ListAssignmentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ListAssignmentsFunction
+      Description: List course assignments
+      Runtime: python3.12
+      Handler: assignments/list_assignments.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt CourseAssignmentsTable.Arn
+                - !Sub "${CourseAssignmentsTable.Arn}/index/*"
+      Events:
+        ListAssignmentsApi:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  GetStudentCoursesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: python3.12
+    Properties:
+      FunctionName: GetStudentCoursesFunction
+      Description: Get courses assigned to a student
+      Runtime: python3.12
+      Handler: get_student_courses.lambda_handler
+      CodeUri: lambda/assignments/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt CourseAssignmentsTable.Arn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:HeadObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        GetStudentCoursesApi:
+          Type: Api
+          Properties:
+            Path: /student-courses/{userId}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  ListUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ListUsersFunction
+      Description: List users from Cognito
+      Runtime: python3.12
+      Handler: assignments/list_users.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          USER_POOL_ID: us-east-1_B7QVYyDGp
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:ListUsers
+                - cognito-idp:ListUsersInGroup
+              Resource: '*'
+      Events:
+        ListUsersApi:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  RemoveAssignmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: RemoveAssignmentFunction
+      Description: Remove a course assignment
+      Runtime: python3.12
+      Handler: assignments/remove_assignment.lambda_handler
+      CodeUri: lambda/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ASSIGNMENTS_TABLE: !Ref CourseAssignmentsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+              Resource: !GetAtt CourseAssignmentsTable.Arn
+      Events:
+        RemoveAssignmentApi:
+          Type: Api
+          Properties:
+            Path: /assignments
+            Method: delete
+            Auth:
+              Authorizer: NONE
+
+  UpsertUserInstructorGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: UpsertUserInstructorGithubFunction
+      Description: Save GitHub username for the signed-in Cognito user
+      Runtime: python3.12
+      Handler: upsert_user_instructor_github.lambda_handler
+      CodeUri: lambda/assignments/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          USER_INSTRUCTOR_GITHUB_TABLE: !Ref UserInstructorGithubTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt UserInstructorGithubTable.Arn
+      Events:
+        UpsertUserInstructorGithubApi:
+          Type: Api
+          Properties:
+            Path: /user-instructor-github
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  GetUserInstructorGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: GetUserInstructorGithubFunction
+      Description: Read GitHub username for the signed-in Cognito user
+      Runtime: python3.12
+      Handler: get_user_instructor_github.lambda_handler
+      CodeUri: lambda/assignments/
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          USER_INSTRUCTOR_GITHUB_TABLE: !Ref UserInstructorGithubTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt UserInstructorGithubTable.Arn
+      Events:
+        GetUserInstructorGithubApi:
+          Type: Api
+          Properties:
+            Path: /user-instructor-github
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  PublishLabsGithubFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PublishLabsGithubFunction
+      Description: Publish lab guides (markdown) to GitHub repository (no theory images)
+      Runtime: python3.12
+      Handler: publish_to_github.lambda_handler
+      CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          # JSON: app_id, installation_id, private_key, org (see docs/GITHUB_APP_NETEC_MX.md)
+          GITHUB_APP_SECRET_NAME: netec/github-app/aurora-publisher
+          GITHUB_ORG: Netec-Mx
+          # organization = repos under GitHub org (default/recommended for org URLs).
+          GITHUB_OWNER_TYPE: organization
+          CODE_OWNER_USERNAME: NetecGK
+          # Optional org team slug (unused for public repos).
+          GITHUB_INSTRUCTORS_TEAM_SLUG: ''
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: '*'
+      Events:
+        PublishLabsGithubApi:
+          Type: Api
+          Properties:
+            Path: /publish-labs-github
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  # Strands Agents Lambdas - Theory Generation
+  StrandsContentGenArn:
+    Description: Strands Content Generator Lambda ARN
+    Value: !GetAtt StrandsContentGen.Arn
+  
+  StrandsVisualPlannerArn:
+    Description: Strands Visual Planner Lambda ARN
+    Value: !GetAtt StrandsVisualPlanner.Arn
+  
+  ImagesGenArn:
+    Description: Images Generation Lambda ARN
+    Value: !GetAtt ImagesGen.Arn
+  
+  # Strands Agents Lambdas - Lab Guide Generation
+  StrandsLabPlannerArn:
+    Description: Strands Lab Planner Lambda ARN
+    Value: !GetAtt StrandsLabPlanner.Arn
+  
+  StrandsLabWriterArn:
+    Description: Strands Lab Writer Lambda ARN
+    Value: !GetAtt StrandsLabWriter.Arn
+  
+  # Strands Agents Lambdas - Infographic Generation
+  StrandsInfographicGeneratorArn:
+    Description: Strands Infographic Generator Lambda ARN
+    Value: !GetAtt StrandsInfographicGenerator.Arn
+
+  # Supporting Lambdas
+  BookBuilderFunction:
+    Description: Book Builder Lambda Function ARN
+    Value: !GetAtt BookBuilder.Arn
+  
+  LabGuideBuilderFunction:
+    Description: Lab Guide Builder Lambda Function ARN
+    Value: !GetAtt LabGuideBuilder.Arn
+  
+  ListProjectsFunction:
+    Description: List Projects Lambda Function ARN
+    Value: !GetAtt ListProjectsFunction.Arn
+  
+  LoadBookFunction:
+    Description: Load Book Lambda Function ARN
+    Value: !GetAtt LoadBookFunction.Arn
+  
+  SaveBookFunction:
+    Description: Save Book Lambda Function ARN
+    Value: !GetAtt SaveBookFunction.Arn
+
+  # API Endpoints
+  StarterApiFunction:
+    Description: Starter API Lambda ARN
+    Value: !GetAtt StarterApiFunction.Arn
+  
+  PresignFunction:
+    Description: Presign Lambda ARN
+    Value: !GetAtt PresignFunction.Arn
+  
+  ExecStatusFunction:
+    Description: ExecStatus Lambda ARN
+    Value: !GetAtt ExecStatusFunction.Arn
+
+  # State Machine
+  CourseGeneratorStateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value: !Ref CourseGeneratorStateMachine
+
+  # API Gateway
+  ApiBaseUrl:
+    Description: API Gateway base URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  
+  PresignEndpoint:
+    Description: Presign endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presign"
+  
+  StartJobEndpoint:
+    Description: Start job endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/start-job"
+  
+  ExecStatusEndpoint:
+    Description: Execution status endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/exec-status"
+  
+  GeneratePPTEndpoint:
+    Description: Generate PowerPoint presentation endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/generate-ppt"
+
+  PostConfirmationFunctionArn:
+    Description: Post Confirmation Lambda ARN
+    Value: !GetAtt PostConfirmationFunction.Arn

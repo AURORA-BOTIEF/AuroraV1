@@ -1,0 +1,71 @@
+{
+    "Comment": "Orchestrate PDF generation using a dedicated State Machine for reliability and long-running job tracking",
+    "StartAt": "ValidateInput",
+    "States": {
+        "ValidateInput": {
+            "Comment": "Validate required input parameters",
+            "Type": "Pass",
+            "Next": "GeneratePDF"
+        },
+        "GeneratePDF": {
+            "Comment": "Generate PDF from book content",
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "${BookToPdfFunctionArn}",
+                "Payload": {
+                    "course_bucket.$": "$.course_bucket",
+                    "action": "generate",
+                    "s3Key.$": "$.s3Key"
+                }
+            },
+            "ResultPath": "$.pdf_generation_result",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 5,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "NotifyFailure",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "TimeoutSeconds": 900,
+            "Next": "CheckGenerationStatus"
+        },
+        "CheckGenerationStatus": {
+            "Comment": "Check if generation succeeded",
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.pdf_generation_result.Payload.statusCode",
+                    "NumericEquals": 200,
+                    "Next": "NotifySuccess"
+                }
+            ],
+            "Default": "NotifyFailure"
+        },
+        "NotifySuccess": {
+            "Comment": "Send success notification (or just end)",
+            "Type": "Pass",
+            "End": true
+        },
+        "NotifyFailure": {
+            "Comment": "Send failure notification",
+            "Type": "Fail",
+            "Error": "PdfGenerationFailed",
+            "Cause": "PDF generation failed - check CloudWatch logs for details"
+        }
+    }
+}
