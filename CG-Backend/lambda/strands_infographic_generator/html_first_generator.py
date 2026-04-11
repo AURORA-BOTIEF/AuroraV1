@@ -1783,6 +1783,40 @@ class HTMLFirstGenerator:
         
         return json_str
 
+    def _normalize_ai_slides(self, raw_slides, lesson_title: str) -> List[Dict]:
+        """
+        Coerce LLM `slides` array into a list of dicts.
+        Models sometimes emit a string or other type inside `slides`, which would
+        crash validate_and_refine_slide (slide.get(...)).
+        """
+        if not raw_slides:
+            return []
+        out: List[Dict] = []
+        for idx, slide in enumerate(raw_slides):
+            if isinstance(slide, dict):
+                out.append(slide)
+                continue
+            if isinstance(slide, str):
+                s = slide.strip()
+                if not s:
+                    continue
+                logger.warning(
+                    f"AI returned slides[{idx}] as str ({len(s)} chars); coercing to text_only"
+                )
+                title = (lesson_title or "Contenido").strip()[:120] or "Contenido"
+                text = s if len(s) <= 4000 else (s[:3997] + "...")
+                out.append({
+                    "layout": "text_only",
+                    "title": title,
+                    "content": {"bullets": [text]},
+                    "notes": "",
+                })
+                continue
+            logger.warning(
+                f"Skipping slides[{idx}] with unsupported type {type(slide).__name__}"
+            )
+        return out
+
     def generate_from_lesson(self, lesson: Dict, lesson_idx: int, images: List[Dict]) -> List[Dict]:
         """
         Generate slides for a lesson using STRICT TEMPLATE SYSTEM + VALIDATION LOOP.
@@ -1946,8 +1980,12 @@ OUTPUT JSON FORMAT:
                     logger.error(f"❌ JSON Repair failed: {e2}")
                     return []
 
-            draft_slides = parsed_response.get('slides', [])
-            logger.info(f"📊 Parsed {len(draft_slides)} draft slides")
+            draft_slides = self._normalize_ai_slides(
+                parsed_response.get('slides', []), lesson_title
+            )
+            logger.info(
+                f"Parsed {len(draft_slides)} draft slides (after normalization)"
+            )
             
         except Exception as e:
             logger.error(f"AI Generation failed: {e}")
@@ -2026,6 +2064,12 @@ OUTPUT JSON FORMAT:
         """
         Validates content against rigid limits. If failing, re-prompts AI to fix.
         """
+        if not isinstance(slide, dict):
+            logger.warning(
+                f"validate_and_refine_slide: expected dict, got {type(slide).__name__}; skipping"
+            )
+            return None
+
         layout_key = slide.get('layout')
         if layout_key not in LayoutDefinitions.LAYOUTS:
             logger.warning(f"Invalid layout '{layout_key}', defaulting to text_only")
@@ -2065,7 +2109,10 @@ OUTPUT JSON FORMAT:
         # If bullets is explicitly None (found in some logs)
         if bullets is None:
             bullets = []
-        
+        elif isinstance(bullets, str):
+            bullets = [bullets] if bullets.strip() else []
+
+        content['bullets'] = bullets
         # Update slide content with normalized version to ensure downstream renderers work
         slide['content'] = content
 
