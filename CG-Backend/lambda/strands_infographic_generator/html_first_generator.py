@@ -2001,6 +2001,89 @@ OUTPUT JSON FORMAT:
 
         return final_slides
 
+    def _normalize_content_code_and_table(self, content: Dict) -> None:
+        """Coerce LLM output so code/table are dicts (never plain strings) before .get() access."""
+        if not isinstance(content, dict):
+            return
+        raw_code = content.get('code')
+        if raw_code is None:
+            pass
+        elif isinstance(raw_code, str):
+            content['code'] = {'language': 'text', 'code': raw_code}
+        elif isinstance(raw_code, list):
+            if not raw_code:
+                content['code'] = {'language': 'text', 'code': ''}
+            elif isinstance(raw_code[0], dict):
+                content['code'] = raw_code[0]
+            else:
+                content['code'] = {
+                    'language': 'text',
+                    'code': '\n'.join(str(x) for x in raw_code),
+                }
+        elif isinstance(raw_code, dict):
+            if 'code' not in raw_code:
+                content['code'] = {
+                    'language': raw_code.get('language', 'text'),
+                    'code': '',
+                }
+        else:
+            content['code'] = {'language': 'text', 'code': str(raw_code)}
+
+        raw_table = content.get('table')
+        if raw_table is None:
+            pass
+        elif isinstance(raw_table, str):
+            logger.warning("content['table'] was a string; replacing with empty table")
+            content['table'] = {'headers': [], 'rows': [], 'notes': ''}
+        elif isinstance(raw_table, list):
+            rows = (
+                raw_table
+                if raw_table
+                and all(isinstance(r, (list, tuple)) for r in raw_table)
+                else []
+            )
+            content['table'] = {'headers': [], 'rows': rows, 'notes': ''}
+        elif isinstance(raw_table, dict):
+            raw_table.setdefault('headers', [])
+            raw_table.setdefault('rows', [])
+            raw_table.setdefault('notes', '')
+        else:
+            content['table'] = {'headers': [], 'rows': [], 'notes': ''}
+
+        # Final pass: if code is dict but still not dict-like (edge cases), ensure keys
+        code_final = content.get('code')
+        if isinstance(code_final, dict):
+            code_final.setdefault('language', 'text')
+            code_final.setdefault('code', '')
+
+    def _normalize_slide_dict_content(self, slide: Dict) -> None:
+        """Normalize slide['content'] (bullets, code, table) for validation and downstream code."""
+        content = slide.get('content', {})
+        if isinstance(content, list):
+            if not content:
+                content = {}
+            elif isinstance(content[0], dict):
+                content = content[0]
+            elif isinstance(content[0], str):
+                content = {'bullets': content}
+            else:
+                content = {}
+        elif isinstance(content, str):
+            content = {'bullets': [content]}
+        if not isinstance(content, dict):
+            content = {}
+
+        bullets = content.get('bullets', [])
+        if bullets is None:
+            bullets = []
+        elif isinstance(bullets, str):
+            bullets = [bullets] if bullets.strip() else []
+        bullets = [b if isinstance(b, str) else str(b) for b in bullets]
+
+        content['bullets'] = bullets
+        self._normalize_content_code_and_table(content)
+        slide['content'] = content
+
     def _transform_to_system_format(self, slide: Dict) -> Dict:
         """
         Transforms AI Layout JSON -> internal 'content_blocks' format.
@@ -2081,40 +2164,9 @@ OUTPUT JSON FORMAT:
         # Check constraints
         violations = []
         
-        # Check text length
+        self._normalize_slide_dict_content(slide)
         content = slide.get('content', {})
-        
-        # ROBUST CONTENT NORMALIZATION
-        # Handle various malformed structures from LLM
-        if isinstance(content, list):
-             if not content:
-                 content = {}
-             elif isinstance(content[0], dict):
-                 content = content[0]
-             elif isinstance(content[0], str):
-                 # Assume list of strings is the bullet list
-                 content = {'bullets': content}
-             else:
-                 content = {}
-        elif isinstance(content, str):
-            # content is just a string, treat as one bullet or description
-            content = {'bullets': [content]}
-        
-        # Ensure dict at this point
-        if not isinstance(content, dict):
-            content = {}
-
-        # Ensure 'bullets' exists
         bullets = content.get('bullets', [])
-        # If bullets is explicitly None (found in some logs)
-        if bullets is None:
-            bullets = []
-        elif isinstance(bullets, str):
-            bullets = [bullets] if bullets.strip() else []
-
-        content['bullets'] = bullets
-        # Update slide content with normalized version to ensure downstream renderers work
-        slide['content'] = content
 
         for container in layout_spec['containers']:
             if container['type'] == 'text':
@@ -2213,6 +2265,7 @@ OUTPUT JSON FORMAT:
                     # Accept fix if structure is valid
                     if fixed_slide and 'content' in fixed_slide:
                         logger.info(f"✅ Slide fixed on attempt {attempt+1}")
+                        self._normalize_slide_dict_content(fixed_slide)
                         return fixed_slide
             except Exception as e:
                 logger.error(f"Refinement failed: {e}")
@@ -2225,29 +2278,41 @@ OUTPUT JSON FORMAT:
     def _force_truncate(self, slide: Dict, layout_spec: Dict):
         """Hard truncates content to fit limits (both bullet count and bullet length)."""
         MAX_BULLET_CHARS = 100  # Must match validation constant
-        
+
+        self._normalize_slide_dict_content(slide)
+        content = slide.get('content', {})
         for container in layout_spec['containers']:
              if container['type'] == 'text':
-                 bullets = slide.get('content', {}).get('bullets', [])
+                 bullets = content.get('bullets', [])
                  # First truncate by count
                  bullets = bullets[:container['max_bullets']]
                  # Then truncate individual bullets that are too long
                  truncated_bullets = []
                  for bullet in bullets:
-                     if len(bullet) > MAX_BULLET_CHARS:
-                         truncated_bullets.append(bullet[:MAX_BULLET_CHARS - 3] + "...")
+                     b = bullet if isinstance(bullet, str) else str(bullet)
+                     if len(b) > MAX_BULLET_CHARS:
+                         truncated_bullets.append(b[:MAX_BULLET_CHARS - 3] + "...")
                      else:
-                         truncated_bullets.append(bullet)
-                 slide['content']['bullets'] = truncated_bullets
+                         truncated_bullets.append(b)
+                 content['bullets'] = truncated_bullets
              if container['type'] == 'code':
-                 code_obj = slide.get('content', {}).get('code', {})
-                 code = code_obj.get('code', '')
+                 code_obj = content.get('code')
+                 if not isinstance(code_obj, dict):
+                     code_obj = {
+                         'language': 'text',
+                         'code': '' if code_obj is None else str(code_obj),
+                     }
+                 content['code'] = code_obj
+                 code = code_obj.get('code', '') or ''
                  lines = code.split('\n')
-                 slide['content']['code']['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# ... (truncated)"
+                 code_obj['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# ... (truncated)"
              if container['type'] == 'table':
-                 table_obj = slide.get('content', {}).get('table', {})
+                 table_obj = content.get('table')
+                 if not isinstance(table_obj, dict):
+                     table_obj = {'headers': [], 'rows': [], 'notes': ''}
+                 content['table'] = table_obj
                  rows = table_obj.get('rows', [])
-                 slide['content']['table']['rows'] = rows[:container['max_rows']]
+                 table_obj['rows'] = rows[:container['max_rows']]
 
 
 
