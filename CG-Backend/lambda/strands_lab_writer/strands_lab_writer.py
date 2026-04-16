@@ -12,8 +12,11 @@ Features:
 
 import os
 import json
+import random
+import time
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
@@ -33,6 +36,62 @@ DEFAULT_OPENAI_MODEL = "gpt-5"
 
 # Retries per lab before failing the batch (Step Functions should not succeed with partial labs)
 MAX_LAB_GENERATION_ATTEMPTS = int(os.getenv("MAX_LAB_GENERATION_ATTEMPTS", "3"))
+
+# App-level Bedrock invoke retries inside call_bedrock_agent
+BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
+
+# Truncate lesson markdown injected into lab prompt (smaller = faster Bedrock, fewer timeouts)
+LESSON_CONTEXT_MAX_CHARS = max(4000, int(os.getenv("LESSON_CONTEXT_MAX_CHARS", "18000")))
+
+
+def _bedrock_error_is_transient(exc: Exception) -> bool:
+    if isinstance(exc, ClientError):
+        code = (exc.response.get("Error") or {}).get("Code", "") or ""
+        return code in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+        )
+    msg = str(exc)
+    return any(
+        x in msg
+        for x in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+            "unable to process your request",
+        )
+    )
+
+
+def _sleep_before_bedrock_retry(attempt_index: int, base: float = 3.0, cap: float = 90.0) -> None:
+    delay = min(cap, base * (2**attempt_index))
+    jitter = random.uniform(0, min(8.0, delay * 0.25))
+    total = delay + jitter
+    print(f"⏳ Bedrock backoff: sleep {total:.1f}s before next attempt")
+    time.sleep(total)
+
+
+def _lab_skip_if_exists_enabled() -> bool:
+    return os.getenv("LAB_SKIP_IF_EXISTS", "").lower() in ("1", "true", "yes")
+
+
+def _find_existing_lab_guide_key(bucket: str, project_folder: str, lab_id: str) -> Optional[str]:
+    """Return first S3 key matching lab-{lab_id}-*.md if present."""
+    prefix = f"{project_folder}/labguide/lab-{lab_id}-"
+    try:
+        resp = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=10)
+        for obj in resp.get("Contents") or []:
+            k = obj.get("Key", "")
+            if k.endswith(".md"):
+                return k
+    except Exception as e:
+        print(f"⚠️  list_objects for existing lab {lab_id}: {e}")
+    return None
 
 
 def get_secret(secret_name: str) -> dict:
@@ -76,33 +135,38 @@ def load_lesson_content(bucket: str, key: str) -> str:
 
 
 def call_bedrock_agent(prompt: str, model_id: str) -> str:
-    """Call AWS Bedrock with Strands Agents pattern."""
-    try:
-        payload = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 32000,  # Enough for 2 labs @ ~15K each
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.7
-        }
-        
-        response = bedrock_client.invoke_model(
-            modelId=model_id,
-            body=json.dumps(payload),
-            contentType='application/json',
-            accept='application/json'
-        )
-        
-        response_body = json.loads(response['body'].read())
-        return response_body['content'][0]['text']
-    
-    except Exception as e:
-        print(f"❌ Bedrock API error: {e}")
-        raise
+    """Call AWS Bedrock with Strands Agents pattern and transient-error backoff."""
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 32000,  # Enough for 2 labs @ ~15K each
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.7
+    }
+    last_err: Optional[Exception] = None
+    for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(payload),
+                contentType='application/json',
+                accept='application/json'
+            )
+            response_body = json.loads(response['body'].read())
+            return response_body['content'][0]['text']
+        except Exception as e:
+            last_err = e
+            print(f"❌ Bedrock API error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {e}")
+            if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
+                _sleep_before_bedrock_retry(attempt - 1)
+                continue
+            raise
+    assert last_err is not None
+    raise last_err
 
 
 def call_openai_agent(prompt: str, api_key: str, model_id: str = "gpt-5") -> str:
@@ -636,7 +700,7 @@ CONTEXT: ACTUAL LESSON CONTENT
 The user has just learned the following material. The lab MUST be based on this content.
 Use specific commands, configurations, and concepts from this lesson where applicable.
 
-{lesson_content[:25000]}  # Truncate to avoid context limit if huge
+{lesson_content[:LESSON_CONTEXT_MAX_CHARS]}  # Truncate to avoid context limit if huge
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -1099,6 +1163,24 @@ def lambda_handler(event, context):
             lab_id = lab_plan['lab_id']
             print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
 
+            if _lab_skip_if_exists_enabled():
+                existing_key = _find_existing_lab_guide_key(
+                    course_bucket, project_folder, lab_id
+                )
+                if existing_key:
+                    try:
+                        body = s3_client.get_object(
+                            Bucket=course_bucket, Key=existing_key
+                        )["Body"].read().decode("utf-8")
+                        if body.strip():
+                            labs_markdown[lab_id] = body
+                            print(
+                                f"  ⏭️  Skipping generation; using existing s3://{course_bucket}/{existing_key}"
+                            )
+                            continue
+                    except Exception as e:
+                        print(f"⚠️  Could not read existing lab {existing_key}, regenerating: {e}")
+
             # Load specific lesson content if available
             lesson_content = ""
             if lab_id in lab_lesson_keys:
@@ -1127,6 +1209,8 @@ def lambda_handler(event, context):
                     )
                 if attempt < MAX_LAB_GENERATION_ATTEMPTS:
                     print("  🔁 Retrying...")
+                    if last_error is not None and _bedrock_error_is_transient(last_error):
+                        _sleep_before_bedrock_retry(attempt - 1)
 
             if lab_id not in labs_markdown:
                 msg = f"Lab {lab_id} failed after {MAX_LAB_GENERATION_ATTEMPTS} attempts"

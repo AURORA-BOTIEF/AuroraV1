@@ -426,6 +426,11 @@ def lambda_handler(event, context):
 
         print(f"Request body: {json.dumps(body, indent=2)}")
 
+        # Prefer explicit user_email from JSON body for SES notifications (overrides auth fallback)
+        if body.get("user_email"):
+            user_email = body.get("user_email")
+            print(f"Using user_email from request body for notifications: {user_email}")
+
         # Debug: Log the module parameter extraction
         module_from_body = body.get('module_number') or body.get('module_to_generate')
         print(f"🔍 Module parameter debug:")

@@ -879,14 +879,19 @@
             "ResultPath": "$.batch_result",
             "Retry": [
               {
-                "BackoffRate": 2.0,
+                "Comment": "Backoff + jitter for service errors, throttling, and Lambda runtime timeout",
+                "BackoffRate": 2.5,
                 "ErrorEquals": [
                   "Lambda.ServiceException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown",
+                  "Sandbox.Timedout"
                 ],
-                "IntervalSeconds": 5,
-                "MaxAttempts": 2
+                "IntervalSeconds": 20,
+                "MaxAttempts": 4,
+                "JitterStrategy": "FULL"
               }
             ],
             "Type": "Task"
@@ -908,14 +913,19 @@
             "ResultPath": "$.images_result",
             "Retry": [
               {
-                "BackoffRate": 2.0,
+                "Comment": "Backoff + jitter for image gen Lambda failures",
+                "BackoffRate": 2.5,
                 "ErrorEquals": [
                   "Lambda.ServiceException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown",
+                  "Sandbox.Timedout"
                 ],
-                "IntervalSeconds": 5,
-                "MaxAttempts": 2
+                "IntervalSeconds": 25,
+                "MaxAttempts": 4,
+                "JitterStrategy": "FULL"
               }
             ],
             "TimeoutSeconds": 960,
@@ -951,23 +961,19 @@
             "ResultPath": "$.visual_result",
             "Retry": [
               {
-                "BackoffRate": 2.0,
+                "Comment": "Unified backoff + jitter (replaces short SDK-only + TaskFailed retries)",
+                "BackoffRate": 2.5,
                 "ErrorEquals": [
                   "Lambda.ServiceException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
-                ],
-                "IntervalSeconds": 5,
-                "MaxAttempts": 2
-              },
-              {
-                "Comment": "Retry on Bedrock throttling with longer backoff",
-                "ErrorEquals": [
-                  "States.TaskFailed"
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown",
+                  "Sandbox.Timedout"
                 ],
                 "IntervalSeconds": 30,
-                "MaxAttempts": 3,
-                "BackoffRate": 2.0
+                "MaxAttempts": 4,
+                "JitterStrategy": "FULL"
               }
             ],
             "Catch": [
@@ -1050,7 +1056,7 @@
       "Default": "CombineResultsAndBuildBook"
     },
     "ProcessLabBatchesInParallel": {
-      "Comment": "Process lab batches concurrently (1 lab per batch)",
+      "Comment": "Process lab batches sequentially (MaxConcurrency 1, 1 lab per batch)",
       "ItemsPath": "$.lab_batch_expansion.Payload.batches",
       "Iterator": {
         "StartAt": "GenerateLabBatch",
@@ -1075,14 +1081,19 @@
             "ResultPath": "$.lab_result",
             "Retry": [
               {
-                "BackoffRate": 2.0,
+                "Comment": "Lab writer: retry timeouts and transient Lambda errors",
+                "BackoffRate": 2.5,
                 "ErrorEquals": [
                   "Lambda.ServiceException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown",
+                  "Sandbox.Timedout"
                 ],
-                "IntervalSeconds": 5,
-                "MaxAttempts": 2
+                "IntervalSeconds": 25,
+                "MaxAttempts": 4,
+                "JitterStrategy": "FULL"
               }
             ],
             "Type": "Task"
@@ -1103,7 +1114,7 @@
           }
         }
       },
-      "MaxConcurrency": 2,
+      "MaxConcurrency": 1,
       "Next": "CombineLabResults",
       "Parameters": {
         "lab_batch.$": "$$.Map.Item.Value"
@@ -1121,7 +1132,7 @@
       "Type": "Map"
     },
     "ProcessLabBatchesInParallelBoth": {
-      "Comment": "Process lab batches in parallel",
+      "Comment": "Process lab batches sequentially (MaxConcurrency 1, 1 lab per batch)",
       "ItemsPath": "$.lab_batch_expansion.Payload.batches",
       "Iterator": {
         "StartAt": "GenerateLabBatchBoth",
@@ -1145,14 +1156,19 @@
             "ResultPath": "$.lab_result",
             "Retry": [
               {
-                "BackoffRate": 2.0,
+                "Comment": "Lab writer (both path): retry timeouts and transient Lambda errors",
+                "BackoffRate": 2.5,
                 "ErrorEquals": [
                   "Lambda.ServiceException",
                   "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException"
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown",
+                  "Sandbox.Timedout"
                 ],
-                "IntervalSeconds": 5,
-                "MaxAttempts": 2
+                "IntervalSeconds": 25,
+                "MaxAttempts": 4,
+                "JitterStrategy": "FULL"
               }
             ],
             "Type": "Task"
@@ -1172,7 +1188,7 @@
           }
         }
       },
-      "MaxConcurrency": 2,
+      "MaxConcurrency": 1,
       "Next": "CombineLabResultsBoth",
       "Parameters": {
         "lab_batch.$": "$$.Map.Item.Value"
