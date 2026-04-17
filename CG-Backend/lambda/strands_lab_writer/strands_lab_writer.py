@@ -20,11 +20,19 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-# AWS Clients with extended timeout for Bedrock
+# Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
+# that boto3 does not abort a long generation and retry (which doubles wall time).
+_BEDROCK_READ_TIMEOUT = int(os.getenv("BEDROCK_READ_TIMEOUT", "860"))
 bedrock_config = Config(
-    read_timeout=600,  # 10 minutes for generating multiple labs
+    read_timeout=max(60, min(_BEDROCK_READ_TIMEOUT, 890)),
     connect_timeout=60,
-    retries={'max_attempts': 3}
+    retries={"max_attempts": 2, "mode": "standard"},
+)
+
+# Cap output tokens: 32k allows very long runs; typical labs need far less.
+LAB_BEDROCK_MAX_OUTPUT_TOKENS = max(
+    4096,
+    min(32000, int(os.getenv("LAB_BEDROCK_MAX_OUTPUT_TOKENS", "20000"))),
 )
 s3_client = boto3.client('s3')
 bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=bedrock_config)
@@ -138,7 +146,7 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
     """Call AWS Bedrock with Strands Agents pattern and transient-error backoff."""
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 32000,  # Enough for 2 labs @ ~15K each
+        "max_tokens": LAB_BEDROCK_MAX_OUTPUT_TOKENS,
         "messages": [
             {
                 "role": "user",
@@ -157,7 +165,16 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
                 accept='application/json'
             )
             response_body = json.loads(response['body'].read())
-            return response_body['content'][0]['text']
+            blocks = response_body.get("content") or []
+            if not blocks:
+                print(f"⚠️ Bedrock empty content[]; keys={list(response_body.keys())}")
+                raise ValueError("Bedrock returned no content blocks")
+            text = blocks[0].get("text") or ""
+            if not (text or "").strip():
+                sr = response_body.get("stop_reason")
+                print(f"⚠️ Bedrock empty text; stop_reason={sr!r} body_keys={list(response_body.keys())}")
+                raise ValueError(f"Bedrock returned empty assistant text (stop_reason={sr!r})")
+            return text
         except Exception as e:
             last_err = e
             print(f"❌ Bedrock API error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {e}")
@@ -652,7 +669,7 @@ def _strip_outer_markdown_fence(text: str) -> str:
 def _looks_like_lab_markdown(text: str) -> bool:
     """Heuristic: enough structure to treat as a lab guide when delimiters/JSON fail."""
     s = text.strip()
-    if len(s) < 400:
+    if len(s) < 320:
         return False
     head = s[:4000]
     if s.startswith("#") or s.startswith("```"):
@@ -673,8 +690,116 @@ def _looks_like_lab_markdown(text: str) -> bool:
         "Paso ",
         "Laboratorio",
         "Lab ",
+        "Entorno de Laboratorio",
+        "Descripción General",
     )
     return any(c in head for c in cues)
+
+
+def _normalize_lab_delimiters(text: str) -> str:
+    """Models sometimes vary delimiter casing; normalize before splitting."""
+    if not text:
+        return text
+    out = text
+    pairs = (
+        ("---lab_start---", "---LAB_START---"),
+        ("---Lab_Start---", "---LAB_START---"),
+        ("---LAB_start---", "---LAB_START---"),
+        ("---lab_end---", "---LAB_END---"),
+        ("---Lab_End---", "---LAB_END---"),
+        ("---markdown---", "---MARKDOWN---"),
+        ("---Markdown---", "---MARKDOWN---"),
+    )
+    for old, new in pairs:
+        out = out.replace(old, new)
+    return out
+
+
+def _lesson_context_block(lesson_content: str) -> str:
+    """Lesson excerpt for prompts (no Python comment leakage into the model)."""
+    if not (lesson_content or "").strip():
+        return ""
+    excerpt = lesson_content[:LESSON_CONTEXT_MAX_CHARS]
+    return f"""
+═══════════════════════════════════════════════════════════════════════════════
+CONTEXT: ACTUAL LESSON CONTENT
+═══════════════════════════════════════════════════════════════════════════════
+The user has just learned the following material. The lab MUST be based on this content.
+Use specific commands, configurations, and concepts from this lesson where applicable.
+
+{excerpt}
+═══════════════════════════════════════════════════════════════════════════════
+"""
+
+
+def _compact_single_lab_prompt(
+    lab_plan: dict,
+    master_context: dict,
+    lesson_context_section: str,
+    labs_summary_text: str,
+) -> str:
+    """
+    Short prompt for the common case (one lab per Lambda).
+    Avoids ~15k+ tokens of duplicated schema example that inflated input and output.
+    """
+    tl = master_context.get("target_language", "English")
+    hw = master_context.get("hardware_requirements", []) or []
+    sw = master_context.get("software_requirements", []) or []
+    spec = master_context.get("special_considerations", []) or []
+    objs = master_context.get("overall_objectives", []) or []
+    hw_line = ", ".join(str(x) for x in hw[:10]) if hw else "N/A"
+    sw_bits: List[str] = []
+    for item in (sw or [])[:14]:
+        if isinstance(item, dict):
+            sw_bits.append(
+                f"{item.get('name', '?')} ({item.get('version', '')})"
+            )
+        else:
+            sw_bits.append(str(item))
+    sw_line = ", ".join(sw_bits) if sw_bits else "N/A"
+    spec_line = "; ".join(str(x) for x in spec[:6]) if spec else "N/A"
+    obj_line = "; ".join(str(x) for x in objs[:6]) if objs else "N/A"
+    lid = lab_plan["lab_id"]
+    title = lab_plan["lab_title"]
+
+    return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
+
+LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
+
+COURSE CONTEXT (brief):
+- Objectives: {obj_line}
+- Typical hardware: {hw_line}
+- Typical software: {sw_line}
+- Notes: {spec_line}
+
+LAB SPECIFICATION:
+{labs_summary_text}
+{lesson_context_section}
+
+STRUCTURE (single H1 for lab title; then ## / ###):
+1. Metadata — table: Duration, Complexity, Bloom level
+2. Overview — 2–4 sentences
+3. Learning objectives — 3–5 checkboxes
+4. Prerequisites — knowledge + access
+5. Lab environment — concise HW/SW tables if useful + setup commands
+6. Step-by-step — each step: **Objective**, numbered **Instructions**, **Expected output**, **Verification** (keep steps focused; avoid repetition)
+7. Validation & testing
+8. Troubleshooting — **exactly 2** realistic issues (symptoms, cause, fix)
+9. Cleanup
+10. Summary (+ optional resources)
+
+QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
+
+OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
+---LAB_START---
+LAB_ID: {lid}
+---MARKDOWN---
+# Lab {lid}: {title}
+...complete markdown following the structure...
+---LAB_END---
+
+Do not wrap the delimiters in code fences. No preamble before ---LAB_START---.
+"""
 
 
 def generate_all_labs_batch(
@@ -689,22 +814,8 @@ def generate_all_labs_batch(
     Returns dict mapping lab_id to markdown content.
     """
     print(f"\n🚀 Generating {len(lab_plans)} labs in SINGLE API CALL...")
-    
-    # Context from the actual lesson
-    lesson_context_section = ""
-    if lesson_content:
-        lesson_context_section = f"""
-═══════════════════════════════════════════════════════════════════════════════
-CONTEXT: ACTUAL LESSON CONTENT
-═══════════════════════════════════════════════════════════════════════════════
-The user has just learned the following material. The lab MUST be based on this content.
-Use specific commands, configurations, and concepts from this lesson where applicable.
+    lesson_context_section = _lesson_context_block(lesson_content)
 
-{lesson_content[:LESSON_CONTEXT_MAX_CHARS]}  # Truncate to avoid context limit if huge
-═══════════════════════════════════════════════════════════════════════════════
-"""
-
-    
     # Build comprehensive prompt for ALL labs
     labs_summary = []
     for lab in lab_plans:
@@ -718,8 +829,15 @@ Use specific commands, configurations, and concepts from this lesson where appli
 - Prerequisites: {', '.join(lab.get('prerequisites', []))}
 - Technologies: {', '.join(lab.get('key_technologies', []))}
 """)
-    
-    prompt = f"""
+    labs_summary_text = "".join(labs_summary)
+
+    if len(lab_plans) == 1:
+        print("📎 Using compact single-lab prompt (smaller input, faster generation).")
+        prompt = _compact_single_lab_prompt(
+            lab_plans[0], master_context, lesson_context_section, labs_summary_text
+        )
+    else:
+        prompt = f"""
 You are an expert technical instructor creating detailed, professional laboratory guides.
 
 LANGUAGE REQUIREMENT:
@@ -992,10 +1110,11 @@ Generate ALL {len(lab_plans)} labs now:
         print("✅ AI response received, parsing with delimiters...")
         # Keep full model output for fallbacks (JSON branch mutates working copies)
         original_response_text = response_text
-        
+        response_text = _normalize_lab_delimiters(response_text)
+
         # Parse using delimiters instead of JSON
         labs_dict = {}
-        
+
         # Split by lab sections
         lab_sections = response_text.split('---LAB_START---')
         
@@ -1008,12 +1127,14 @@ Generate ALL {len(lab_plans)} labs now:
                 header_part, rest = section.split('---MARKDOWN---', 1)
                 markdown_part = rest.split('---LAB_END---')[0].strip()
                 
-                # Extract lab_id from header
+                # Extract lab_id from header (tolerate spacing / markdown noise)
                 for line in header_part.split('\n'):
-                    if line.startswith('LAB_ID:'):
-                        lab_id = line.replace('LAB_ID:', '').strip()
-                        labs_dict[lab_id] = markdown_part
-                        print(f"  ✓ Lab {lab_id}: {len(markdown_part)} characters")
+                    raw_line = line.strip()
+                    if raw_line.upper().startswith("LAB_ID:"):
+                        parsed_id = raw_line.split(":", 1)[1].strip().strip("*`_ ")
+                        if parsed_id and markdown_part.strip():
+                            labs_dict[parsed_id] = markdown_part
+                            print(f"  ✓ Lab {parsed_id}: {len(markdown_part)} characters")
                         break
             except Exception as e:
                 print(f"  ⚠️  Failed to parse lab section: {e}")
@@ -1053,7 +1174,34 @@ Generate ALL {len(lab_plans)} labs now:
                         raise ValueError("Could not parse labs from AI response in any format")
                 else:
                     raise ValueError("Could not parse labs from AI response in any format")
-        
+
+        # Single-lab: delimiters often drift (extra prose, wrong LAB_ID line). Recover before return.
+        if len(lab_plans) == 1:
+            exp = lab_plans[0]["lab_id"]
+            cur = (labs_dict.get(exp) or "").strip()
+            if not cur:
+                if len(labs_dict) == 1:
+                    only_k, only_v = next(iter(labs_dict.items()))
+                    only_v = (only_v or "").strip()
+                    if only_v:
+                        labs_dict = {exp: only_v}
+                        print(
+                            f"  ✓ Remapped single lab key {only_k!r} → {exp!r} ({len(only_v)} chars)"
+                        )
+                        cur = only_v
+                if not (labs_dict.get(exp) or "").strip():
+                    print("🔄 Single-lab: delimiter parse empty; trying raw markdown fallback...")
+                    raw = _strip_outer_markdown_fence(original_response_text)
+                    if raw and _looks_like_lab_markdown(raw):
+                        labs_dict[exp] = raw.strip()
+                        print(
+                            f"  ✓ Lab {exp}: {len(raw)} characters (raw markdown fallback)"
+                        )
+                    elif raw:
+                        print(
+                            f"  ⚠️ Raw response {len(raw)} chars but heuristic failed; preview: {raw[:400]!r}"
+                        )
+
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict
     
