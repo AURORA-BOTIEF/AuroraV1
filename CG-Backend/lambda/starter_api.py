@@ -9,44 +9,82 @@ This replaces the presigned URL approach with direct IAM-authorized API calls.
 import json
 import boto3
 import os
+import re
+import base64
 import yaml
 from datetime import datetime
 from botocore.exceptions import ClientError
 
-# Try to import PyJWT, but don't fail if it's not available
-try:
-    import jwt
-    JWT_AVAILABLE = True
-except ImportError:
-    JWT_AVAILABLE = False
-    print("PyJWT not available, JWT token decoding disabled")
 
-def decode_cognito_jwt(token, region="us-east-1"):
+def decode_jwt_payload_unverified(token: str) -> dict | None:
     """
-    Decode a Cognito JWT token to extract user claims.
-    Note: This doesn't validate the signature, just decodes the payload.
-    In production, you should validate the token signature.
+    Decode JWT payload (middle segment) without signature verification.
+    Same approach as lambda/assignments/cognito_auth.py — does not require PyJWT.
+    Cognito ID/access tokens use standard base64url JSON payloads.
     """
-    if not JWT_AVAILABLE:
-        print("JWT decoding not available")
+    if not token or not isinstance(token, str):
         return None
-        
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    payload += "=" * (4 - len(payload) % 4)
     try:
-        # Split the token to get the payload (second part)
-        header, payload, signature = token.split('.')
-        
-        # Add padding if needed
-        payload += '=' * (4 - len(payload) % 4)
-        
-        # Decode the payload
-        import base64
-        decoded_payload = base64.urlsafe_b64decode(payload)
-        claims = json.loads(decoded_payload.decode('utf-8'))
-        
-        return claims
+        return json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
     except Exception as e:
-        print(f"Failed to decode JWT token: {e}")
+        print(f"Failed to decode JWT payload: {e}")
         return None
+
+
+def normalize_event_headers(event: dict) -> dict:
+    """API Gateway REST vs HTTP API: header keys may differ in casing."""
+    headers = event.get("headers") or {}
+    return {str(k).lower(): v for k, v in headers.items()}
+
+
+def merge_authorizer_claims(event: dict) -> dict:
+    """
+    REST (Cognito pool authorizer): requestContext.authorizer.claims
+    HTTP API (JWT authorizer): requestContext.authorizer.jwt.claims
+    Values may be nested or duplicate; later keys override.
+    """
+    rc = event.get("requestContext") or {}
+    auth = rc.get("authorizer") or {}
+    merged: dict = {}
+    for block in (auth.get("claims"), auth.get("jwt", {}).get("claims")):
+        if isinstance(block, dict):
+            merged.update(block)
+    return merged
+
+
+def derive_user_id_from_claims(claims: dict) -> str | None:
+    """Prefer human-readable id (email local part / username); fallback to sub (UUID)."""
+    if not claims:
+        return None
+    email = (claims.get("email") or claims.get("cognito:email") or "").strip()
+    if email and "@" in email:
+        local = email.split("@", 1)[0]
+        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", local).strip("-")
+        if slug:
+            return slug[:64]
+    for key in ("cognito:username", "username", "preferred_username"):
+        v = (claims.get(key) or "").strip()
+        if v:
+            slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", v).strip("-")
+            if slug:
+                return slug[:64]
+    sub = (claims.get("sub") or "").strip()
+    return sub if sub else None
+
+
+def derive_user_email_from_claims(claims: dict) -> str | None:
+    if not claims:
+        return None
+    for key in ("email", "cognito:email"):
+        v = (claims.get(key) or "").strip()
+        if v:
+            return v
+    return None
 
 
 def repair_malformed_yaml(yaml_content: str) -> str:
@@ -307,87 +345,84 @@ def lambda_handler(event, context):
 
         # Extract user information from multiple sources
         identity = event.get('requestContext', {}).get('identity', {})
-        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-        headers = event.get('headers', {})
-        
-        # Debug: Log the full requestContext and headers to understand the structure
+        headers_norm = normalize_event_headers(event)
+        authorizer_claims = merge_authorizer_claims(event)
+
         print(f"RequestContext debug: {json.dumps(event.get('requestContext', {}), indent=2)}")
-        print(f"Headers debug: {json.dumps(headers, indent=2)}")
-        
-        # Try multiple ways to extract user information
+        print(f"Headers debug (normalized keys): {json.dumps(headers_norm, indent=2)}")
+
         user_id = None
         user_email = None
-        
+
         # Method 1: IAM identity (for IAM auth)
         user_arn = identity.get('userArn') if identity else None
         if user_arn:
             user_id = user_arn.split('/')[-1]
             user_email = f"{user_id}@iam.amazonaws.com"
             print(f"User identified via IAM: {user_email} ({user_id})")
-        
-        # Method 2: Cognito claims from authorizer (API Gateway Lambda authorizer)
-        if not user_id and claims:
-            user_id = claims.get('sub') or claims.get('username') or claims.get('cognito:username')
-            user_email = claims.get('email') or claims.get('cognito:email')
+
+        # Method 2: API Gateway authorizer claims (Cognito pool / JWT authorizer)
+        if not user_id and authorizer_claims:
+            user_email = derive_user_email_from_claims(authorizer_claims)
+            user_id = derive_user_id_from_claims(authorizer_claims)
             if user_id:
-                print(f"User identified via Cognito claims: {user_email} ({user_id})")
-        
-        # Method 3: Direct claims in requestContext (some Cognito setups)
+                print(f"User identified via authorizer claims: {user_email} ({user_id})")
+
+        # Method 3: Direct claims on requestContext (some setups)
         if not user_id:
             direct_claims = event.get('requestContext', {}).get('claims', {})
             if direct_claims:
-                user_id = direct_claims.get('sub') or direct_claims.get('username') or direct_claims.get('cognito:username')
-                user_email = direct_claims.get('email') or direct_claims.get('cognito:email')
+                user_email = derive_user_email_from_claims(direct_claims) or user_email
+                user_id = derive_user_id_from_claims(direct_claims)
                 if user_id:
-                    print(f"User identified via direct claims: {user_email} ({user_id})")
-        
-        # Method 4: JWT token from Authorization header (Amplify API with Cognito)
-        if not user_id and JWT_AVAILABLE:
-            auth_header = headers.get('Authorization') or headers.get('authorization')
-            if auth_header:
-                print(f"🔐 Found Authorization header: {auth_header[:15]}...")
-                if auth_header.startswith('Bearer '):
-                    token = auth_header.replace('Bearer ', '')
-                    jwt_claims = decode_cognito_jwt(token)
-                    if jwt_claims:
-                        user_id = jwt_claims.get('sub') or jwt_claims.get('username') or jwt_claims.get('cognito:username')
-                        user_email = jwt_claims.get('email') or jwt_claims.get('cognito:email')
-                        if user_id:
-                            print(f"User identified via JWT token: {user_email} ({user_id})")
+                    print(f"User identified via direct requestContext.claims: {user_email} ({user_id})")
+
+        # Method 4: Bearer token in Authorization header (/start-job uses Auth NONE; client must send token)
+        if not user_id:
+            auth_header = headers_norm.get('authorization') or ''
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ', 1)[1].strip()
+                print(f"🔐 Bearer token present (prefix): {token[:12]}...")
+                jwt_claims = decode_jwt_payload_unverified(token)
+                if jwt_claims:
+                    user_email = derive_user_email_from_claims(jwt_claims) or user_email
+                    user_id = derive_user_id_from_claims(jwt_claims)
+                    if user_id:
+                        print(f"User identified via Bearer JWT payload: {user_email} ({user_id})")
             else:
-                print("⚠️ No Authorization header found under 'Authorization' or 'authorization'")
-        
-        # Method 5: Check for identity.cognitoIdentityId (Cognito Identity Pool)
+                print("⚠️ No Bearer Authorization header (Cognito ID token not passed to Lambda)")
+
+        # Method 5: Cognito Identity Pool (unauthenticated / federated id)
         if not user_id and identity:
             cognito_identity_id = identity.get('cognitoIdentityId')
             if cognito_identity_id:
-                user_id = cognito_identity_id.split(':')[-1]  # Extract the actual ID
+                user_id = cognito_identity_id.split(':')[-1]
                 user_email = f"cognito-user-{user_id}@example.com"
                 print(f"User identified via Cognito Identity: {user_email} ({user_id})")
-        
-        # Method 6: Check body for user_email (explicitly passed from frontend)
-        # Parse request body first to check for email
+
+        # Method 6: Request body user_email (fallback id only; notifications override applied later)
         body_for_email = {}
         try:
             if isinstance(event.get('body'), str):
-                if event['body'].strip():  # Check for non-empty string
+                if event['body'].strip():
                     body_for_email = json.loads(event['body'])
             else:
                 body_for_email = event.get('body', {}) or {}
         except Exception as e:
             print(f"⚠️ Error parsing body for email extraction: {e}")
             body_for_email = {}
-            
-        if body_for_email.get('user_email'):
-            user_email = body_for_email.get('user_email')
-            print(f"User identified via request body: {user_email}")
-            if not user_id:
-                user_id = user_email.split('@')[0] # Fallback ID
 
-        # Fallback to unknown-user if nothing worked
+        if body_for_email.get('user_email'):
+            if not user_email:
+                user_email = body_for_email.get('user_email')
+            print(f"Request body user_email: {body_for_email.get('user_email')}")
+            if not user_id:
+                raw = body_for_email.get('user_email') or ''
+                user_id = re.sub(r'[^a-zA-Z0-9_-]+', '-', raw.split('@')[0]).strip('-') or None
+
         if not user_id:
             user_id = 'unknown-user'
-            user_email = 'unknown@example.com'
+            user_email = user_email or 'unknown@example.com'
             print(f"WARNING: Could not identify user, using fallback: {user_email} ({user_id})")
 
         print(f"Final user identification: {user_email} ({user_id})")

@@ -144,6 +144,15 @@ function GeneradorCursos() {
 
     const startGeneration = async (uploadedKey, modules) => {
         try {
+            let emailForJob = userEmail;
+            try {
+                const session = await fetchAuthSession();
+                const fromToken = session?.tokens?.idToken?.payload?.email;
+                if (fromToken) emailForJob = fromToken;
+            } catch (_) {
+                /* use userEmail from attributes */
+            }
+
             const body = {
                 course_bucket: COURSE_BUCKET,
                 outline_s3_key: uploadedKey,
@@ -153,7 +162,7 @@ function GeneradorCursos() {
                 image_model: imageModel, // 'gemini' or 'imagen'
                 content_type: contentType, // 'theory', 'labs', or 'both'
                 lab_requirements: labRequirements.trim() || undefined, // Optional
-                user_email: userEmail, // Send user email for notifications
+                user_email: emailForJob || undefined, // SES + Step Functions naming (backend)
                 // Note: NOT sending lesson_number = MODULE mode
             };
 
@@ -166,7 +175,9 @@ function GeneradorCursos() {
                     body: body,
                     headers: {
                         'Content-Type': 'application/json',
-                    }
+                    },
+                    // Attach Cognito ID token so Lambda can read email/sub without API Gateway authorizer
+                    authMode: 'userPool',
                 }
             });
 
