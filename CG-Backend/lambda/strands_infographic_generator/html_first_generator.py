@@ -2869,7 +2869,15 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     - Clean, professional design
     """
     logger.info(f"🔍 DEBUG generate_html_output: Processing {len(slides)} slides")
-    
+
+    def _tx(s) -> str:
+        """Escape body text so characters like < in notes/table cells cannot break the DOM."""
+        return html_module.escape(str(s) if s is not None else "")
+
+    def _at(s) -> str:
+        """Escape for HTML attribute values (alt=, etc.)."""
+        return html_module.escape(str(s) if s is not None else "", quote=True)
+
     # Generate presigned URLs for S3 images and logo
     s3_client = boto3.client('s3')
     presigned_mapping = {}
@@ -2990,7 +2998,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         '<head>',
         '    <meta charset="UTF-8">',
         '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
-        f'    <title>{course_title}</title>',
+        f'    <title>{_tx(course_title)}</title>',
         '    <style>',
         f'''
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -4494,7 +4502,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             <div id="codeModalBody" class="code-modal-body"></div>
         </div>
     </div>''',
-        f'    <h1 style="text-align: center; color: {colors["primary"]}; margin-bottom: 30px; font-size: 32pt;">{course_title}</h1>',
+        f'    <h1 style="text-align: center; color: {colors["primary"]}; margin-bottom: 30px; font-size: 32pt;">{_tx(course_title)}</h1>',
     ]
     
     # Use presigned logo URL
@@ -4527,7 +4535,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('  <div class="intro-cover-slide">')
             html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-cover-left">')
-            html_parts.append(f'      <div class="intro-cover-title">{title}</div>')
+            html_parts.append(f'      <div class="intro-cover-title">{_tx(title)}</div>')
             html_parts.append(f'      <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
             html_parts.append('    </div>')
             html_parts.append('    <div class="intro-cover-right">')
@@ -4537,7 +4545,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('    </div>')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4551,17 +4559,17 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append(f'    <img src="{corporate_assets["intellectual"]}" class="intro-legal-icon" alt="Propiedad Intelectual">')
             html_parts.append('    <div class="intro-main-col">')
-            html_parts.append(f'      <div class="intro-content-title">{title}</div>')
+            html_parts.append(f'      <div class="intro-content-title">{_tx(title)}</div>')
             html_parts.append('      <div class="intro-divider"></div>')
             html_parts.append('      <div class="intro-paragraphs">')
             for item in legal_items:
-                html_parts.append(f'        <p>{item}</p>')
+                html_parts.append(f'        <p>{_tx(item)}</p>')
             html_parts.append('      </div>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4587,20 +4595,20 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append(f'  <div class="intro-content-slide{extra_class}">')
             html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-main-col">')
-            html_parts.append(f'      <div class="intro-content-title">{title}</div>')
+            html_parts.append(f'      <div class="intro-content-title">{_tx(title)}</div>')
             if subtitle:
-                html_parts.append(f'      <div class="intro-subtitle">{subtitle}</div>')
+                html_parts.append(f'      <div class="intro-subtitle">{_tx(subtitle)}</div>')
             html_parts.append('      <div class="intro-divider"></div>')
             html_parts.append(f'      <ul class="{list_class}">')
             for item in intro_items:
-                html_parts.append(f'        <li>{item}</li>')
+                html_parts.append(f'        <li>{_tx(item)}</li>')
             html_parts.append('      </ul>')
             html_parts.append('    </div>')
-            html_parts.append(f'    <img src="{asset_by_layout[layout]}" class="intro-right-asset" alt="{title}">')
+            html_parts.append(f'    <img src="{asset_by_layout[layout]}" class="intro-right-asset" alt="{_at(title)}">')
             html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4614,7 +4622,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-agenda-wave"></div>')
             html_parts.append('    <div class="intro-agenda-content">')
-            html_parts.append(f'      <div class="intro-content-title">{title}</div>')
+            html_parts.append(f'      <div class="intro-content-title">{_tx(title)}</div>')
             html_parts.append('      <ul class="intro-list intro-agenda-list">')
             for item in agenda_items:
                 html_parts.append(f'        <li>{_format_intro_agenda_item(item)}</li>')
@@ -4623,7 +4631,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append(f'    <img src="{logo_url}" class="intro-logo-bottom-left" alt="Netec Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4638,13 +4646,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             resumen_img_url = _asset_url_from_s3('Resumen_Capitulo.png')
             html_parts.append('  <div class="chapter-summary-slide">')
             html_parts.append('    <div class="chapter-summary-left">')
-            html_parts.append(f'      <div class="chapter-summary-title">{title}</div>')
+            html_parts.append(f'      <div class="chapter-summary-title">{_tx(title)}</div>')
             if summary_heading:
-                html_parts.append(f'      <div class="chapter-summary-heading">{summary_heading}</div>')
+                html_parts.append(f'      <div class="chapter-summary-heading">{_tx(summary_heading)}</div>')
             if summary_items:
                 html_parts.append('      <ul class="chapter-summary-list">')
                 for item in summary_items:
-                    html_parts.append(f'        <li>{item}</li>')
+                    html_parts.append(f'        <li>{_tx(item)}</li>')
                 html_parts.append('      </ul>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="chapter-summary-right">')
@@ -4653,7 +4661,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4681,13 +4689,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             dur_label = 'Tiempo para esta actividad:' if is_es else 'Time for this activity:'
             html_parts.append('  <div class="lab-intro-slide">')
             html_parts.append('    <div class="lab-intro-title-box">')
-            html_parts.append(f'      <div class="lab-intro-title">{title}</div>')
+            html_parts.append(f'      <div class="lab-intro-title">{_tx(title)}</div>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="lab-intro-accent"></div>')
             html_parts.append('    <div class="lab-intro-divider"></div>')
             if lab_objective:
                 html_parts.append(f'    <div class="lab-intro-section-heading">{obj_label}</div>')
-                html_parts.append(f'    <div class="lab-intro-section-body">{lab_objective}</div>')
+                html_parts.append(f'    <div class="lab-intro-section-body">{_tx(lab_objective)}</div>')
             html_parts.append('    <div class="lab-intro-bottom">')
             html_parts.append(f'      <img src="{reloj_img_url}" alt="Reloj">')
             if lab_duration:
@@ -4697,13 +4705,13 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     dur_val = dur_val.split(':', 1)[1].strip()
                 html_parts.append('      <div class="lab-intro-duration-box">')
                 html_parts.append(f'        <div class="lab-intro-duration-label">{dur_label}</div>')
-                html_parts.append(f'        <div class="lab-intro-duration-value">{dur_val}</div>')
+                html_parts.append(f'        <div class="lab-intro-duration-value">{_tx(dur_val)}</div>')
                 html_parts.append('      </div>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4714,21 +4722,21 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 if block.get('type') == 'glossary':
                     glossary_items.extend(block.get('items', []))
             html_parts.append('  <div class="glossary-slide">')
-            html_parts.append(f'    <div class="glossary-title">{title}</div>')
+            html_parts.append(f'    <div class="glossary-title">{_tx(title)}</div>')
             html_parts.append('    <div class="glossary-grid">')
             for item in glossary_items:
                 term = item.get('term', '') if isinstance(item, dict) else str(item)
                 definition = item.get('definition', '') if isinstance(item, dict) else ''
                 html_parts.append('      <div class="glossary-item">')
-                html_parts.append(f'        <span class="glossary-term">{term}</span>')
+                html_parts.append(f'        <span class="glossary-term">{_tx(term)}</span>')
                 if definition:
-                    html_parts.append(f'        <span class="glossary-def">– {definition}</span>')
+                    html_parts.append(f'        <span class="glossary-def">– {_tx(definition)}</span>')
                 html_parts.append('      </div>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
@@ -4738,10 +4746,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('  <div class="gracias-slide">')
             html_parts.append('    <div class="gracias-left">')
             html_parts.append('      <div class="gracias-accent"></div>')
-            html_parts.append(f'      <div class="gracias-title">{title}</div>')
+            html_parts.append(f'      <div class="gracias-title">{_tx(title)}</div>')
             html_parts.append('      <div class="gracias-divider"></div>')
             if subtitle:
-                html_parts.append(f'      <div class="gracias-subtitle">{subtitle}</div>')
+                html_parts.append(f'      <div class="gracias-subtitle">{_tx(subtitle)}</div>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="gracias-right">')
             html_parts.append(f'      <img src="{gracias_img_url}" class="gracias-image" alt="Gracias">')
@@ -4749,17 +4757,17 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
 
         elif layout == 'course-title':
             html_parts.append('  <div class="course-title-slide">')
-            html_parts.append(f'    <div class="title">{title}</div>')
+            html_parts.append(f'    <div class="title">{_tx(title)}</div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
         
@@ -4789,22 +4797,22 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('  <div class="module-title-slide">')
             html_parts.append('    <div class="module-title-left">')
             html_parts.append('      <div class="module-title-accent"></div>')
-            html_parts.append(f'      <div class="module-title-chapter">{chapter_label}</div>')
+            html_parts.append(f'      <div class="module-title-chapter">{_tx(chapter_label)}</div>')
             html_parts.append('      <div class="module-title-divider"></div>')
-            html_parts.append(f'      <div class="module-title-name">{chapter_name}</div>')
+            html_parts.append(f'      <div class="module-title-name">{_tx(chapter_name)}</div>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="module-title-right">')
             if obj_items:
-                html_parts.append(f'      <div class="module-title-obj-heading">{obj_heading}</div>')
+                html_parts.append(f'      <div class="module-title-obj-heading">{_tx(obj_heading)}</div>')
                 html_parts.append('      <ul class="module-title-obj-list">')
                 for item in obj_items:
-                    html_parts.append(f'        <li>{item}</li>')
+                    html_parts.append(f'        <li>{_tx(item)}</li>')
                 html_parts.append('      </ul>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
         
@@ -4823,20 +4831,20 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     break
 
             html_parts.append('  <div class="lesson-title-slide">')
-            html_parts.append(f'    <div class="title">{title}</div>')
+            html_parts.append(f'    <div class="title">{_tx(title)}</div>')
             if intro_items or intro_heading:
                 html_parts.append('    <div class="lesson-intro-divider"></div>')
                 if intro_heading:
-                    html_parts.append(f'    <div class="lesson-intro-heading">{intro_heading}</div>')
+                    html_parts.append(f'    <div class="lesson-intro-heading">{_tx(intro_heading)}</div>')
                 if intro_items:
                     html_parts.append('    <div class="lesson-intro-text">')
                     for item in intro_items:
-                        html_parts.append(f'      <p>{item}</p>')
+                        html_parts.append(f'      <p>{_tx(item)}</p>')
                     html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
             html_parts.append('  </div>')
             if notes:
-                html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+                html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
             html_parts.append('</div>')
             continue
         
@@ -4850,9 +4858,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         # Regular content slides with header
         html_parts.append('  <div class="slide-header">')
-        html_parts.append(f'    <div class="slide-title">{title}</div>')
+        html_parts.append(f'    <div class="slide-title">{_tx(title)}</div>')
         if subtitle:
-            html_parts.append(f'    <div class="slide-subtitle">{subtitle}</div>')
+            html_parts.append(f'    <div class="slide-subtitle">{_tx(subtitle)}</div>')
         html_parts.append('  </div>')
         
         # Content - use special layout wrapper for image layouts
@@ -4881,7 +4889,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     img_ref = image_block.get('image_reference', '')
                     img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
                     if img_url:
-                        html_parts.append(f'      <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                        html_parts.append(f'      <img src="{img_url}" class="slide-image" alt="{_at(img_ref)}">')
                 html_parts.append('    </div>')
                 
                 # Bullets column
@@ -4889,10 +4897,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 for bullet_block in bullet_blocks:
                     heading = bullet_block.get('heading', '')
                     if heading:
-                        html_parts.append(f'      <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'      <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('      <ul class="bullets">')
                     for item in bullet_block.get('items', []):
-                        html_parts.append(f'        <li>{item}</li>')
+                        html_parts.append(f'        <li>{_tx(item)}</li>')
                     html_parts.append('      </ul>')
                 html_parts.append('    </div>')
                 
@@ -4902,10 +4910,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                 for bullet_block in bullet_blocks:
                     heading = bullet_block.get('heading', '')
                     if heading:
-                        html_parts.append(f'      <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'      <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('      <ul class="bullets">')
                     for item in bullet_block.get('items', []):
-                        html_parts.append(f'        <li>{item}</li>')
+                        html_parts.append(f'        <li>{_tx(item)}</li>')
                     html_parts.append('      </ul>')
                 html_parts.append('    </div>')
                 
@@ -4915,7 +4923,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     img_ref = image_block.get('image_reference', '')
                     img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
                     if img_url:
-                        html_parts.append(f'      <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                        html_parts.append(f'      <img src="{img_url}" class="slide-image" alt="{_at(img_ref)}">')
                 html_parts.append('    </div>')
                 
             elif layout == 'image-full':
@@ -4924,7 +4932,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     img_ref = image_block.get('image_reference', '')
                     img_url = final_image_mapping.get(img_ref, '') if final_image_mapping else ''
                     if img_url:
-                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{_at(img_ref)}">')
             
             html_parts.append('  </div>')
             
@@ -4943,51 +4951,51 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     logger.info(f"🔍 DEBUG: NESTED-BULLETS BRANCH 1! Items: {block.get('items')}")
                     heading = block.get('heading', '')
                     if heading:
-                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'    <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('    <ul class="bullets">')
                     for item in block.get('items', []):
                         if isinstance(item, dict):
                             # Module with nested lessons
-                            html_parts.append(f'      <li>{item.get("text", "")}')
+                            html_parts.append(f'      <li>{_tx(item.get("text", ""))}')
                             lessons = item.get('lessons', [])
                             if lessons:
                                 html_parts.append('        <ul>')
                                 for lesson in lessons:
-                                    html_parts.append(f'          <li>{lesson}</li>')
+                                    html_parts.append(f'          <li>{_tx(lesson)}</li>')
                                 html_parts.append('        </ul>')
                             html_parts.append('      </li>')
                         else:
                             # Plain text item (fallback)
-                            html_parts.append(f'      <li>{item}</li>')
+                            html_parts.append(f'      <li>{_tx(item)}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'bullets':
                     heading = block.get('heading', '')
                     if heading:
-                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'    <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('    <ul class="bullets">')
                     for item in block.get('items', []):
-                        html_parts.append(f'      <li>{item}</li>')
+                        html_parts.append(f'      <li>{_tx(item)}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'nested-bullets':
                     heading = block.get('heading', '')
                     if heading:
-                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'    <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('    <ul class="bullets">')
                     for item in block.get('items', []):
                         if isinstance(item, dict):
                             # Module with nested lessons
-                            html_parts.append(f'      <li>{item.get("text", "")}')
+                            html_parts.append(f'      <li>{_tx(item.get("text", ""))}')
                             if item.get('lessons'):
                                 html_parts.append('        <ul>')
                                 for lesson in item['lessons']:
-                                    html_parts.append(f'          <li>{lesson}</li>')
+                                    html_parts.append(f'          <li>{_tx(lesson)}</li>')
                                 html_parts.append('        </ul>')
                             html_parts.append('      </li>')
                         else:
                             # Fallback for simple strings
-                            html_parts.append(f'      <li>{item}</li>')
+                            html_parts.append(f'      <li>{_tx(item)}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'image':
@@ -4999,15 +5007,15 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         logger.warning(f"⚠️ Image '{img_ref}' not found in mapping. Available: {list(final_image_mapping.keys())[:5]}")
                     
                     if img_url:
-                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{img_ref}">')
+                        html_parts.append(f'    <img src="{img_url}" class="slide-image" alt="{_at(img_ref)}">')
                         if caption:
-                            html_parts.append(f'    <div style="text-align: center; font-size: 16pt; color: #666;">{caption}</div>')
+                            html_parts.append(f'    <div style="text-align: center; font-size: 16pt; color: #666;">{_tx(caption)}</div>')
                     else:
-                        html_parts.append(f'    <div style="border: 2px dashed #ccc; padding: 100px; text-align: center; color: #999; margin: 20px 0;">Image: {img_ref}</div>')
+                        html_parts.append(f'    <div style="border: 2px dashed #ccc; padding: 100px; text-align: center; color: #999; margin: 20px 0;">Image: {_tx(img_ref)}</div>')
                 
                 elif block_type == 'callout':
                     text = block.get('text', '')
-                    html_parts.append(f'    <div class="callout">{text}</div>')
+                    html_parts.append(f'    <div class="callout">{_tx(text)}</div>')
                 
                 elif block_type == 'table':
                     # Render table from headers and rows
@@ -5016,7 +5024,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     rows = block.get('rows', [])
                     
                     if heading:
-                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'    <div class="content-heading">{_tx(heading)}</div>')
                     
                     html_parts.append('    <table class="slide-table">')
                     
@@ -5025,7 +5033,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append('      <thead>')
                         html_parts.append('        <tr>')
                         for header in headers:
-                            html_parts.append(f'          <th>{header}</th>')
+                            html_parts.append(f'          <th>{_tx(header)}</th>')
                         html_parts.append('        </tr>')
                         html_parts.append('      </thead>')
                     
@@ -5035,7 +5043,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         for row in rows:
                             html_parts.append('        <tr>')
                             for cell in row:
-                                html_parts.append(f'          <td>{cell}</td>')
+                                html_parts.append(f'          <td>{_tx(cell)}</td>')
                             html_parts.append('        </tr>')
                         html_parts.append('      </tbody>')
                     
@@ -5054,14 +5062,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     highlighted_code = highlight_code_with_pygments(code, language)
                     
                     if heading:
-                        html_parts.append(f'    <div class="content-heading">{heading}</div>')
+                        html_parts.append(f'    <div class="content-heading">{_tx(heading)}</div>')
                     
                     html_parts.append(f'    <div class="code-block" id="{code_block_id}">')
                     
                     # Add header with language badge and zoom button
                     html_parts.append(f'      <div class="code-block-header">')
                     if language and language != 'text':
-                        html_parts.append(f'        <span class="code-block-language">{language}</span>')
+                        html_parts.append(f'        <span class="code-block-language">{_tx(language)}</span>')
                     else:
                         html_parts.append(f'        <span class="code-block-language">CODE</span>')
                     html_parts.append(f'        <button type="button" class="code-zoom-btn" onclick="openCodeModal(\'{code_block_id}\'); return false;">🔍 Zoom</button>')
@@ -5078,7 +5086,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         html_parts.append(f'  <img src="{logo_url}" class="slide-logo" alt="Logo">')
         
         if notes:
-            html_parts.append(f'  <div class="notes" style="display:none">{notes}</div>')
+            html_parts.append(f'  <div class="notes" style="display:none">{_tx(notes)}</div>')
         html_parts.append('</div>')
     
     html_parts.extend([

@@ -774,7 +774,7 @@ Resources:
       Layers:
         - !Ref StrandsAgentsLayer
       MemorySize: 1024
-      Timeout: 60
+      Timeout: 300
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
