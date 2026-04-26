@@ -127,6 +127,7 @@ Resources:
           BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
           OPENAI_API_KEY: ""  # Will be set via environment or Secrets Manager
           UPDATED_AT: "2025-10-12-16:45"
+          BEDROCK_APP_MAX_ATTEMPTS: '5'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -264,6 +265,7 @@ Resources:
         Variables:
           PYTHONPATH: /opt/python
           BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+          BEDROCK_APP_MAX_ATTEMPTS: '5'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -548,6 +550,10 @@ Resources:
         Variables:
           PYTHONPATH: /opt/python
           BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+          BEDROCK_APP_MAX_ATTEMPTS: '5'
+          LESSON_CONTEXT_MAX_CHARS: '14000'
+          LAB_BEDROCK_MAX_OUTPUT_TOKENS: '20000'
+          BEDROCK_READ_TIMEOUT: '860'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -768,7 +774,7 @@ Resources:
       Layers:
         - !Ref StrandsAgentsLayer
       MemorySize: 1024
-      Timeout: 60
+      Timeout: 300
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
@@ -1241,6 +1247,41 @@ Resources:
                 - !GetAtt StrandsLabWriter.Arn
                 - !GetAtt StrandsNotification.Arn
                 - !GetAtt ContentValidator.Arn
+
+  # Course generator reliability: failed / timed-out executions (subscribe actions in console or add SNS)
+  CourseGeneratorExecutionsFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-CourseGenerator-ExecutionsFailed"
+      AlarmDescription: One or more CourseGeneratorStateMachine executions failed in 5 minutes
+      MetricName: ExecutionsFailed
+      Namespace: AWS/States
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref CourseGeneratorStateMachine
+
+  CourseGeneratorExecutionsTimedOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-CourseGenerator-ExecutionsTimedOut"
+      AlarmDescription: CourseGeneratorStateMachine execution timed out (integration or global timeout)
+      MetricName: ExecutionsTimedOut
+      Namespace: AWS/States
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref CourseGeneratorStateMachine
 
   PptBatchOrchestratorStateMachine:
     Type: AWS::Serverless::StateMachine

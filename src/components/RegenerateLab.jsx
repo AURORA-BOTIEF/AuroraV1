@@ -96,7 +96,9 @@ function RegenerateLab({ projectFolder, outlineKey, currentLabId, currentLabTitl
                 apiName: 'CourseGeneratorAPI',
                 path: '/start-job',
                 options: {
-                    body: requestBody
+                    body: requestBody,
+                    headers: { 'Content-Type': 'application/json' },
+                    authMode: 'userPool',
                 }
             });
 

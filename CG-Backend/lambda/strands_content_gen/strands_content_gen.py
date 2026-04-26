@@ -19,10 +19,12 @@ Expected event parameters:
 
 import os
 import json
+import random
 import yaml
 import boto3
 import time
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
@@ -42,6 +44,42 @@ secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 DEFAULT_REGION = "us-east-1"
+
+# Application-level Bedrock retries (after boto retries) for transient errors
+BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
+
+
+def _bedrock_error_is_transient(exc: Exception) -> bool:
+    if isinstance(exc, ClientError):
+        code = (exc.response.get("Error") or {}).get("Code", "") or ""
+        return code in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+        )
+    msg = str(exc)
+    return any(
+        x in msg
+        for x in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+            "unable to process your request",
+        )
+    )
+
+
+def _sleep_before_bedrock_retry(attempt_index: int, base: float = 3.0, cap: float = 90.0) -> None:
+    """Exponential backoff with jitter before retrying Bedrock (attempt_index 0-based)."""
+    delay = min(cap, base * (2**attempt_index))
+    jitter = random.uniform(0, min(8.0, delay * 0.25))
+    total = delay + jitter
+    print(f"⏳ Bedrock backoff: sleep {total:.1f}s before next attempt")
+    time.sleep(total)
 
 
 def get_secret(secret_name: str) -> dict:
@@ -470,37 +508,40 @@ Begin generating now:
 
 
 def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
-    """Call AWS Bedrock Claude API."""
-    try:
-        request_body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 32000,
-            "temperature": 0.7,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-        
-        response = bedrock_client.invoke_model(
-            modelId=model_id,
-            body=json.dumps(request_body),
-            contentType='application/json',
-            accept='application/json'
-        )
-        
-        response_body = json.loads(response['body'].read())
-        
-        if 'content' in response_body and len(response_body['content']) > 0:
-            return response_body['content'][0]['text']
-        else:
+    """Call AWS Bedrock Claude API with app-level backoff on transient errors."""
+    request_body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 32000,
+        "temperature": 0.7,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    }
+    last_err: Optional[Exception] = None
+    for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(request_body),
+                contentType='application/json',
+                accept='application/json'
+            )
+            response_body = json.loads(response['body'].read())
+            if 'content' in response_body and len(response_body['content']) > 0:
+                return response_body['content'][0]['text']
             raise ValueError("No content in Bedrock response")
-    
-    except Exception as e:
-        print(f"Bedrock API Error: {str(e)}")
-        raise
+        except Exception as e:
+            last_err = e
+            print(f"Bedrock API Error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {str(e)}")
+            if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
+                _sleep_before_bedrock_retry(attempt - 1)
+                continue
+            raise
+    assert last_err is not None
+    raise last_err
 
 
 def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:

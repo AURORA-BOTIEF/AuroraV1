@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { get, post } from 'aws-amplify/api';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import './GeneradorContenido.css';
 
 const GeneradorContenido = () => {
@@ -51,15 +52,23 @@ const GeneradorContenido = () => {
             console.log('🚀 Frontend sending params:', JSON.stringify(params, null, 2));
             console.log('📊 module_to_generate value:', params.module_to_generate, 'type:', typeof params.module_to_generate);
 
-            // Call the start-job API using Amplify API with IAM authorization
+            let notifyEmail = null;
+            try {
+                const session = await fetchAuthSession();
+                notifyEmail = session?.tokens?.idToken?.payload?.email || null;
+            } catch (_) {
+                /* anonymous */
+            }
+
             const restOperation = post({
                 apiName: 'CourseGeneratorAPI',
                 path: '/start-job',
                 options: {
-                    body: params,
+                    body: notifyEmail ? { ...params, user_email: notifyEmail } : params,
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    authMode: 'userPool',
                 }
             });
             const { body } = await restOperation.response;

@@ -330,7 +330,7 @@ export default function Sidebar({ email = '', nombre, grupo = '' }) {
         )}
 
         <a
-          href="https://nethoot-v2-online-479795236799.us-west1.run.app"
+          href="https://luminae-netec-com-479795236799.us-west1.run.app/"
           target="_blank"
           rel="noopener noreferrer"
           className="nav-link"
