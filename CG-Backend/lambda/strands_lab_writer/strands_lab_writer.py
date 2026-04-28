@@ -343,6 +343,10 @@ By completing this lab, you will be able to:
 - [ ] [Objective 2 - specific and measurable]
 - [ ] [Objective 3 - specific and measurable]
 
+## Objetivo visual (THOR)
+
+Brief diagram or screenshot summary of lab tasks; include placeholder path such as `../images/lab-visual.png`.
+
 ## Prerequisites
 
 ### Required Knowledge
@@ -908,6 +912,10 @@ By completing this lab, you will be able to:
 - [ ] [Objective 1 - specific and measurable]
 - [ ] [Objective 2 - specific and measurable]
 - [ ] [Objective 3 - specific and measurable]
+
+## Objetivo visual (THOR)
+
+Brief diagram or screenshot summary of lab tasks; include placeholder path such as `../images/lab-visual.png`.
 
 ## Prerequisites
 

@@ -374,14 +374,30 @@ Al finalizar esta lección, serás capaz de:  (or "By the end of this lesson, yo
 
 ## Recursos Adicionales  (or "Additional Resources" if English)
 
-- [Resource 1 with description]
-- [Resource 2 with description]
+- [Resource 1 with description + https link]
+- [Resource 2 with description + https link]
 
-## Bibliografía  (or "Bibliography" if English)
-
-- [If content is based on model knowledge only, include model attribution used]
-- [If internet/web sources were used, include title + URL for each source]
+(Do NOT add "Bibliografía", "Referencias Bibliográficas", "Bibliography", or "References" sections inside individual lessons — references are assembled once per chapter when the book is built.)
 ```
+
+═══════════════════════════════════════════════════════════════════════════════
+YAML TOPIC FIDELITY (CRITICAL — THOR)
+═══════════════════════════════════════════════════════════════════════════════
+- For EACH lesson in this batch, the LESSONS TO GENERATE section lists **Topics** copied from the official YAML outline.
+- You MUST cover **every** listed topic. Create **one H2 section per topic** (after Introduction) whose title matches or closely matches that topic's title from the YAML.
+- Do not skip, rename arbitrarily, or substitute unrelated topics. Order topic sections in the same order as listed in the YAML for that lesson.
+
+═══════════════════════════════════════════════════════════════════════════════
+VISUAL ENRICHMENT (MANDATORY — THOR)
+═══════════════════════════════════════════════════════════════════════════════
+- The material must NOT be plain walls of text: include conceptual diagrams and explanatory visuals.
+- For EACH topic section, include at least one [VISUAL: MM-LL-XXXX - ...] tag describing a diagram, architecture figure, flowchart, or illustration that supports learning.
+- Prefer diagrams and structured visuals where concepts allow.
+
+═══════════════════════════════════════════════════════════════════════════════
+RECURSOS ADICIONALES — LINK QUALITY (THOR)
+═══════════════════════════════════════════════════════════════════════════════
+- Under "Recursos Adicionales" / "Additional Resources", every external link MUST use **https://** with a real, reachable destination (no example.com placeholders).
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL FORMATTING RULES
@@ -398,17 +414,13 @@ CRITICAL FORMATTING RULES
 **REQUIRED SECTIONS (MUST INCLUDE - USE COURSE LANGUAGE FOR TITLES):**
 1. Learning Objectives / Objetivos de Aprendizaje (H2) - 3-5 bullet points with Bloom verbs
 2. Introduction / Introducción (H2) - 2-3 paragraphs
-3. At least ONE topic section (H2) with subsections (H3)
+3. At least ONE topic section (H2) with subsections (H3); **for Spanish YAML courses, one H2 per topic listed for that lesson in the outline**, each titled to match the YAML topic title.
 4. Summary / Resumen (H2) with Key Takeaways / Puntos Clave (H3)
-5. Additional Resources / Recursos Adicionales (H2) - optional
-6. Bibliography / Bibliografía (H2) - REQUIRED
+5. Additional Resources / Recursos Adicionales (H2) — optional but recommended; use valid https links only.
 
-**BIBLIOGRAPHY RULES (MANDATORY):**
-- Every lesson MUST include Bibliography / Bibliografía.
-- If no web/internet source was used, include one entry with model attribution:
-    - "Anthropic Claude Sonnet 4.6 (Amazon Bedrock)" when using bedrock.
-    - "OpenAI GPT-5" when using openai.
-- If web/internet sources were used, include source title and URL for each source.
+**REFERENCES (THOR — PER-CHAPTER ONLY):**
+- Do NOT include per-lesson "Bibliografía", "Referencias Bibliográficas", or "References" sections.
+- Formal bibliographic references are assembled once at the **end of each chapter** in the book pipeline, not in individual lesson markdown files.
 
 **DO NOT INCLUDE Review Questions section - this will be handled separately.**
 

@@ -479,6 +479,9 @@ LABS IN THIS BATCH ({len(batch_labs)} labs):
 
 REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
 
+THOR ALIGNMENT: Each lab plan MUST reinforce the corresponding module's YAML topics and lesson themes.
+Lab scenarios must not drift into unrelated technologies unless justified in the outline.
+
 {prompt_prefix}
 
 Return JSON with:

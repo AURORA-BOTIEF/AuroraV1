@@ -8,6 +8,8 @@ import re
 import yaml
 import boto3
 import time
+import urllib.request
+import urllib.error
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -197,7 +199,8 @@ def lambda_handler(event, context):
                 # Replace visual tags with images for this lesson
                 processed_content = replace_visual_tags(lesson_content, image_mappings, course_bucket)
                 processed_content = normalize_spanish_terms(processed_content, is_spanish)
-                processed_content = ensure_lesson_bibliography(processed_content, model_provider, is_spanish)
+                processed_content, bib_urls = extract_and_strip_bibliography(processed_content)
+                processed_content = annotate_unverified_links_in_resources(processed_content)
                 processed_content = strip_primary_lesson_heading(processed_content)
 
                 lesson_data = {
@@ -206,7 +209,8 @@ def lambda_handler(event, context):
                     'content': processed_content,
                     'word_count': len(processed_content.split()),
                     'module_number': module_num,
-                    'lesson_number': lesson_num
+                    'lesson_number': lesson_num,
+                    'ref_urls': bib_urls,
                 }
 
                 all_lessons.append(lesson_data)
@@ -298,6 +302,8 @@ def lambda_handler(event, context):
             # Add module header
             full_book_content += f"\n\n# {module_data['title']}\n\n"
             full_book_content += "---\n\n"
+
+            module_urls = collect_urls_from_lessons(module_data.get('lessons', []))
             
             # Add module introduction + lessons within this module
             for lesson in module_data.get('display_lessons', module_data['lessons']):
@@ -310,6 +316,10 @@ def lambda_handler(event, context):
                     full_book_content += f"## {module_num}.{lesson['lesson_number']}: {lesson['title']}\n\n"
                 full_book_content += lesson['content']
                 full_book_content += "\n\n---\n\n"
+
+            ref_block = format_chapter_references_section(module_urls, model_provider, is_spanish)
+            if ref_block:
+                full_book_content += ref_block + "\n\n---\n\n"
 
         # Add book statistics
         total_words = sum(lesson['word_count'] for lesson in all_lessons)
@@ -486,40 +496,121 @@ def normalize_spanish_terms(content: str, is_spanish: bool) -> str:
     return updated
 
 
-def ensure_lesson_bibliography(content: str, model_provider: str, is_spanish: bool) -> str:
-    """Ensure every lesson contains a bibliography section with model/source attribution."""
+_BIB_SECTION_HEADER = re.compile(
+    r'^##\s*(Bibliograf[ií]a|Referencias\s+Bibliográficas|Bibliography|References)\s*$',
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def extract_and_strip_bibliography(content: str) -> tuple[str, list[str]]:
+    """Remove per-lesson bibliography sections (THOR: refs only at chapter end). Return stripped URLs."""
+    if not content:
+        return '', []
+
+    urls: list[str] = []
+    chunks: list[str] = []
+    last_idx = 0
+
+    for m in _BIB_SECTION_HEADER.finditer(content):
+        chunks.append(content[last_idx:m.start()])
+        rest = content[m.end():]
+        nxt = re.search(r'^##\s+\S', rest, re.MULTILINE)
+        block_len = nxt.start() if nxt else len(rest)
+        block = rest[:block_len]
+        for raw_u in re.findall(r'https?://[^\s\)\]\>\"\']+', block):
+            u = raw_u.rstrip('.,);')
+            if u not in urls:
+                urls.append(u)
+        last_idx = m.end() + block_len
+
+    chunks.append(content[last_idx:])
+    return ''.join(chunks).strip(), urls
+
+
+def _check_url_reachable(url: str, timeout: float = 4.0) -> bool:
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; AuroraBookBuilder/1.0)'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = resp.getcode()
+            return 200 <= int(code) < 400
+    except Exception:
+        return False
+
+
+def annotate_unverified_links_in_resources(content: str) -> str:
+    """Mark unreachable https links under Recursos Adicionales (bounded HEAD/GET checks for Lambda)."""
     if not content:
         return content
 
-    has_bibliography = re.search(r'^##\s*(Bibliography|Bibliografía|References|Referencias)\b', content, re.IGNORECASE | re.MULTILINE)
-    if has_bibliography:
+    m = re.search(
+        r'(^##\s*Recursos\s+Adicionales\s*$|^##\s*Additional\s+Resources\s*$)',
+        content,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not m:
         return content
 
-    urls = list(dict.fromkeys(re.findall(r'https?://[^\s\)\]]+', content)))
+    rest = content[m.end():]
+    nxt_sec = re.search(r'^##\s+\S', rest, re.MULTILINE)
+    sec_body = rest[: nxt_sec.start()] if nxt_sec else rest
+
+    checks_left = [5]  # max network checks per lesson
+
+    def repl(match):
+        url = match.group(0).rstrip('.,);')
+        if not url.lower().startswith('http'):
+            return match.group(0)
+        if checks_left[0] <= 0:
+            return match.group(0)
+        checks_left[0] -= 1
+        if url.lower().startswith('https://') and not _check_url_reachable(url):
+            return f"{match.group(0)} *(enlace no verificado — revisar manualmente)*"
+        return match.group(0)
+
+    updated_sec = re.sub(r'https?://[^\s\)\]\>\"\']+', repl, sec_body)
+    tail = rest[nxt_sec.start():] if nxt_sec else ''
+    return content[: m.end()] + updated_sec + tail
+
+
+def collect_urls_for_module(lessons: list) -> list[str]:
+    """Aggregate unique URLs from lesson bodies + extracted bibliography URLs."""
+    seen = set()
+    out = []
+    url_re = re.compile(r'https?://[^\s\)\]\>\"\']+')
+
+    for les in lessons:
+        if les.get('is_intro') or les.get('is_summary'):
+            continue
+        for u in les.get('ref_urls') or []:
+            u = u.rstrip('.,);')
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+        for raw in url_re.findall(les.get('content', '')):
+            u = raw.rstrip('.,);')
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+    return out
+
+
+def format_chapter_references_section(urls: list[str], model_provider: str, is_spanish: bool) -> str:
+    """Single Referencias Bibliográficas block per chapter (THOR requirement)."""
     model_name = "OpenAI GPT-5" if str(model_provider).lower() == 'openai' else "Anthropic Claude Sonnet 4.6 (Amazon Bedrock)"
-
     if is_spanish:
-        heading = "## Bibliografía"
+        lines = ['## Referencias Bibliográficas', '']
         if urls:
-            lines = [heading, ""] + [f"- Fuente web: {url}" for url in urls]
+            lines.extend(f'- {u}' for u in urls)
         else:
-            lines = [
-                heading,
-                "",
-                f"- Contenido generado con conocimiento del modelo: {model_name}."
-            ]
+            lines.append(f'- Contenido elaborado con el modelo: {model_name}.')
     else:
-        heading = "## Bibliography"
+        lines = ['## References', '']
         if urls:
-            lines = [heading, ""] + [f"- Web source: {url}" for url in urls]
+            lines.extend(f'- {u}' for u in urls)
         else:
-            lines = [
-                heading,
-                "",
-                f"- Content generated using model knowledge: {model_name}."
-            ]
+            lines.append(f'- Content developed using: {model_name}.')
 
-    return content.rstrip() + "\n\n" + "\n".join(lines) + "\n"
+    return '\n'.join(lines)
 
 
 def normalize_lesson_title(title, lesson_num):

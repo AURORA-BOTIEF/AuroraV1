@@ -1302,6 +1302,23 @@ def lambda_handler(event, context):
         book_type = body.get('book_type', 'theory')  # 'theory' or 'lab'
         model_provider = body.get('model_provider', 'bedrock').lower()
         slides_per_lesson = int(body.get('slides_per_lesson', 5))
+        _cdh = body.get('course_duration_hours')
+        if _cdh is not None:
+            try:
+                ch = float(_cdh)
+                if ch > 0:
+                    orig = slides_per_lesson
+                    if ch <= 8:
+                        slides_per_lesson = min(slides_per_lesson, 4)
+                    elif ch <= 16:
+                        slides_per_lesson = min(slides_per_lesson, 5)
+                    elif ch <= 40:
+                        slides_per_lesson = min(slides_per_lesson, 6)
+                    logger.info(
+                        f"📊 course_duration_hours={ch}: slides_per_lesson {orig} → {slides_per_lesson}"
+                    )
+            except (TypeError, ValueError):
+                pass
         style = body.get('style', 'professional')
         
         # HTML-FIRST ONLY (Legacy removed Nov 21, 2025)

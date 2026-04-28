@@ -153,6 +153,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   ContentValidator:
@@ -291,6 +292,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   PptBatchOrchestrator:
@@ -409,6 +411,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   StrandsVisualOptimizer:
@@ -450,7 +453,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ImagesGen
-      Description: Generate images from prompts using Google Gemini API or Imagen 4.0
+      Description: Generate images from prompts using Google Gemini or OpenAI GPT Image (gpt-image-2)
       Runtime: python3.12
       Handler: images_gen.lambda_handler
       CodeUri: ./lambda/images_gen/
@@ -483,6 +486,7 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   # ======================================
   # STRANDS AGENTS - LAB GUIDE GENERATION
@@ -530,6 +534,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   StrandsLabWriter:
@@ -577,6 +582,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
                 - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
 
   StrandsNotification:

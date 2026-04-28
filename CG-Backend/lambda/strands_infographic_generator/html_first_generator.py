@@ -1291,6 +1291,36 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
             "heading": "Objetivo" if is_spanish else "Objective",
             "items": [intro_objective]
         })
+
+    gh_url = str(
+        lesson.get("github_pages_url")
+        or lesson.get("lab_github_pages_url")
+        or lesson.get("github_pages")
+        or ""
+    ).strip()
+    instr_heading = "Planteamiento e instrucciones:" if is_spanish else "Problem statement and instructions:"
+    if is_spanish:
+        instr_body = [
+            "Realiza un seguimiento de los pasos indicados en la Guía de Laboratorios para llevar "
+            "a cabo la tarea correspondiente en el siguiente enlace:",
+        ]
+    else:
+        instr_body = [
+            "Follow the steps outlined in the Lab Guide to complete the task at the following link:",
+        ]
+    if gh_url:
+        instr_body.append(gh_url)
+    else:
+        instr_body.append(
+            "(Publica los laboratorios para obtener la URL de GitHub Pages en la guía del curso.)"
+            if is_spanish
+            else "(Publish labs to obtain the GitHub Pages URL in the course guide.)"
+        )
+    intro_blocks.append({
+        "type": "bullets",
+        "heading": instr_heading,
+        "items": instr_body,
+    })
     if duration_text:
         intro_blocks.append({
             "type": "bullets",
@@ -1868,6 +1898,10 @@ TARGET: Create HTML slides by filling pre-defined templates with SMART CONTENT D
    - Very large code (>17 lines) → SPLIT into multiple "code_only" slides
    - CODE BLOCKS SHOULD USE ALL AVAILABLE SPACE - don't leave empty space!
 
+5. **LANGUAGE (THOR / Spanish courses)**:
+   - If the source lesson is in Spanish, every slide title, bullet, table header, and callout MUST be in Spanish.
+   - Do not produce English slide titles or explanatory bullets for Spanish theory content (English code/commands and vendor names are allowed).
+
 ⚠️ JSON SYNTAX RULES (STRICT):
    - NO trailing commas in lists or objects
    - All strings must be double-quoted
@@ -2304,8 +2338,8 @@ OUTPUT JSON FORMAT:
                      }
                  content['code'] = code_obj
                  code = code_obj.get('code', '') or ''
-                 lines = code.split('\n')
-                 code_obj['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# ... (truncated)"
+                lines = code.split('\n')
+                code_obj['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# …"
              if container['type'] == 'table':
                  table_obj = content.get('table')
                  if not isinstance(table_obj, dict):
@@ -2399,58 +2433,15 @@ def generate_complete_course(
         refs = module_references_by_number.get(mod_num, [])
         title_ref = mod_title or f"{'Capítulo' if is_spanish else 'Module'} {mod_num}"
 
-        if 'outline_modules' in book_data:
-            outline_modules = book_data.get('outline_modules', [])
-            if mod_num <= len(outline_modules):
-                m_info = outline_modules[mod_num - 1]
-                title_ref = m_info.get('title', title_ref)
+        outline_modules = book_data.get('outline_modules', [])
+        m_info = {}
+        if outline_modules and mod_num <= len(outline_modules):
+            m_info = outline_modules[mod_num - 1]
+            title_ref = m_info.get('title', title_ref)
+            if not refs:
+                refs = m_info.get('references', [])
 
-                # Only generate lab slides when a true module boundary is
-                # confirmed AND we haven't already emitted them for this module.
-                if emit_labs and mod_num not in _modules_with_labs_emitted:
-                    for activity in m_info.get('lab_activities', []):
-                        a_title = activity.get('title', 'Lab Activity')
-                        norm_a = _normalize_text(a_title)
-                        if norm_a in processed_lab_activity_titles:
-                            continue
-                        best_g = select_best_lab_guide(
-                            activity_title=a_title, module_number=mod_num,
-                            lab_guides=lab_guides, used_guide_keys=used_lab_guide_keys
-                        )
-                        lab_data = {
-                            'title': a_title,
-                            'description': activity.get('description', ''),
-                            'objectives': activity.get('objectives', []),
-                            'duration_minutes': activity.get('duration_minutes'),
-                        }
-                        if best_g:
-                            lab_data['lab_guide'] = best_g.get('content', '')
-                            if lab_data.get('duration_minutes') is None:
-                                lab_data['duration_minutes'] = best_g.get('duration_minutes')
-                            used_lab_guide_keys.add(best_g.get('key'))
-                            logger.info(f"🧪 Using lab guide for activity '{a_title}': {best_g.get('key')}")
-                        lab_act_slides = create_lab_slides_from_content(lab_data, is_spanish, sc)
-                        for ls in lab_act_slides:
-                            ls['module_number'] = mod_num
-                            all_slides.append(ls)
-                        sc += len(lab_act_slides)
-                        processed_lab_activity_titles.add(norm_a)
-                        logger.info(f"✅ Added {len(lab_act_slides)} lab activity slide(s) for: {a_title}")
-                    _modules_with_labs_emitted.add(mod_num)
-                elif not emit_labs:
-                    logger.info(f"   ⏭️ Skipping lab generation (batch boundary, not true module end)")
-
-                if not refs:
-                    refs = m_info.get('references', [])
-            else:
-                if not refs:
-                    refs = []
-
-        # References slides suppressed by design (corporate template omits bibliography)
-        # ref_slides = create_references_slides(...)
-        # all_slides.extend(ref_slides)
-        # sc += len(ref_slides)
-
+        # THOR order: Resumen de Capítulo → Laboratorios → Referencias (sin logo Netec extra al cierre)
         r_items = _resumen_items_by_module.get(mod_num, [])
         if r_items:
             summary_slide = create_chapter_summary_slide(
@@ -2460,8 +2451,59 @@ def generate_complete_course(
             sc += 1
             logger.info(f"📋 Added chapter summary slide for Module {mod_num}")
 
-        all_slides.append(create_module_end_logo_slide(sc))
-        sc += 1
+        if outline_modules and mod_num <= len(outline_modules):
+            m_info = outline_modules[mod_num - 1]
+            if emit_labs and mod_num not in _modules_with_labs_emitted:
+                for activity in m_info.get('lab_activities', []):
+                    a_title = activity.get('title', 'Lab Activity')
+                    norm_a = _normalize_text(a_title)
+                    if norm_a in processed_lab_activity_titles:
+                        continue
+                    best_g = select_best_lab_guide(
+                        activity_title=a_title, module_number=mod_num,
+                        lab_guides=lab_guides, used_guide_keys=used_lab_guide_keys
+                    )
+                    lab_data = {
+                        'title': a_title,
+                        'description': activity.get('description', ''),
+                        'objectives': activity.get('objectives', []),
+                        'duration_minutes': activity.get('duration_minutes'),
+                    }
+                    if best_g:
+                        lab_data['lab_guide'] = best_g.get('content', '')
+                        if lab_data.get('duration_minutes') is None:
+                            lab_data['duration_minutes'] = best_g.get('duration_minutes')
+                        used_lab_guide_keys.add(best_g.get('key'))
+                        logger.info(f"🧪 Using lab guide for activity '{a_title}': {best_g.get('key')}")
+                    lab_act_slides = create_lab_slides_from_content(lab_data, is_spanish, sc)
+                    for ls in lab_act_slides:
+                        ls['module_number'] = mod_num
+                        all_slides.append(ls)
+                    sc += len(lab_act_slides)
+                    processed_lab_activity_titles.add(norm_a)
+                    logger.info(f"✅ Added {len(lab_act_slides)} lab activity slide(s) for: {a_title}")
+                _modules_with_labs_emitted.add(mod_num)
+            elif not emit_labs:
+                logger.info(f"   ⏭️ Skipping lab generation (batch boundary, not true module end)")
+
+        ref_strings = []
+        for r in refs or []:
+            if isinstance(r, str) and r.strip():
+                ref_strings.append(r.strip())
+            elif isinstance(r, dict):
+                t = (r.get('title') or r.get('url') or '').strip()
+                if t:
+                    ref_strings.append(t)
+        if ref_strings:
+            ref_slide = create_references_slide(
+                {'title': title_ref, 'references': ref_strings},
+                is_spanish,
+                sc
+            )
+            all_slides.append(ref_slide)
+            sc += 1
+            logger.info(f"📚 Added Referencias Bibliográficas slide for Module {mod_num}")
+
         return sc
 
     # Add introduction slides ONLY for first batch
@@ -3815,7 +3857,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             margin-bottom: 10px;
         }}
         .lab-intro-title {{
-            font-size: 42pt;
+            font-size: 50pt;
             font-weight: 800;
             color: #111;
             line-height: 1.15;

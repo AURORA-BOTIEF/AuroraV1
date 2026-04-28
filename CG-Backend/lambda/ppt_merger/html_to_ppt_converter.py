@@ -19,6 +19,32 @@ from typing import Dict, Optional
 # Use same logger as main module so logs appear in CloudWatch
 logger = logging.getLogger("aurora.infographic_generator")
 
+# THOR / Netec — estándar de tipografías (ppt)
+PT_CHAPTER_LABEL = 80  # "Capítulo N"
+PT_CHAPTER_NAME = 28  # nombre del capítulo (subtitle / secondary line)
+PT_LESSON_LABEL = 54  # lección 1.1, etc.
+PT_CONTENT_TITLE = 40  # títulos en slides de desarrollo
+PT_DEFAULT_SLIDE_TITLE = 40
+
+
+def _normalize_ppt_plain_text(text: str) -> str:
+    """Strip markdown asterisks and ellipsis truncation markers for PPT display (THOR)."""
+    if not text:
+        return ""
+    raw = str(text).strip()
+    low = raw.lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        return raw.replace("**", "").strip()
+    t = raw.replace("**", "").strip()
+    while t.startswith("*") and len(t) > 1:
+        t = t[1:].strip()
+    while t.endswith("*") and len(t) > 1:
+        t = t[:-1].strip()
+    t = re.sub(r"\btruncated\b", "…", t, flags=re.IGNORECASE)
+    if t and t[-1] not in ".!?;:":
+        t = t + "."
+    return t
+
 
 def convert_html_to_pptx_new(
     html_content: str, 
@@ -320,7 +346,7 @@ def _extract_slide_data(slide_html) -> Dict:
         title_elem = slide_html.find('h1', class_='main-title')
     else:
         title_elem = slide_html.find('h1', class_='slide-title')
-    title = title_elem.get_text(strip=True) if title_elem else "Untitled"
+    title = _normalize_ppt_plain_text(title_elem.get_text(strip=True)) if title_elem else "Untitled"
     logger.info(f"  📝 Extracted title: {title[:50]}")
     
     # Extract subtitle (different selector for special title slides)
@@ -328,7 +354,7 @@ def _extract_slide_data(slide_html) -> Dict:
         subtitle_elem = slide_html.find('p', class_='main-subtitle')
     else:
         subtitle_elem = slide_html.find('p', class_='slide-subtitle')
-    subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else None
+    subtitle = _normalize_ppt_plain_text(subtitle_elem.get_text(strip=True)) if subtitle_elem else None
     if subtitle:
         logger.info(f"  📝 Extracted subtitle: {subtitle[:50]}")
     
@@ -348,7 +374,7 @@ def _extract_slide_data(slide_html) -> Dict:
         # Check for heading within this block
         h2 = block_div.find('h2', class_='block-heading')
         if h2:
-            heading_text = h2.get_text(strip=True)
+            heading_text = _normalize_ppt_plain_text(h2.get_text(strip=True))
             logger.info(f"      ✓ Heading: {heading_text[:50]}")
             content_blocks.append({
                 'type': 'heading',
@@ -360,7 +386,7 @@ def _extract_slide_data(slide_html) -> Dict:
         if ul:
             items = []
             for li in ul.find_all('li'):
-                item_text = li.get_text(strip=True)
+                item_text = _normalize_ppt_plain_text(li.get_text(strip=True))
                 # Preserve level information from HTML class
                 if 'level-2' in li.get('class', []):
                     items.append({'text': item_text, 'level': 2})
@@ -380,7 +406,7 @@ def _extract_slide_data(slide_html) -> Dict:
         # Check for callout within this block
         callout = block_div.find('div', class_='callout')
         if callout:
-            callout_text = callout.get_text(strip=True)
+            callout_text = _normalize_ppt_plain_text(callout.get_text(strip=True))
             if callout_text:  # Only add if not empty
                 logger.info(f"      ✓ Callout: {callout_text[:50]}")
                 content_blocks.append({
@@ -457,7 +483,7 @@ def _set_slide_title(slide, title: str, colors: Dict):
         # Set title text
         title_para = title_frame.paragraphs[0]
         title_para.text = title
-        title_para.font.size = Pt(32)
+        title_para.font.size = Pt(PT_DEFAULT_SLIDE_TITLE)
         title_para.font.bold = True
         title_para.font.color.rgb = colors['primary']
         
@@ -644,7 +670,11 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
                 
                 title_para = title_frame.paragraphs[0]
                 title_para.text = title
-                title_para.font.size = Pt(48)
+                _ttl = (title or "").strip().lower()
+                if _ttl.startswith("capítulo") or _ttl.startswith("chapter"):
+                    title_para.font.size = Pt(PT_CHAPTER_LABEL)
+                else:
+                    title_para.font.size = Pt(48)
                 title_para.font.bold = True
                 title_para.font.color.rgb = RGBColor(0, 60, 120)  # Dark blue
                 title_para.alignment = PP_ALIGN.LEFT
@@ -711,7 +741,7 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
                 
                 title_para = title_frame.paragraphs[0]
                 title_para.text = title
-                title_para.font.size = Pt(42)
+                title_para.font.size = Pt(PT_LESSON_LABEL)
                 title_para.font.bold = True
                 title_para.font.color.rgb = RGBColor(0, 60, 120)  # Dark blue
                 title_para.alignment = PP_ALIGN.LEFT
@@ -730,7 +760,7 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
                     
                     subtitle_para = subtitle_frame.paragraphs[0]
                     subtitle_para.text = subtitle
-                    subtitle_para.font.size = Pt(28)
+                    subtitle_para.font.size = Pt(PT_CHAPTER_NAME)
                     subtitle_para.font.bold = False
                     subtitle_para.font.color.rgb = RGBColor(0, 188, 235)  # Cyan
                     subtitle_para.alignment = PP_ALIGN.LEFT
@@ -963,7 +993,7 @@ def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: b
                     p = text_frame.add_paragraph()
                     
                 p.text = block.get('text', '')
-                p.font.size = Pt(24)
+                p.font.size = Pt(PT_CONTENT_TITLE)
                 p.font.bold = True
                 p.font.color.rgb = colors['primary']
                 p.space_before = Pt(20)  # Add spacing before heading (matches HTML margin-top: 25px)
@@ -1242,8 +1272,31 @@ def _download_image_from_s3(image_ref: str, course_bucket: str, project_folder: 
     try:
         # Clean reference
         clean_ref = image_ref.replace('USE_IMAGE: ', '').strip()
-        
-        # Check if it's a full S3 URL
+
+        if clean_ref.startswith('s3://'):
+            path = clean_ref[5:]
+            bucket, _, key = path.partition('/')
+            if bucket and key:
+                logger.info(f"📥 Downloading s3://{bucket}/{key}")
+                response = s3_client.get_object(Bucket=bucket, Key=key)
+                return response['Body'].read()
+
+        if (
+            project_folder
+            and not clean_ref.startswith('http')
+            and ('/' in clean_ref or clean_ref.endswith('.png') or clean_ref.endswith('.jpg'))
+        ):
+            rel = clean_ref.lstrip('./')
+            if not rel.startswith(project_folder):
+                candidate_key = f"{project_folder}/{rel}"
+            else:
+                candidate_key = rel
+            try:
+                logger.info(f"📥 Downloading relative image path: s3://{course_bucket}/{candidate_key}")
+                response = s3_client.get_object(Bucket=course_bucket, Key=candidate_key)
+                return response['Body'].read()
+            except Exception:
+                logger.debug(f"Relative path candidate failed: {candidate_key}")
         if clean_ref.startswith('http'):
             url_match = re.search(r'https://([^/]+)\.s3\.amazonaws\.com/(.+)', clean_ref)
             if url_match:

@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 Images Generation Lambda - Standard Python Lambda (NO DOCKER!)
-Generates images from visual prompts using Google Gemini API or Imagen 4.0.
+Generates images from visual prompts using Google Gemini API or OpenAI Images (gpt-image-2).
 
-Supports two models:
-- Gemini 2.5 Flash Image (fast, lower cost, with prompt optimization and retry logic)
-- Imagen 4.0 Ultra (slower, higher cost, excellent text support - requires Vertex AI SDK)
+Supports:
+- Gemini 2.5 Flash Image / Gemini 3 Pro Image (Google Generative AI)
+- OpenAI GPT Image 2 (gpt-image-2) via Images API
 
 GEMINI IMPROVEMENTS (for >80% success rate):
 1. Prompt Optimization: Automatically enhances prompts with style guidance
@@ -22,6 +22,8 @@ import boto3
 import base64
 import time
 import logging
+import urllib.error
+import urllib.request
 from io import BytesIO
 from PIL import Image
 from typing import Dict, Any, List
@@ -59,6 +61,12 @@ BACKEND_MAX = int(os.getenv('IMAGES_BACKEND_MAX', '50'))
 # Gemini 2.5 Flash: ~7s per image, can handle more
 GEMINI3_MAX_BATCH = int(os.getenv('GEMINI3_MAX_BATCH', '4'))  # ~100s + overhead = safe for 15min
 GEMINI25_MAX_BATCH = int(os.getenv('GEMINI25_MAX_BATCH', '15'))  # ~105s + overhead = safe for 15min
+
+# OpenAI GPT Image (tiered IPM limits — default spacing avoids Tier-1 throttling)
+GPT_IMAGE_MAX_BATCH = int(os.getenv('GPT_IMAGE_MAX_BATCH', '4'))
+OPENAI_IMAGE_RATE_DELAY = float(os.getenv('OPENAI_IMAGE_RATE_DELAY', '13'))
+OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations'
+DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2'
 
 # Default max images if not specified
 DEFAULT_MAX_IMAGES = 5
@@ -126,6 +134,28 @@ def get_google_api_key() -> str:
     
     logger.error("❌ No Google API key found in Secrets Manager or environment")
     return None
+
+
+def get_openai_api_key() -> str | None:
+    """OpenAI API key from Secrets Manager (aurora/openai-api-key) or OPENAI_API_KEY."""
+    try:
+        secret = get_secret('aurora/openai-api-key')
+        api_key = secret.get('api_key') if isinstance(secret, dict) else None
+        if api_key:
+            logger.info('✅ Retrieved OpenAI API key from Secrets Manager')
+            return api_key
+    except Exception as e:
+        logger.warning(f'⚠️ OpenAI secret not loaded: {type(e).__name__}: {e}')
+    env_key = os.getenv('OPENAI_API_KEY')
+    if env_key:
+        logger.info('✅ Using OpenAI API key from environment')
+        return env_key
+    return None
+
+
+def is_openai_image_model(image_model: str) -> bool:
+    """True when image_model selects OpenAI Images (e.g. gpt-image-2)."""
+    return 'gpt-image' in (image_model or '').lower()
 
 
 def get_google_service_account() -> Dict[str, Any]:
@@ -216,26 +246,14 @@ def optimize_prompt_for_gemini(prompt_text: str) -> str:
 
 def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: int = 0) -> tuple:
     """
-    Generate an image using Gemini.
-    
-    Args:
-        model: Gemini GenerativeModel instance
-        prompt_id: Unique identifier for the prompt
-        prompt_text: Detailed description/prompt for image generation
-        
-    Returns:
-        tuple: (success: bool, image_bytes: bytes or None, error: str or None)
-    """
-def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: int = 0) -> tuple:
-    """
     Generate an image using Gemini with optimized prompts and retry logic.
-    
+
     Args:
         model: Gemini GenerativeModel instance
         prompt_id: Unique identifier for the prompt
         prompt_text: Detailed description/prompt for image generation
         retry_count: Current retry attempt (0 = first attempt)
-        
+
     Returns:
         tuple: (success: bool, image_bytes: bytes or None, error: str or None)
     """
@@ -412,6 +430,76 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: 
 
 
 
+def generate_image_openai(
+    api_key: str,
+    model_id: str,
+    prompt_id: str,
+    prompt_text: str,
+    retry_count: int = 0,
+) -> tuple:
+    """Generate one image via OpenAI Images API (e.g. gpt-image-2)."""
+    try:
+        optimized_prompt = optimize_prompt_for_gemini(prompt_text)
+        if len(optimized_prompt) > 32000:
+            optimized_prompt = optimized_prompt[:32000]
+
+        payload: Dict[str, Any] = {
+            'model': model_id,
+            'prompt': optimized_prompt,
+            'n': 1,
+            'size': '1024x1024',
+            'response_format': 'b64_json',
+        }
+        body = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            OPENAI_IMAGES_GENERATIONS_URL,
+            data=body,
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json',
+            },
+            method='POST',
+        )
+        logger.info(f'OpenAI Images request model={model_id} prompt_id={prompt_id}')
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            raw = resp.read().decode('utf-8')
+        data = json.loads(raw)
+        items = data.get('data') or []
+        if not items:
+            return False, None, 'OpenAI response missing data[]'
+
+        b64 = items[0].get('b64_json')
+        if b64:
+            image_bytes = base64.b64decode(b64)
+            if image_bytes and len(image_bytes) >= 100:
+                return True, image_bytes, None
+            return False, None, 'Decoded image too small'
+
+        url = items[0].get('url')
+        if url:
+            with urllib.request.urlopen(url, timeout=120) as url_resp:
+                image_bytes = url_resp.read()
+            if image_bytes and len(image_bytes) >= 100:
+                return True, image_bytes, None
+            return False, None, 'Downloaded image too small'
+
+        return False, None, 'No b64_json or url in OpenAI response'
+
+    except urllib.error.HTTPError as e:
+        err_txt = e.read().decode('utf-8', errors='replace')
+        logger.error(f'OpenAI HTTP {e.code} for {prompt_id}: {err_txt[:800]}')
+        if retry_count < MAX_RETRIES and e.code in (429, 500, 502, 503):
+            time.sleep(RETRY_DELAY * (retry_count + 1))
+            return generate_image_openai(api_key, model_id, prompt_id, prompt_text, retry_count + 1)
+        return False, None, f'OpenAI HTTP {e.code}: {err_txt[:400]}'
+
+    except Exception as e:
+        logger.error(f'❌ OpenAI image generation error for {prompt_id}: {e}', exc_info=True)
+        if retry_count < MAX_RETRIES:
+            time.sleep(RETRY_DELAY)
+            return generate_image_openai(api_key, model_id, prompt_id, prompt_text, retry_count + 1)
+        return False, None, str(e)
+
 
 def save_image_to_s3(s3_client, bucket: str, key: str, image_bytes: bytes) -> bool:
     """
@@ -521,15 +609,19 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         image_model = (raw_image_model or DEFAULT_IMAGE_MODEL).lower()  # Safe None handling
         logger.info(f"🔍 DEBUG - Final image_model after processing: {image_model}")
-        
+        use_openai = is_openai_image_model(image_model)
+
         rate_limit_override = exec_input.get('rate_limit_override')  # For performance testing
-        
+
         # Override rate limit if specified (for testing)
         global RATE_LIMIT_DELAY
         if rate_limit_override is not None:
             original_rate = RATE_LIMIT_DELAY
             RATE_LIMIT_DELAY = rate_limit_override
             logger.info(f"⚙️  Rate limit overridden: {original_rate}s → {RATE_LIMIT_DELAY}s (TEST MODE)")
+        elif use_openai:
+            RATE_LIMIT_DELAY = OPENAI_IMAGE_RATE_DELAY
+            logger.info(f"⚙️  OpenAI GPT Image: rate limit spacing {RATE_LIMIT_DELAY}s")
         
         # Get Lambda timeout information for dynamic batching
         try:
@@ -604,51 +696,68 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             except Exception as e:
                 logger.info(f"❌ Error reading prompts from S3: {e}")
         
-        # Initialize the selected model
+        # Initialize the selected model (Gemini or OpenAI Images API)
         model = None
         generate_func = None
-        
-        # Default to Gemini
-        logger.info(f"🤖 Initializing Gemini with model: {image_model}...")
-        
-        # Check if genai is available
-        if genai is None:
-            logger.info("⚠️  genai library not available; skipping image generation")
-            return {
-                "statusCode": 200,
-                "message": "genai library not available; skipped image generation",
-                "generated_images": [],
-                "bucket": course_bucket,
-                "project_folder": project_folder
-            }
-        
-        # Get Google API key
-        google_api_key = get_google_api_key()
-        if not google_api_key:
-            logger.info("⚠️  Google API key not available; skipping image generation")
-            return {
-                "statusCode": 200,
-                "message": "Google API key not available; skipped image generation",
-                "generated_images": [],
-                "bucket": course_bucket,
-                "project_folder": project_folder
-            }
-        
-        # Configure Gemini
-        try:
-            genai.configure(api_key=google_api_key)
-            # Use the requested model or default
-            model_to_use = image_model if image_model else GEMINI_MODEL
-            model = genai.GenerativeModel(model_to_use)
-            generate_func = generate_image_gemini
-            logger.info(f"✅ Initialized Gemini model: {model_to_use}")
-        except Exception as e:
-            logger.info(f"❌ Failed to configure Gemini: {e}")
-            return {
-                "statusCode": 500,
-                "error": f"Failed to configure Gemini: {e}",
-                "generated_images": []
-            }
+
+        if use_openai:
+            logger.info(f"🤖 Initializing OpenAI Images for model: {image_model}...")
+            openai_api_key = get_openai_api_key()
+            if not openai_api_key:
+                logger.info("⚠️  OpenAI API key not available; skipping image generation")
+                return {
+                    "statusCode": 200,
+                    "message": "OpenAI API key not available; skipped image generation",
+                    "generated_images": [],
+                    "bucket": course_bucket,
+                    "project_folder": project_folder,
+                }
+            openai_model_id = (raw_image_model or DEFAULT_OPENAI_IMAGE_MODEL).strip()
+            if not openai_model_id:
+                openai_model_id = DEFAULT_OPENAI_IMAGE_MODEL
+
+            def openai_wrapped(_m, pid: str, txt: str):
+                return generate_image_openai(openai_api_key, openai_model_id, pid, txt)
+
+            generate_func = openai_wrapped
+            logger.info(f"✅ OpenAI Images ready (model_id={openai_model_id})")
+        else:
+            logger.info(f"🤖 Initializing Gemini with model: {image_model}...")
+
+            if genai is None:
+                logger.info("⚠️  genai library not available; skipping image generation")
+                return {
+                    "statusCode": 200,
+                    "message": "genai library not available; skipped image generation",
+                    "generated_images": [],
+                    "bucket": course_bucket,
+                    "project_folder": project_folder,
+                }
+
+            google_api_key = get_google_api_key()
+            if not google_api_key:
+                logger.info("⚠️  Google API key not available; skipping image generation")
+                return {
+                    "statusCode": 200,
+                    "message": "Google API key not available; skipped image generation",
+                    "generated_images": [],
+                    "bucket": course_bucket,
+                    "project_folder": project_folder,
+                }
+
+            try:
+                genai.configure(api_key=google_api_key)
+                model_to_use = image_model if image_model else GEMINI_MODEL
+                model = genai.GenerativeModel(model_to_use)
+                generate_func = generate_image_gemini
+                logger.info(f"✅ Initialized Gemini model: {model_to_use}")
+            except Exception as e:
+                logger.info(f"❌ Failed to configure Gemini: {e}")
+                return {
+                    "statusCode": 500,
+                    "error": f"Failed to configure Gemini: {e}",
+                    "generated_images": [],
+                }
         
         generated_images = []
         
@@ -712,8 +821,10 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             num_prompts = len(prompts_from_input)
         
         # Apply model-specific batch limits to prevent Lambda timeout
-        # Gemini 3 Pro is slower (~25s/image) so needs smaller batches
-        if 'gemini-3' in image_model.lower():
+        if use_openai:
+            model_max_batch = GPT_IMAGE_MAX_BATCH
+            logger.info(f"⚙️  OpenAI GPT Image: limiting batch to {model_max_batch} images")
+        elif 'gemini-3' in image_model.lower():
             model_max_batch = GEMINI3_MAX_BATCH
             logger.info(f"⚙️  Gemini 3 Pro detected: limiting batch to {model_max_batch} images (slower model)")
         else:
@@ -752,7 +863,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 remaining_seconds = timeout_ms / 1000 - elapsed_time
             
             # Check if we should stop (safety buffer + estimated time for next image)
-            estimated_next_image_time = 15  # Conservative estimate: 10s generation + 5s overhead
+            estimated_next_image_time = 50 if use_openai else 15  # OpenAI gpt-image often slower per image
             if remaining_seconds < (TIMEOUT_SAFETY_BUFFER + estimated_next_image_time):
                 logger.warning(f"⏱️  TIMEOUT APPROACHING - Stopping after {processed_count}/{len(prompts_to_process)} images")
                 logger.warning(f"   Elapsed: {elapsed_time:.1f}s, Remaining: {remaining_seconds:.1f}s, Buffer needed: {TIMEOUT_SAFETY_BUFFER + estimated_next_image_time}s")
@@ -1024,12 +1135,6 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             "error": str(e),
             "error_type": type(e).__name__,
             "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        return {
-            "statusCode": 500,
-            "error": str(e),
-            "generated_images": []
         }
 
 
