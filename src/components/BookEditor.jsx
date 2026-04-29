@@ -2264,7 +2264,6 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
         // Helper function to apply inline formatting (bold, italic, inline code)
         const applyInlineFormatting = (text) => {
             // Remove standalone triple quotes that are not part of code blocks
-            // This handles cases where ''' or """ or ``` appear in regular text
             let result = text
                 .replace(/^'''$/g, '') // Remove lines with only '''
                 .replace(/^"""$/g, '') // Remove lines with only """
@@ -2273,13 +2272,18 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 .replace(/\s"""(\s|$)/g, '$1') // Remove """ with surrounding spaces
                 .replace(/\s```(\s|$)/g, '$1'); // Remove ``` with surrounding spaces
 
-            // Apply inline code, bold, italic, and link formatting
-            return result
+            // Inline code, bold, italic; markdown [text](url) first, then bare https URLs
+            result = result
                 .replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: \'Courier New\', monospace;">$1</code>')
                 .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*([^\*]+)\*/g, '<em>$1</em>')
-                // Markdown links: [text](url) - convert to anchor tags
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #2563eb; text-decoration: underline;">$1</a>');
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">$1</a>')
+                .replace(/(^|[\s(])(https?:\/\/[^\s<>'"]+)/g, (_m, prefix, rawUrl) => {
+                    const trimmed = rawUrl.replace(/[.,;:!?)]+$/, '');
+                    const linkStyle = 'color: #2563eb; text-decoration: underline;';
+                    return `${prefix}<a href="${trimmed}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">${trimmed}</a>`;
+                });
+            return result;
         };
 
         for (let rawLine of lines) {

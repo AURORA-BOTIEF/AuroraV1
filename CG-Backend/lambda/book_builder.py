@@ -200,7 +200,7 @@ def lambda_handler(event, context):
                 processed_content = replace_visual_tags(lesson_content, image_mappings, course_bucket)
                 processed_content = normalize_spanish_terms(processed_content, is_spanish)
                 processed_content, bib_urls = extract_and_strip_bibliography(processed_content)
-                processed_content = annotate_unverified_links_in_resources(processed_content)
+                processed_content = sanitize_resources_links_in_resources(processed_content)
                 processed_content = strip_primary_lesson_heading(processed_content)
 
                 lesson_data = {
@@ -527,18 +527,41 @@ def extract_and_strip_bibliography(content: str) -> tuple[str, list[str]]:
     return ''.join(chunks).strip(), urls
 
 
-def _check_url_reachable(url: str, timeout: float = 4.0) -> bool:
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; AuroraBookBuilder/1.0)'})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            code = resp.getcode()
-            return 200 <= int(code) < 400
-    except Exception:
+_url_reach_cache: dict[str, bool] = {}
+
+
+def _check_url_reachable(url: str, timeout: float = 5.0) -> bool:
+    """GET-based reachability (HEAD alone fails on many CDNs). Cached per process."""
+    u = url.strip().rstrip('.,);')
+    if not u.lower().startswith(('http://', 'https://')):
         return False
+    if u in _url_reach_cache:
+        return _url_reach_cache[u]
+    ua = (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    )
+    ok = False
+    try:
+        req = urllib.request.Request(u, headers={'User-Agent': ua})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            ok = 200 <= int(resp.getcode()) < 400
+    except urllib.error.HTTPError as e:
+        ok = 200 <= int(e.code) < 400
+    except Exception:
+        ok = False
+    _url_reach_cache[u] = ok
+    return ok
 
 
-def annotate_unverified_links_in_resources(content: str) -> str:
-    """Mark unreachable https links under Recursos Adicionales (bounded HEAD/GET checks for Lambda)."""
+_LEGACY_UNVERIFIED_MARK = re.compile(
+    r'\s*\*\(enlace no verificado[^\)]*\)\*\s*',
+    re.IGNORECASE,
+)
+
+
+def sanitize_resources_links_in_resources(content: str, max_checks: int = 20) -> str:
+    """Under Recursos Adicionales: drop unreachable links (no footnotes). Bounded GET checks."""
     if not content:
         return content
 
@@ -554,22 +577,50 @@ def annotate_unverified_links_in_resources(content: str) -> str:
     nxt_sec = re.search(r'^##\s+\S', rest, re.MULTILINE)
     sec_body = rest[: nxt_sec.start()] if nxt_sec else rest
 
-    checks_left = [5]  # max network checks per lesson
+    sec_body = _LEGACY_UNVERIFIED_MARK.sub('', sec_body)
 
-    def repl(match):
-        url = match.group(0).rstrip('.,);')
-        if not url.lower().startswith('http'):
-            return match.group(0)
+    checks_left = [max_checks]
+
+    def reachable(raw_url: str) -> bool:
+        u = raw_url.strip().rstrip('.,);')
         if checks_left[0] <= 0:
-            return match.group(0)
+            return True  # budget exhausted: leave remaining URLs unchanged
         checks_left[0] -= 1
-        if url.lower().startswith('https://') and not _check_url_reachable(url):
-            return f"{match.group(0)} *(enlace no verificado — revisar manualmente)*"
-        return match.group(0)
+        return _check_url_reachable(u)
 
-    updated_sec = re.sub(r'https?://[^\s\)\]\>\"\']+', repl, sec_body)
+    md_link = re.compile(r'\[([^\]]+)\]\((https?://[^)]+)\)')
+
+    def md_sub(mm: re.Match) -> str:
+        label, url = mm.group(1).strip(), mm.group(2).strip()
+        if reachable(url):
+            return mm.group(0)
+        return label if label else ''
+
+    sec_body = md_link.sub(md_sub, sec_body)
+
+    bare = re.compile(r'https?://[^\s\)\]\>\"\',\]]+')
+
+    def bare_sub(bm: re.Match) -> str:
+        raw = bm.group(0)
+        url = raw.rstrip('.,);')
+        if reachable(url):
+            return raw
+        return ''
+
+    sec_body = bare.sub(bare_sub, sec_body)
+
+    cleaned_lines: list[str] = []
+    for line in sec_body.splitlines():
+        s = line.strip()
+        if re.match(r'^[-*]\s*$', s):
+            continue
+        cleaned_lines.append(line.rstrip())
+
+    sec_body = '\n'.join(cleaned_lines)
+    sec_body = re.sub(r'\n{3,}', '\n\n', sec_body).rstrip() + '\n'
+
     tail = rest[nxt_sec.start():] if nxt_sec else ''
-    return content[: m.end()] + updated_sec + tail
+    return content[: m.end()] + sec_body + tail
 
 
 def collect_urls_for_module(lessons: list) -> list[str]:
@@ -771,25 +822,132 @@ This chapter develops **{module_title}** through practical and conceptual progre
 """
 
 
+def extract_takeaway_bullets_from_lesson(content: str, max_bullets: int = 8) -> list:
+    """Collect bullets from ### Puntos Clave / Key Takeaways blocks."""
+    if not content:
+        return []
+    lines = content.splitlines()
+    in_section = False
+    bullets = []
+    pk_headers = frozenset({
+        'puntos clave', 'key takeaways', 'key takeaway', 'takeaways', 'ideas clave', 'ideas principales',
+    })
+    for line in lines:
+        line_st = line.strip()
+        if re.match(r'^###\s+', line_st):
+            title = re.sub(r'^###\s+', '', line_st).strip().lower().rstrip(':').strip()
+            in_section = title in pk_headers
+            continue
+        if in_section:
+            if re.match(r'^##\s+', line_st):
+                break
+            if re.match(r'^###\s+', line_st):
+                break
+            mb = re.match(r'^[-*]\s+(.+)$', line_st)
+            if mb:
+                bullets.append(mb.group(1).strip())
+                if len(bullets) >= max_bullets:
+                    break
+    return bullets
+
+
+def _dedupe_strings_preserve_order(items: list, max_n: int, min_len: int = 10) -> list:
+    seen = set()
+    out = []
+    for x in items:
+        if not isinstance(x, str):
+            continue
+        s = x.strip()
+        if len(s) < min_len:
+            continue
+        key = re.sub(r'\s+', ' ', s.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+        if len(out) >= max_n:
+            break
+    return out
+
+
+def _format_lesson_title_run(titles: list, is_spanish: bool) -> str:
+    clean = [t for t in titles if t and len(t.strip()) > 1]
+    if not clean:
+        return 'el contenido planificado para este capítulo' if is_spanish else 'the planned lessons for this chapter'
+    if len(clean) == 1:
+        return clean[0]
+    if len(clean) == 2:
+        return f'{clean[0]} y {clean[1]}' if is_spanish else f'{clean[0]} and {clean[1]}'
+    sep = ', '
+    conj = ' y ' if is_spanish else ', and '
+    return sep.join(clean[:-1]) + conj + clean[-1]
+
+
 def generate_module_summary(module_num: int, module_title: str, module_lessons: list, is_spanish: bool) -> str:
-    """Generate chapter-level summary content focused on real covered topics."""
-    module_topics = extract_module_key_topics(module_lessons, is_spanish=is_spanish, max_items=8)
-    bullets = "\n".join([f"- {topic}" for topic in module_topics]) if module_topics else "- (Sin temas detectados)"
+    """Chapter summary: reinforce learning with takeaways from lessons + topic map (not template headings)."""
+    lessons = [
+        l for l in module_lessons
+        if not l.get('is_intro') and not l.get('is_summary')
+    ]
+    takeaways: list = []
+    for les in lessons:
+        takeaways.extend(extract_takeaway_bullets_from_lesson(les.get('content', '')))
+        if len(takeaways) >= 24:
+            break
+    takeaways = _dedupe_strings_preserve_order(takeaways, 10, min_len=8)
+
+    topics = extract_module_key_topics(module_lessons, is_spanish=is_spanish, max_items=10)
+    titles = [les.get('title', '').strip() for les in lessons if les.get('title')]
+    title_run = _format_lesson_title_run(titles, is_spanish)
 
     if is_spanish:
-        return f"""Este resumen consolida los aprendizajes más importantes de **{module_title}**.
+        lines = [
+            f'Este resumen te ayuda a **recordar y aplicar** lo esencial de **{module_title}**.',
+            '',
+            f'Las lecciones de este capítulo abordan: {title_run}.',
+            '',
+        ]
+        if takeaways:
+            lines.extend([
+                '### Ideas clave para reforzar tu aprendizaje',
+                '',
+                *[f'- {t}' for t in takeaways],
+                '',
+            ])
+        lines.extend([
+            '### Mapa de contenidos',
+            '',
+        ])
+        if topics:
+            lines.extend(f'- {t}' for t in topics)
+        else:
+            lines.append('- Consulta las lecciones del capítulo para repasar objetivos y práctica.')
+        lines.append('')
+        return '\n'.join(lines).strip() + '\n'
 
-### Temas más importantes cubiertos
-
-{bullets}
-"""
-
-    return f"""This summary consolidates the most important learnings from **{module_title}**.
-
-### Most important topics covered
-
-{bullets}
-"""
+    lines = [
+        f'This summary helps you **remember and apply** what matters in **{module_title}**.',
+        '',
+        f'Lessons in this chapter cover: {title_run}.',
+        '',
+    ]
+    if takeaways:
+        lines.extend([
+            '### Key ideas to reinforce your learning',
+            '',
+            *[f'- {t}' for t in takeaways],
+            '',
+        ])
+    lines.extend([
+        '### Content map',
+        '',
+    ])
+    if topics:
+        lines.extend(f'- {t}' for t in topics)
+    else:
+        lines.append('- Review the chapter lessons for objectives and hands-on practice.')
+    lines.append('')
+    return '\n'.join(lines).strip() + '\n'
 
 
 def generate_course_glossary(sorted_modules: list, is_spanish: bool) -> str:
@@ -925,11 +1083,15 @@ def extract_module_key_topics(module_lessons: list, is_spanish: bool, max_items:
     """Extract key topic headings (H2/H3) from real module lesson content."""
     stop_words_es = {
         'objetivos de aprendizaje', 'introducción', 'resumen', 'puntos clave', 'próximos pasos',
-        'recursos adicionales', 'bibliografía', 'metadatos', 'validación y pruebas', 'solución de problemas'
+        'recursos adicionales', 'bibliografía', 'metadatos', 'validación y pruebas', 'solución de problemas',
+        'visión general del concepto', 'detalles técnicos', 'aplicación práctica',
+        'información general', 'temas principales del capítulo', 'lecciones incluidas',
     }
     stop_words_en = {
         'learning objectives', 'introduction', 'summary', 'key takeaways', "what's next",
-        'additional resources', 'bibliography', 'metadata', 'validation & testing', 'troubleshooting'
+        'additional resources', 'bibliography', 'metadata', 'validation & testing', 'troubleshooting',
+        'concept overview', 'technical details', 'practical application',
+        'general information', 'main chapter topics', 'included lessons',
     }
     stop_words = stop_words_es if is_spanish else stop_words_en
 

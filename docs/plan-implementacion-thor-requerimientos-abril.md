@@ -7,7 +7,7 @@ Seguimiento de la implementación en Aurora (`CG-Backend`) según el informe **T
 ## 1. Aumentado / libro
 
 - [x] Prompts + validación: fidelidad al YAML por lección (`strands_content_gen.py`)
-- [x] Validación de URLs en Recursos adicionales (`book_builder.py`, comprobaciones acotadas)
+- [x] Validación de URLs en Recursos adicionales (`book_builder.py`): GET + caché; enlaces no alcanzables **omitidos** (sin marca “no verificado”); presupuesto acotado por lección
 - [x] Referencias bibliográficas al **final de cada capítulo** en el libro ensamblado (`book_builder.py`)
 - [x] Enriquecimiento visual obligatorio por tema en prompts (`strands_content_gen.py`)
 - [ ] Validador automático post-generación: comprobar que **cada topic YAML** tiene su H2 en el MD de la lección

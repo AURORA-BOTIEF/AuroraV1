@@ -398,6 +398,8 @@ VISUAL ENRICHMENT (MANDATORY — THOR)
 RECURSOS ADICIONALES — LINK QUALITY (THOR)
 ═══════════════════════════════════════════════════════════════════════════════
 - Under "Recursos Adicionales" / "Additional Resources", every external link MUST use **https://** with a real, reachable destination (no example.com placeholders).
+- Format **each** resource as **one markdown link per bullet**, on a single line: `- [Descripción clara del recurso](https://dominio/ruta)` (do NOT put bare URLs on a separate line under the title).
+- Prefer official documentation, vendor docs, or primary sources; avoid aggregator pages when a primary URL exists.
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL FORMATTING RULES
