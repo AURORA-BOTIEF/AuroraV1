@@ -2338,8 +2338,8 @@ OUTPUT JSON FORMAT:
                      }
                  content['code'] = code_obj
                  code = code_obj.get('code', '') or ''
-                lines = code.split('\n')
-                code_obj['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# …"
+                 lines = code.split('\n')
+                 code_obj['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# …"
              if container['type'] == 'table':
                  table_obj = content.get('table')
                  if not isinstance(table_obj, dict):

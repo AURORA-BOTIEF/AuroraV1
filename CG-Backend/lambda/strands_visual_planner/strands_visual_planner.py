@@ -113,33 +113,33 @@ def create_unique_filename(description: str, prefix: str = "visual") -> str:
 def extract_visual_tags_from_lesson(lesson_content: str, lesson_id: str) -> List[Dict[str, Any]]:
     """
     Extract [VISUAL: MM-LL-NNNN - description] tags from lesson content.
-    
+
+    The keyword VISUAL is matched case-insensitively so tags like [visual: ...] from the
+    LLM still route to image generation (strict uppercase-only matching skipped all tags).
+
     Returns:
         List of visual tags with ID and description: [{"id": "01-01-0001", "description": "...", "context": "..."}, ...]
     """
-    # Updated regex to capture ID and description: [VISUAL: 01-01-0001 - description]
-    visual_tag_regex = re.compile(r'\[VISUAL:\s*(\d{2}-\d{2}-\d{4})\s*-\s*(.*?)\]')
-    matches = visual_tag_regex.findall(lesson_content)
-    
+    visual_tag_regex = re.compile(
+        r'\[visual:\s*(\d{2}-\d{2}-\d{4})\s*-\s*(.*?)\]',
+        re.IGNORECASE | re.DOTALL,
+    )
+
     visuals = []
-    for visual_id, desc in matches:
-        # Extract surrounding context (100 chars before/after the tag)
-        full_tag = f'[VISUAL: {visual_id} - {desc}]'
-        match = re.search(re.escape(full_tag), lesson_content)
-        if match:
-            start = max(0, match.start() - 100)
-            end = min(len(lesson_content), match.end() + 100)
-            context = lesson_content[start:end].strip()
-        else:
-            context = ""
-        
+    for m in visual_tag_regex.finditer(lesson_content):
+        visual_id = m.group(1)
+        desc = (m.group(2) or "").strip()
+        start = max(0, m.start() - 100)
+        end = min(len(lesson_content), m.end() + 100)
+        context = lesson_content[start:end].strip()
+
         visuals.append({
-            "id": visual_id,  # Use the ID from the tag
+            "id": visual_id,
             "lesson_id": lesson_id,
-            "description": desc.strip(),
-            "context": context
+            "description": desc,
+            "context": context,
         })
-    
+
     return visuals
 
 

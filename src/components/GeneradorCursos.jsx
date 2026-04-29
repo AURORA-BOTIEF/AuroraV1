@@ -367,10 +367,10 @@ function GeneradorCursos() {
                                 >
                                     <option value="models/gemini-2.5-flash-image">Gemini 2.5 Flash Image (Rápido, Menor Costo)</option>
                                     <option value="models/gemini-3-pro-image-preview">Gemini 3 Pro Image (Alta Calidad, Más Lento)</option>
-                                    <option value="gpt-image-2">OpenAI GPT Image 2 (alta calidad)</option>
+                                    <option value="gpt-image-2">OpenAI GPT Image 2 (Alta Calidad)</option>
                                 </select>
                                 <small className="form-hint">
-                                    Gemini 2.5: ~7s/imagen, menor costo | Gemini 3: ~25s/imagen (máx 4 por lote) | GPT Image 2: alta calidad (~13s entre imágenes en generación)
+                                    Gemini 2.5: ~7s/imagen, menor costo | Gemini 3: ~25s/imagen (máx 4 por lote) | GPT Image 2: Alta Calidad (~13s entre imágenes en generación)
                                 </small>
                             </div>
                         </div>

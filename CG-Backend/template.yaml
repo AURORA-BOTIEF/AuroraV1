@@ -813,9 +813,9 @@ Resources:
       Handler: export_ppt.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/ppt_merger/
+      # StrandsAgentsLayer adds a broken lxml on PYTHONPATH; ExportPpt does not need Strands.
       Layers:
         - !Ref PPTLayer
-        - !Ref StrandsAgentsLayer
       Architectures:
         - arm64
       MemorySize: 2048

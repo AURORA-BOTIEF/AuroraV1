@@ -303,7 +303,7 @@ def lambda_handler(event, context):
             full_book_content += f"\n\n# {module_data['title']}\n\n"
             full_book_content += "---\n\n"
 
-            module_urls = collect_urls_from_lessons(module_data.get('lessons', []))
+            module_urls = collect_urls_for_module(module_data.get('lessons', []))
             
             # Add module introduction + lessons within this module
             for lesson in module_data.get('display_lessons', module_data['lessons']):

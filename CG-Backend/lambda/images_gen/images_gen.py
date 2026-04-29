@@ -448,8 +448,9 @@ def generate_image_openai(
             'prompt': optimized_prompt,
             'n': 1,
             'size': '1024x1024',
-            'response_format': 'b64_json',
         }
+        # Note: do not send response_format — gpt-image-* rejects it (400 unknown_parameter).
+        # Response may include either data[0].b64_json or data[0].url depending on model/version.
         body = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
             OPENAI_IMAGES_GENERATIONS_URL,
