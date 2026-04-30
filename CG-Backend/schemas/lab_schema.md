@@ -29,7 +29,7 @@ All AI models (Bedrock Claude, OpenAI GPT, etc.) MUST follow this exact hierarch
 | Troubleshooting | Solución de Problemas |
 | Cleanup | Limpieza |
 | Summary | Resumen |
-| Additional Resources | Recursos Adicionales |
+| Bibliographic References | Referencias Bibliográficas |
 
 ---
 
@@ -270,10 +270,10 @@ To reset your environment after completing this lab:
 - {Suggested follow-up lab or lesson}
 - {Additional practice recommendation}
 
-## Additional Resources
+## Bibliographic References
 
-- [{Resource 1 title}]({URL}) - {Brief description}
-- [{Resource 2 title}]({URL}) - {Brief description}
+- [{Reference 1 title}]({URL}) - {Brief description}
+- [{Reference 2 title}]({URL}) - {Brief description}
 - [{Official documentation}]({URL}) - {Brief description}
 ```
 
@@ -295,7 +295,7 @@ To reset your environment after completing this lab:
 | Troubleshooting | H2 | ✅ | At least 2-3 common issues |
 | Cleanup | H2 | ✅ | Commands to reset environment |
 | Summary | H2 | ✅ | Accomplishments and takeaways |
-| Additional Resources | H2 | Recommended | Links for further learning |
+| Bibliographic References | H2 | ✅ | Links for further learning and references |
 
 ---
 

@@ -24,15 +24,17 @@ Key Innovation:
 - Guaranteed fit because we build with actual CSS measurements
 """
 
+import copy
 import json
 import logging
+import os
 import re
 import boto3
 import time
 import html as html_module
 import unicodedata
 from urllib.parse import quote
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 from datetime import datetime
 
 logger = logging.getLogger("aurora.infographic_generator")
@@ -41,15 +43,57 @@ logger = logging.getLogger("aurora.infographic_generator")
 def highlight_code_with_pygments(code: str, language: str) -> str:
     """
     Apply syntax highlighting to code using Pygments.
-    Returns HTML with inline styles matching VS Code's Tomorrow Night theme.
-    Falls back to escaped plain text if Pygments fails.
+    Returns HTML with inline styles matching BookEditor / VS Code Dark+ (same hex as the book).
     """
     try:
         from pygments import highlight
         from pygments.lexers import get_lexer_by_name, TextLexer
         from pygments.formatters import HtmlFormatter
-        
-        # Map common language names to Pygments lexer names
+        from pygments.style import Style
+        from pygments.token import (
+            Comment,
+            Error,
+            Generic,
+            Keyword,
+            Literal,
+            Name,
+            Number,
+            Operator,
+            Punctuation,
+            String,
+            Token,
+        )
+
+        class AuroraBookEditorStyle(Style):
+            """Same token hex colors as BookEditor.css (.code-block-prism)."""
+
+            background_color = '#1a1a2e'
+            default_style = ''
+            styles = {
+                Token: '#D4D4D4',
+                Comment: '#6A9955',
+                Comment.Preproc: '#C586C0',
+                Keyword: '#C586C0',
+                Keyword.Type: '#C586C0',
+                Name: '#D4D4D4',
+                Name.Builtin: '#CE9178',
+                Name.Function: '#DCDCAA',
+                Name.Class: '#DCDCAA',
+                Name.Tag: '#B5CEA8',
+                Name.Variable: '#9CDCFE',
+                Name.Attribute: '#9CDCFE',
+                String: '#CE9178',
+                Number: '#B5CEA8',
+                Operator: '#D4D4D4',
+                Operator.Word: '#C586C0',
+                Punctuation: '#D4D4D4',
+                Literal.String: '#CE9178',
+                Literal.Number: '#B5CEA8',
+                Generic: '#D4D4D4',
+                Generic.Subheading: '#C586C0',
+                Error: '#f44747',
+            }
+
         language_map = {
             'js': 'javascript',
             'ts': 'typescript',
@@ -62,25 +106,23 @@ def highlight_code_with_pygments(code: str, language: str) -> str:
             'tf': 'terraform',
             'hcl': 'terraform',
         }
-        
+
         lang = language_map.get(language.lower(), language.lower())
-        
+
         try:
             lexer = get_lexer_by_name(lang, stripall=True)
         except Exception:
             lexer = TextLexer()
-        
-        # Use inline styles for compatibility (no external CSS needed)
-        # Colors match prism-tomorrow.css / VS Code Dark+ theme
+
         formatter = HtmlFormatter(
             nowrap=True,
             noclasses=True,
-            style='monokai'  # Close to Tomorrow Night / VS Code dark
+            style=AuroraBookEditorStyle,
         )
-        
+
         highlighted = highlight(code, lexer, formatter)
         return f'<pre><code>{highlighted}</code></pre>'
-        
+
     except ImportError:
         logger.warning("Pygments not available, falling back to plain text")
         escaped = html_module.escape(code)
@@ -89,6 +131,90 @@ def highlight_code_with_pygments(code: str, language: str) -> str:
         logger.error(f"Pygments error: {e}, falling back to plain text")
         escaped = html_module.escape(code)
         return f'<pre><code>{escaped}</code></pre>'
+
+
+def _hard_wrap_words(text: str, max_chars: int) -> List[str]:
+    """Split a long string into lines of at most max_chars (word-aware)."""
+    words = text.split()
+    lines: List[str] = []
+    cur: List[str] = []
+    n = 0
+    for w in words:
+        add = len(w) + (1 if cur else 0)
+        if n + add <= max_chars:
+            cur.append(w)
+            n += add
+        else:
+            if cur:
+                lines.append(' '.join(cur))
+            if len(w) <= max_chars:
+                cur = [w]
+                n = len(w)
+            else:
+                offset = 0
+                while offset < len(w):
+                    lines.append(w[offset : offset + max_chars])
+                    offset += max_chars
+                cur = []
+                n = 0
+    if cur:
+        lines.append(' '.join(cur))
+    return lines if lines else [text]
+
+
+def _split_bullet_into_chunks(text: str, max_chars: int = 230) -> List[str]:
+    """Split long bullet/paragraph text into slide-sized chunks without ellipsis truncation."""
+    text = (text or '').strip()
+    if not text:
+        return []
+    text = re.sub(r'\s+', ' ', text)
+    if len(text) <= max_chars:
+        return [text]
+
+    sentences = re.split(r'(?<=[.!?¡¿])\s+', text)
+    chunks: List[str] = []
+    current = ''
+    for sent in sentences:
+        sent = sent.strip()
+        if not sent:
+            continue
+        candidate = (current + ' ' + sent).strip() if current else sent
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            if len(sent) <= max_chars:
+                current = sent
+            else:
+                chunks.extend(_hard_wrap_words(sent, max_chars))
+                current = ''
+    if current:
+        chunks.append(current)
+    return chunks if chunks else _hard_wrap_words(text, max_chars)
+
+
+def format_slide_inline_markup(s: Optional[str]) -> str:
+    """
+    Escape HTML then render a small safe subset of markdown used on slides:
+    **bold**, *italic*, `inline code`, and stray backslash-escaped chars from model JSON.
+    """
+    raw = '' if s is None else str(s)
+    raw = raw.replace('\\*', '*').replace('\\_', '_').replace('\\`', '`')
+    raw = re.sub(r'\\([*_`])', r'\1', raw)
+
+    parts = re.split(r'(`[^`\n]+`)', raw)
+    out: List[str] = []
+    for part in parts:
+        if len(part) >= 2 and part.startswith('`') and part.endswith('`'):
+            inner = html_module.escape(part[1:-1])
+            out.append(f'<code class="slide-inline-code">{inner}</code>')
+            continue
+        escaped = html_module.escape(part)
+        escaped = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', escaped)
+        escaped = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<em>\1</em>', escaped)
+        out.append(escaped)
+    return ''.join(out)
 
 
 def extract_tables_from_content(content: str) -> List[Dict]:
@@ -615,17 +741,23 @@ def create_agenda_slide(modules: List[Dict], is_spanish: bool, slide_counter: in
     return slides
 
 
-def _extract_markdown_section(content: str, heading_keywords: List[str]) -> str:
+def _extract_markdown_section(
+    content: str,
+    heading_keywords: List[str],
+    *,
+    min_heading_level: int = 2,
+) -> str:
     """Extract markdown section body for first matching heading, including nested subsections."""
     if not content:
         return ""
 
+    mh = max(1, min(6, min_heading_level))
     lines = content.splitlines()
     start_idx = None
     start_level = None
 
     for i, line in enumerate(lines):
-        match = re.match(r'^\s{0,3}(#{2,6})\s*(.+?)\s*$', line)
+        match = re.match(rf'^\s{{0,3}}(#{{{mh},6}})\s*(.+?)\s*$', line)
         if not match:
             continue
         heading_level = len(match.group(1))
@@ -640,7 +772,7 @@ def _extract_markdown_section(content: str, heading_keywords: List[str]) -> str:
 
     end_idx = len(lines)
     for j in range(start_idx, len(lines)):
-        m = re.match(r'^\s{0,3}(#{2,6})\s+', lines[j])
+        m = re.match(rf'^\s{{0,3}}(#{{{mh},6}})\s+', lines[j])
         if m:
             level = len(m.group(1))
             # Stop only when we hit a heading at same or higher hierarchy level
@@ -772,6 +904,34 @@ def _chunk_items(items: List[str], chunk_size: int) -> List[List[str]]:
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)] if items else []
 
 
+def _chunk_reference_items_for_slides(
+    items: List[str],
+    *,
+    max_items: int = 4,
+    max_chars: int = 340,
+) -> List[List[str]]:
+    """Split long bibliographies across continuation slides (URLs wrap heavily)."""
+    if not items:
+        return []
+    chunks: List[List[str]] = []
+    cur: List[str] = []
+    cur_chars = 0
+    overhead = 24
+    for it in items:
+        row_len = len(it) + overhead
+        if cur and (
+            len(cur) >= max_items or cur_chars + row_len > max_chars
+        ):
+            chunks.append(cur)
+            cur = []
+            cur_chars = 0
+        cur.append(it)
+        cur_chars += row_len
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def _format_duration(duration_minutes: Optional[int], is_spanish: bool) -> str:
     if duration_minutes is None:
         return ""
@@ -820,11 +980,84 @@ def _extract_duration_minutes(lab_data: Dict, content: str) -> Optional[int]:
 
 def extract_references_from_lesson_content(content: str) -> List[str]:
     """Extract bibliography/reference items from a lesson markdown body."""
-    references_section = _extract_markdown_section(
-        content,
-        ['bibliografía', 'bibliografia', 'bibliography', 'referencias', 'references']
-    )
+    keywords = [
+        'bibliografía', 'bibliografia', 'bibliography',
+        'referencias bibliográficas', 'referencias',
+        'references',
+    ]
+    references_section = _extract_markdown_section(content, keywords, min_heading_level=2)
+    if not references_section.strip():
+        references_section = _extract_markdown_section(content, keywords, min_heading_level=1)
     return _section_to_bullets(references_section)
+
+
+def gather_chapter_reference_strings(
+    book_data: Dict[str, Any],
+    mod_num: int,
+    *,
+    is_spanish: bool,
+    model_provider: str = 'bedrock',
+) -> List[str]:
+    """
+    Build one chapter's bibliography lines for slides — aligned with book_builder:
+    URLs from ref_urls + lesson bodies (collect_urls_for_module), plus any explicit
+    markdown 'Referencias' sections still present in lesson content.
+    """
+    module_lessons: List[Dict[str, Any]] = []
+    for mod in book_data.get('modules') or []:
+        if int(mod.get('module_number', 0)) != int(mod_num):
+            continue
+        raw = mod.get('lessons') or []
+        module_lessons = [x for x in raw if isinstance(x, dict)]
+        break
+
+    if not module_lessons:
+        for les in book_data.get('lessons_full') or []:
+            if isinstance(les, dict) and int(les.get('module_number', 0)) == int(mod_num):
+                module_lessons.append(les)
+
+    urls: List[str] = []
+    try:
+        from book_builder import collect_urls_for_module  # type: ignore
+
+        urls = collect_urls_for_module(module_lessons)
+    except Exception as exc:
+        logger.debug(f"gather_chapter_reference_strings: collect_urls_for_module unavailable ({exc}); using inline scrape")
+        url_re = re.compile(r'https?://[^\s\)\]\>\"\']+')
+        seen_u: set[str] = set()
+        for les in module_lessons:
+            if les.get('is_intro') or les.get('is_summary'):
+                continue
+            for u in les.get('ref_urls') or []:
+                u = str(u).rstrip('.,);')
+                if u and u not in seen_u:
+                    seen_u.add(u)
+                    urls.append(u)
+            for raw in url_re.findall(les.get('content', '') or ''):
+                u = raw.rstrip('.,);')
+                if u not in seen_u:
+                    seen_u.add(u)
+                    urls.append(u)
+
+    refs_md: List[str] = []
+    for les in module_lessons:
+        if les.get('is_intro') or les.get('is_summary'):
+            continue
+        refs_md.extend(extract_references_from_lesson_content(les.get('content', '') or ''))
+
+    merged = deduplicate_references(refs_md + urls)
+    if merged:
+        return merged
+
+    mp = model_provider
+    model_name = (
+        'OpenAI GPT-5'
+        if str(mp).lower() == 'openai'
+        else 'Anthropic Claude Sonnet 4.6 (Amazon Bedrock)'
+    )
+    if is_spanish:
+        return [f'Contenido elaborado con el modelo: {model_name}.']
+    return [f'Content developed using: {model_name}.']
 
 
 def create_lab_intro_slide(lab_data: Dict, is_spanish: bool, slide_counter: int) -> Dict:
@@ -894,21 +1127,35 @@ def create_lab_result_slide(lab_data: Dict, is_spanish: bool, slide_counter: int
 
 def create_references_slide(module_data: Dict, is_spanish: bool, slide_counter: int) -> Dict:
     """Create 'Referencias Bibliográficas' slide for a module."""
-    # Try to get references from module data, or generic placeholder
-    references = module_data.get('references', [])
+    raw = module_data.get('references', []) or []
+    ref_flat: List[str] = []
+    for r in raw:
+        if isinstance(r, str) and r.strip():
+            ref_flat.append(r.strip())
+        elif isinstance(r, dict):
+            t = (r.get('title') or r.get('url') or '').strip()
+            if t:
+                ref_flat.append(t)
+    references = deduplicate_references(ref_flat)
     if not references:
-        references = ["Documentación oficial de Google Cloud"]  # Generic default
-        
+        references = [
+            'Consulte la bibliografía del material del curso.'
+            if is_spanish else 'See the bibliography in the course materials.'
+        ]
+
+    sub = _subtitle_modulo_to_capitulo(module_data.get('title', ''), is_spanish=is_spanish)
+
     return {
         "slide_number": slide_counter,
         "title": "Referencias Bibliográficas" if is_spanish else "Bibliographic References",
-        "subtitle": module_data.get('title', ''),
+        "subtitle": sub,
         "layout": "single-column",
         "content_blocks": [
             {
                 "type": "bullets",
                 "heading": "",
-                "items": references
+                "items": references,
+                "autolink_urls": True,
             }
         ],
         "notes": "Module references"
@@ -962,27 +1209,426 @@ _NOISE_HEADINGS = {
 }
 
 
-def _extract_resumen_items(content: str) -> List[str]:
-    """Extract summary items from 'Resumen del Capítulo' lesson content."""
+def ensure_terminal_period(text: Optional[str]) -> str:
+    """Ensure bullet-like text ends with a sentence period (Spanish punctuation-aware)."""
+    if text is None:
+        return ''
+    s = str(text).strip()
+    if not s:
+        return ''
+    if s.endswith('...') or s.endswith('…'):
+        return s
+    last = s[-1]
+    if last in '.!?':
+        return s
+    if re.match(r'^https?://', s, re.IGNORECASE):
+        return s
+    return s + '.'
+
+
+def format_bullet_text(s: Optional[str]) -> str:
+    """Escape HTML, markdown inline, and enforce terminal period for list items."""
+    return format_slide_inline_markup(ensure_terminal_period(s))
+
+
+# Bare URLs in bibliography bullets (split before markdown so links stay clickable)
+_REF_URL_SPLIT = re.compile(r'(https?://[^\s<>"\'\)\]]+|www\.[^\s<>"\'\)\]]+)', re.IGNORECASE)
+
+
+def format_slide_inline_markup_with_autolinks(s: Optional[str]) -> str:
+    """Escape + inline markdown, converting bare http(s)/www URLs into clickable anchors."""
+    raw = '' if s is None else str(s)
+    if not raw:
+        return ''
+    parts = _REF_URL_SPLIT.split(raw)
+    out: List[str] = []
+    for part in parts:
+        if not part:
+            continue
+        low = part.strip().lower()
+        if low.startswith(('http://', 'https://')):
+            esc_h = html_module.escape(part, quote=True)
+            vis = html_module.escape(part)
+            out.append(
+                f'<a href="{esc_h}" class="lab-intro-link slide-ref-link" target="_blank" '
+                f'rel="noopener noreferrer">{vis}</a>'
+            )
+        elif low.startswith('www.'):
+            raw_w = part.strip()
+            href = 'https://' + raw_w
+            esc_h = html_module.escape(href, quote=True)
+            vis = html_module.escape(raw_w)
+            out.append(
+                f'<a href="{esc_h}" class="lab-intro-link slide-ref-link" target="_blank" '
+                f'rel="noopener noreferrer">{vis}</a>'
+            )
+        else:
+            out.append(format_slide_inline_markup(part))
+    return ''.join(out)
+
+
+def format_reference_bullet_text(s: Optional[str]) -> str:
+    """Bibliography line: autolink URLs; avoid adding a period after a bare URL."""
+    t = (s or '').strip()
+    if not t:
+        return ''
+    if re.match(r'^https?://', t, re.IGNORECASE) or (
+        t.lower().startswith('www.') and ' ' not in t
+    ):
+        return format_slide_inline_markup_with_autolinks(t)
+    return format_slide_inline_markup_with_autolinks(ensure_terminal_period(t))
+
+
+def _subtitle_modulo_to_capitulo(subtitle: str, *, is_spanish: bool) -> str:
+    """THOR copy: show 'Capítulo' instead of 'Módulo' in slide subtitles."""
+    s = (subtitle or '').strip()
+    if not s:
+        return s
+    if is_spanish:
+        return re.sub(
+            r'^(\s*)m[oó]dulo(\s+)',
+            r'\1Capítulo\2',
+            s,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    return re.sub(
+        r'^(\s*)module(\s+)',
+        r'\1Chapter\2',
+        s,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
+def _format_lab_intro_instruction_line(s: Optional[str]) -> str:
+    """Lab intro: prose with inline markdown, or a bare http(s) URL as a clickable link."""
+    t = (s or '').strip()
+    if not t:
+        return ''
+    if re.match(r'^https?://', t, re.IGNORECASE):
+        esc = html_module.escape(t, quote=True)
+        vis = html_module.escape(t)
+        return (
+            f'<a href="{esc}" class="lab-intro-link" target="_blank" '
+            f'rel="noopener noreferrer">{vis}</a>'
+        )
+    return format_bullet_text(t)
+
+
+def deduplicate_references(refs: List[str]) -> List[str]:
+    """Deduplicate bibliography strings preserving order (case-insensitive key)."""
+    out: List[str] = []
+    seen = set()
+    for r in refs:
+        if not isinstance(r, str):
+            continue
+        s = ' '.join(r.split()).strip()
+        if not s:
+            continue
+        key = s.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
+def sanitize_repo_name(name: str) -> str:
+    """Same rules as publish_to_github.sanitize_repo_name (THOR lab repos)."""
+    sanitized = re.sub(r'[^A-Za-z0-9._-]', '-', (name or '').strip())
+    return sanitized.strip('-')
+
+
+def strip_lab_display_title(raw_title: str) -> str:
+    """Match publish_to_github.clean_lab_title for visible lab titles (no Práctica prefix noise)."""
+    title = (raw_title or '').strip()
+    title = re.sub(r'^lab\s+\d{2}-\d{2}-\d{2}\s*:\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^(laboratorio|laboratorio:)\s*:\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^práctica\s*\d+\s*[:.-]\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^practica\s*\d+\s*[:.-]\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^\d+\s*[:.-]\s*', '', title)
+    title = re.sub(r'^\s*práctica\s*[:\-]?\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^\s*practica\s*[:\-]?\s*', '', title, flags=re.IGNORECASE)
+    return title.strip() or (raw_title or '').strip()
+
+
+def github_readme_anchor_fragment(title_for_anchor: str) -> str:
+    """Same slug rules as publish_to_github.markdown_anchor (fragment after #)."""
+    base = strip_lab_display_title(title_for_anchor)
+    slug = re.sub(r'[^\w\s-]', '', base, flags=re.UNICODE).strip().lower()
+    slug = re.sub(r'[\s_]+', '-', slug)
+    slug = re.sub(r'-{2,}', '-', slug).strip('-')
+    return slug or 'laboratorio'
+
+
+def predict_github_lab_readme_url(
+    *,
+    project_folder: Optional[str],
+    module_number: int,
+    activity_title: str,
+    github_org: Optional[str] = None,
+    branch: str = 'main',
+) -> str:
+    """
+    Predict GitHub blob URL to CapituloNN/README.md#anchor (matches publish_to_github layout).
+
+    Anchor follows the first # heading per lab after normalize_lab_markdown; must stay in sync
+    with the publisher when outline lab order matches concatenation order in README.
+    """
+    pf = (project_folder or '').strip()
+    if not pf:
+        return ''
+    org = (github_org or os.environ.get('GITHUB_ORG') or 'Netec-Mx').strip()
+    repo = sanitize_repo_name(pf)
+    fragment = github_readme_anchor_fragment(activity_title)
+    chapter_path = f'Capitulo{int(module_number):02d}/README.md'
+    br = quote(branch.strip() or 'main', safe='')
+    return f'https://github.com/{org}/{repo}/blob/{br}/{chapter_path}#{fragment}'
+
+
+def _extract_ideas_clave_bullets(content: str) -> List[str]:
+    """Bullets under 'Ideas clave para reforzar tu aprendizaje' / EN equivalents."""
     if not content:
         return []
-    pattern = re.compile(
-        r'###\s*(?:Temas\s+m[áa]s\s+importantes\s+cubiertos|Key\s+Topics\s+Covered)[^\n]*\n+'
-        r'((?:\s*-\s+.+\n?)+)',
-        re.MULTILINE | re.IGNORECASE
+    header = re.compile(
+        r'^#{2,3}\s*(?:'
+        r'Ideas\s+clave\s+para\s+reforzar\s+tu\s+aprendizaje|'
+        r'Ideas\s+clave\s+para\s+reforzar|'
+        r'Key\s+ideas\s+to\s+reinforce\s+your\s+learning|'
+        r'Key\s+ideas\s+to\s+reinforce|'
+        r'Key\s+takeaways'
+        r')\s*$',
+        re.MULTILINE | re.IGNORECASE,
     )
-    m = pattern.search(content)
+    m = header.search(content)
     if not m:
         return []
-    items = []
-    for line in m.group(1).strip().split('\n'):
+    rest = content[m.end() :]
+    items: List[str] = []
+    for raw_line in rest.split('\n'):
+        line = raw_line.strip()
+        if re.match(r'^#{1,3}\s+\S', line):
+            break
+        if line.startswith('- '):
+            t = line[2:].strip()
+            if t and t.lower() not in _NOISE_HEADINGS:
+                items.append(t)
+    return items
+
+
+def _extract_resumen_relaxed(content: str) -> List[str]:
+    """Fallback: bullets under Resumen / Temas / Puntos clave / Key topics sections."""
+    if not content:
+        return []
+    m = re.search(
+        r'^#{2,3}\s*(?:'
+        r'Resumen\s+del\s+Cap[ií]tulo|Chapter\s+Summary|'
+        r'Temas\s+m[aá]s\s+importantes[^\n]*|Key\s+Topics[^\n]*|'
+        r'Puntos\s+clave[^\n]*|Resumen\s+del\s+cap[ií]tulo'
+        r')[^\n]*\n+'
+        r'([\s\S]*?)(?=^#{1,3}\s[^\n]+\n|\Z)',
+        content,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    block = m.group(1) if m else ''
+    if not block.strip():
+        m2 = re.search(
+            r'^#{2,3}\s*(?:Síntesis|Synth[eé]sis|Cierre\s+del\s+cap[ií]tulo)[^\n]*\n+'
+            r'([\s\S]*?)(?=^#{1,3}\s|\Z)',
+            content,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        block = m2.group(1) if m2 else ''
+    items: List[str] = []
+    for line in block.split('\n'):
         line = line.strip()
         if line.startswith('- '):
-            text = line[2:].strip()
-            if text.lower() in _NOISE_HEADINGS:
+            t = line[2:].strip()
+            if t and t.lower() not in _NOISE_HEADINGS:
+                items.append(t)
+    return items[:12]
+
+
+def _extract_resumen_items(content: str) -> List[str]:
+    """Extract recap bullets: Ideas clave (preferred), then Resumen/Síntesis-style sections.
+
+    Does not use «Temas más importantes» outline lists — those are navigation, not recap prose.
+    """
+    if not content:
+        return []
+    ideas = _extract_ideas_clave_bullets(content)
+    if ideas:
+        return ideas[:10]
+    relaxed = _extract_resumen_relaxed(content)
+    return relaxed[:10]
+
+
+def _normalize_chapter_summary_items(items: List[str]) -> List[str]:
+    """Split overly long recap bullets so they can fit on slides."""
+    out: List[str] = []
+    for it in items:
+        s = str(it).strip()
+        if not s:
+            continue
+        if len(s) > 360:
+            out.extend(_split_bullet_into_chunks(s, 300))
+        else:
+            out.append(s)
+    return out[:24]
+
+
+def _truncate_summary_bullet(text: str, max_chars: int = 200) -> str:
+    s = str(text).strip()
+    if len(s) <= max_chars:
+        return s
+    cut = s[: max_chars + 1]
+    for sep in ('. ', '; ', ', '):
+        idx = cut.rfind(sep)
+        if idx >= max_chars // 2:
+            return cut[: idx + 1].strip()
+    sp = cut.rfind(' ')
+    if sp > max_chars // 2:
+        return cut[:sp].strip() + '…'
+    return cut[:max_chars].rstrip() + '…'
+
+
+def _compact_for_single_chapter_summary_slide(
+    items: List[str], *, max_bullets: int = 4, max_chars: int = 190
+) -> List[str]:
+    """One slide only: keep the first concise bullets (Ideas clave order), no topic dumps."""
+    out: List[str] = []
+    for it in items:
+        if len(out) >= max_bullets:
+            break
+        t = _truncate_summary_bullet(it, max_chars=max_chars)
+        if t:
+            out.append(t)
+    return out
+
+
+CHAPTER_SUMMARY_MAX_BULLETS_ONE_SLIDE = 4
+
+
+def _chapter_summary_items_are_low_value(items: List[str]) -> bool:
+    """True when bullets are only placeholders / synthetic consolidation lines (no conceptual recap)."""
+    if not items:
+        return True
+    meta_markers = (
+        'Consolidar los conceptos centrales trabajados en «',
+        'Revise los temas principales del capítulo',
+        'Review the main chapter topics in the course material',
+        'Consolidate the core concepts covered in «',
+    )
+    for t in items:
+        u = (t or '').strip()
+        if not u:
+            continue
+        if any(m in u for m in meta_markers):
+            continue
+        return False
+    return True
+
+
+def _extract_ideas_clave_from_module_book(book_data: Dict, module_number: int) -> List[str]:
+    """Collect Ideas clave bullets from any lesson in the module (not only the Resumen bookend)."""
+    collected: List[str] = []
+    for bm in book_data.get('book_modules') or []:
+        try:
+            mn = int(bm.get('module_number', 0))
+        except (TypeError, ValueError):
+            continue
+        if mn != module_number:
+            continue
+        for lesson in bm.get('lessons') or []:
+            if not isinstance(lesson, dict):
                 continue
-            items.append(text)
-    return items[:10]
+            content = lesson.get('content') or ''
+            ideas = _extract_ideas_clave_bullets(content)
+            if ideas:
+                collected.extend(ideas)
+        return collected
+    for lesson in book_data.get('lessons') or []:
+        if not isinstance(lesson, dict):
+            continue
+        try:
+            ln = int(lesson.get('module_number', 0))
+        except (TypeError, ValueError):
+            continue
+        if ln != module_number:
+            continue
+        ideas = _extract_ideas_clave_bullets(lesson.get('content') or '')
+        if ideas:
+            collected.extend(ideas)
+    return collected
+
+
+def _fallback_chapter_summary_items(module_info: Dict, *, is_spanish: bool = True) -> List[str]:
+    """Short recap when MD summary is missing: module description sentences only (no topic lists)."""
+    items: List[str] = []
+    desc = module_info.get('description')
+    if isinstance(desc, str):
+        d = desc.strip()
+        if d:
+            sentences = re.split(r'(?<=[.!?])\s+', d)
+            buf = ''
+            for sent in sentences:
+                sent = sent.strip()
+                if not sent:
+                    continue
+                cand = f'{buf} {sent}'.strip() if buf else sent
+                if len(cand) <= 200:
+                    buf = cand
+                    continue
+                if buf:
+                    items.append(buf)
+                    buf = ''
+                items.append(_truncate_summary_bullet(sent, max_chars=190))
+                if len(items) >= 3:
+                    break
+            if buf and len(items) < 3:
+                items.append(_truncate_summary_bullet(buf, max_chars=190))
+    if not items:
+        title = module_info.get('title')
+        if isinstance(title, str) and title.strip():
+            t = title.strip()
+            if is_spanish:
+                items.append(
+                    f'Consolidar los conceptos centrales trabajados en «{t}», '
+                    f'según el material del curso.'
+                )
+            else:
+                items.append(
+                    f'Consolidate the core concepts covered in «{t}», using the course materials.'
+                )
+    return items[:3]
+
+
+def _lesson_title_is_bookend_skip(title: str) -> bool:
+    """True for introducción / resumen lessons that should not generate theory slides."""
+    t = (title or '').strip()
+    tl = t.lower()
+    if tl in ('introducción', 'introduction'):
+        return True
+    if tl.startswith('introducción ') or tl.startswith('introduction '):
+        return True
+    if re.match(r'^resumen\s+del\s+cap[ií]tulo\b', tl):
+        return True
+    if tl in ('chapter summary', 'resumen del capítulo'):
+        return True
+    if tl in ('resumen', 'summary'):
+        return True
+    return False
+
+
+def _lesson_title_is_resumen_lesson(title: str) -> bool:
+    """True when this bookend lesson carries chapter recap bullets."""
+    tl = (title or '').strip().lower()
+    if re.match(r'^resumen\s+del\s+cap[ií]tulo\b', tl):
+        return True
+    if tl in ('chapter summary', 'resumen del capítulo', 'resumen', 'summary'):
+        return True
+    return False
 
 
 def _parse_glossary_items(glossary_md: str) -> List[Dict]:
@@ -1041,18 +1687,35 @@ def _is_lesson_summary_slide(slide: Dict) -> bool:
     )
 
 
-def create_chapter_summary_slide(module_number: int, summary_items: List[str],
-                                  module_title: str, is_spanish: bool,
-                                  slide_counter: int) -> Dict:
+def create_chapter_summary_slide(
+    module_number: int,
+    summary_items: List[str],
+    module_title: str,
+    is_spanish: bool,
+    slide_counter: int,
+    *,
+    bullet_heading: str = "",
+    part: int = 1,
+    total_parts: int = 1,
+) -> Dict:
     """Create a chapter summary slide with Resumen_Capitulo.png asset."""
+    base_title = "Resumen del capítulo" if is_spanish else "Chapter Summary"
+    if total_parts > 1:
+        disp_title = (
+            f"{base_title} — parte {part}"
+            if is_spanish
+            else f"{base_title} — part {part}"
+        )
+    else:
+        disp_title = base_title
     return {
         "slide_number": slide_counter,
-        "title": "Resumen del capítulo" if is_spanish else "Chapter Summary",
+        "title": disp_title,
         "subtitle": module_title,
         "layout": "chapter-summary",
         "content_blocks": [{
             "type": "bullets",
-            "heading": "",
+            "heading": bullet_heading,
             "items": summary_items
         }],
         "notes": f"Chapter {module_number} summary",
@@ -1145,41 +1808,58 @@ def _extract_introduction_from_content(content: str) -> str:
     if not match:
         return ''
     
-    # Take just the first paragraph (first block of non-empty lines)
+    # Take just the first paragraph (first block of non-empty lines); continuation slides carry overflow.
     raw = match.group(1).strip()
     first_para = raw.split('\n\n')[0].replace('\n', ' ').strip()
-    # Cap at 300 chars for slide readability
-    if len(first_para) > 300:
-        first_para = first_para[:297] + '...'
     return first_para
 
 
-def create_lesson_title_slide(lesson: Dict, module_number: int, lesson_number: int, is_spanish: bool, slide_counter: int, module_title: str = "") -> Dict:
-    """Create a branded lesson title slide with introduction text."""
+def create_lesson_title_slides(
+    lesson: Dict,
+    module_number: int,
+    lesson_number: int,
+    is_spanish: bool,
+    module_title: str = "",
+) -> List[Dict]:
+    """Branded lesson title slide(s) with full introduction text (split across slides when needed)."""
     lesson_title = lesson.get('title', f"Lección {lesson_number}")
-    
-    # Extract introduction from lesson content for the slide body
-    intro_text = _extract_introduction_from_content(lesson.get('content', ''))
-    
-    # Use the title as-is from the book (it already contains numbering like "1.1: ...")
     display_title = lesson_title
-    
-    content_blocks = []
-    if intro_text:
-        content_blocks.append({
-            "type": "bullets",
-            "heading": "Introducción" if is_spanish else "Introduction",
-            "items": [intro_text]
+    heading = "Introducción" if is_spanish else "Introduction"
+
+    intro_full = _extract_introduction_from_content(lesson.get('content', ''))
+    chunks = (
+        _split_bullet_into_chunks(intro_full.replace('\n', ' '), 420)
+        if intro_full
+        else []
+    )
+    max_paras_per_slide = 3
+
+    if not chunks:
+        return [{
+            "title": display_title,
+            "subtitle": module_title,
+            "layout": "lesson-title",
+            "content_blocks": [],
+            "notes": f"Lesson {lesson_number} of Module {module_number}",
+        }]
+
+    slides: List[Dict] = []
+    for i in range(0, len(chunks), max_paras_per_slide):
+        portion = chunks[i : i + max_paras_per_slide]
+        part_idx = i // max_paras_per_slide
+        title = display_title if part_idx == 0 else f"{display_title} — parte {part_idx + 1}"
+        slides.append({
+            "title": title,
+            "subtitle": module_title,
+            "layout": "lesson-title",
+            "content_blocks": [{
+                "type": "bullets",
+                "heading": heading if part_idx == 0 else "",
+                "items": portion,
+            }],
+            "notes": f"Lesson {lesson_number} of Module {module_number}",
         })
-    
-    return {
-        "slide_number": slide_counter,
-        "title": display_title,
-        "subtitle": module_title,
-        "layout": "lesson-title",
-        "content_blocks": content_blocks,
-        "notes": f"Lesson {lesson_number} of Module {module_number}"
-    }
+    return slides
 
 
 def create_module_title_slide_from_lesson(lesson: Dict, module_number: int, is_spanish: bool, slide_counter: int) -> Dict:
@@ -1217,11 +1897,13 @@ def create_module_title_slide_from_lesson(lesson: Dict, module_number: int, is_s
 
 def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter: int) -> List[Dict]:
     """
-    Create rich, multi-slide lab activity deck from lab guide content.
-    Includes: duration, objectives, description, steps, expected results.
+    Lab deck: intro slide (objective + planteamiento + GitHub link + duration) then expected-results only.
+
+    Intermediate slides (overview, objectives list, procedure steps) are omitted per THOR client layout.
     """
     slides = []
-    lesson_title = lesson.get('title', 'Lab Activity')
+    raw_lesson_title = lesson.get('title', 'Lab Activity')
+    lesson_title = strip_lab_display_title(raw_lesson_title)
     content = lesson.get('lab_guide') or lesson.get('content', '')
 
     duration_minutes = _extract_duration_minutes(lesson, content)
@@ -1232,7 +1914,6 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
         ['descripción general', 'descripción', 'description', 'general description', 'overview']
     )
     objective_text = _extract_markdown_section(content, ['objetivos', 'objetivo', 'learning objectives', 'objective'])
-    steps_text = _extract_markdown_section(content, ['pasos', 'procedimiento', 'instrucciones', 'steps', 'procedure', 'instructions'])
     expected_text = _extract_markdown_section(
         content,
         [
@@ -1246,11 +1927,6 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
 
     description_items = _section_to_bullets(description_text)
     objectives_items = _section_to_bullets(objective_text)
-    steps_items = _extract_procedure_headings(steps_text)
-    if not steps_items:
-        steps_items = _extract_instruction_lines(steps_text)
-    if not steps_items:
-        steps_items = _section_to_bullets(steps_text)
     expected_items = _section_to_bullets(expected_text)
 
     if not description_items:
@@ -1274,15 +1950,15 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
 
     current_slide = slide_counter
 
-    # Slide 1: Lab Intro (title + objective only, with Reloj.png asset)
+    # Slide 1: Lab intro — objective + planteamiento / GitHub + duration
     intro_objective = ''
     if objectives_items:
         intro_objective = objectives_items[0]
     elif description_items:
         intro_objective = description_items[0]
     else:
-        intro_objective = ("Completar la actividad práctica siguiendo la guía del laboratorio."
-                           if is_spanish else "Complete the lab activity following the lab guide.")
+        intro_objective = ("Al finalizar la actividad, serás capaz de completar la práctica siguiendo la guía."
+                           if is_spanish else "Upon completing this activity, you will be able to finish the lab following the guide.")
 
     intro_blocks = []
     if intro_objective:
@@ -1298,23 +1974,36 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
         or lesson.get("github_pages")
         or ""
     ).strip()
-    instr_heading = "Planteamiento e instrucciones:" if is_spanish else "Problem statement and instructions:"
+    mod_num = int(lesson.get('module_number') or 0)
+    pf = str(lesson.get('project_folder') or '').strip()
+    gh_org = lesson.get('github_org')
+    if not gh_url and pf and mod_num > 0:
+        gh_url = predict_github_lab_readme_url(
+            project_folder=pf,
+            module_number=mod_num,
+            activity_title=raw_lesson_title,
+            github_org=gh_org if isinstance(gh_org, str) else None,
+        )
+
+    instr_heading = "Planteamiento e Instrucciones:" if is_spanish else "Problem Statement and Instructions:"
     if is_spanish:
         instr_body = [
-            "Realiza un seguimiento de los pasos indicados en la Guía de Laboratorios para llevar "
-            "a cabo la tarea correspondiente en el siguiente enlace:",
+            "Realiza un seguimiento de los pasos indicados en la *Guía de Laboratorios* para llevar "
+            "a cabo la tarea correspondiente en el siguiente enlace",
         ]
     else:
         instr_body = [
-            "Follow the steps outlined in the Lab Guide to complete the task at the following link:",
+            "Follow the steps outlined in the *Lab Guide* to complete the task at the following link",
         ]
     if gh_url:
         instr_body.append(gh_url)
     else:
         instr_body.append(
-            "(Publica los laboratorios para obtener la URL de GitHub Pages en la guía del curso.)"
+            "(Publique el repositorio de laboratorios para obtener el enlace en GitHub; "
+            "si ya conoce el `project_folder` del curso, el enlace previsto se completará automáticamente.)"
             if is_spanish
-            else "(Publish labs to obtain the GitHub Pages URL in the course guide.)"
+            else "(Publish the lab repository for the GitHub link; with the course `project_folder`, "
+                 "the URL can be predicted automatically.)"
         )
     intro_blocks.append({
         "type": "bullets",
@@ -1331,73 +2020,14 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
     slides.append({
         "slide_number": current_slide,
         "title": lesson_title,
-        "subtitle": "Actividad Práctica" if is_spanish else "Lab Activity",
+        "subtitle": "",
         "layout": "lab-intro",
         "content_blocks": intro_blocks,
         "notes": f"Lab intro for {lesson_title}"
     })
     current_slide += 1
 
-    # Slide 2: Planteamiento / Description (regular text-only slide)
-    overview_items = []
-    overview_items.extend(description_items[:5])
-    if not overview_items:
-        overview_items = [
-            "Revisar la guía de laboratorio y preparar el entorno." if is_spanish
-            else "Review the lab guide and prepare the environment."
-        ]
-
-    slides.append({
-        "slide_number": current_slide,
-        "title": f"Planteamiento – {lesson_title}" if is_spanish else f"Overview – {lesson_title}",
-        "subtitle": "",
-        "layout": "text-only",
-        "content_blocks": [{
-            "type": "bullets",
-            "heading": "Descripción General" if is_spanish else "General Description",
-            "items": overview_items
-        }],
-        "notes": f"Lab overview for {lesson_title}"
-    })
-    current_slide += 1
-
-    # Objectives slides
-    if objectives_items:
-        objective_chunks = _chunk_items(objectives_items, 6)
-        for idx, chunk in enumerate(objective_chunks, 1):
-            slides.append({
-                "slide_number": current_slide,
-                "title": (
-                    f"Objetivos ({idx}/{len(objective_chunks)})" if len(objective_chunks) > 1 else "Objetivos"
-                ) if is_spanish else (
-                    f"Objectives ({idx}/{len(objective_chunks)})" if len(objective_chunks) > 1 else "Objectives"
-                ),
-                "subtitle": lesson_title,
-                "layout": "text-only",
-                "content_blocks": [{"type": "bullets", "heading": "", "items": chunk}],
-                "notes": f"Lab objectives for {lesson_title}"
-            })
-            current_slide += 1
-
-    # Steps slides (required)
-    if steps_items:
-        step_chunks = _chunk_items(steps_items, 5)
-        for idx, chunk in enumerate(step_chunks, 1):
-            slides.append({
-                "slide_number": current_slide,
-                "title": (
-                    f"Pasos de la Práctica ({idx}/{len(step_chunks)})" if len(step_chunks) > 1 else "Pasos de la Práctica"
-                ) if is_spanish else (
-                    f"Lab Steps ({idx}/{len(step_chunks)})" if len(step_chunks) > 1 else "Lab Steps"
-                ),
-                "subtitle": lesson_title,
-                "layout": "text-only",
-                "content_blocks": [{"type": "bullets", "heading": "", "items": chunk}],
-                "notes": f"Lab procedure steps for {lesson_title}"
-            })
-            current_slide += 1
-
-    # Expected results slides
+    # Expected results slides (immediately after intro)
     if expected_items:
         expected_chunks = _chunk_items(expected_items, 6)
         for idx, chunk in enumerate(expected_chunks, 1):
@@ -1414,8 +2044,7 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
                 "notes": f"Expected outcomes for {lesson_title}"
             })
             current_slide += 1
-
-    if not steps_items and not expected_items:
+    else:
         slides.append({
             "slide_number": current_slide,
             "title": "Resultado Esperado" if is_spanish else "Expected Result",
@@ -1454,7 +2083,7 @@ def create_references_slides(module_title: str, references: List[str], is_spanis
             "Documentación oficial del curso" if is_spanish else "Official course documentation"
         ]
 
-    chunks = _chunk_items(deduped, 6)
+    chunks = _chunk_reference_items_for_slides(deduped)
     slides = []
 
     for idx, chunk in enumerate(chunks, 1):
@@ -1470,7 +2099,8 @@ def create_references_slides(module_title: str, references: List[str], is_spanis
             "content_blocks": [{
                 "type": "bullets",
                 "heading": "",
-                "items": chunk
+                "items": chunk,
+                "autolink_urls": True,
             }],
             "notes": "Module references from theory book bibliography"
         })
@@ -1695,7 +2325,7 @@ class LayoutDefinitions:
         info += "\n⚡ CRITICAL RULES:\n"
         info += "1. For CODE: Prefer 'code_only' to maximize lines shown. ALWAYS specify language.\n"
         info += f"2. For IMAGE layouts: Only {cls.LAYOUTS['image_left']['containers'][1]['max_bullets']} SHORT bullets! Keep text VERY concise!\n"
-        info += "3. ALWAYS respect max_bullets/max_lines/max_rows - content WILL BE CUT if exceeded!\n"
+        info += "3. Respect max_bullets/max_lines/max_rows when possible; overflow is split into continuation slides (no truncation with …).\n"
         info += "4. Each bullet should be ONE SHORT sentence - avoid multi-line bullets!\n"
         info += "5. Summarize content into concise, high-value bullet points. Extract key concepts but keep it complete for instructors.\n"
         info += "6. YOU MUST INCLUDE ALL TABLES from the source using the 'table' layout.\n"
@@ -2027,9 +2657,8 @@ OUTPUT JSON FORMAT:
 
         # Validation & Refinement Loop
         for slide in draft_slides:
-            validated_slide = self.validate_and_refine_slide(slide, web_designer)
-            if validated_slide:
-                # TRANSFORMATION STEP: Convert to system-compatible format
+            validated_slides = self.validate_and_refine_slide(slide, web_designer)
+            for validated_slide in validated_slides:
                 transformed_slide = self._transform_to_system_format(validated_slide)
                 final_slides.append(transformed_slide)
 
@@ -2177,176 +2806,229 @@ OUTPUT JSON FORMAT:
             "notes": slide.get('notes', '')
         }
 
-    def validate_and_refine_slide(self, slide: Dict, agent) -> Optional[Dict]:
+    def validate_and_refine_slide(self, slide: Dict, agent) -> List[Dict]:
         """
-        Validates content against rigid limits. If failing, re-prompts AI to fix.
+        Normalize slide content and split overflow across continuation slides.
+        No ellipsis truncation; the agent parameter is kept for API compatibility.
         """
+        del agent  # Overflow is handled deterministically via _partition_overflow_slides
         if not isinstance(slide, dict):
             logger.warning(
                 f"validate_and_refine_slide: expected dict, got {type(slide).__name__}; skipping"
             )
-            return None
+            return []
 
         layout_key = slide.get('layout')
+        if layout_key not in LayoutDefinitions.LAYOUTS:
+            logger.warning(f"Invalid layout '{layout_key}', defaulting to text_only")
+            slide['layout'] = 'text_only'
+
+        return self._partition_overflow_slides(slide)
+
+    def _split_table_overflow(self, slide: Dict, max_rows: int, base_title: str) -> List[Dict]:
+        content = slide.setdefault('content', {})
+        tbl = content.get('table')
+        if not isinstance(tbl, dict):
+            return [slide]
+        rows = tbl.get('rows') or []
+        if max_rows <= 0 or len(rows) <= max_rows:
+            return [slide]
+        headers = tbl.get('headers') or []
+        notes = tbl.get('notes', '')
+        out: List[Dict] = []
+        for i in range(0, len(rows), max_rows):
+            s = copy.deepcopy(slide)
+            part = i // max_rows + 1
+            s.setdefault('content', {})['table'] = {
+                'headers': headers,
+                'rows': rows[i : i + max_rows],
+                'notes': notes,
+            }
+            if part > 1:
+                s['title'] = f"{base_title} — parte {part}"
+            out.append(s)
+        return out
+
+    def _split_code_only_overflow(
+        self, slide: Dict, expanded: List[str], max_lines: int, base_title: str
+    ) -> List[Dict]:
+        content = slide.setdefault('content', {})
+        code_obj = content.get('code')
+        if not isinstance(code_obj, dict):
+            code_obj = {'language': 'text', 'code': '' if code_obj is None else str(code_obj)}
+            content['code'] = code_obj
+        lang = code_obj.get('language', 'text')
+        lines = (code_obj.get('code') or '').split('\n')
+
+        out: List[Dict] = []
+        part_num = 0
+        max_tb = LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets']
+
+        bb = expanded[:]
+        while bb:
+            part_num += 1
+            s = copy.deepcopy(slide)
+            s['layout'] = 'text_only'
+            s['content'] = {'bullets': bb[:max_tb]}
+            bb = bb[max_tb:]
+            if part_num > 1:
+                s['title'] = f"{base_title} — parte {part_num}"
+            out.append(s)
+
+        li = lines[:]
+        while li:
+            part_num += 1
+            s = copy.deepcopy(slide)
+            s['layout'] = 'code_only'
+            chunk = li[:max_lines]
+            li = li[max_lines:]
+            s['content'] = {'code': {'language': lang, 'code': '\n'.join(chunk)}}
+            if part_num > 1:
+                s['title'] = f"{base_title} — parte {part_num}"
+            out.append(s)
+
+        return out if out else [slide]
+
+    def _split_text_and_code_overflow(
+        self,
+        slide: Dict,
+        expanded: List[str],
+        max_bt: int,
+        max_ln: int,
+        base_title: str,
+    ) -> List[Dict]:
+        content = slide.setdefault('content', {})
+        code_obj = content.get('code')
+        if not isinstance(code_obj, dict):
+            code_obj = {'language': 'text', 'code': ''}
+            content['code'] = code_obj
+        lang = code_obj.get('language', 'text')
+        all_lines = (code_obj.get('code') or '').split('\n')
+
+        if not all_lines:
+            return self._split_image_or_text_overflow(
+                slide,
+                expanded,
+                LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets'],
+                'text_only',
+                base_title,
+            )
+
+        out: List[Dict] = []
+        b_rem = expanded[:]
+        l_rem = all_lines[:]
+        part_num = 0
+
+        while l_rem:
+            part_num += 1
+            s = copy.deepcopy(slide)
+            s['layout'] = 'text_and_code'
+            bl_take = min(max_bt, len(b_rem)) if b_rem else 0
+            ln_take = min(max_ln, len(l_rem))
+            s['content'] = {
+                'bullets': b_rem[:bl_take],
+                'code': {'language': lang, 'code': '\n'.join(l_rem[:ln_take])},
+            }
+            b_rem = b_rem[bl_take:]
+            l_rem = l_rem[ln_take:]
+            if part_num > 1:
+                s['title'] = f"{base_title} — parte {part_num}"
+            out.append(s)
+
+        max_tb = LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets']
+        while b_rem:
+            part_num += 1
+            s = copy.deepcopy(slide)
+            s['layout'] = 'text_only'
+            s['content'] = {'bullets': b_rem[:max_tb]}
+            b_rem = b_rem[max_tb:]
+            s['title'] = f"{base_title} — parte {part_num}"
+            out.append(s)
+
+        return out if out else [slide]
+
+    def _split_image_or_text_overflow(
+        self,
+        slide: Dict,
+        expanded: List[str],
+        max_text_bullets: int,
+        layout_key: str,
+        base_title: str,
+    ) -> List[Dict]:
+        content = slide.setdefault('content', {})
+        image_id = content.get('image_id')
+
+        if not expanded:
+            return [slide]
+
+        out: List[Dict] = []
+        idx = 0
+        part_num = 0
+        first = True
+
+        while idx < len(expanded):
+            part_num += 1
+            chunk = expanded[idx : idx + max_text_bullets]
+            idx += max_text_bullets
+            s = copy.deepcopy(slide)
+            if first and layout_key in ('image_left', 'image_right') and image_id:
+                s['layout'] = layout_key
+                s['content'] = {'image_id': image_id, 'bullets': chunk}
+                first = False
+            else:
+                s['layout'] = 'text_only'
+                s['content'] = {'bullets': chunk}
+            if part_num > 1:
+                s['title'] = f"{base_title} — parte {part_num}"
+            out.append(s)
+
+        return out if out else [slide]
+
+    def _partition_overflow_slides(self, slide: Dict) -> List[Dict]:
+        """Split bullets, code, and tables across continuation slides (no '…' truncation)."""
+        self._normalize_slide_dict_content(slide)
+        layout_key = slide.get('layout', 'text_only')
         if layout_key not in LayoutDefinitions.LAYOUTS:
             logger.warning(f"Invalid layout '{layout_key}', defaulting to text_only")
             layout_key = 'text_only'
             slide['layout'] = 'text_only'
 
-        layout_spec = LayoutDefinitions.LAYOUTS[layout_key]
-        
-        # Check constraints
-        violations = []
-        
-        self._normalize_slide_dict_content(slide)
-        content = slide.get('content', {})
-        bullets = content.get('bullets', [])
+        spec = LayoutDefinitions.LAYOUTS[layout_key]
+        text_specs = [c for c in spec['containers'] if c['type'] == 'text']
+        max_text_bullets = max(
+            (c['max_bullets'] for c in text_specs),
+            default=LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets'],
+        )
+        code_specs = [c for c in spec['containers'] if c['type'] == 'code']
+        max_code_lines = max((c['max_lines'] for c in code_specs), default=0)
+        table_specs = [c for c in spec['containers'] if c['type'] == 'table']
+        max_rows = max((c['max_rows'] for c in table_specs), default=0)
 
-        for container in layout_spec['containers']:
-            if container['type'] == 'text':
-                if len(bullets) > container['max_bullets']:
-                    violations.append(f"Too many bullets: {len(bullets)} > {container['max_bullets']}")
-                
-                # NEW: Check individual bullet length to prevent text overflow
-                # At 16pt font, ~100 chars fits on 2 lines in the content area
-                MAX_BULLET_CHARS = 100
-                for i, bullet in enumerate(bullets):
-                    if len(bullet) > MAX_BULLET_CHARS:
-                        violations.append(f"Bullet {i+1} too long: {len(bullet)} > {MAX_BULLET_CHARS} chars")
-            
-            if container['type'] == 'code':
-                code_obj = content.get('code', {})
-                if isinstance(code_obj, list):
-                     code_obj = code_obj[0] if code_obj else {}
-                code = code_obj.get('code', '')
-                lines = len(code.split('\n'))
-                if lines > container['max_lines']:
-                    violations.append(f"Code too long: {lines} lines > {container['max_lines']} lines")
-                    
-            if container['type'] == 'table':
-                table_obj = content.get('table', {})
-                rows = table_obj.get('rows', [])
-                if len(rows) > container['max_rows']:
-                    violations.append(f"Table too many rows: {len(rows)} > {container['max_rows']}")
+        base_title = slide.get('title') or 'Slide'
+        raw_bullets = slide.get('content', {}).get('bullets') or []
 
-        if not violations:
-            return slide
-        
-        # For code-only violations, skip AI refinement and go straight to truncation
-        # This saves significant time since code truncation is deterministic
-        code_only_violation = len(violations) == 1 and 'Code too long' in violations[0]
-        if code_only_violation:
-            logger.warning(f"⚠️ Slide '{slide.get('title')}' has code overflow - using fast truncation (skipping AI)")
-            self._force_truncate(slide, layout_spec)
-            return slide
-            
-        # Refinement Loop (Max 1 retry for non-code issues to save time)
-        logger.warning(f"⚠️ Slide '{slide.get('title')}' failed validation: {violations}. Attempting refinement...")
-        
-        for attempt in range(1):  # Reduced from 2 to 1 to save time
-            refinement_prompt = f"""
-            CRITICAL LAYOUT VIOLATION in slide '{slide.get('title')}':
-            {', '.join(violations)}
-            
-            Based on layout '{layout_key}', you MUST condense the content to fit.
-            - Remove less important bullets.
-            - Summarize text.
-            - Truncate code if necessary.
-            
-            Return ONLY the corrected JSON for this single slide. NO markdown fences, NO explanation text.
-            """
-            
-            try:
-                # Ask agent to fix
-                fixed_response = agent(refinement_prompt)
-                
-                # Extract text from response (same as main generation)
-                response_text = ""
-                if hasattr(fixed_response, 'message'):
-                    msg = fixed_response.message
-                    if hasattr(msg, 'content'):
-                        content = msg.content
-                        if isinstance(content, list):
-                            for block in content:
-                                if isinstance(block, dict) and 'text' in block:
-                                    response_text += block['text']
-                                else:
-                                    response_text += str(block)
-                        else:
-                            response_text = str(content)
-                    else:
-                        response_text = str(msg)
-                else:
-                    response_text = str(fixed_response)
-                
-                response_text = response_text.strip()
-                
-                # ROBUST markdown fence stripping - handle various formats
-                import re
-                # Remove ```json or ``` at start (with optional language tag)
-                response_text = re.sub(r'^```\w*\s*\n?', '', response_text, flags=re.MULTILINE)
-                # Remove ``` at end
-                response_text = re.sub(r'\n?```\s*$', '', response_text, flags=re.MULTILINE)
-                response_text = response_text.strip()
-                
-                # Parse JSON
-                start_idx = response_text.find('{')
-                if start_idx != -1:
-                    import json
-                    parsed, _ = json.JSONDecoder().raw_decode(response_text[start_idx:])
-                    fixed_slide = parsed.get('slides', [parsed])[0] if 'slides' in parsed else parsed
-                    
-                    # Accept fix if structure is valid
-                    if fixed_slide and 'content' in fixed_slide:
-                        logger.info(f"✅ Slide fixed on attempt {attempt+1}")
-                        self._normalize_slide_dict_content(fixed_slide)
-                        return fixed_slide
-            except Exception as e:
-                logger.error(f"Refinement failed: {e}")
-        
-        # If still failing, force truncate (Last Resort)
-        logger.error(f"❌ Refinement failed for '{slide.get('title')}', performing hard truncation.")
-        self._force_truncate(slide, layout_spec)
-        return slide
+        chunk_size = 230
+        expanded: List[str] = []
+        for b in raw_bullets:
+            expanded.extend(_split_bullet_into_chunks(str(b), chunk_size))
 
-    def _force_truncate(self, slide: Dict, layout_spec: Dict):
-        """Hard truncates content to fit limits (both bullet count and bullet length)."""
-        MAX_BULLET_CHARS = 100  # Must match validation constant
+        if layout_key == 'table':
+            return self._split_table_overflow(copy.deepcopy(slide), max_rows, base_title)
 
-        self._normalize_slide_dict_content(slide)
-        content = slide.get('content', {})
-        for container in layout_spec['containers']:
-             if container['type'] == 'text':
-                 bullets = content.get('bullets', [])
-                 # First truncate by count
-                 bullets = bullets[:container['max_bullets']]
-                 # Then truncate individual bullets that are too long
-                 truncated_bullets = []
-                 for bullet in bullets:
-                     b = bullet if isinstance(bullet, str) else str(bullet)
-                     if len(b) > MAX_BULLET_CHARS:
-                         truncated_bullets.append(b[:MAX_BULLET_CHARS - 3] + "...")
-                     else:
-                         truncated_bullets.append(b)
-                 content['bullets'] = truncated_bullets
-             if container['type'] == 'code':
-                 code_obj = content.get('code')
-                 if not isinstance(code_obj, dict):
-                     code_obj = {
-                         'language': 'text',
-                         'code': '' if code_obj is None else str(code_obj),
-                     }
-                 content['code'] = code_obj
-                 code = code_obj.get('code', '') or ''
-                 lines = code.split('\n')
-                 code_obj['code'] = '\n'.join(lines[:container['max_lines']]) + "\n# …"
-             if container['type'] == 'table':
-                 table_obj = content.get('table')
-                 if not isinstance(table_obj, dict):
-                     table_obj = {'headers': [], 'rows': [], 'notes': ''}
-                 content['table'] = table_obj
-                 rows = table_obj.get('rows', [])
-                 table_obj['rows'] = rows[:container['max_rows']]
+        if layout_key == 'code_only':
+            return self._split_code_only_overflow(
+                copy.deepcopy(slide), expanded, max_code_lines, base_title
+            )
+
+        if layout_key == 'text_and_code':
+            max_bt = max((c['max_bullets'] for c in text_specs), default=2)
+            return self._split_text_and_code_overflow(
+                copy.deepcopy(slide), expanded, max_bt, max_code_lines, base_title
+            )
+
+        return self._split_image_or_text_overflow(
+            copy.deepcopy(slide), expanded, max_text_bullets, layout_key, base_title
+        )
 
 
 
@@ -2394,7 +3076,11 @@ def generate_complete_course(
     
     # Detect language
     is_spanish = detect_language(book_data)
-    
+
+    _course_meta = book_data.get('course_metadata') or {}
+    _github_org_for_labs = str(_course_meta.get('github_org') or os.environ.get('GITHUB_ORG') or 'Netec-Mx').strip()
+    _pf_for_labs = (project_folder or '').strip()
+
     # Build image mapping
     image_url_mapping = {}
     for lesson in lessons:
@@ -2418,19 +3104,33 @@ def generate_complete_course(
 
     # Track which modules already had their labs emitted (survives across calls within a batch)
     _modules_with_labs_emitted = set()
+    _modules_end_slides_emitted = set()
 
     # ── Helper: emit module-end slides (references, chapter summary, logo) ──
     def _emit_module_end_slides(mod_num, mod_title, sc, *, emit_labs=False):
         """Add end-of-module slides and return updated slide_counter.
 
         Args:
-            emit_labs: Only True when a REAL module boundary is confirmed
-                       (next lesson belongs to a different module).  When the
-                       trigger is merely end-of-batch we pass False so labs are
-                       NOT emitted — preventing cross-batch duplication.
+            emit_labs: True when this chapter is actually ending (next lesson is another
+                       chapter or there is no next lesson). Matches outline-only labs block.
         """
+        if mod_num in _modules_end_slides_emitted:
+            logger.warning(
+                f"   ⏭️ Skipping duplicate end-of-module block for Module {mod_num} "
+                f"(already emitted)"
+            )
+            return sc
+
         logger.info(f"📚 Adding End-of-Module slides for Module {mod_num} (emit_labs={emit_labs})")
-        refs = module_references_by_number.get(mod_num, [])
+
+        _mp = (book_data.get('course_metadata') or {}).get('model_provider', 'bedrock')
+        refs_merged: List = []
+        refs_merged.extend(
+            gather_chapter_reference_strings(
+                book_data, mod_num, is_spanish=is_spanish, model_provider=_mp
+            )
+        )
+        refs_merged.extend(module_references_by_number.get(mod_num, []) or [])
         title_ref = mod_title or f"{'Capítulo' if is_spanish else 'Module'} {mod_num}"
 
         outline_modules = book_data.get('outline_modules', [])
@@ -2438,18 +3138,80 @@ def generate_complete_course(
         if outline_modules and mod_num <= len(outline_modules):
             m_info = outline_modules[mod_num - 1]
             title_ref = m_info.get('title', title_ref)
-            if not refs:
-                refs = m_info.get('references', [])
+            for ox in m_info.get('references') or []:
+                refs_merged.append(ox)
 
         # THOR order: Resumen de Capítulo → Laboratorios → Referencias (sin logo Netec extra al cierre)
-        r_items = _resumen_items_by_module.get(mod_num, [])
-        if r_items:
-            summary_slide = create_chapter_summary_slide(
-                mod_num, r_items, title_ref, is_spanish, sc
+        r_items = list(_resumen_items_by_module.pop(mod_num, None) or [])
+        if not r_items and outline_modules and mod_num <= len(outline_modules):
+            r_items = _fallback_chapter_summary_items(
+                outline_modules[mod_num - 1], is_spanish=is_spanish
             )
-            all_slides.append(summary_slide)
-            sc += 1
-            logger.info(f"📋 Added chapter summary slide for Module {mod_num}")
+            logger.info(
+                f"   📋 Chapter summary for Module {mod_num}: using outline fallback ({len(r_items)} items)"
+            )
+        if not r_items:
+            r_items = [
+                "Revise los temas principales del capítulo en el material del curso."
+                if is_spanish
+                else "Review the main chapter topics in the course material."
+            ]
+            logger.warning(
+                f"   ⚠️ Chapter summary for Module {mod_num}: no MD/outline bullets; using placeholder"
+            )
+
+        r_items = _normalize_chapter_summary_items(r_items)
+        if not r_items:
+            r_items = [
+                "Revise los temas principales del capítulo en el material del curso."
+                if is_spanish
+                else "Review the main chapter topics in the course material."
+            ]
+            logger.warning(
+                f"   ⚠️ Chapter summary for Module {mod_num}: empty after normalize; using placeholder"
+            )
+
+        r_items = _compact_for_single_chapter_summary_slide(
+            r_items, max_bullets=CHAPTER_SUMMARY_MAX_BULLETS_ONE_SLIDE
+        )
+
+        if _chapter_summary_items_are_low_value(r_items):
+            alt = _extract_ideas_clave_from_module_book(book_data, mod_num)
+            if alt:
+                r_items = _compact_for_single_chapter_summary_slide(
+                    _normalize_chapter_summary_items(alt),
+                    max_bullets=CHAPTER_SUMMARY_MAX_BULLETS_ONE_SLIDE,
+                )
+                logger.info(
+                    f"   📋 Chapter summary for Module {mod_num}: using Ideas clave from module lessons "
+                    f"({len(r_items)} bullets)"
+                )
+
+        if _chapter_summary_items_are_low_value(r_items):
+            logger.info(
+                f"   ⏭️ Skipping chapter summary slide for Module {mod_num}: "
+                f"no conceptual recap (avoid placeholder-only slide)"
+            )
+        else:
+            chunks = [r_items]
+            total_summary_slides = 1
+
+            for pi, chunk in enumerate(chunks, start=1):
+                summary_slide = create_chapter_summary_slide(
+                    mod_num,
+                    chunk,
+                    title_ref,
+                    is_spanish,
+                    sc,
+                    bullet_heading="",
+                    part=pi,
+                    total_parts=total_summary_slides,
+                )
+                all_slides.append(summary_slide)
+                sc += 1
+            logger.info(
+                f"📋 Added {total_summary_slides} chapter summary slide(s) for Module {mod_num}"
+            )
 
         if outline_modules and mod_num <= len(outline_modules):
             m_info = outline_modules[mod_num - 1]
@@ -2468,6 +3230,9 @@ def generate_complete_course(
                         'description': activity.get('description', ''),
                         'objectives': activity.get('objectives', []),
                         'duration_minutes': activity.get('duration_minutes'),
+                        'module_number': mod_num,
+                        'project_folder': _pf_for_labs,
+                        'github_org': _github_org_for_labs,
                     }
                     if best_g:
                         lab_data['lab_guide'] = best_g.get('content', '')
@@ -2483,26 +3248,28 @@ def generate_complete_course(
                     processed_lab_activity_titles.add(norm_a)
                     logger.info(f"✅ Added {len(lab_act_slides)} lab activity slide(s) for: {a_title}")
                 _modules_with_labs_emitted.add(mod_num)
-            elif not emit_labs:
-                logger.info(f"   ⏭️ Skipping lab generation (batch boundary, not true module end)")
+        elif not emit_labs:
+                logger.info(f"   ⏭️ Skipping outline-only labs (not emitting labs this pass)")
 
         ref_strings = []
-        for r in refs or []:
+        for r in refs_merged:
             if isinstance(r, str) and r.strip():
                 ref_strings.append(r.strip())
             elif isinstance(r, dict):
                 t = (r.get('title') or r.get('url') or '').strip()
                 if t:
                     ref_strings.append(t)
-        if ref_strings:
-            ref_slide = create_references_slide(
-                {'title': title_ref, 'references': ref_strings},
-                is_spanish,
-                sc
-            )
-            all_slides.append(ref_slide)
+        ref_strings = deduplicate_references(ref_strings)
+        title_ref_sub = _subtitle_modulo_to_capitulo(title_ref, is_spanish=is_spanish)
+        ref_slides = create_references_slides(title_ref_sub, ref_strings, is_spanish, sc)
+        for rs in ref_slides:
+            all_slides.append(rs)
             sc += 1
-            logger.info(f"📚 Added Referencias Bibliográficas slide for Module {mod_num}")
+        logger.info(
+            f"📚 Added {len(ref_slides)} Referencias Bibliográficas slide(s) for Module {mod_num}"
+        )
+
+        _modules_end_slides_emitted.add(mod_num)
 
         return sc
 
@@ -2541,8 +3308,25 @@ def generate_complete_course(
         lesson_batch_end = lesson_batch_start + len(lessons) - 1
     
     # Pre-compute whether this batch is the final one (covers the last lesson)
-    _course_total = total_lessons if total_lessons is not None else len(lessons)
+    _course_total = total_lessons if total_lessons is not None else len(
+        book_data.get('lessons_full') or lessons
+    )
     _is_course_final_batch = lesson_batch_end is not None and lesson_batch_end >= _course_total
+
+    def _chapter_closes_now(lesson_idx: int, current_module_number: int) -> bool:
+        """True when this lesson is the last slide-producing lesson of its chapter (module).
+
+        Uses lessons_full when present so chapter boundaries stay correct across Lambda batches.
+        """
+        lf = book_data.get('lessons_full')
+        if lf:
+            if lesson_idx >= len(lf):
+                return True
+            return lf[lesson_idx].get('module_number', 1) != current_module_number
+        pos = lesson_idx - lesson_batch_start
+        if pos + 1 < len(batch_lessons):
+            return batch_lessons[pos + 1].get('module_number', 1) != current_module_number
+        return bool(_is_course_final_batch and lesson_idx >= _course_total)
 
     # Track module changes for module title slides
     last_module_number = None
@@ -2561,11 +3345,8 @@ def generate_complete_course(
                 if global_idx < lesson_batch_start:
                     _already_titled_modules.add(mod_num)
 
-    # Bookend lesson titles to skip (Introducción, Resumen del Capítulo)
-    _bookend_titles = {'introducción', 'introduction', 'resumen del capítulo',
-                       'chapter summary', 'resumen', 'summary'}
-    _resumen_titles = {'resumen del capítulo', 'chapter summary', 'resumen', 'summary'}
-    _resumen_items_by_module = {}  # module_num -> list of summary items
+    # Bookend lessons (intro / resumen): see _lesson_title_is_bookend_skip
+    _resumen_items_by_module = {}  # module_num -> list of summary items (may be empty before emit)
     lessons_processed = 0
     module_references_by_number = {}
     
@@ -2649,31 +3430,25 @@ def generate_complete_course(
         # SKIP BOOKEND LESSONS (Introducción, Resumen del Capítulo)
         # Their content was already used for the module-title slide (objectives)
         # but they should NOT produce their own slides
-        if lesson_title.lower().strip() in _bookend_titles:
-            # Capture Resumen content for chapter summary slide
-            if lesson_title.lower().strip() in _resumen_titles:
+        if _lesson_title_is_bookend_skip(lesson_title):
+            if _lesson_title_is_resumen_lesson(lesson_title):
                 resumen_items = _extract_resumen_items(lesson.get('content', ''))
-                if resumen_items:
-                    _resumen_items_by_module[current_module_number] = resumen_items
-                    logger.info(f"   📋 Captured {len(resumen_items)} summary items for Module {current_module_number}")
+                _resumen_items_by_module[current_module_number] = resumen_items
+                logger.info(
+                    f"   📋 Captured {len(resumen_items)} summary items for Module {current_module_number}"
+                )
             logger.info(f"   ⏭️ Skipping bookend lesson: {lesson_title}")
             lessons_processed += 1
 
             # Module-end check: bookends can be the last lesson of a module/batch
-            _bk_is_last = lesson_idx >= len(batch_lessons) + lesson_batch_start - 1
-            _bk_next_mod = None
-            if not _bk_is_last and lesson_idx - lesson_batch_start + 1 < len(batch_lessons):
-                _bk_next = batch_lessons[lesson_idx - lesson_batch_start + 1]
-                _bk_next_mod = _bk_next.get('module_number', 1)
-            # emit_labs=True only when a REAL module boundary is confirmed:
-            # 1) next lesson is a different module, OR
-            # 2) last lesson of the final batch (end of entire course)
-            _real_module_end = (_bk_next_mod is not None and _bk_next_mod != current_module_number)
-            _course_end = (_bk_is_last and _is_course_final_batch)
-            if _bk_is_last or _real_module_end:
+            _ch_close = _chapter_closes_now(lesson_idx, current_module_number)
+            if _ch_close:
                 slide_counter = _emit_module_end_slides(
-                    current_module_number, current_module_title, slide_counter,
-                    emit_labs=(_real_module_end or _course_end))
+                    current_module_number,
+                    current_module_title,
+                    slide_counter,
+                    emit_labs=True,
+                )
             continue
 
         # BOOK-DRIVEN LAB DETECTION: Check lesson type field instead of title matching
@@ -2721,6 +3496,10 @@ def generate_complete_course(
                 used_lab_guide_keys.add(best_guide.get('key'))
                 logger.info(f"   📄 Matched lab guide: {best_guide.get('key')}")
 
+            lesson['project_folder'] = _pf_for_labs
+            lesson['github_org'] = _github_org_for_labs
+            lesson.setdefault('module_number', current_module_number)
+
             lab_slides = create_lab_slides_from_content(lesson, is_spanish, slide_counter)
             for lab_slide in lab_slides:
                 lab_slide['lesson_number'] = lesson_idx
@@ -2731,16 +3510,28 @@ def generate_complete_course(
             processed_lab_activity_titles.add(_normalize_text(lesson_title))
             logger.info(f"✅ Added {len(lab_slides)} lab slides for: {lesson_title}")
             lessons_processed += 1
+            _ch_close_lab = _chapter_closes_now(lesson_idx, current_module_number)
+            if _ch_close_lab:
+                slide_counter = _emit_module_end_slides(
+                    current_module_number,
+                    current_module_title,
+                    slide_counter,
+                    emit_labs=True,
+                )
             continue  # Skip normal lesson processing for labs
         
-        # Add lesson title slide (for theory lessons)
-        lesson_slide = create_lesson_title_slide(
-            lesson, current_module_number, lesson_number_in_module, 
-            is_spanish, slide_counter, current_module_title
-        )
-        all_slides.append(lesson_slide)
-        logger.info(f"📖 Added Lesson {lesson_number_in_module} title slide: {lesson_title}")
-        slide_counter += 1
+        # Add lesson title slide(s) for theory lessons
+        for lesson_slide in create_lesson_title_slides(
+            lesson,
+            current_module_number,
+            lesson_number_in_module,
+            is_spanish,
+            current_module_title,
+        ):
+            lesson_slide['slide_number'] = slide_counter
+            all_slides.append(lesson_slide)
+            slide_counter += 1
+        logger.info(f"📖 Added Lesson {lesson_number_in_module} title slide(s): {lesson_title}")
         
         # Extract images for this lesson
         lesson_content = lesson.get('content', '')
@@ -2817,30 +3608,23 @@ def generate_complete_course(
         lessons_processed += 1
         logger.info(f"✅ Completed lesson {lesson_idx} - Total slides: {len(all_slides)}")
         
-        # Check if NEXT lesson will be a different module (or this is the last lesson)
-        # If so, add module-end slides for the current module
-        is_last_lesson = lesson_idx >= len(batch_lessons) + lesson_batch_start - 1
-        next_lesson_module = None
-        if not is_last_lesson and lesson_idx - lesson_batch_start + 1 < len(batch_lessons):
-            next_lesson = batch_lessons[lesson_idx - lesson_batch_start + 1]
-            next_lesson_module = next_lesson.get('module_number', 1)
-        
-        # emit_labs=True only when a REAL module boundary is confirmed:
-        # 1) next lesson is a different module, OR
-        # 2) last lesson of the final batch (end of entire course)
-        _real_mod_end = (next_lesson_module is not None and next_lesson_module != current_module_number)
-        _course_ends = (is_last_lesson and _is_course_final_batch)
-        if is_last_lesson or _real_mod_end:
+        _ch_close = _chapter_closes_now(lesson_idx, current_module_number)
+        if _ch_close:
             slide_counter = _emit_module_end_slides(
-                current_module_number, current_module_title, slide_counter,
-                emit_labs=(_real_mod_end or _course_ends))
+                current_module_number,
+                current_module_title,
+                slide_counter,
+                emit_labs=True,
+            )
 
     
     # Determine if this is the final batch for the entire course
     # A batch is "complete" only if it processed all lessons up to the end of the course
     # Use total_lessons parameter if provided, otherwise fall back to len(lessons) from book_data
     logger.info(f"🔍 DEBUG: total_lessons param={total_lessons}, len(lessons)={len(lessons)}, lesson_batch_end={lesson_batch_end}")
-    course_total_lessons = total_lessons if total_lessons is not None else len(lessons)
+    course_total_lessons = total_lessons if total_lessons is not None else len(
+        book_data.get('lessons_full') or lessons
+    )
     is_final_batch = lesson_batch_end is not None and lesson_batch_end >= course_total_lessons
     completion_status = "complete" if is_final_batch else "partial"
     
@@ -2913,8 +3697,18 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
     logger.info(f"🔍 DEBUG generate_html_output: Processing {len(slides)} slides")
 
     def _tx(s) -> str:
-        """Escape body text so characters like < in notes/table cells cannot break the DOM."""
-        return html_module.escape(str(s) if s is not None else "")
+        """Escape body text and render safe inline markdown (**bold**, *italic*)."""
+        return format_slide_inline_markup(s)
+
+    def _tx_bullet(s) -> str:
+        """List items: terminal period + inline markdown."""
+        return format_bullet_text(s)
+
+    def _tx_bullet_block(block: Dict, item) -> str:
+        """Use clickable bibliography links when the slide requests autolink_urls."""
+        if block.get('autolink_urls'):
+            return format_reference_bullet_text(item)
+        return format_bullet_text(item)
 
     def _at(s) -> str:
         """Escape for HTML attribute values (alt=, etc.)."""
@@ -3086,11 +3880,12 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
         
         .slide-title {{
-            font-size: 30pt;
+            font-size: 40pt;
             font-weight: 700;
             margin-bottom: 6px;
             line-height: 1.2;
             color: {colors['primary']};
+            text-align: left;
         }}
         
         .slide-subtitle {{
@@ -3126,7 +3921,21 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             position: relative;
             /* Total height per bullet: 38px + 8px + 4px = 50px */
         }}
-        
+
+        .bullets li strong {{
+            font-weight: 700;
+        }}
+
+        .bullets li em {{
+            font-style: italic;
+        }}
+
+        .bullets li a.slide-ref-link,
+        .bullets li a.lab-intro-link {{
+            text-decoration: underline;
+            cursor: pointer;
+        }}
+
         .bullets > li:before {{
             content: '▸';
             position: absolute;
@@ -3210,9 +4019,9 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             background: #eef4fa;
         }}
         
-        /* Code blocks - dark theme for professional appearance */
+        /* Code blocks — match BookEditor .code-block-prism (VS Code Dark+) */
         .code-block {{
-            background: #1e1e1e;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             border-radius: 8px;
             margin: 10px 0 20px 0;
             overflow: hidden;
@@ -3302,27 +4111,19 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
         
         .code-content code {{
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            font-family: 'Fira Code', 'Cascadia Code', 'SF Mono', 'Consolas', monospace;
             font-size: 13pt;
             line-height: 1.5;
             white-space: pre;
             display: block;
-            color: #f8f8f2; /* Light text for dark background - prevents invisible black text */
+            color: #D4D4D4;
         }}
         
-        /* Pygments uses inline styles, but we ensure base text color */
+        /* Pygments emits inline colors aligned with BookEditor */
         .code-content code span {{
             font-family: inherit;
         }}
-        
-        /* Override any black text from Pygments to ensure visibility */
-        .code-content code span[style*="color: #000"],
-        .code-content code span[style*="color:#000"],
-        .code-content code span[style*="color: black"],
-        .code-content code span[style*="color:black"] {{
-            color: #f8f8f2 !important;
-        }}
-        
+
         /* Code fullscreen modal - MAX Z-INDEX for iframe visibility */
         .code-modal {{
             display: none;
@@ -3657,7 +4458,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             opacity: 1;
         }}
         
-        /* MODULE TITLE SLIDE - Section divider (corporate template) */
+        /* MODULE TITLE SLIDE — inicio de capítulo (reglas corporativas) */
         .module-title-slide {{
             height: 100%;
             background: #efefef;
@@ -3669,41 +4470,60 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
 
         .module-title-left {{
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            padding-top: 0;
+            position: relative;
+            min-height: 520px;
+            padding-top: 56px;
+            padding-bottom: 96px;
         }}
 
         .module-title-accent {{
+            position: absolute;
+            top: 36px;
+            left: 0;
             width: 80px;
             height: 8px;
             background: {colors['accent']};
+            flex-shrink: 0;
+            margin-bottom: 0;
+        }}
+
+        .module-title-heading-stack {{
             position: absolute;
-            top: 45px;
-            left: 50px;
+            left: 0;
+            right: 16px;
+            top: 56px;
+            bottom: 96px;
         }}
 
         .module-title-chapter {{
-            font-size: 54pt;
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 80pt;
             font-weight: 800;
             color: #111;
-            line-height: 1.1;
-            margin-bottom: 18px;
+            line-height: 1;
+            margin: 0;
+            white-space: nowrap;
         }}
 
         .module-title-divider {{
-            height: 2px;
-            background: #c7c7c7;
-            width: 100%;
-            margin: 12px 0 18px;
+            display: none;
         }}
 
         .module-title-name {{
-            font-size: 26pt;
+            position: absolute;
+            left: 0;
+            top: calc(50% + 44pt + 20px);
+            font-size: 28pt;
             font-weight: 700;
             color: {colors['primary']};
-            line-height: 1.2;
+            line-height: 1.25;
+            margin: 0;
+            padding: 0;
+            max-width: 100%;
+            white-space: normal;
         }}
 
         .module-title-right {{
@@ -3823,6 +4643,26 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             color: #222;
             font-size: 22px;
         }}
+
+        .chapter-summary-list li code.slide-inline-code,
+        .bullets li code.slide-inline-code,
+        .module-title-obj-list li code.slide-inline-code {{
+            font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+            font-size: 0.92em;
+            background: #ececec;
+            color: #1a1a1a;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }}
+
+        .chapter-summary-list li strong {{
+            font-weight: 700;
+        }}
+
+        .chapter-summary-list li em {{
+            font-style: italic;
+        }}
+
         .chapter-summary-right {{
             display: flex;
             align-items: center;
@@ -3872,7 +4712,25 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             width: 100%;
             height: 2px;
             background: #c7c7c7;
-            margin: 0 0 28px 0;
+            margin: 0 0 14px 0;
+        }}
+        .lab-intro-stack {{
+            padding: 0 8px 100px 8px;
+            max-height: 430px;
+            overflow: hidden;
+        }}
+        .lab-intro-region {{
+            margin-bottom: 12px;
+        }}
+        .lab-intro-instructions-body .lab-intro-plant-line {{
+            margin: 0 0 10px 0;
+            font-size: 16pt;
+            color: #333;
+            line-height: 1.4;
+        }}
+        .lab-intro-link {{
+            color: {colors['primary']};
+            word-break: break-all;
         }}
         .lab-intro-section-heading {{
             font-size: 18pt;
@@ -4072,7 +4930,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         }}
 
         .lesson-title-slide .title {{
-            font-size: 42pt;
+            font-size: 54pt;
             font-weight: 700;
             margin-top: 80px;
             margin-bottom: 24px;
@@ -4643,7 +5501,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('      <div class="intro-divider"></div>')
             html_parts.append(f'      <ul class="{list_class}">')
             for item in intro_items:
-                html_parts.append(f'        <li>{_tx(item)}</li>')
+                html_parts.append(f'        <li>{_tx_bullet(item)}</li>')
             html_parts.append('      </ul>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{asset_by_layout[layout]}" class="intro-right-asset" alt="{_at(title)}">')
@@ -4686,7 +5544,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     summary_heading = block.get('heading', '')
                     summary_items.extend(_parse_list_field(block.get('items', [])))
             resumen_img_url = _asset_url_from_s3('Resumen_Capitulo.png')
-            html_parts.append('  <div class="chapter-summary-slide">')
+            mod_num_cs = int(slide.get('module_number') or 0)
+            html_parts.append(
+                f'  <div class="chapter-summary-slide" data-module-number="{mod_num_cs}">'
+            )
             html_parts.append('    <div class="chapter-summary-left">')
             html_parts.append(f'      <div class="chapter-summary-title">{_tx(title)}</div>')
             if summary_heading:
@@ -4694,7 +5555,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             if summary_items:
                 html_parts.append('      <ul class="chapter-summary-list">')
                 for item in summary_items:
-                    html_parts.append(f'        <li>{_tx(item)}</li>')
+                    html_parts.append(f'        <li>{_tx_bullet(item)}</li>')
                 html_parts.append('      </ul>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="chapter-summary-right">')
@@ -4708,45 +5569,74 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             continue
 
         elif layout == 'lab-intro':
-            # Lab intro slide — corporate template (white bg, dashed title box)
+            # Lab intro: title box + objective + planteamiento/GitHub + duration (regions for PPT parity)
             lab_objective = ""
+            lab_plant_lines: List[str] = []
             lab_duration = ""
+            is_es = True
+            stored_plant_heading = ""
             for block in slide.get('content_blocks', []):
-                if block.get('type') == 'bullets':
-                    items = block.get('items', [])
-                    heading = block.get('heading', '').lower()
-                    if 'objetivo' in heading or 'objective' in heading:
-                        raw_obj = items[0] if items else ""
-                        # Strip checkbox artifacts like '[ ] '
-                        lab_objective = re.sub(r'^\[\s*\]\s*', '', raw_obj)
-                    elif items:
-                        text = items[0]
-                        if 'tiempo' in text.lower() or 'estimated' in text.lower():
-                            lab_duration = text
-                        elif not lab_objective:
-                            lab_objective = text
-            reloj_img_url = _asset_url_from_s3('Reloj.png')
-            is_es = 'actividad' in (subtitle or '').lower() or 'práctica' in (subtitle or '').lower()
+                if block.get('type') != 'bullets':
+                    continue
+                heading_raw = (block.get('heading') or '').strip()
+                heading_l = heading_raw.lower()
+                items = block.get('items', []) or []
+                if 'objetivo' in heading_l or heading_l.startswith('objective'):
+                    if heading_l.startswith('objective') and 'objetivo' not in heading_l:
+                        is_es = False
+                    raw_obj = items[0] if items else ""
+                    lab_objective = re.sub(r'^\[\s*\]\s*', '', str(raw_obj))
+                elif 'planteamiento' in heading_l or 'problem statement' in heading_l:
+                    if 'problem statement' in heading_l:
+                        is_es = False
+                    stored_plant_heading = heading_raw or (
+                        'Planteamiento e Instrucciones:' if is_es else 'Problem Statement and Instructions:'
+                    )
+                    for it in items:
+                        frag = _format_lab_intro_instruction_line(str(it))
+                        if frag:
+                            lab_plant_lines.append(frag)
+                elif heading_l == '' and items:
+                    text = str(items[0])
+                    if 'tiempo' in text.lower() or 'estimated' in text.lower():
+                        lab_duration = text
+
             obj_label = 'Objetivo:' if is_es else 'Objective:'
+            plant_heading = stored_plant_heading or (
+                'Planteamiento e Instrucciones:' if is_es else 'Problem Statement and Instructions:'
+            )
             dur_label = 'Tiempo para esta actividad:' if is_es else 'Time for this activity:'
+            reloj_img_url = _asset_url_from_s3('Reloj.png')
+
             html_parts.append('  <div class="lab-intro-slide">')
             html_parts.append('    <div class="lab-intro-title-box">')
             html_parts.append(f'      <div class="lab-intro-title">{_tx(title)}</div>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="lab-intro-accent"></div>')
             html_parts.append('    <div class="lab-intro-divider"></div>')
+            html_parts.append('    <div class="lab-intro-stack">')
             if lab_objective:
-                html_parts.append(f'    <div class="lab-intro-section-heading">{obj_label}</div>')
-                html_parts.append(f'    <div class="lab-intro-section-body">{_tx(lab_objective)}</div>')
+                html_parts.append('      <div class="lab-intro-region lab-intro-region-objective">')
+                html_parts.append(f'        <div class="lab-intro-section-heading">{html_module.escape(obj_label)}</div>')
+                html_parts.append(f'        <div class="lab-intro-section-body">{format_bullet_text(lab_objective)}</div>')
+                html_parts.append('      </div>')
+            if lab_plant_lines:
+                html_parts.append('      <div class="lab-intro-region lab-intro-region-instructions">')
+                html_parts.append(f'        <div class="lab-intro-section-heading">{html_module.escape(plant_heading)}</div>')
+                html_parts.append('        <div class="lab-intro-section-body lab-intro-instructions-body">')
+                for frag in lab_plant_lines:
+                    html_parts.append(f'          <p class="lab-intro-plant-line">{frag}</p>')
+                html_parts.append('        </div>')
+                html_parts.append('      </div>')
+            html_parts.append('    </div>')
             html_parts.append('    <div class="lab-intro-bottom">')
             html_parts.append(f'      <img src="{reloj_img_url}" alt="Reloj">')
             if lab_duration:
-                # Extract just the time value from "Tiempo estimado: 30 minutos"
                 dur_val = lab_duration
                 if ':' in dur_val:
                     dur_val = dur_val.split(':', 1)[1].strip()
                 html_parts.append('      <div class="lab-intro-duration-box">')
-                html_parts.append(f'        <div class="lab-intro-duration-label">{dur_label}</div>')
+                html_parts.append(f'        <div class="lab-intro-duration-label">{html_module.escape(dur_label)}</div>')
                 html_parts.append(f'        <div class="lab-intro-duration-value">{_tx(dur_val)}</div>')
                 html_parts.append('      </div>')
             html_parts.append('    </div>')
@@ -4839,16 +5729,17 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             html_parts.append('  <div class="module-title-slide">')
             html_parts.append('    <div class="module-title-left">')
             html_parts.append('      <div class="module-title-accent"></div>')
-            html_parts.append(f'      <div class="module-title-chapter">{_tx(chapter_label)}</div>')
-            html_parts.append('      <div class="module-title-divider"></div>')
-            html_parts.append(f'      <div class="module-title-name">{_tx(chapter_name)}</div>')
+            html_parts.append('      <div class="module-title-heading-stack">')
+            html_parts.append(f'        <div class="module-title-chapter">{_tx(chapter_label)}</div>')
+            html_parts.append(f'        <div class="module-title-name">{_tx(chapter_name)}</div>')
+            html_parts.append('      </div>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="module-title-right">')
             if obj_items:
                 html_parts.append(f'      <div class="module-title-obj-heading">{_tx(obj_heading)}</div>')
                 html_parts.append('      <ul class="module-title-obj-list">')
                 for item in obj_items:
-                    html_parts.append(f'        <li>{_tx(item)}</li>')
+                    html_parts.append(f'        <li>{_tx_bullet(item)}</li>')
                 html_parts.append('      </ul>')
             html_parts.append('    </div>')
             html_parts.append(f'    <img src="{logo_url}" class="logo" alt="Logo">')
@@ -4942,7 +5833,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'      <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('      <ul class="bullets">')
                     for item in bullet_block.get('items', []):
-                        html_parts.append(f'        <li>{_tx(item)}</li>')
+                        html_parts.append(f'        <li>{_tx_bullet_block(bullet_block, item)}</li>')
                     html_parts.append('      </ul>')
                 html_parts.append('    </div>')
                 
@@ -4955,7 +5846,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'      <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('      <ul class="bullets">')
                     for item in bullet_block.get('items', []):
-                        html_parts.append(f'        <li>{_tx(item)}</li>')
+                        html_parts.append(f'        <li>{_tx_bullet_block(bullet_block, item)}</li>')
                     html_parts.append('      </ul>')
                 html_parts.append('    </div>')
                 
@@ -4998,17 +5889,17 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     for item in block.get('items', []):
                         if isinstance(item, dict):
                             # Module with nested lessons
-                            html_parts.append(f'      <li>{_tx(item.get("text", ""))}')
+                            html_parts.append(f'      <li>{_tx_bullet_block(block, item.get("text", ""))}')
                             lessons = item.get('lessons', [])
                             if lessons:
                                 html_parts.append('        <ul>')
                                 for lesson in lessons:
-                                    html_parts.append(f'          <li>{_tx(lesson)}</li>')
+                                    html_parts.append(f'          <li>{_tx_bullet_block(block, lesson)}</li>')
                                 html_parts.append('        </ul>')
                             html_parts.append('      </li>')
                         else:
                             # Plain text item (fallback)
-                            html_parts.append(f'      <li>{_tx(item)}</li>')
+                            html_parts.append(f'      <li>{_tx_bullet_block(block, item)}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'bullets':
@@ -5017,7 +5908,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                         html_parts.append(f'    <div class="content-heading">{_tx(heading)}</div>')
                     html_parts.append('    <ul class="bullets">')
                     for item in block.get('items', []):
-                        html_parts.append(f'      <li>{_tx(item)}</li>')
+                        html_parts.append(f'      <li>{_tx_bullet_block(block, item)}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'nested-bullets':
@@ -5028,16 +5919,16 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
                     for item in block.get('items', []):
                         if isinstance(item, dict):
                             # Module with nested lessons
-                            html_parts.append(f'      <li>{_tx(item.get("text", ""))}')
+                            html_parts.append(f'      <li>{_tx_bullet_block(block, item.get("text", ""))}')
                             if item.get('lessons'):
                                 html_parts.append('        <ul>')
                                 for lesson in item['lessons']:
-                                    html_parts.append(f'          <li>{_tx(lesson)}</li>')
+                                    html_parts.append(f'          <li>{_tx_bullet_block(block, lesson)}</li>')
                                 html_parts.append('        </ul>')
                             html_parts.append('      </li>')
                         else:
                             # Fallback for simple strings
-                            html_parts.append(f'      <li>{_tx(item)}</li>')
+                            html_parts.append(f'      <li>{_tx_bullet_block(block, item)}</li>')
                     html_parts.append('    </ul>')
                 
                 elif block_type == 'image':

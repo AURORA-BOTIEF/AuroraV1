@@ -282,7 +282,7 @@ If {target_language} is Spanish, use these section titles:
 - "Solución de Problemas" instead of "Troubleshooting"
 - "Limpieza" instead of "Cleanup"
 - "Resumen" instead of "Summary"
-- "Recursos Adicionales" instead of "Additional Resources"
+- "Referencias Bibliográficas" instead of "Bibliographic References"
 
 LAB INFORMATION:
 - Lab ID: {lab_id}
@@ -537,10 +537,10 @@ To reset your environment after completing this lab:
 - [Suggested follow-up lab or lesson]
 - [Additional practice recommendation]
 
-## Additional Resources
+## Bibliographic References
 
-- [Resource 1 title] - [Brief description]
-- [Resource 2 title] - [Brief description]
+- [Reference 1 title] - [Brief description]
+- [Reference 2 title] - [Brief description]
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -864,7 +864,7 @@ If generating in Spanish, use these section titles:
 - "Solución de Problemas" instead of "Troubleshooting"
 - "Limpieza" instead of "Cleanup"
 - "Resumen" instead of "Summary"
-- "Recursos Adicionales" instead of "Additional Resources"
+- "Referencias Bibliográficas" instead of "Bibliographic References"
 
 MASTER CONTEXT:
 Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}

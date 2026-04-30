@@ -579,19 +579,6 @@ def create_module_title_slide(module: Dict, module_number: int, is_spanish: bool
     }
 
 
-def create_lesson_title_slide(lesson: Dict, module_number: int, lesson_number: int, is_spanish: bool, slide_counter: int, module_title: str = "") -> Dict:
-    """Create a full-screen branded lesson title slide with module name as subtitle."""
-    lesson_title = lesson.get('title', f"Lección {lesson_number}")
-    return {
-        "slide_number": slide_counter,
-        "title": lesson_title,
-        "subtitle": module_title,  # Module title shows below lesson title
-        "layout_hint": "lesson-title",
-        "content_blocks": [],
-        "notes": f"Lesson {lesson_number} of Module {module_number}"
-    }
-
-
 def generate_infographic_structure(
     book_data: Dict,
     model,
@@ -606,6 +593,7 @@ def generate_infographic_structure(
     Each slide = clean HTML section with proper semantic structure.
     """
     from strands import Agent
+    from html_first_generator import create_lesson_title_slides
     
     metadata = book_data.get('metadata', {})
     course_title = metadata.get('title', 'Course Infographic')
@@ -976,11 +964,18 @@ OUTPUT FORMAT (JSON):
         # Increment lesson number within module
         lesson_number_in_module += 1
         
-        # Insert lesson title slide with module name as subtitle
-        lesson_slide = create_lesson_title_slide(lesson, current_module_number, lesson_number_in_module, is_spanish, slide_counter, current_module_title)
-        all_slides.append(lesson_slide)
-        logger.info(f"📖 Added Lesson title slide: {lesson_title}")
-        slide_counter += 1
+        # Insert lesson title slide(s) with module name as subtitle
+        for lesson_slide in create_lesson_title_slides(
+            lesson,
+            current_module_number,
+            lesson_number_in_module,
+            is_spanish,
+            current_module_title,
+        ):
+            lesson_slide['slide_number'] = slide_counter
+            all_slides.append(lesson_slide)
+            slide_counter += 1
+        logger.info(f"📖 Added Lesson title slide(s): {lesson_title}")
         
         # Skip lessons that are lab activities (they'll be added separately from outline)
         is_lab_lesson = (
@@ -1279,6 +1274,168 @@ def fix_image_only_slides(slides: List[Dict], is_spanish: bool) -> List[Dict]:
     return fixed_slides
 
 
+def _ensure_batch_slide_spans(existing_structure: Dict[str, Any]) -> None:
+    """Older structures had no batch_slide_spans; infer one chunk covering all slides."""
+    if existing_structure.get('batch_slide_spans'):
+        return
+    slides = existing_structure.get('slides') or []
+    if not slides:
+        existing_structure['batch_slide_spans'] = []
+        return
+    lb = int(existing_structure.get('last_batch_index', 0))
+    existing_structure['batch_slide_spans'] = [{
+        'batch_index': lb,
+        'start_idx': 0,
+        'end_idx': len(slides) - 1,
+        'lessons_processed': int(existing_structure.get('lessons_processed', 0)),
+    }]
+
+
+def _remove_batch_slide_span(existing_structure: Dict[str, Any], batch_index: int) -> bool:
+    """Remove slides belonging to a prior merge of the same batch_index; fix following span indices."""
+    spans = list(existing_structure.get('batch_slide_spans') or [])
+    rm_idx = None
+    for i in range(len(spans) - 1, -1, -1):
+        if int(spans[i].get('batch_index', -1)) == int(batch_index):
+            rm_idx = i
+            break
+    if rm_idx is None:
+        return False
+    target = spans.pop(rm_idx)
+    start_idx = int(target['start_idx'])
+    end_idx = int(target['end_idx'])
+    removed_width = end_idx - start_idx + 1
+    slides = existing_structure.get('slides') or []
+    if start_idx < 0 or end_idx >= len(slides) or start_idx > end_idx:
+        logger.warning(
+            f"⚠️ Corrupt batch_slide_spans for batch_index={batch_index}; skipping removal"
+        )
+        spans.insert(rm_idx, target)
+        existing_structure['batch_slide_spans'] = spans
+        return False
+    del slides[start_idx : end_idx + 1]
+    existing_structure['slides'] = slides
+    lp = int(target.get('lessons_processed', 0))
+    existing_structure['lessons_processed'] = max(
+        0, int(existing_structure.get('lessons_processed', 0)) - lp
+    )
+    adjusted: List[Dict[str, Any]] = []
+    for sp in spans:
+        si = int(sp['start_idx'])
+        ei = int(sp['end_idx'])
+        if si > end_idx:
+            si -= removed_width
+            ei -= removed_width
+        adjusted.append({
+            'batch_index': int(sp['batch_index']),
+            'start_idx': si,
+            'end_idx': ei,
+            'lessons_processed': int(sp.get('lessons_processed', 0)),
+        })
+    existing_structure['batch_slide_spans'] = adjusted
+    return True
+
+
+def merge_html_first_incremental_structure(
+    existing_structure: Dict[str, Any],
+    incoming_structure: Dict[str, Any],
+    *,
+    batch_index: int,
+    body_execution_id: Optional[str],
+) -> Dict[str, Any]:
+    """
+    Merge one HTML-first batch into the shared structure used for infographic_structure.json.
+
+    - **Stale reset** only when the previous run finished (`completion_status == complete`),
+      Step Functions `execution_id` disagrees with the file, or `last_batch_index` moved
+      past this batch (out-of-order).
+    - **Same-batch retry** (`last_batch_index == batch_index`, same execution): drops the
+      prior slide span for that batch before extending, avoiding duplicate chapter-end /
+      references slides.
+    """
+    import uuid
+
+    existing_exec_id = existing_structure.get('execution_id') or ''
+    incoming_exec = (body_execution_id or '').strip()
+    existing_last = int(existing_structure.get('last_batch_index', -1))
+
+    is_stale = (
+        existing_structure.get('completion_status') == 'complete'
+        or (
+            incoming_exec
+            and existing_exec_id
+            and incoming_exec != existing_exec_id
+        )
+        or existing_last > batch_index
+    )
+    if is_stale:
+        logger.warning(
+            f"⚠️ Incremental merge reset (stale): completion_status="
+            f"{existing_structure.get('completion_status')}, "
+            f"existing_last_batch={existing_last}, batch_index={batch_index}, "
+            f"incoming_exec={incoming_exec!r}, file_exec={existing_exec_id!r}"
+        )
+        fresh = dict(incoming_structure)
+        fresh['execution_id'] = str(uuid.uuid4())[:8]
+        fresh['last_batch_index'] = batch_index
+        inc_slides = fresh.get('slides') or []
+        fresh['batch_slide_spans'] = [{
+            'batch_index': batch_index,
+            'start_idx': 0,
+            'end_idx': max(0, len(inc_slides) - 1),
+            'lessons_processed': int(fresh.get('lessons_processed', 0)),
+        }]
+        fresh['total_slides'] = len(inc_slides)
+        return fresh
+
+    incoming_structure['execution_id'] = existing_exec_id
+    _ensure_batch_slide_spans(existing_structure)
+
+    if existing_last == batch_index:
+        removed = _remove_batch_slide_span(existing_structure, batch_index)
+        if removed:
+            logger.info(
+                f"🔄 Same-batch retry: removed prior slides for batch_index={batch_index}, "
+                f"appending {len(incoming_structure.get('slides') or [])} new slides"
+            )
+        else:
+            logger.warning(
+                f"⚠️ Same-batch retry for batch_index={batch_index} but no batch_slide_spans "
+                f"entry — merge may duplicate slides"
+            )
+
+    prev_len = len(existing_structure.get('slides') or [])
+    existing_structure['slides'].extend(incoming_structure.get('slides') or [])
+    new_len = len(existing_structure['slides'])
+    existing_structure['total_slides'] = new_len
+    existing_structure['lessons_processed'] = int(existing_structure.get('lessons_processed', 0)) + int(
+        incoming_structure.get('lessons_processed', 0)
+    )
+    existing_structure['last_batch_index'] = batch_index
+
+    spans = list(existing_structure.get('batch_slide_spans') or [])
+    spans.append({
+        'batch_index': batch_index,
+        'start_idx': prev_len,
+        'end_idx': new_len - 1,
+        'lessons_processed': int(incoming_structure.get('lessons_processed', 0)),
+    })
+    existing_structure['batch_slide_spans'] = spans
+
+    em = existing_structure.get('image_url_mapping') or {}
+    nm = incoming_structure.get('image_url_mapping') or {}
+    existing_structure['image_url_mapping'] = {**em, **nm}
+
+    if 'completion_status' in incoming_structure:
+        existing_structure['completion_status'] = incoming_structure['completion_status']
+
+    logger.info(
+        f"✅ Merged batch {batch_index}: slides {prev_len} → {new_len} "
+        f"(+{new_len - prev_len}), lessons_processed={existing_structure['lessons_processed']}"
+    )
+    return existing_structure
+
+
 def lambda_handler(event, context):
     """Main Lambda handler for infographic generation - HTML-FIRST ARCHITECTURE."""
     import time as time_module
@@ -1452,12 +1609,16 @@ def lambda_handler(event, context):
             lesson_end = min(lesson_start + max_lessons_per_batch - 1, total_lessons)
         
         original_lessons = book_data.get('lessons', [])
+        # Preserve full ordered lesson list for chapter boundaries & bibliography aggregation
+        # when this batch's `lessons` slice omits the next module's first lesson.
+        book_data['lessons_full'] = list(original_lessons)
         book_data['lessons'] = original_lessons[lesson_start-1:lesson_end]
         
         logger.info(f"📖 Processing lessons {lesson_start}-{lesson_end} of {total_lessons}")
         
         # Determine if this is the first batch (batch_index == 0 or lesson_start == 1)
         batch_index = body.get('batch_index', 0)
+        body_execution_id = body.get('execution_id')
         is_first_batch = (batch_index == 0) or (lesson_start == 1)
         logger.info(f"📦 Batch index: {batch_index}, is_first_batch: {is_first_batch}")
         
@@ -1498,52 +1659,37 @@ def lambda_handler(event, context):
                     try:
                         existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
                         existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
-                        
-                        # CRITICAL: Check if existing structure is from a COMPLETED previous execution
-                        existing_exec_id = existing_structure.get('execution_id', '')
-                        existing_last_batch = existing_structure.get('last_batch_index', -1)
-                        
-                        # If last_batch_index is higher than current-1, this is stale data from previous execution
-                        # Or if completion_status was 'complete', the old execution finished
-                        is_stale_data = (
-                            existing_structure.get('completion_status') == 'complete' or
-                            existing_last_batch >= batch_index
+
+                        structure = merge_html_first_incremental_structure(
+                            existing_structure,
+                            structure,
+                            batch_index=batch_index,
+                            body_execution_id=body_execution_id,
                         )
-                        
-                        if is_stale_data:
-                            logger.warning(f"⚠️ Stale data detected! existing_last_batch={existing_last_batch}, current batch_index={batch_index}")
-                            logger.warning(f"⚠️ Previous execution_id={existing_exec_id}, completion_status={existing_structure.get('completion_status')}")
-                            logger.warning("⚠️ This is a NEW execution - starting fresh, not merging with old data")
-                            import uuid
-                            structure['execution_id'] = str(uuid.uuid4())[:8]
-                            structure['last_batch_index'] = batch_index
-                        else:
-                            # Same execution - safe to merge
-                            # Inherit the execution_id from the existing structure
-                            structure['execution_id'] = existing_exec_id
-                            
-                            existing_structure['slides'].extend(structure['slides'])
-                            existing_structure['total_slides'] = len(existing_structure['slides'])
-                            existing_structure['lessons_processed'] += structure['lessons_processed']
-                            existing_structure['last_batch_index'] = batch_index
-                            
-                            # Merge image mappings
-                            existing_mapping = existing_structure.get('image_url_mapping', {})
-                            new_mapping = structure.get('image_url_mapping', {})
-                            existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
-                            
-                            structure = existing_structure
-                            logger.info(f"✅ Merged with existing structure (total: {structure['total_slides']} slides)")
                     except Exception as e:
                         logger.warning(f"⚠️ Could not merge with existing structure: {e}")
                         import uuid
                         structure['execution_id'] = str(uuid.uuid4())[:8]
                         structure['last_batch_index'] = batch_index
+                        inc_slides = structure.get('slides') or []
+                        structure['batch_slide_spans'] = [{
+                            'batch_index': batch_index,
+                            'start_idx': 0,
+                            'end_idx': max(0, len(inc_slides) - 1),
+                            'lessons_processed': int(structure.get('lessons_processed', 0)),
+                        }]
                 else:
                     # Batch 0 - initialize fresh structure with new execution_id
                     import uuid
                     structure['execution_id'] = str(uuid.uuid4())[:8]
                     structure['last_batch_index'] = batch_index
+                    zs = structure.get('slides') or []
+                    structure['batch_slide_spans'] = [{
+                        'batch_index': batch_index,
+                        'start_idx': 0,
+                        'end_idx': max(0, len(zs) - 1),
+                        'lessons_processed': int(structure.get('lessons_processed', 0)),
+                    }]
                     logger.info(f"🆔 New execution started: {structure['execution_id']}")
                 
                 # Save updated structure
@@ -1582,50 +1728,30 @@ def lambda_handler(event, context):
                 try:
                     existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
                     existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
-                    
-                    # CRITICAL: Check if existing structure is from a COMPLETED previous execution
-                    existing_exec_id = existing_structure.get('execution_id', '')
-                    existing_last_batch = existing_structure.get('last_batch_index', -1)
-                    
-                    # If last_batch_index is higher than current-1, this is stale data from previous execution
-                    # Or if completion_status was 'complete', the old execution finished
-                    is_stale_data = (
-                        existing_structure.get('completion_status') == 'complete' or
-                        existing_last_batch >= batch_index
+
+                    structure = merge_html_first_incremental_structure(
+                        existing_structure,
+                        structure,
+                        batch_index=batch_index,
+                        body_execution_id=body_execution_id,
                     )
-                    
-                    if is_stale_data:
-                        logger.warning(f"⚠️ Stale data detected in complete batch! existing_last_batch={existing_last_batch}, current batch_index={batch_index}")
-                        logger.warning(f"⚠️ Previous execution_id={existing_exec_id}, completion_status={existing_structure.get('completion_status')}")
-                        logger.warning("⚠️ This is a NEW execution - starting fresh, not merging with old data")
-                        import uuid
-                        structure['execution_id'] = str(uuid.uuid4())[:8]
-                        structure['last_batch_index'] = batch_index
-                        previous_count = 0  # No merge, so previous count is 0
-                    else:
-                        # Same execution - safe to merge
-                        # Inherit the execution_id from the existing structure
-                        structure['execution_id'] = existing_exec_id
-                        
-                        previous_count = len(existing_structure.get('slides', []))
-                        existing_structure['slides'].extend(structure['slides'])
-                        existing_structure['total_slides'] = len(existing_structure['slides'])
-                        existing_structure['lessons_processed'] = existing_structure.get('lessons_processed', 0) + structure['lessons_processed']
-                        existing_structure['last_batch_index'] = batch_index
-                        existing_structure['completion_status'] = structure['completion_status']
-                        
-                        # Merge image mappings
-                        existing_mapping = existing_structure.get('image_url_mapping', {})
-                        new_mapping = structure.get('image_url_mapping', {})
-                        existing_structure['image_url_mapping'] = {**existing_mapping, **new_mapping}
-                        
-                        structure = existing_structure
-                        logger.info(f"✅ Merged batch {batch_index}: {previous_count} + {len(structure['slides']) - previous_count} = {structure['total_slides']} slides")
+
+                    logger.info(
+                        f"✅ Saved merged structure after batch {batch_index}: "
+                        f"{structure.get('total_slides', len(structure.get('slides') or []))} slides"
+                    )
                 except Exception as e:
                     logger.warning(f"⚠️ Could not merge with existing structure: {e}")
                     import uuid
                     structure['execution_id'] = str(uuid.uuid4())[:8]
                     structure['last_batch_index'] = batch_index
+                    zs = structure.get('slides') or []
+                    structure['batch_slide_spans'] = [{
+                        'batch_index': batch_index,
+                        'start_idx': 0,
+                        'end_idx': max(0, len(zs) - 1),
+                        'lessons_processed': int(structure.get('lessons_processed', 0)),
+                    }]
                 
                 # Save updated structure
                 s3_client.put_object(
@@ -1670,6 +1796,13 @@ def lambda_handler(event, context):
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
                 structure['last_batch_index'] = 0
                 structure['execution_id'] = execution_id
+                zs = structure.get('slides') or []
+                structure['batch_slide_spans'] = [{
+                    'batch_index': 0,
+                    'start_idx': 0,
+                    'end_idx': max(0, len(zs) - 1),
+                    'lessons_processed': int(structure.get('lessons_processed', 0)),
+                }]
                 logger.info(f"🆔 New execution started (complete batch 0): {execution_id}")
                 
                 s3_client.put_object(

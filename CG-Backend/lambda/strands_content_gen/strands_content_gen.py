@@ -372,12 +372,10 @@ Al finalizar esta lección, serás capaz de:  (or "By the end of this lesson, yo
 
 [Brief preview of how this connects to upcoming lessons]
 
-## Recursos Adicionales  (or "Additional Resources" if English)
+## Referencias Bibliográficas  (or "Bibliographic References" if English)
 
-- [Resource 1 with description + https link]
-- [Resource 2 with description + https link]
-
-(Do NOT add "Bibliografía", "Referencias Bibliográficas", "Bibliography", or "References" sections inside individual lessons — references are assembled once per chapter when the book is built.)
+- [Reference 1 with description + https link]
+- [Reference 2 with description + https link]
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -395,9 +393,9 @@ VISUAL ENRICHMENT (MANDATORY — THOR)
 - Prefer diagrams and structured visuals where concepts allow.
 
 ═══════════════════════════════════════════════════════════════════════════════
-RECURSOS ADICIONALES — LINK QUALITY (THOR)
+REFERENCIAS BIBLIOGRÁFICAS — LINK QUALITY (THOR)
 ═══════════════════════════════════════════════════════════════════════════════
-- Under "Recursos Adicionales" / "Additional Resources", every external link MUST use **https://** with a real, reachable destination (no example.com placeholders).
+- Under "Referencias Bibliográficas" / "Bibliographic References", every external link MUST use **https://** with a real, reachable destination (no example.com placeholders).
 - Format **each** resource as **one markdown link per bullet**, on a single line: `- [Descripción clara del recurso](https://dominio/ruta)` (do NOT put bare URLs on a separate line under the title).
 - Prefer official documentation, vendor docs, or primary sources; avoid aggregator pages when a primary URL exists.
 
@@ -418,11 +416,7 @@ CRITICAL FORMATTING RULES
 2. Introduction / Introducción (H2) - 2-3 paragraphs
 3. At least ONE topic section (H2) with subsections (H3); **for Spanish YAML courses, one H2 per topic listed for that lesson in the outline**, each titled to match the YAML topic title.
 4. Summary / Resumen (H2) with Key Takeaways / Puntos Clave (H3)
-5. Additional Resources / Recursos Adicionales (H2) — optional but recommended; use valid https links only.
-
-**REFERENCES (THOR — PER-CHAPTER ONLY):**
-- Do NOT include per-lesson "Bibliografía", "Referencias Bibliográficas", or "References" sections.
-- Formal bibliographic references are assembled once at the **end of each chapter** in the book pipeline, not in individual lesson markdown files.
+5. Bibliographic References / Referencias Bibliográficas (H2) — required; use valid https links only.
 
 **DO NOT INCLUDE Review Questions section - this will be handled separately.**
 

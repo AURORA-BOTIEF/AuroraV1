@@ -95,11 +95,11 @@ Al finalizar esta lección, serás capaz de:  <!-- Or "By the end of this lesson
 
 {Brief preview of how this connects to upcoming lessons}
 
-## Recursos Adicionales  <!-- Or "Additional Resources" -->
+## Referencias Bibliográficas  <!-- Or "Bibliographic References" -->
 
-- [{Resource 1 title}]({URL or reference})
-- [{Resource 2 title}]({URL or reference})
-- [{Resource 3 title}]({URL or reference})
+- [{Reference 1}]({URL or reference})
+- [{Reference 2}]({URL or reference})
+- [{Reference 3}]({URL or reference})
 ```
 
 **NOTE: Do NOT include a "Review Questions" section. Quizzes will be handled separately.**
@@ -122,7 +122,7 @@ Al finalizar esta lección, serás capaz de:  <!-- Or "By the end of this lesson
 | Summary | H2 | ✅ | `## Resumen` | `## Summary` |
 | Key Takeaways | H3 | ✅ | `### Puntos Clave` | `### Key Takeaways` |
 | What's Next | H3 | Recommended | `### Próximos Pasos` | `### What's Next` |
-| Additional Resources | H2 | Optional | `## Recursos Adicionales` | `## Additional Resources` |
+| Bibliographic References | H2 | ✅ | `## Referencias Bibliográficas` | `## Bibliographic References` |
 
 **⚠️ DO NOT include Review Questions section - quizzes are handled separately.**
 

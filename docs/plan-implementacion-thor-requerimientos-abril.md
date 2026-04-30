@@ -17,7 +17,9 @@ Seguimiento de la implementación en Aurora (`CG-Backend`) según el informe **T
 - [x] Resolución ampliada de imágenes (`s3://`, rutas relativas bajo `project_folder`, HTTPS-S3) (`html_to_ppt_converter.py`)
 - [x] Negritas sin `**` en texto PPT (`_normalize_ppt_plain_text`)
 - [x] Código: continuación sin texto literal `truncated` en slide (`html_first_generator.py`)
-- [ ] Eliminar por completo truncamiento por límites (sigue siendo posible con layouts restrictivos; revisar límites/`split` en otro ciclo)
+- [x] Eliminar truncamiento con puntos suspensivos en validación: `_partition_overflow_slides` parte bullets/código/tablas en slides de continuación; intro de lección por chunks en `create_lesson_title_slides` (`html_first_generator.py`)
+- [x] Markdown inline en HTML de slides (**negrita**, *cursiva*, escapes `\*`): `format_slide_inline_markup` (`html_first_generator.py`)
+- [x] Colores de código en slides alineados al libro (Pygments estilo Dark+ como `BookEditor.css`) (`html_first_generator.py`)
 - [x] Regla de español en generación de slides teóricos (`html_first_generator.py`)
 - [ ] **Tablas en PPT:** diseño menos básico (objetos tabla con estilo en `python-pptx`; hoy no hay pipeline dedicado en `html_to_ppt_converter.py`)
 - [x] Tipografías estándar (`PT_*`) en títulos de slide normales, capítulo y lección

@@ -503,16 +503,13 @@ _BIB_SECTION_HEADER = re.compile(
 
 
 def extract_and_strip_bibliography(content: str) -> tuple[str, list[str]]:
-    """Remove per-lesson bibliography sections (THOR: refs only at chapter end). Return stripped URLs."""
+    """Extract per-lesson bibliography URLs (but no longer strips the section)."""
     if not content:
         return '', []
 
     urls: list[str] = []
-    chunks: list[str] = []
-    last_idx = 0
 
     for m in _BIB_SECTION_HEADER.finditer(content):
-        chunks.append(content[last_idx:m.start()])
         rest = content[m.end():]
         nxt = re.search(r'^##\s+\S', rest, re.MULTILINE)
         block_len = nxt.start() if nxt else len(rest)
@@ -521,10 +518,8 @@ def extract_and_strip_bibliography(content: str) -> tuple[str, list[str]]:
             u = raw_u.rstrip('.,);')
             if u not in urls:
                 urls.append(u)
-        last_idx = m.end() + block_len
 
-    chunks.append(content[last_idx:])
-    return ''.join(chunks).strip(), urls
+    return content, urls
 
 
 _url_reach_cache: dict[str, bool] = {}
@@ -566,7 +561,7 @@ def sanitize_resources_links_in_resources(content: str, max_checks: int = 20) ->
         return content
 
     m = re.search(
-        r'(^##\s*Recursos\s+Adicionales\s*$|^##\s*Additional\s+Resources\s*$)',
+        r'(^##\s*Recursos\s+Adicionales\s*$|^##\s*Additional\s+Resources\s*$|^##\s*Referencias\s+Bibliográficas\s*$|^##\s*Bibliographic\s+References\s*$)',
         content,
         re.MULTILINE | re.IGNORECASE,
     )
@@ -1083,13 +1078,13 @@ def extract_module_key_topics(module_lessons: list, is_spanish: bool, max_items:
     """Extract key topic headings (H2/H3) from real module lesson content."""
     stop_words_es = {
         'objetivos de aprendizaje', 'introducción', 'resumen', 'puntos clave', 'próximos pasos',
-        'recursos adicionales', 'bibliografía', 'metadatos', 'validación y pruebas', 'solución de problemas',
+        'recursos adicionales', 'referencias bibliográficas', 'bibliografía', 'metadatos', 'validación y pruebas', 'solución de problemas',
         'visión general del concepto', 'detalles técnicos', 'aplicación práctica',
         'información general', 'temas principales del capítulo', 'lecciones incluidas',
     }
     stop_words_en = {
         'learning objectives', 'introduction', 'summary', 'key takeaways', "what's next",
-        'additional resources', 'bibliography', 'metadata', 'validation & testing', 'troubleshooting',
+        'additional resources', 'bibliographic references', 'bibliography', 'metadata', 'validation & testing', 'troubleshooting',
         'concept overview', 'technical details', 'practical application',
         'general information', 'main chapter topics', 'included lessons',
     }
