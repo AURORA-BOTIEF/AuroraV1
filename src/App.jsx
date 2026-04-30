@@ -1,208 +1,580 @@
-// src/App.jsx (CÓDIGO FINAL Y UNIFICADO)
+// src/App.jsx (CORREGIDO Y FUNCIONAL)
+import React, { useEffect, useState, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
+import { fetchAuthSession, signOut, signInWithRedirect } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
+import './App.css';
+import './amplify';
+import { Toaster } from 'react-hot-toast';
+import { ensureOnboardingOnce } from "./utils/ensureOnboardingOnce";
 
-import { useEffect, useMemo, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { jwtDecode } from 'jwt-decode';
-import { Auth } from 'aws-amplify'; // Aún se usa para el refresco de atributos
 
-// Componentes
-import Sidebar from './components/Sidebar';
-import ChatModal from './components/ChatModal';
-import ProfileModal from './components/ProfileModal';
-import Home from './components/Home';
-import ActividadesPage from './components/ActividadesPage';
-import ResumenesPage from './components/ResumenesPage';
-import ExamenesPage from './components/ExamenesPage';
-import AdminPage from './components/AdminPage';
-import GeneradorContenidosPage from './components/GeneradorContenidosPage';
-import GeneradorTemarios from './components/GeneradorTemarios'; // <-- IMPORTA EL NUEVO COMPONENTE
+// === EDITORES ===
+import EditorDeTemario_seminario from './components/EditorDeTemario_seminario.jsx';
+import EditorTemarioPage from "./components/EditorTemarioPage.jsx";
+import EditorDeTemario_Practico from './components/EditorDeTemario_Practico.jsx';
+import EditorDeTemario_KNTR from "./components/EditorDeTemario_KNTR.jsx";
+import PlantillaTemario from "./components/PlantillaTemario.jsx";
 
-// Estilos y Assets
-import './index.css';
-import logo from './assets/Netec.png';
-import previewImg from './assets/Preview.png';
-import chileFlag from './assets/chile.png';
-import peruFlag from './assets/peru.png';
-import colombiaFlag from './assets/colombia.png';
-import mexicoFlag from './assets/mexico.png';
-import espanaFlag from './assets/espana.png';
+// === IMÁGENES ===
+import logoImg from './assets/Netec.png';
+import previewImgSrc from './assets/Preview.png';
+import chileFlagImg from './assets/chile.png';
+import peruFlagImg from './assets/peru.png';
+import colombiaFlagImg from './assets/colombia.png';
+import mexicoFlagImg from './assets/mexico.png';
+import espanaFlagImg from './assets/espana.png';
 
-const ADMIN_EMAIL = 'anette.flores@netec.com.mx';
+// === COMPONENTES PRINCIPALES ===
+import Sidebar from './components/Sidebar.jsx';
+import ProfileModal from './components/ProfileModal.jsx';
+import ChatModal from './components/ChatModal.jsx';
+import Home from './components/Home.jsx';
+import ActividadesPage from './components/ActividadesPage.jsx';
+import ResumenesPage from './components/ResumenesPage.jsx';
+import ExamenesPage from './components/ExamenesPage.jsx';
+import AdminPage from './components/AdminPage.jsx';
+import AdminRoute from './routes/AdminRoute';
 
-const normalizarRol = (raw) => {
-  if (!raw) return '';
-  const parts = String(raw).toLowerCase().split(/[,\s]+/).filter(Boolean);
-  // Priorizar admin sobre otros roles
-  if (parts.includes('admin')) return 'admin';
-  if (parts.includes('creador')) return 'creador';
-  if (parts.includes('participant')) return 'participant';
-  return parts[0] || '';
+// === GENERADOR DE CONTENIDOS ===
+import GeneradorContenidosPage from './components/GeneradorContenidosPage.jsx';
+import GeneradorContenido from './components/GeneradorContenido.jsx';
+import GeneradorTemarios from './components/GeneradorTemarios.jsx';
+import GeneradorTemarios_KNTR from './components/GeneradorTemarios_KNTR.jsx';
+import GeneradorTemarios_Seminarios from './components/GeneradorTemarios_Seminarios.jsx';
+import GeneradorCursos from './components/GeneradorCursos.jsx';
+import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
+
+import BookBuilderPage from './components/BookBuilderPage.jsx';
+import BookEditorPage from './components/BookEditorPage.jsx';
+
+import FAQ from "./components/FAQ.jsx";
+import PresentacionesPage from './components/PresentacionesPage.jsx';
+import InfographicViewer from './components/InfographicViewer.jsx';
+import InfographicEditor from './components/InfographicEditor.jsx';
+import AsignadorPortal from './components/AsignadorPortal.jsx';
+import EstudiantesPortal from './components/EstudiantesPortal.jsx';
+import InstructoresExternosPortal from './components/InstructoresExternosPortal.jsx';
+
+
+
+// ==================================================================
+// ========================== EDITORES ==============================
+// ==================================================================
+
+function EditorSeminarioPage() {
+  const { cursoId, versionId } = useParams();
+
+  const onSave = async (contenido, nota) => {
+    const token = sessionStorage.getItem("access_token");
+    const res = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-seminario",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota || `Guardado el ${new Date().toISOString()}`,
+          nombre_curso: contenido?.nombre_curso || "Sin título",
+          tecnologia: contenido?.tecnologia || "",
+          asesor_comercial: contenido?.asesor_comercial || "",
+          nombre_preventa: contenido?.nombre_preventa || "",
+          enfoque: contenido?.enfoque || "General",
+          fecha_creacion: new Date().toISOString(),
+        }),
+      }
+    );
+    if (!res.ok) throw new Error((await res.json()).error || "Error al guardar versión");
+  };
+
+  return <EditorDeTemario_seminario temarioInicial={null} onSave={onSave} isLoading={false} />;
+}
+
+// === PRÁCTICO ===
+function EditorPracticoPage() {
+  const { cursoId, versionId } = useParams();
+  const [temarioInicial, setTemarioInicial] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = sessionStorage.getItem("access_token");
+        const res = await fetch(
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico/get",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ cursoId, versionId }),
+          }
+        );
+
+        const json = await res.json();
+        const item = json.data || json;
+        setTemarioInicial(item.contenido ?? item);
+      } catch (e) {
+        console.error("Error cargando versión práctica:", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVersion();
+  }, [cursoId, versionId]);
+
+  const onSave = async (contenido, nota) => {
+    const token = sessionStorage.getItem("access_token");
+    const res = await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-practico",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota || `Guardado el ${new Date().toISOString()}`,
+          nombre_curso: contenido?.nombre_curso,
+        }),
+      }
+    );
+    if (!res.ok) throw new Error("Error al guardar versión práctica");
+  };
+
+  return (
+    <EditorDeTemario_Practico
+      temarioInicial={temarioInicial}
+      onSave={onSave}
+      isLoading={isLoading}
+    />
+  );
+}
+
+// === KNTR ===
+function EditorKNTRPage() {
+  const { cursoId, versionId } = useParams();
+  const [temarioInicial, setTemarioInicial] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = sessionStorage.getItem("access_token");
+        const res = await fetch(
+          "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR/get",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ cursoId, versionId }),
+          }
+        );
+
+        const json = await res.json();
+        const item = json.data || json;
+        setTemarioInicial(item.contenido ?? item);
+      } catch (e) {
+        console.error("Error cargando versión KNTR:", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVersion();
+  }, [cursoId, versionId]);
+
+  const onSave = async (contenido, nota) => {
+    const token = sessionStorage.getItem("access_token");
+    await fetch(
+      "https://eim01evqg7.execute-api.us-east-1.amazonaws.com/versiones/versiones-KNTR",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cursoId,
+          contenido,
+          nota_version: nota,
+        }),
+      }
+    );
+  };
+
+  return (
+    <EditorDeTemario_KNTR
+      temarioInicial={temarioInicial}
+      onSave={onSave}
+      isLoading={isLoading}
+    />
+  );
+}
+
+// ==================================================================
+// ========================= LAYOUT =================================
+// ==================================================================
+
+const Layout = ({ children, email, role }) => {
+  const location = useLocation();
+  const isBookEditor = location.pathname.startsWith('/book-editor');
+  const isPresentationViewer = location.pathname.startsWith('/presentaciones/viewer/');
+  const isInfographicEditor = location.pathname.startsWith('/presentaciones/editor/');
+
+  const isFullScreenMode = isBookEditor || isPresentationViewer || isInfographicEditor;
+
+  return (
+    <div id="contenidoPrincipal" style={isFullScreenMode ? { paddingLeft: 0 } : {}}>
+      {!isFullScreenMode && <Sidebar email={email} grupo={role} />}
+      <ProfileModal />
+      {!isBookEditor && <ChatModal />}
+
+      <main className="main-content-area" style={isFullScreenMode ? { marginLeft: 0, width: '100%' } : {}}>
+        {children}
+      </main>
+
+      {!isFullScreenMode && (
+        <button
+          id="logout"
+          onClick={async () => {
+            try {
+              try { sessionStorage.clear(); } catch (e) { }
+              try { bcRef.current?.postMessage('signedOut'); } catch (e) { }
+              await signOut({ global: true });
+              window.location.href = "/";
+            } catch (err) {
+              console.error("Logout error:", err);
+              window.location.href = "/";
+            }
+          }}
+        >
+          Cerrar sesión
+        </button>
+      )}
+    </div>
+  );
 };
 
-function App() {
-  const [token, setToken] = useState(localStorage.getItem('id_token') || '');
-  const [email, setEmail] = useState('');
-  const [rol, setRol] = useState('');
 
-  // --- LÓGICA DE AUTENTICACIÓN MANUAL (DE TU CÓDIGO PREFERIDO) ---
-  const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID;
-  const domain = import.meta.env.VITE_COGNITO_DOMAIN;
-  const redirectUri = import.meta.env.VITE_REDIRECT_URI;
-  const loginUrl = useMemo(() => {
-    if (!domain || !clientId || !redirectUri) return '';
-    const u = new URL(`${domain}/login`);
-    u.searchParams.append('response_type', 'token');
-    u.searchParams.append('client_id', clientId);
-    u.searchParams.append('redirect_uri', redirectUri);
-    return u.toString();
-  }, [clientId, domain, redirectUri]);
-  
-  const handleLogout = () => {
-    localStorage.removeItem('id_token');
-    const u = new URL(`${domain}/logout`);
-    u.searchParams.append('client_id', clientId);
-    u.searchParams.append('logout_uri', redirectUri);
-    window.location.href = u.toString();
-  };
-  
-  // Captura de token, decodificación y refresco de atributos
+// ==================================================================
+// ============================== APP ================================
+// ==================================================================
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
+  const [loginError, setLoginError] = useState(null);
+  const bcRef = useRef(null);
+
+  // ======== Autenticación Amplify ========
   useEffect(() => {
-    const { hash } = window.location;
-    if (hash.includes('id_token=')) {
-      const newToken = new URLSearchParams(hash.slice(1)).get('id_token');
-      if (newToken) {
-        localStorage.setItem('id_token', newToken);
-        setToken(newToken);
+    bcRef.current = new BroadcastChannel('auth');
+    const onMessage = (ev) => {
+      if (ev.data === 'signedOut') {
+        setUser(null);
+        setLoading(false);
       }
-      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-    }
+      if (ev.data === 'signedIn') {
+        checkAuthSession();
+      }
+    };
+    bcRef.current.onmessage = onMessage;
+
+    const hubListener = Hub.listen('auth', ({ payload, source }) => {
+      if (source !== 'auth') return;
+      if (payload.event === 'signedOut') {
+        bcRef.current?.postMessage('signedOut');
+        setUser(null);
+        setLoading(false);
+      }
+      if (payload.event === 'signedIn' || payload.event === 'tokenRefresh') {
+        checkAuthSession();
+      }
+    });
+
+    // primer chequeo
+    checkAuthSession();
+
+    return () => {
+      try { hubListener(); } catch (e) { }
+      try { bcRef.current?.close(); } catch (e) { }
+    };
   }, []);
 
-  useEffect(() => {
-    if (!token) {
-      setEmail('');
-      setRol('');
-      return;
-    };
-    try {
-      const decoded = jwtDecode(token);
-      const decodedEmail = decoded?.email || '';
-      setEmail(decodedEmail);
-      
-      // Forzar rol admin para Anette independientemente del token
-      if (decodedEmail === ADMIN_EMAIL) {
-        setRol('admin');
-      } else {
-        setRol(normalizarRol(decoded?.['custom:rol']));
-      }
-    } catch (err) {
-      console.error('❌ Error al decodificar token:', err);
-      // Si el token es inválido, limpiamos la sesión
-      localStorage.removeItem('id_token');
-      setToken('');
-      setEmail('');
-      setRol('');
-    }
-  }, [token]);
 
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    const refreshFromCognito = () => {
-      Auth.currentAuthenticatedUser({ bypassCache: true })
-        .then(u => {
-          if (cancelled) return;
-          const freshRol = normalizarRol(u?.attributes?.['custom:rol'] || '');
-          const freshEmail = u?.attributes?.email || '';
-          if (freshEmail && freshEmail !== email) setEmail(freshEmail);
-          
-          // Forzar rol admin para Anette
-          if (freshEmail === ADMIN_EMAIL) {
-            setRol('admin');
-          } else if (freshRol && freshRol !== rol) {
-            setRol(freshRol);
-          }
-        })
-        .catch(err => {
-          console.log('No se pudo refrescar atributos de Cognito', err?.message || err);
+  const checkAuthSession = () => {
+    fetchAuthSession()
+      .then((session) => {
+        const idToken = session.tokens?.idToken;
+        const accessToken = session.tokens?.accessToken;
+
+        if (!idToken || !accessToken) throw new Error("No tokens available");
+
+        const attributes = idToken.payload;
+        // Para la lógica/gestión de usuarios preferimos los grupos del idToken
+        const groups =
+          (idToken.payload && idToken.payload["cognito:groups"]) ||
+          (accessToken.payload && accessToken.payload["cognito:groups"]) ||
+          [];
+
+        // Guardar tokens correctos en sessionStorage
+        sessionStorage.setItem("id_token", idToken.jwtToken);
+        sessionStorage.setItem("access_token", accessToken.jwtToken);
+
+        // DEBUG: revisar en consola los claims para validar dónde están los grupos
+        console.debug("checkAuthSession -> tokens payloads:", {
+          idTokenPayload: idToken.payload,
+          accessTokenPayload: accessToken.payload,
+          resolvedGroups: groups,
         });
-    };
-    refreshFromCognito();
-    const iv = setInterval(refreshFromCognito, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
-  }, [token, email, rol]);
 
-  useEffect(() => {
-    if (email === ADMIN_EMAIL) setRol('admin');
-  }, [email]);
+        // DEBUG: solo mostrar grupos en desarrollo
+        if (import.meta.env.DEV) {
+          try {
+            const groupsForDebug =
+              (accessToken?.payload && accessToken.payload["cognito:groups"]) ||
+              (idToken?.payload && idToken.payload["cognito:groups"]) ||
+              [];
+            console.debug("Grupos Cognito (DEV):", groupsForDebug);
+          } catch (e) {
+            // no bloquear producción si algo falla
+          }
+        }
 
-  const adminAllowed = email === ADMIN_EMAIL;
-  // --- FIN DE LA LÓGICA DE AUTENTICACIÓN ---
+        setUser({ attributes, groups });
+        setLoading(false);
+
+        // 👇 Ejecutar onboarding UNA sola vez por usuario
+        ensureOnboardingOnce().catch((err) => {
+          console.error("Onboarding error:", err);
+        });
+      })
+      .catch((err) => {
+        // Caso típico: usuario aún no ha iniciado sesión
+        if (err?.message === 'No tokens available') {
+          console.log('No hay sesión activa todavía, mostrando pantalla de login.');
+        } else {
+          console.warn('checkAuthSession error:', err);
+          try { sessionStorage.clear(); } catch (e) { }
+        }
+
+        if (err?.message?.includes('UserNotConfirmedException')) {
+          window.location.href = `https://${import.meta.env.VITE_COGNITO_DOMAIN}/signup`;
+          return;
+        }
+
+        setUser(null);
+        setLoading(false);
+      });
+
+  };
+
+  const email = user?.attributes?.email || '';
+  // raw groups from Cognito (may be undefined)
+  const rawGroups = user?.groups || [];
+
+  // normalizar nombres de grupo para comparaciones robustas
+  const groups = Array.isArray(rawGroups) ? rawGroups.map(g => String(g || '').toLowerCase().trim()) : [];
+
+  // rol derivado (prioridad: admin > creador > asignador > instructor_externo > participante > estudiante)
+  const rol =
+    groups.includes('administrador') || groups.includes('admin') ? 'admin' :
+      groups.includes('creador') ? 'creador' :
+        groups.includes('asignadores') || groups.includes('asignador') ? 'asignador' :
+          groups.includes('instructores_externos') || groups.includes('instructor_externo') ? 'instructor_externo' :
+            groups.includes('participante') ? 'participant' :
+              groups.includes('estudiantes') || groups.includes('estudiante') ? 'estudiante' :
+                'usuario';
+
+  const groupNameForRole = {
+    admin: "Administrador",
+    creador: "Creador",
+    participant: "Participante",
+    asignador: "Asignadores",
+    estudiante: "Estudiantes",
+    instructor_externo: "Instructores_Externos",
+  };
+
+  const ProtectedRoute = ({ children, allowedRoles = [] }) => {
+    if (!user) return <Navigate to="/" replace />;
+
+    if (allowedRoles.length === 0) return children;
+
+    // permiso por rol derivado
+    if (allowedRoles.includes(rol)) return children;
+
+    // comprobar grupos Cognito normalizados
+    const userGroupsNormalized = (user?.groups || []).map(g => String(g || '').toLowerCase().trim());
+
+    const allowedGroupNamesNormalized = allowedRoles
+      .map(r => (groupNameForRole[r] || r))
+      .filter(Boolean)
+      .map(g => String(g).toLowerCase().trim());
+
+    const hasGroup = allowedGroupNamesNormalized.some(g => userGroupsNormalized.includes(g));
+    if (hasGroup) return children;
+
+    return <Navigate to="/" replace />;
+  };
+
+  // apiFetch: wrapper simple para añadir Authorization y detectar 401
+  const apiFetch = async (url, opts = {}) => {
+    const token = sessionStorage.getItem('access_token');
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(url, { ...opts, headers });
+    if (res.status === 401) {
+      try { sessionStorage.clear(); } catch (e) { }
+      setUser(null);
+      window.location.href = '/';
+      throw new Error('Unauthorized');
+    }
+    return res;
+  };
+
+  if (loading) return <div>Cargando...</div>;
+
+  // ==================================================================
+  // ========================= RUTAS CORREGIDAS ========================
+  // ==================================================================
 
   return (
     <>
-      {!token ? (
-        // --- Pantalla de acceso ---
+      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+      {!user ? (
+        // ========== PANTALLA INICIAL (NO AUTENTICADO) ==========
         <div id="paginaInicio">
           <div className="header-bar">
-            <img className="logo-left" src={logo} alt="Logo Netec" />
+            <img className="logo-left" src={logoImg} alt="Logo Netec" />
           </div>
+
           <div className="main-content">
             <div className="page-container">
               <div className="illustration-centered">
-                <img src={previewImg} alt="Ilustración" className="preview-image" />
+                <img src={previewImgSrc} alt="Ilustración" className="preview-image" />
               </div>
-              <button className="login-button" onClick={() => { if(loginUrl) window.location.href = loginUrl }}>
-                🚀 Comenzar Ahora
+
+              <button
+                className="login-button"
+                onClick={async () => {
+                  try {
+                    setSigningIn(true);
+                    setLoginError(null);
+                    await signInWithRedirect(); // Hosted UI + PKCE correcto
+                  } catch (err) {
+                    console.error("Error al iniciar sesión:", err);
+                    setSigningIn(false);
+                    setLoginError("No se pudo iniciar sesión. Intenta nuevamente.");
+                  }
+                }}
+                disabled={signingIn}
+              >
+                {signingIn ? "Iniciando…" : "🚀 Comenzar Ahora"}
               </button>
+
+              {loginError && <div className="login-error-banner">{loginError}</div>}
+
               <div className="country-flags">
-                {[
-                  { flag: chileFlag, label: 'Chile', url: 'https://www.netec.com/cursos-ti-chile' },
-                  { flag: peruFlag, label: 'Perú', url: 'https://www.netec.com/cursos-ti-peru' },
-                  { flag: colombiaFlag, label: 'Colombia', url: 'https://www.netec.com/cursos-ti-colombia' },
-                  { flag: mexicoFlag, label: 'México', url: 'https://www.netec.com/cursos-ti-mexico' },
-                  { flag: espanaFlag, label: 'España', url: 'https://www.netec.es/' }
-                ].map(({ flag, label, url }) => (
-                  <a key={label} href={url} target="_blank" rel="noopener noreferrer" className="flag-item">
-                    <img src={flag} alt={label} className="flag-image" />
-                    <div className="flag-label">{label}</div>
-                  </a>
-                ))}
+                <a href="https://www.netec.com/cursos-ti-chile" target="_blank">
+                  <img src={chileFlagImg} alt="Chile" />
+                </a>
+                <a href="https://www.netec.com/cursos-ti-peru" target="_blank">
+                  <img src={peruFlagImg} alt="Perú" />
+                </a>
+                <a href="https://www.netec.com/cursos-ti-colombia" target="_blank">
+                  <img src={colombiaFlagImg} alt="Colombia" />
+                </a>
+                <a href="https://www.netec.com/cursos-ti-mexico" target="_blank">
+                  <img src={mexicoFlagImg} alt="México" />
+                </a>
+                <a href="https://www.netec.es/" target="_blank">
+                  <img src={espanaFlagImg} alt="España" />
+                </a>
               </div>
             </div>
           </div>
         </div>
       ) : (
-        // --- App privada ---
+        // ========== APLICACIÓN PRINCIPAL (AUTENTICADO) ==========
         <Router>
-          <div id="contenidoPrincipal">
-            <Sidebar email={email} grupo={rol} token={token} />
-            <ProfileModal token={token} />
-            <ChatModal token={token} />
+          <Layout email={email} role={rol}>
+            <Routes>
+              {/* rutas públicas para usuarios autenticados */}
+              <Route path="/" element={<Home />} />
+              <Route path="/resumenes" element={<ResumenesPage />} />
+              <Route path="/actividades" element={<ActividadesPage />} />
+              <Route path="/examenes" element={<ExamenesPage />} />
 
-            <main className="main-content-area">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/actividades" element={<ActividadesPage token={token} />} />
-                <Route path="/resumenes" element={<ResumenesPage />} />
-                <Route path="/examenes" element={<ExamenesPage token={token}/>} />
-                <Route path="/admin" element={adminAllowed ? <AdminPage /> : <Navigate to="/" replace />} />
-                
-                {/* --- INICIO DE LA CORRECCIÓN --- */}
-                <Route path="/generador-contenidos" element={<GeneradorContenidosPage />}>
-                  {/* Esta ruta ahora está anidada y se renderizará en el <Outlet> */}
-                  <Route path="curso-estandar" element={<GeneradorTemarios />} />
-                </Route>
-                {/* --- FIN DE LA CORRECCIÓN --- */}
-                
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </main>
-            <button id="logout" onClick={handleLogout}>Cerrar sesión</button>
-          </div>
+              {/* ADMIN */}
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <AdminPage />
+                  </AdminRoute>
+                }
+              />
+
+              {/* GENERADOR DE CONTENIDOS -> admin/creador */}
+              <Route
+                path="/generador-contenidos"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'creador']}>
+                    <GeneradorContenidosPage />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="curso-estandar" element={<GeneradorTemarios />} />
+                <Route path="curso-KNTR" element={<GeneradorTemarios_KNTR />} />
+                <Route path="Temario-seminarios" element={<GeneradorTemarios_Seminarios />} />
+                <Route path="generador-cursos" element={<GeneradorCursos />} />
+                <Route path="book-builder" element={<BookBuilderPage />} />
+                <Route path="generador-contenido" element={<GeneradorContenido />} />
+                <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
+                <Route path="faq" element={<FAQ />} />
+                <Route path="plantilla-temario" element={<PlantillaTemario />} />
+              </Route>
+
+              {/* PRESENTACIONES -> accesible a todos autenticados */}
+              <Route path="/presentaciones" element={<ProtectedRoute><PresentacionesPage /></ProtectedRoute>} />
+              <Route path="/presentaciones/viewer/:folder" element={<ProtectedRoute><InfographicViewer /></ProtectedRoute>} />
+              <Route path="/presentaciones/editor/:folder" element={<ProtectedRoute allowedRoles={['admin', 'creador', 'instructor_externo']}><InfographicEditor /></ProtectedRoute>} />
+
+              {/* EDITORES EXTERNOS -> admin/creador */}
+              <Route path="/editor-seminario/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorSeminarioPage /></ProtectedRoute>} />
+              <Route path="/editor-temario/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorTemarioPage /></ProtectedRoute>} />
+              <Route path="/editor-practico/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorPracticoPage /></ProtectedRoute>} />
+              <Route path="/editor-KNTR/:cursoId/:versionId" element={<ProtectedRoute allowedRoles={['admin', 'creador']}><EditorKNTRPage /></ProtectedRoute>} />
+
+              {/* BOOK EDITOR -> creador/admin/estudiante/instructor_externo */}
+              <Route path="/book-editor/:projectFolder" element={<ProtectedRoute allowedRoles={['admin', 'creador', 'estudiante', 'instructor_externo']}><BookEditorPage /></ProtectedRoute>} />
+
+              {/* ASIGNADOR PORTAL -> asignadores */}
+              <Route path="/asignador" element={<ProtectedRoute allowedRoles={['admin', 'asignador']}><AsignadorPortal /></ProtectedRoute>} />
+
+              {/* ESTUDIANTES PORTAL -> estudiantes */}
+              <Route path="/mis-cursos" element={<ProtectedRoute allowedRoles={['estudiante']}><EstudiantesPortal /></ProtectedRoute>} />
+
+              {/* INSTRUCTORES EXTERNOS PORTAL -> instructor_externo */}
+              <Route path="/portal-instructor" element={<ProtectedRoute allowedRoles={['admin', 'instructor_externo']}><InstructoresExternosPortal /></ProtectedRoute>} />
+
+              {/* FALLBACK */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Layout>
         </Router>
       )}
     </>

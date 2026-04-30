@@ -1,0 +1,7 @@
+{
+  "apiBaseUrl": "https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod",
+  "presignEndpoint": "https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod/presign",
+  "startJobEndpoint": "https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod/start-job",
+  "execStatusEndpoint": "https://z7z5albge3.execute-api.us-east-1.amazonaws.com/Prod/exec-status",
+  "stateMachineArn": "arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine"
+}
