@@ -8,7 +8,7 @@ import io
 import logging
 import re
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -40,13 +40,16 @@ COLORS = {
 PT_LESSON_TITLE = 54
 PT_CONTENT_SLIDE_TITLE = 40
 PT_LAB_INTRO_TITLE = 50
+PT_MODULE_CHAPTER_NAME = 30  # module-title-slide — nombre del capítulo (debajo del label)
 PT_CHAPTER_SUMMARY_TITLE = 40
 
 FONTS = {
     'title': 'Neue Haas Grotesk Text Pro',
-    'body': 'Neue Haas Grotesk Text Pro', 
+    'body': 'Neue Haas Grotesk Text Pro',
     'code': 'Consolas',
 }
+# Windows/PowerPoint default body — metrics closer to browser than missing corporate fonts in Lambda
+FONT_PPT_BODY_SAFE = 'Calibri'
 
 # Slide dimensions (16:9)
 SLIDE_WIDTH = Inches(13.333)
@@ -1202,7 +1205,6 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     fill.fore_color.rgb = COLORS['white']
 
     # Dashed title box (top area — taller, pushed down)
-    from pptx.oxml.ns import qn
     title_box_shape = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.5), Inches(12.1), Inches(2.3)
     )
@@ -1240,105 +1242,97 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     div.fill.fore_color.rgb = RGBColor(199, 199, 199)
     div.line.fill.background()
 
-    # Objective + instructions regions (parsed from HTML)
-    y_cur = Inches(3.35)
     obj_reg = slide_html.find(class_='lab-intro-region-objective')
     ins_reg = slide_html.find(class_='lab-intro-region-instructions')
 
-    def _emit_region(region_elem, y_start):
+    # Objective + instructions: one text frame (matches HTML .lab-intro-stack); avoids overlap from stacked boxes
+    stack_top = Inches(3.18)
+    stack_height = Inches(3.12)
+    stack_left = Inches(0.55)
+    stack_width = Inches(12.15)
+    lab_body_font = FONT_PPT_BODY_SAFE
+    lab_body_pt = Pt(15)
+    lab_heading_pt = Pt(17)
+
+    main_tb = slide.shapes.add_textbox(stack_left, stack_top, stack_width, stack_height)
+    tf = main_tb.text_frame
+    tf.word_wrap = True
+    tf.clear()
+
+    para_idx = 0
+
+    def _next_paragraph():
+        nonlocal para_idx
+        if para_idx == 0:
+            para_idx += 1
+            return tf.paragraphs[0]
+        para_idx += 1
+        return tf.add_paragraph()
+
+    def _emit_region(region_elem):
         if not region_elem:
-            return y_start
+            return
         he = region_elem.find(class_='lab-intro-section-heading')
         be = region_elem.find(class_='lab-intro-section-body')
-        heading_text = he.get_text(strip=True) if he else ''
-        if heading_text:
-            h_box = slide.shapes.add_textbox(Inches(0.6), y_start, Inches(11.5), Inches(0.45))
-            hp = h_box.text_frame.paragraphs[0]
-            hp.text = heading_text
-            hp.font.size = Pt(18)
+        if he and he.get_text(strip=True):
+            hp = _next_paragraph()
+            hp.text = he.get_text(strip=True)
+            hp.font.size = lab_heading_pt
             hp.font.bold = True
             hp.font.name = FONTS['title']
             hp.font.color.rgb = RGBColor(34, 34, 34)
-            y_start += Inches(0.48)
+            hp.space_after = Pt(4)
         if not be:
-            return y_start
-        body_box = slide.shapes.add_textbox(Inches(0.75), y_start, Inches(11.0), Inches(2.35))
-        tf = body_box.text_frame
-        tf.word_wrap = True
-        tf.clear()
+            return
         paras = be.find_all('p', class_='lab-intro-plant-line')
         if paras:
-            first_para = True
             for p_elem in paras:
-                line_txt = ''
-                link = p_elem.find('a', href=True)
-                if link and link.get('href'):
-                    line_txt = link.get('href').strip()
-                else:
-                    line_txt = p_elem.get_text(strip=True)
-                if not line_txt:
-                    continue
-                para = tf.paragraphs[0] if first_para else tf.add_paragraph()
-                first_para = False
-                para.text = line_txt
-                para.font.size = Pt(16)
-                para.font.name = FONTS['body']
-                para.font.color.rgb = RGBColor(51, 51, 51)
-                para.space_after = Pt(6)
-            y_start += Inches(2.15)
+                bp = _next_paragraph()
+                bp.space_after = Pt(5)
+                _append_runs_from_html_inline(
+                    bp, p_elem, font_pt=lab_body_pt, font_name=lab_body_font, default_color=RGBColor(51, 51, 51)
+                )
         else:
-            obj_text = be.get_text(separator='\n', strip=True)
-            import re as _re
-            obj_text = _re.sub(r'^\[\s*\]\s*', '', obj_text)
-            op = tf.paragraphs[0]
-            op.text = obj_text
-            op.font.size = Pt(16)
-            op.font.name = FONTS['body']
-            op.font.color.rgb = RGBColor(51, 51, 51)
-            y_start += Inches(1.85)
-        return y_start
+            bp = _next_paragraph()
+            bp.space_after = Pt(5)
+            _append_runs_from_html_inline(
+                bp, be, font_pt=lab_body_pt, font_name=lab_body_font, default_color=RGBColor(51, 51, 51)
+            )
 
-    if obj_reg or ins_reg:
-        y_cur = _emit_region(obj_reg, y_cur)
-        y_cur = _emit_region(ins_reg, y_cur)
+    if obj_reg:
+        _emit_region(obj_reg)
+    if ins_reg:
+        if obj_reg:
+            gap_p = _next_paragraph()
+            gap_p.text = ""
+            gap_p.space_before = Pt(14)
+            gap_p.space_after = Pt(4)
+        _emit_region(ins_reg)
     else:
-        # Backward compat: legacy HTML without region wrappers
-        obj_elem = slide_html.find(class_='lab-intro-section-body')
         heading_elem = slide_html.find(class_='lab-intro-section-heading')
+        obj_elem = slide_html.find(class_='lab-intro-section-body')
         if not obj_elem:
             obj_elem = slide_html.find(class_='lab-intro-objective')
         if not obj_elem:
-            for li in slide_html.find_all('li'):
-                li_text = li.get_text(strip=True).lower()
+            for cand in slide_html.find_all('li'):
+                li_text = cand.get_text(strip=True).lower()
                 if not li_text.startswith('tiempo') and len(li_text) > 20:
-                    obj_elem = li
+                    obj_elem = cand
                     break
-        heading_text = heading_elem.get_text(strip=True) if heading_elem else 'Objetivo:'
-        h_box = slide.shapes.add_textbox(Inches(0.6), y_cur, Inches(8.0), Inches(0.5))
-        hp = h_box.text_frame.paragraphs[0]
-        hp.text = heading_text
-        hp.font.size = Pt(18)
-        hp.font.bold = True
-        hp.font.name = FONTS['title']
-        hp.font.color.rgb = RGBColor(34, 34, 34)
+        if heading_elem and heading_elem.get_text(strip=True):
+            hp = _next_paragraph()
+            hp.text = heading_elem.get_text(strip=True)
+            hp.font.size = lab_heading_pt
+            hp.font.bold = True
+            hp.font.name = FONTS['title']
+            hp.font.color.rgb = RGBColor(34, 34, 34)
+            hp.space_after = Pt(4)
         if obj_elem:
-            obj_text = obj_elem.get_text(strip=True)
-            import re as _re
-            obj_text = _re.sub(r'^\[\s*\]\s*', '', obj_text)
-            obj_box = slide.shapes.add_textbox(Inches(0.8), Inches(4.0), Inches(8.0), Inches(2.0))
-            otf = obj_box.text_frame
-            otf.word_wrap = True
-            op = otf.paragraphs[0]
-            op.text = obj_text
-            op.font.size = Pt(16)
-            op.font.name = FONTS['body']
-            op.font.color.rgb = RGBColor(51, 51, 51)
-            border_line = slide.shapes.add_shape(
-                MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(4.0), Inches(0.04), Inches(0.6)
+            bp = _next_paragraph()
+            bp.space_after = Pt(5)
+            _append_runs_from_html_inline(
+                bp, obj_elem, font_pt=lab_body_pt, font_name=lab_body_font, default_color=RGBColor(51, 51, 51)
             )
-            border_line.fill.solid()
-            border_line.fill.fore_color.rgb = RGBColor(199, 199, 199)
-            border_line.line.fill.background()
 
     # Clock image + duration (bottom-right)
     asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Reloj.png')
@@ -1678,7 +1672,7 @@ def create_module_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
         tf.vertical_anchor = MSO_ANCHOR.TOP
         p = tf.paragraphs[0]
         p.text = chapter_name
-        p.font.size = Pt(26)
+        p.font.size = Pt(PT_MODULE_CHAPTER_NAME)
         p.font.bold = True
         p.font.name = FONTS['title']
         p.font.color.rgb = COLORS['primary']  # Corporate blue
@@ -1937,7 +1931,12 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     table_elem = content_elem.find('table', class_='slide-table')
     
     current_top = content_top_pos
-    
+
+    content_classes = content_elem.get('class') or []
+    if isinstance(content_classes, str):
+        content_classes = [content_classes]
+    is_bibliography = 'bibliography-slide' in content_classes
+
     if heading_elem:
         current_top = add_content_heading(slide, heading_elem, current_top, bullet_left, bullet_width)
 
@@ -1945,7 +1944,9 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
         current_top = add_table_block(slide, table_elem, current_top, bullet_left, bullet_width)
 
     if bullets_elem:
-        current_top = add_bullets(slide, bullets_elem, current_top, bullet_left, bullet_width)
+        current_top = add_bullets(
+            slide, bullets_elem, current_top, bullet_left, bullet_width, is_bibliography=is_bibliography
+        )
     
     if code_elem:
         add_code_block(slide, code_elem, current_top)
@@ -2156,54 +2157,155 @@ def add_header_bar(slide, title_text, subtitle_text=""):
 
 
 
-def add_bullets(slide, bullets_elem, top, left=None, width=None):
-    """Add bullet list with styled markers."""
+def _append_runs_from_html_inline(paragraph, element, *, font_pt, font_name, default_color):
+    """Append text/hyperlink/code/bold/italic runs from a BeautifulSoup subtree onto paragraph."""
+    if element is None:
+        return
+    for child in element.children:
+        if isinstance(child, NavigableString):
+            s = str(child)
+            if s:
+                r = paragraph.add_run()
+                r.text = s
+                r.font.size = font_pt
+                r.font.name = font_name
+                r.font.color.rgb = default_color
+        elif isinstance(child, Tag):
+            if child.name in ('script', 'style'):
+                continue
+            if child.name == 'a' and child.get('href'):
+                url = (child.get('href') or '').strip().replace('\n', '').replace('\r', '')
+                if url.startswith('#'):
+                    _append_runs_from_html_inline(
+                        paragraph, child, font_pt=font_pt, font_name=font_name, default_color=default_color
+                    )
+                    continue
+                r = paragraph.add_run()
+                r.text = (child.get_text() or url).strip() or url
+                r.font.size = font_pt
+                r.font.name = font_name
+                r.font.color.rgb = COLORS['primary']
+                try:
+                    # python-pptx expects absolute http(s) URLs for external hyperlinks
+                    if url.startswith(('http://', 'https://')):
+                        r.hyperlink.address = url
+                    elif url.startswith('www.'):
+                        r.hyperlink.address = 'https://' + url
+                except Exception as e:
+                    logger.warning(f"PPT could not set hyperlink: {e}")
+            elif child.name == 'code':
+                r = paragraph.add_run()
+                r.text = child.get_text()
+                r.font.size = font_pt
+                r.font.name = FONTS['code']
+                r.font.color.rgb = default_color
+            elif child.name in ('strong', 'b'):
+                r = paragraph.add_run()
+                r.text = child.get_text()
+                r.font.bold = True
+                r.font.size = font_pt
+                r.font.name = font_name
+                r.font.color.rgb = default_color
+            elif child.name in ('em', 'i'):
+                r = paragraph.add_run()
+                r.text = child.get_text()
+                r.font.italic = True
+                r.font.size = font_pt
+                r.font.name = font_name
+                r.font.color.rgb = default_color
+            elif child.name == 'br':
+                r = paragraph.add_run()
+                r.text = '\n'
+                r.font.size = font_pt
+                r.font.name = font_name
+            else:
+                _append_runs_from_html_inline(
+                    paragraph, child, font_pt=font_pt, font_name=font_name, default_color=default_color
+                )
+
+
+def _add_li_content_runs(paragraph, li, *, font_pt, font_name, default_color):
+    """Bullet line: inline HTML (links, code) excluding nested ul."""
+    for child in li.children:
+        if isinstance(child, NavigableString):
+            s = str(child)
+            if s:
+                r = paragraph.add_run()
+                r.text = s
+                r.font.size = font_pt
+                r.font.name = font_name
+                r.font.color.rgb = default_color
+        elif isinstance(child, Tag) and child.name == 'ul':
+            continue
+        elif isinstance(child, Tag):
+            _append_runs_from_html_inline(
+                paragraph, child, font_pt=font_pt, font_name=font_name, default_color=default_color
+            )
+
+
+def add_bullets(slide, bullets_elem, top, left=None, width=None, is_bibliography=False):
+    """Add bullet list with styled markers; optional bibliography mode (smaller Calibri, fits above logo)."""
     if left is None:
         left = CONTENT_LEFT
     if width is None:
         width = CONTENT_WIDTH
-        
+
     items = bullets_elem.find_all('li', recursive=False)
-    
+
     if not items:
         return top
-    
-    text_box = slide.shapes.add_textbox(left, top, width, CONTENT_HEIGHT)
+
+    body_font = FONT_PPT_BODY_SAFE if is_bibliography else FONTS['body']
+    body_sz = Pt(16 if is_bibliography else 20)
+    bullet_sym_sz = body_sz
+    nested_sz = Pt(15 if is_bibliography else 18)
+
+    content_bottom_cap = SLIDE_HEIGHT - Inches(0.92)
+    avail_h = max(Inches(1.25), content_bottom_cap - top)
+
+    text_box = slide.shapes.add_textbox(left, top, width, avail_h)
     tf = text_box.text_frame
     tf.word_wrap = True
-    
-    for i, li in enumerate(items):
-        text = ""
+
+    nonempty_i = 0
+    for li in items:
+        has_body = False
         for child in li.children:
-            if isinstance(child, str):
-                text += child.strip()
-            elif child.name != 'ul':
-                text += child.get_text(strip=True)
-        
-        if not text:
+            if isinstance(child, NavigableString) and str(child).strip():
+                has_body = True
+                break
+            if isinstance(child, Tag) and child.name != 'ul':
+                has_body = True
+                break
+        if not has_body and not li.get_text(strip=True):
             continue
-            
-        if i == 0:
+
+        if nonempty_i == 0:
             p = tf.paragraphs[0]
         else:
             p = tf.add_paragraph()
-        
-        # Split Bullet Symbol (Yellow) and Text (Black)
+        nonempty_i += 1
+
         run_symbol = p.add_run()
         run_symbol.text = "▸ "
-        run_symbol.font.size = Pt(20)
-        run_symbol.font.name = FONTS['body']
-        run_symbol.font.color.rgb = COLORS['bullet_marker'] # Yellow Accent
-        
-        run_text = p.add_run()
-        run_text.text = text
-        run_text.font.size = Pt(20)
-        run_text.font.name = FONTS['body']
-        run_text.font.color.rgb = COLORS['text_black'] # Black Text
-        
-        p.space_before = Pt(8)
-        p.space_after = Pt(4)
-        
+        run_symbol.font.size = bullet_sym_sz
+        run_symbol.font.name = body_font
+        run_symbol.font.color.rgb = COLORS['bullet_marker']
+
+        inner_html = li.decode_contents()
+        frag_soup = BeautifulSoup(f"<li>{inner_html}</li>", 'html.parser')
+        syn_li = frag_soup.find('li')
+        _add_li_content_runs(
+            p,
+            syn_li or li,
+            font_pt=body_sz,
+            font_name=body_font,
+            default_color=COLORS['text_black'],
+        )
+
+        p.space_before = Pt(5 if is_bibliography else 8)
+        p.space_after = Pt(3 if is_bibliography else 4)
+
         nested_ul = li.find('ul')
         if nested_ul:
             for nested_li in nested_ul.find_all('li', recursive=False):
@@ -2212,18 +2314,23 @@ def add_bullets(slide, bullets_elem, top, left=None, width=None):
                     np = tf.add_paragraph()
                     run_symbol_nested = np.add_run()
                     run_symbol_nested.text = "    ○ "
-                    run_symbol_nested.font.size = Pt(18)
-                    run_symbol_nested.font.name = FONTS['body']
+                    run_symbol_nested.font.size = nested_sz
+                    run_symbol_nested.font.name = body_font
                     run_symbol_nested.font.color.rgb = COLORS['bullet_marker']
 
-                    run_text_nested = np.add_run()
-                    run_text_nested.text = nested_text
-                    run_text_nested.font.size = Pt(18)
-                    run_text_nested.font.name = FONTS['body']
-                    run_text_nested.font.color.rgb = COLORS['text_black']
-                    np.space_before = Pt(4)
-    
-    return top + Inches(len(items) * 0.5)
+                    n_inner = nested_li.decode_contents()
+                    n_frag = BeautifulSoup(f"<li>{n_inner}</li>", 'html.parser')
+                    n_syn = n_frag.find('li')
+                    _add_li_content_runs(
+                        np,
+                        n_syn or nested_li,
+                        font_pt=nested_sz,
+                        font_name=body_font,
+                        default_color=COLORS['text_black'],
+                    )
+                    np.space_before = Pt(3)
+
+    return top + avail_h
 
 
 def _parse_colored_spans(html_elem):

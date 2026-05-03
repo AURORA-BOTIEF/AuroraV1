@@ -1973,8 +1973,10 @@ def lambda_handler(event, context):
                                      all_slides.append(create_lab_intro_slide(mod_lesson, is_spanish, len(all_slides)+1))
                                      all_slides.append(create_lab_result_slide(mod_lesson, is_spanish, len(all_slides)+1))
                         
-                        # 2. References
-                        all_slides.append(create_references_slide(module_info, is_spanish, len(all_slides)+1))
+                        # 2. References (chunked for PPT — same limits as html_first create_references_slides)
+                        all_slides.extend(
+                            create_references_slide(module_info, is_spanish, len(all_slides) + 1)
+                        )
                         logger.info(f"📚 Added End-of-Module slides for Module {current_module_num}")
                     
                     # 3. Logo Slide (replaces intermediate Thank You)

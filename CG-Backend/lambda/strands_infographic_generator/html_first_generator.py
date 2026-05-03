@@ -904,29 +904,50 @@ def _chunk_items(items: List[str], chunk_size: int) -> List[List[str]]:
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)] if items else []
 
 
+# Same pattern as _MD_REFERENCE_LINK (layout); used earlier for chunk heuristics.
+_REF_LINK_CHUNK_MEASURE = re.compile(r'\[([^\]]+)\]\((https?://[^)\s]+)\)')
+
+
+def _reference_chunk_weight(text: str) -> int:
+    """Weight for splitting slides — must NOT use raw URL length for bare https links (S3 paths distort height)."""
+    t = (text or '').strip()
+    if not t:
+        return 20
+    if _REF_LINK_CHUNK_MEASURE.search(t):
+        vis = _REF_LINK_CHUNK_MEASURE.sub(lambda m: (m.group(1) or '').strip(), t)
+        vis = ' '.join(vis.split())
+        return max(len(vis), 14)
+    if re.match(r'^https?://', t, re.IGNORECASE):
+        # Full URL is shown, but word-break wraps it; cap so long S3 keys don't force tiny chunks.
+        return min(len(t), 82)
+    return max(len(t), 12)
+
+
 def _chunk_reference_items_for_slides(
     items: List[str],
     *,
-    max_items: int = 4,
-    max_chars: int = 340,
+    max_items: int = 8,
+    max_weight: int = 2400,
 ) -> List[List[str]]:
-    """Split long bibliographies across continuation slides (URLs wrap heavily)."""
+    """Pack references per slide to fit PPT export (single content textbox ~5.5in tall).
+
+    HTML can clip overflow:hidden while the DOM still lists every <li>; PPT reads all <li>, so chunk
+    sizes must stay within what fits in that textbox, not what CSS crops visually.
+    """
     if not items:
         return []
+    overhead = 26
     chunks: List[List[str]] = []
     cur: List[str] = []
-    cur_chars = 0
-    overhead = 24
+    wsum = 0
     for it in items:
-        row_len = len(it) + overhead
-        if cur and (
-            len(cur) >= max_items or cur_chars + row_len > max_chars
-        ):
+        w = _reference_chunk_weight(it) + overhead
+        if cur and (len(cur) >= max_items or wsum + w > max_weight):
             chunks.append(cur)
             cur = []
-            cur_chars = 0
+            wsum = 0
         cur.append(it)
-        cur_chars += row_len
+        wsum += w
     if cur:
         chunks.append(cur)
     return chunks
@@ -1125,8 +1146,8 @@ def create_lab_result_slide(lab_data: Dict, is_spanish: bool, slide_counter: int
     }
 
 
-def create_references_slide(module_data: Dict, is_spanish: bool, slide_counter: int) -> Dict:
-    """Create 'Referencias Bibliográficas' slide for a module."""
+def create_references_slide(module_data: Dict, is_spanish: bool, slide_counter: int) -> List[Dict]:
+    """Create one or more 'Referencias Bibliográficas' slides (chunked for PPT height)."""
     raw = module_data.get('references', []) or []
     ref_flat: List[str] = []
     for r in raw:
@@ -1144,22 +1165,7 @@ def create_references_slide(module_data: Dict, is_spanish: bool, slide_counter: 
         ]
 
     sub = _subtitle_modulo_to_capitulo(module_data.get('title', ''), is_spanish=is_spanish)
-
-    return {
-        "slide_number": slide_counter,
-        "title": "Referencias Bibliográficas" if is_spanish else "Bibliographic References",
-        "subtitle": sub,
-        "layout": "single-column",
-        "content_blocks": [
-            {
-                "type": "bullets",
-                "heading": "",
-                "items": references,
-                "autolink_urls": True,
-            }
-        ],
-        "notes": "Module references"
-    }
+    return create_references_slides(sub, references, is_spanish, slide_counter)
 
 
 def create_logo_slide(slide_counter: int) -> Dict:
@@ -1267,11 +1273,41 @@ def format_slide_inline_markup_with_autolinks(s: Optional[str]) -> str:
     return ''.join(out)
 
 
+_MD_REFERENCE_LINK = _REF_LINK_CHUNK_MEASURE
+
+
+def _format_reference_line_markdown_and_urls(t: str) -> str:
+    """Render [Label](https://...) as one anchor per match; autolink leftover bare URLs."""
+    out: List[str] = []
+    pos = 0
+    for m in _MD_REFERENCE_LINK.finditer(t):
+        if m.start() > pos:
+            frag = t[pos:m.start()]
+            if frag.strip():
+                out.append(format_slide_inline_markup_with_autolinks(frag))
+        label = (m.group(1) or '').strip()
+        url = (m.group(2) or '').strip()
+        esc_h = html_module.escape(url, quote=True)
+        inner = format_slide_inline_markup(label)
+        out.append(
+            f'<a href="{esc_h}" class="lab-intro-link slide-ref-link" target="_blank" '
+            f'rel="noopener noreferrer">{inner}</a>'
+        )
+        pos = m.end()
+    if pos < len(t):
+        tail = t[pos:]
+        if tail.strip():
+            out.append(format_slide_inline_markup_with_autolinks(tail))
+    return ''.join(out)
+
+
 def format_reference_bullet_text(s: Optional[str]) -> str:
-    """Bibliography line: autolink URLs; avoid adding a period after a bare URL."""
+    """Bibliography line: Markdown [title](url), bare URLs, and inline **bold**."""
     t = (s or '').strip()
     if not t:
         return ''
+    if _MD_REFERENCE_LINK.search(t):
+        return _format_reference_line_markdown_and_urls(t)
     if re.match(r'^https?://', t, re.IGNORECASE) or (
         t.lower().startswith('www.') and ' ' not in t
     ):
@@ -3906,6 +3942,25 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         .slide-content.with-subtitle {{
             max-height: 540px;
         }}
+
+        /* Bibliographic references: keep list above bottom-left slide-logo (overlap fix) */
+        .slide-content.bibliography-slide {{
+            padding-bottom: 118px;
+            max-height: 500px;
+            box-sizing: border-box;
+        }}
+
+        .slide-content.bibliography-slide .bullets {{
+            margin-top: 12px;
+            margin-bottom: 8px;
+        }}
+
+        .slide-content.bibliography-slide .bullets li {{
+            padding-top: 2px;
+            padding-bottom: 2px;
+            margin-bottom: 2px;
+            word-break: break-word;
+        }}
         
         /* Bullet lists - EXACT CSS that matches our calculations */
         .bullets {{
@@ -5427,6 +5482,12 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         title = slide.get('title', '')
         subtitle = slide.get('subtitle', '')
         notes = slide.get('notes', '')
+        tl_stripped = str(title or '').strip()
+        bib_slide = (
+            tl_stripped.startswith('Referencias Bibliográficas')
+            or tl_stripped.startswith('Bibliographic References')
+        )
+        bib_cls = ' bibliography-slide' if bib_slide else ''
         
         html_parts.append(f'<div class="slide" data-slide="{slide_idx}">')
         
@@ -5798,7 +5859,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         
         # Content - use special layout wrapper for image layouts
         if layout in ['image-left', 'image-right', 'image-full']:
-            html_parts.append(f'  <div class="slide-content image-layout {layout}">')
+            html_parts.append(f'  <div class="slide-content image-layout {layout}{bib_cls}">')
             
             # For image-left: image first, then bullets
             # For image-right: bullets first, then image
@@ -5871,7 +5932,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             
         else:
             # Standard single-column or two-column layout
-            html_parts.append(f'  <div class="slide-content layout-{layout}">')
+            html_parts.append(f'  <div class="slide-content layout-{layout}{bib_cls}">')
             
             logger.info(f"🔍 DEBUG: Slide {slide_idx} '{title}' has {len(slide.get('content_blocks', []))} content blocks")
             
