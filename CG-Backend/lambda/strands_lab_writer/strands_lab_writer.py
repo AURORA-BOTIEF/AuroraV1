@@ -1,0 +1,1429 @@
+"""
+Lab Writer - Agent 2: Step-by-Step Instructions
+Reads master plan and generates detailed lab guides.
+
+Features:
+- Generates detailed step-by-step instructions for each lab
+- Includes prerequisites, setup, execution, verification
+- Adds troubleshooting tips
+- Formats as professional Markdown
+- Considers duration and Bloom level
+"""
+
+import os
+import json
+import random
+import time
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+# Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
+# that boto3 does not abort a long generation and retry (which doubles wall time).
+_BEDROCK_READ_TIMEOUT = int(os.getenv("BEDROCK_READ_TIMEOUT", "860"))
+bedrock_config = Config(
+    read_timeout=max(60, min(_BEDROCK_READ_TIMEOUT, 890)),
+    connect_timeout=60,
+    retries={"max_attempts": 2, "mode": "standard"},
+)
+
+# Cap output tokens: 32k allows very long runs; typical labs need far less.
+LAB_BEDROCK_MAX_OUTPUT_TOKENS = max(
+    4096,
+    min(32000, int(os.getenv("LAB_BEDROCK_MAX_OUTPUT_TOKENS", "20000"))),
+)
+s3_client = boto3.client('s3')
+bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=bedrock_config)
+secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
+
+# Model Configuration
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
+DEFAULT_OPENAI_MODEL = "gpt-5"
+
+# Retries per lab before failing the batch (Step Functions should not succeed with partial labs)
+MAX_LAB_GENERATION_ATTEMPTS = int(os.getenv("MAX_LAB_GENERATION_ATTEMPTS", "3"))
+
+# App-level Bedrock invoke retries inside call_bedrock_agent
+BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
+
+# Truncate lesson markdown injected into lab prompt (smaller = faster Bedrock, fewer timeouts)
+LESSON_CONTEXT_MAX_CHARS = max(4000, int(os.getenv("LESSON_CONTEXT_MAX_CHARS", "18000")))
+
+
+def _bedrock_error_is_transient(exc: Exception) -> bool:
+    if isinstance(exc, ClientError):
+        code = (exc.response.get("Error") or {}).get("Code", "") or ""
+        return code in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+        )
+    msg = str(exc)
+    return any(
+        x in msg
+        for x in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+            "unable to process your request",
+        )
+    )
+
+
+def _sleep_before_bedrock_retry(attempt_index: int, base: float = 3.0, cap: float = 90.0) -> None:
+    delay = min(cap, base * (2**attempt_index))
+    jitter = random.uniform(0, min(8.0, delay * 0.25))
+    total = delay + jitter
+    print(f"⏳ Bedrock backoff: sleep {total:.1f}s before next attempt")
+    time.sleep(total)
+
+
+def _lab_skip_if_exists_enabled() -> bool:
+    return os.getenv("LAB_SKIP_IF_EXISTS", "").lower() in ("1", "true", "yes")
+
+
+def _find_existing_lab_guide_key(bucket: str, project_folder: str, lab_id: str) -> Optional[str]:
+    """Return first S3 key matching lab-{lab_id}-*.md if present."""
+    prefix = f"{project_folder}/labguide/lab-{lab_id}-"
+    try:
+        resp = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=10)
+        for obj in resp.get("Contents") or []:
+            k = obj.get("Key", "")
+            if k.endswith(".md"):
+                return k
+    except Exception as e:
+        print(f"⚠️  list_objects for existing lab {lab_id}: {e}")
+    return None
+
+
+def get_secret(secret_name: str) -> dict:
+    """Retrieve secret from AWS Secrets Manager."""
+    try:
+        response = secrets_client.get_secret_value(SecretId=secret_name)
+        return json.loads(response['SecretString'])
+    except Exception as e:
+        print(f"⚠️  Error retrieving secret {secret_name}: {e}")
+        return {}
+
+
+
+def load_master_plan_from_s3(bucket: str, key: str) -> dict:
+    """Load master plan JSON from S3."""
+    try:
+        print(f"📥 Loading master plan from s3://{bucket}/{key}")
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        plan_data = json.loads(response['Body'].read().decode('utf-8'))
+        print(f"✅ Master plan loaded successfully")
+        return plan_data
+    except Exception as e:
+        print(f"❌ Error loading master plan: {e}")
+        raise
+
+
+def load_lesson_content(bucket: str, key: str) -> str:
+    """Load lesson markdown content from S3."""
+    try:
+        if not key:
+            return ""
+        print(f"📥 Loading lesson content from s3://{bucket}/{key}")
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        content = response['Body'].read().decode('utf-8')
+        print(f"✅ Lesson content loaded ({len(content)} chars)")
+        return content
+    except Exception as e:
+        print(f"⚠️ Error loading lesson content: {e}")
+        return ""
+
+
+
+def call_bedrock_agent(prompt: str, model_id: str) -> str:
+    """Call AWS Bedrock with Strands Agents pattern and transient-error backoff."""
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": LAB_BEDROCK_MAX_OUTPUT_TOKENS,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.7
+    }
+    last_err: Optional[Exception] = None
+    for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(payload),
+                contentType='application/json',
+                accept='application/json'
+            )
+            response_body = json.loads(response['body'].read())
+            blocks = response_body.get("content") or []
+            if not blocks:
+                print(f"⚠️ Bedrock empty content[]; keys={list(response_body.keys())}")
+                raise ValueError("Bedrock returned no content blocks")
+            text = blocks[0].get("text") or ""
+            if not (text or "").strip():
+                sr = response_body.get("stop_reason")
+                print(f"⚠️ Bedrock empty text; stop_reason={sr!r} body_keys={list(response_body.keys())}")
+                raise ValueError(f"Bedrock returned empty assistant text (stop_reason={sr!r})")
+            return text
+        except Exception as e:
+            last_err = e
+            print(f"❌ Bedrock API error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {e}")
+            if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
+                _sleep_before_bedrock_retry(attempt - 1)
+                continue
+            raise
+    assert last_err is not None
+    raise last_err
+
+
+def call_openai_agent(prompt: str, api_key: str, model_id: str = "gpt-5") -> str:
+    """Call OpenAI API."""
+    try:
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        
+        # GPT-5 (o1) models use max_completion_tokens instead of max_tokens
+        # and don't support temperature or system messages
+        if model_id.startswith("o1-") or model_id == "gpt-5":
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=16000
+            )
+        else:
+            # GPT-4 and earlier models
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical instructor creating detailed, professional laboratory guides."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=16000,
+                temperature=0.7
+            )
+        
+        return response.choices[0].message.content
+    
+    except Exception as e:
+        print(f"❌ OpenAI API error: {e}")
+        raise
+
+
+def generate_lab_guide(
+    lab_plan: dict,
+    master_context: dict,
+    model_provider: str = "bedrock"
+) -> str:
+    """
+    Generate detailed step-by-step lab guide for a single lab.
+    
+    Args:
+        lab_plan: Individual lab plan from master plan
+        master_context: Overall context (hardware, software, objectives)
+        model_provider: "bedrock" or "openai"
+    
+    Returns:
+        Markdown formatted lab guide
+    """
+    
+    lab_id = lab_plan['lab_id']
+    lab_title = lab_plan['lab_title']
+    target_language = master_context.get('target_language', 'English')
+    
+    print(f"  🔨 Generating lab guide: [{lab_id}] {lab_title}")
+    print(f"  🌐 Language: {target_language}")
+    
+    # Build context from master plan
+    hw_requirements = master_context.get('hardware_requirements', [])
+    sw_requirements = master_context.get('software_requirements', [])
+    special_considerations = master_context.get('special_considerations', [])
+    
+    # Build software list
+    sw_list = []
+    for sw in sw_requirements:
+        if isinstance(sw, dict):
+            sw_list.append(f"- {sw.get('name')} ({sw.get('version')}): {sw.get('purpose')}")
+        else:
+            sw_list.append(f"- {sw}")
+    
+    # Build prompt with standardized schema
+    prompt = f"""
+You are creating a professional, detailed laboratory guide for technical training.
+
+LANGUAGE REQUIREMENT:
+**ALL CONTENT MUST BE WRITTEN IN: {target_language}**
+
+- ALL section titles MUST be in {target_language}
+- ALL instructions, explanations, and descriptions MUST be in {target_language}
+- Code commands can remain in their original language (usually English)
+- Technical terms may remain in English where appropriate
+
+If {target_language} is Spanish, use these section titles:
+- "Metadatos" instead of "Metadata"
+- "Descripción General" instead of "Overview"
+- "Objetivos de Aprendizaje" instead of "Learning Objectives"
+- "Prerrequisitos" instead of "Prerequisites"
+- "Entorno de Laboratorio" instead of "Lab Environment"
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
+- "Paso N:" instead of "Step N:"
+- "Validación y Pruebas" instead of "Validation & Testing"
+- "Solución de Problemas" instead of "Troubleshooting"
+- "Limpieza" instead of "Cleanup"
+- "Resumen" instead of "Summary"
+- "Referencias Bibliográficas" instead of "Bibliographic References"
+
+LAB INFORMATION:
+- Lab ID: {lab_id}
+- Title: {lab_title}
+- Duration: {lab_plan['estimated_duration']} minutes
+- Bloom Level: {lab_plan['bloom_level']}
+- Complexity: {lab_plan.get('complexity', 'medium')}
+
+OBJECTIVES:
+{chr(10).join(f'- {obj}' for obj in lab_plan['objectives'])}
+
+SCOPE:
+{lab_plan['scope']}
+
+PREREQUISITES:
+{chr(10).join(f'- {prereq}' for prereq in lab_plan.get('prerequisites', ['None']))}
+
+KEY TECHNOLOGIES:
+{chr(10).join(f'- {tech}' for tech in lab_plan.get('key_technologies', []))}
+
+EXPECTED OUTCOMES:
+{chr(10).join(f'- {outcome}' for outcome in lab_plan.get('expected_outcomes', []))}
+
+AVAILABLE HARDWARE:
+{chr(10).join(f'- {hw}' for hw in hw_requirements)}
+
+AVAILABLE SOFTWARE:
+{chr(10).join(sw_list)}
+
+SPECIAL CONSIDERATIONS:
+{chr(10).join(f'- {consideration}' for consideration in special_considerations)}
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY LAB GUIDE STRUCTURE SCHEMA (FOLLOW EXACTLY)
+═══════════════════════════════════════════════════════════════════════════════
+
+```markdown
+# Lab {lab_id}: {lab_title}
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| **Duration** | {lab_plan['estimated_duration']} minutes |
+| **Complexity** | {lab_plan.get('complexity', 'medium').capitalize()} |
+| **Bloom Level** | {lab_plan['bloom_level']} |
+
+## Overview
+
+[2-3 sentences describing what this lab accomplishes]
+[Explain the practical value and real-world relevance]
+
+## Learning Objectives
+
+By completing this lab, you will be able to:
+
+- [ ] [Objective 1 - specific and measurable]
+- [ ] [Objective 2 - specific and measurable]
+- [ ] [Objective 3 - specific and measurable]
+
+## Objetivo visual (THOR)
+
+Brief diagram or screenshot summary of lab tasks; include placeholder path such as `../images/lab-visual.png`.
+
+## Prerequisites
+
+### Required Knowledge
+
+- [Prior concept or skill 1]
+- [Prior concept or skill 2]
+
+### Required Access
+
+- [Account, permission, or credential 1]
+- [Account, permission, or credential 2]
+
+## Lab Environment
+
+### Hardware Requirements
+
+| Component | Specification |
+|-----------|---------------|
+| [Component 1] | [Spec details] |
+| [Component 2] | [Spec details] |
+
+### Software Requirements
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| [Software 1] | [X.Y.Z] | [Why it's needed] |
+| [Software 2] | [X.Y.Z] | [Why it's needed] |
+
+### Initial Setup
+
+```bash
+# Commands to prepare the environment
+[setup_command_1]
+[setup_command_2]
+```
+
+## Step-by-Step Instructions
+
+### Step 1: [Clear Action Title]
+
+**Objective:** [What this step accomplishes in one sentence]
+
+**Instructions:**
+
+1. [First action with specific details]
+   
+   ```bash
+   [exact command to run]
+   ```
+
+2. [Second action]
+
+3. [Third action]
+
+**Expected Output:**
+
+```
+[What the user should see after completing this step]
+```
+
+**Verification:**
+
+- [How to confirm this step succeeded]
+- [What to check or look for]
+
+---
+
+### Step 2: [Next Action Title]
+
+**Objective:** [What this step accomplishes]
+
+**Instructions:**
+
+1. [Action details]
+
+   ```[language]
+   [code or command]
+   ```
+
+2. [Continue with numbered actions]
+
+**Expected Output:**
+
+```
+[Expected result]
+```
+
+**Verification:**
+
+- [Verification criteria]
+
+---
+
+### Step N: [Final Step Title]
+
+[Complete the lab with final configuration or deployment]
+
+## Validation & Testing
+
+### Success Criteria
+
+Verify your lab is complete by confirming:
+
+- [ ] [Criterion 1 - specific and testable]
+- [ ] [Criterion 2 - specific and testable]
+- [ ] [Criterion 3 - specific and testable]
+
+### Testing Procedure
+
+1. [Test action 1]
+   
+   ```bash
+   [test command]
+   ```
+   
+   **Expected Result:** [what should happen]
+
+2. [Test action 2]
+   
+   **Expected Result:** [what should happen]
+
+## Troubleshooting
+
+### Issue 1: [Common Problem Description]
+
+**Symptoms:**
+- [What the user observes]
+
+**Cause:**
+[Why this happens]
+
+**Solution:**
+
+```bash
+[Command or steps to fix]
+```
+
+---
+
+### Issue 2: [Another Common Problem]
+
+**Symptoms:**
+- [Observable behavior]
+
+**Cause:**
+[Root cause explanation]
+
+**Solution:**
+
+```bash
+[Fix command]
+```
+
+---
+
+### Issue 3: [Third Common Problem]
+
+[Same structure]
+
+## Cleanup
+
+To reset your environment after completing this lab:
+
+```bash
+# Cleanup commands
+[cleanup_command_1]
+[cleanup_command_2]
+[cleanup_command_3]
+```
+
+> ⚠️ **Warning:** [Any important notes about cleanup]
+
+## Summary
+
+### What You Accomplished
+
+- [Accomplishment 1]
+- [Accomplishment 2]
+- [Accomplishment 3]
+
+### Key Takeaways
+
+- [Important concept or skill learned]
+- [Best practice discovered]
+
+### Next Steps
+
+- [Suggested follow-up lab or lesson]
+- [Additional practice recommendation]
+
+## Bibliographic References
+
+- [Reference 1 title] - [Brief description]
+- [Reference 2 title] - [Brief description]
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**HEADING HIERARCHY (MANDATORY):**
+- H1 (#): ONLY for lab title - ONE per document
+- H2 (##): Major sections (Metadata, Overview, Steps, Troubleshooting, etc.)
+- H3 (###): Steps within instructions, subsections, individual issues
+- H4 (####): Details within H3 (if needed)
+- NEVER skip heading levels (H1 → H3 is INVALID)
+
+**REQUIRED SECTIONS (ALL MUST BE PRESENT):**
+1. Metadata (H2) - Table with Duration, Complexity, Bloom Level
+2. Overview (H2) - Brief description
+3. Learning Objectives (H2) - 3-5 checkboxes
+4. Prerequisites (H2) - Knowledge and access requirements
+5. Lab Environment (H2) - Hardware, software, setup
+6. Step-by-Step Instructions (H2) - Numbered steps as H3
+7. Validation & Testing (H2) - Success criteria
+8. Troubleshooting (H2) - At least 2-3 common issues
+9. Cleanup (H2) - Reset commands
+10. Summary (H2) - Accomplishments and takeaways
+
+**STEP STRUCTURE (EVERY STEP MUST HAVE):**
+- Objective - One sentence stating what this step accomplishes
+- Instructions - Numbered list with specific actions
+- Expected Output - Code block showing what user should see
+- Verification - How to confirm success
+- Use `---` horizontal rules between steps
+
+**CODE BLOCKS (ALWAYS SPECIFY LANGUAGE):**
+- Use REAL, EXECUTABLE commands - NO placeholders like <filename> or YOUR_VALUE
+- Specify language: bash, python, yaml, json, etc.
+- Include actual expected output
+
+**COMPLEXITY GUIDELINES:**
+- Beginner: 3-5 steps, heavy guidance, explicit commands
+- Intermediate: 5-10 steps, balanced guidance
+- Advanced: 10+ steps, less hand-holding
+
+**BLOOM LEVEL ADAPTATION:**
+- Remember/Understand: More explanation, guided steps
+- Apply: Balanced guidance and independent work
+- Analyze/Evaluate: More independent problem-solving
+- Create: Less hand-holding, open-ended challenges
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Return ONLY the Markdown content following this schema exactly, no additional commentary.
+"""
+    
+    try:
+        if model_provider == "openai":
+            secret_data = get_secret("aurora/openai-api-key")
+            api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                print("    ⚠️  OpenAI API key not found, falling back to Bedrock")
+                model_provider = "bedrock"
+            else:
+                lab_guide = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+        
+        if model_provider == "bedrock":
+            lab_guide = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+        
+        # Clean up markdown if wrapped in code blocks
+        if "```markdown" in lab_guide:
+            lab_guide = lab_guide.split("```markdown")[1].split("```")[0].strip()
+        elif lab_guide.startswith("```") and lab_guide.endswith("```"):
+            lab_guide = lab_guide[3:-3].strip()
+        
+        print(f"    ✅ Lab guide generated ({len(lab_guide)} characters)")
+        return lab_guide
+    
+    except Exception as e:
+        print(f"    ❌ Error generating lab guide: {e}")
+        raise
+
+
+def save_lab_guide_to_s3(
+    bucket: str,
+    project_folder: str,
+    lab_id: str,
+    lab_title: str,
+    lab_guide: str
+) -> str:
+    """Save lab guide Markdown to S3."""
+    try:
+        # Format filename
+        safe_title = lab_title.lower()
+        safe_title = ''.join(c if c.isalnum() or c.isspace() else '' for c in safe_title)
+        safe_title = '-'.join(safe_title.split())[:50]  # Limit length
+        
+        filename = f"lab-{lab_id}-{safe_title}.md"
+        key = f"{project_folder}/labguide/{filename}"
+        
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=lab_guide.encode('utf-8'),
+            ContentType='text/markdown'
+        )
+        
+        print(f"    💾 Saved to s3://{bucket}/{key}")
+        return key
+    
+    except Exception as e:
+        print(f"    ❌ Error saving lab guide: {e}")
+        raise
+
+
+def _strip_outer_markdown_fence(text: str) -> str:
+    """If the model wrapped the whole lab in ```markdown ... ```, unwrap it."""
+    t = (text or "").strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.split("\n")
+    if not lines:
+        return t
+    first = lines[0].strip()
+    if not first.startswith("```"):
+        return t
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "```":
+            return "\n".join(lines[1:i]).strip()
+    return t
+
+
+def _looks_like_lab_markdown(text: str) -> bool:
+    """Heuristic: enough structure to treat as a lab guide when delimiters/JSON fail."""
+    s = text.strip()
+    if len(s) < 320:
+        return False
+    head = s[:4000]
+    if s.startswith("#") or s.startswith("```"):
+        return True
+    if "##" in head:
+        return True
+    # Spanish / English common lab section cues
+    cues = (
+        "Metadatos",
+        "Metadata",
+        "Descripción",
+        "Overview",
+        "Objetivos",
+        "Prerrequisitos",
+        "Prerequisites",
+        "Instrucciones",
+        "Step-by-Step",
+        "Paso ",
+        "Laboratorio",
+        "Lab ",
+        "Entorno de Laboratorio",
+        "Descripción General",
+    )
+    return any(c in head for c in cues)
+
+
+def _normalize_lab_delimiters(text: str) -> str:
+    """Models sometimes vary delimiter casing; normalize before splitting."""
+    if not text:
+        return text
+    out = text
+    pairs = (
+        ("---lab_start---", "---LAB_START---"),
+        ("---Lab_Start---", "---LAB_START---"),
+        ("---LAB_start---", "---LAB_START---"),
+        ("---lab_end---", "---LAB_END---"),
+        ("---Lab_End---", "---LAB_END---"),
+        ("---markdown---", "---MARKDOWN---"),
+        ("---Markdown---", "---MARKDOWN---"),
+    )
+    for old, new in pairs:
+        out = out.replace(old, new)
+    return out
+
+
+def _lesson_context_block(lesson_content: str) -> str:
+    """Lesson excerpt for prompts (no Python comment leakage into the model)."""
+    if not (lesson_content or "").strip():
+        return ""
+    excerpt = lesson_content[:LESSON_CONTEXT_MAX_CHARS]
+    return f"""
+═══════════════════════════════════════════════════════════════════════════════
+CONTEXT: ACTUAL LESSON CONTENT
+═══════════════════════════════════════════════════════════════════════════════
+The user has just learned the following material. The lab MUST be based on this content.
+Use specific commands, configurations, and concepts from this lesson where applicable.
+
+{excerpt}
+═══════════════════════════════════════════════════════════════════════════════
+"""
+
+
+def _compact_single_lab_prompt(
+    lab_plan: dict,
+    master_context: dict,
+    lesson_context_section: str,
+    labs_summary_text: str,
+) -> str:
+    """
+    Short prompt for the common case (one lab per Lambda).
+    Avoids ~15k+ tokens of duplicated schema example that inflated input and output.
+    """
+    tl = master_context.get("target_language", "English")
+    hw = master_context.get("hardware_requirements", []) or []
+    sw = master_context.get("software_requirements", []) or []
+    spec = master_context.get("special_considerations", []) or []
+    objs = master_context.get("overall_objectives", []) or []
+    hw_line = ", ".join(str(x) for x in hw[:10]) if hw else "N/A"
+    sw_bits: List[str] = []
+    for item in (sw or [])[:14]:
+        if isinstance(item, dict):
+            sw_bits.append(
+                f"{item.get('name', '?')} ({item.get('version', '')})"
+            )
+        else:
+            sw_bits.append(str(item))
+    sw_line = ", ".join(sw_bits) if sw_bits else "N/A"
+    spec_line = "; ".join(str(x) for x in spec[:6]) if spec else "N/A"
+    obj_line = "; ".join(str(x) for x in objs[:6]) if objs else "N/A"
+    lid = lab_plan["lab_id"]
+    title = lab_plan["lab_title"]
+
+    return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
+
+LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
+
+COURSE CONTEXT (brief):
+- Objectives: {obj_line}
+- Typical hardware: {hw_line}
+- Typical software: {sw_line}
+- Notes: {spec_line}
+
+LAB SPECIFICATION:
+{labs_summary_text}
+{lesson_context_section}
+
+STRUCTURE (single H1 for lab title; then ## / ###):
+1. Metadata — table: Duration, Complexity, Bloom level
+2. Overview — 2–4 sentences
+3. Learning objectives — 3–5 checkboxes
+4. Prerequisites — knowledge + access
+5. Lab environment — concise HW/SW tables if useful + setup commands
+6. Step-by-step — each step: **Objective**, numbered **Instructions**, **Expected output**, **Verification** (keep steps focused; avoid repetition)
+7. Validation & testing
+8. Troubleshooting — **exactly 2** realistic issues (symptoms, cause, fix)
+9. Cleanup
+10. Summary (+ optional resources)
+
+QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
+
+OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
+---LAB_START---
+LAB_ID: {lid}
+---MARKDOWN---
+# Lab {lid}: {title}
+...complete markdown following the structure...
+---LAB_END---
+
+Do not wrap the delimiters in code fences. No preamble before ---LAB_START---.
+"""
+
+
+def generate_all_labs_batch(
+    lab_plans: List[Dict[str, Any]],
+    master_context: dict,
+    model_provider: str = "bedrock",
+    lesson_content: str = ""
+) -> Dict[str, str]:
+    """
+    Generate ALL lab guides in a SINGLE API call for efficiency.
+    
+    Returns dict mapping lab_id to markdown content.
+    """
+    print(f"\n🚀 Generating {len(lab_plans)} labs in SINGLE API CALL...")
+    lesson_context_section = _lesson_context_block(lesson_content)
+
+    # Build comprehensive prompt for ALL labs
+    labs_summary = []
+    for lab in lab_plans:
+        labs_summary.append(f"""
+**Lab {lab['lab_id']}: {lab['lab_title']}**
+- Duration: {lab['estimated_duration']} minutes
+- Complexity: {lab.get('complexity', 'medium')}
+- Bloom Level: {lab['bloom_level']}
+- Objectives: {', '.join(lab['objectives'])}
+- Scope: {lab['scope']}
+- Prerequisites: {', '.join(lab.get('prerequisites', []))}
+- Technologies: {', '.join(lab.get('key_technologies', []))}
+""")
+    labs_summary_text = "".join(labs_summary)
+
+    if len(lab_plans) == 1:
+        print("📎 Using compact single-lab prompt (smaller input, faster generation).")
+        prompt = _compact_single_lab_prompt(
+            lab_plans[0], master_context, lesson_context_section, labs_summary_text
+        )
+    else:
+        prompt = f"""
+You are an expert technical instructor creating detailed, professional laboratory guides.
+
+LANGUAGE REQUIREMENT:
+**GENERATE ALL LAB CONTENT IN: {master_context.get('target_language', 'English')}**
+
+- ALL section titles MUST be in {master_context.get('target_language', 'English')}
+- ALL instructions, explanations, descriptions must be in {master_context.get('target_language', 'English')}
+- Code commands can remain in their original language (usually English)
+- Technical terms may remain in English where appropriate
+
+If generating in Spanish, use these section titles:
+- "Metadatos" instead of "Metadata"
+- "Descripción General" instead of "Overview"
+- "Objetivos de Aprendizaje" instead of "Learning Objectives"
+- "Prerrequisitos" instead of "Prerequisites"
+- "Entorno de Laboratorio" instead of "Lab Environment"
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
+- "Paso N:" instead of "Step N:"
+- "Validación y Pruebas" instead of "Validation & Testing"
+- "Solución de Problemas" instead of "Troubleshooting"
+- "Limpieza" instead of "Cleanup"
+- "Resumen" instead of "Summary"
+- "Referencias Bibliográficas" instead of "Bibliographic References"
+
+MASTER CONTEXT:
+Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}
+
+Hardware Requirements:
+{chr(10).join('- ' + req for req in master_context.get('hardware_requirements', []))}
+
+Software Requirements:
+{chr(10).join(f"- {sw['name']} ({sw['version']}): {sw['purpose']}" for sw in master_context.get('software_requirements', []))}
+
+Special Considerations:
+{chr(10).join('- ' + con for con in master_context.get('special_considerations', []))}
+
+{lesson_context_section}
+
+LABS TO GENERATE ({len(lab_plans)} total):
+{chr(10).join(labs_summary)}
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY LAB GUIDE STRUCTURE SCHEMA (FOLLOW EXACTLY FOR EACH LAB)
+═══════════════════════════════════════════════════════════════════════════════
+
+Each lab MUST follow this EXACT structure with proper heading hierarchy:
+
+```
+# Lab [LAB_ID]: [Lab Title]
+
+## Metadata
+
+| Property | Value |
+|----------|-------|
+| **Duration** | XX minutes |
+| **Complexity** | Beginner/Intermediate/Advanced |
+| **Bloom Level** | [Level] |
+
+## Overview
+
+[2-3 sentences describing what this lab accomplishes]
+[Explain the practical value and real-world relevance]
+
+## Learning Objectives
+
+By completing this lab, you will be able to:
+
+- [ ] [Objective 1 - specific and measurable]
+- [ ] [Objective 2 - specific and measurable]
+- [ ] [Objective 3 - specific and measurable]
+
+## Objetivo visual (THOR)
+
+Brief diagram or screenshot summary of lab tasks; include placeholder path such as `../images/lab-visual.png`.
+
+## Prerequisites
+
+### Required Knowledge
+
+- [Prior concept or skill 1]
+- [Prior concept or skill 2]
+
+### Required Access
+
+- [Account, permission, or credential 1]
+
+## Lab Environment
+
+### Hardware Requirements
+
+| Component | Specification |
+|-----------|---------------|
+| [Component] | [Spec] |
+
+### Software Requirements
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| [Software] | [X.Y.Z] | [Why needed] |
+
+### Initial Setup
+
+```bash
+# Setup commands
+```
+
+## Step-by-Step Instructions
+
+### Step 1: [Clear Action Title]
+
+**Objective:** [What this step accomplishes]
+
+**Instructions:**
+
+1. [First action]
+   
+   ```bash
+   [exact command]
+   ```
+
+2. [Second action]
+
+**Expected Output:**
+
+```
+[What user should see]
+```
+
+**Verification:**
+
+- [How to confirm success]
+
+---
+
+### Step 2: [Next Action Title]
+
+[Same structure - Objective, Instructions, Expected Output, Verification]
+
+---
+
+[Continue for all steps needed]
+
+## Validation & Testing
+
+### Success Criteria
+
+- [ ] [Criterion 1 - testable]
+- [ ] [Criterion 2 - testable]
+
+### Testing Procedure
+
+1. [Test action]
+   ```bash
+   [test command]
+   ```
+   **Expected Result:** [result]
+
+## Troubleshooting
+
+### Issue 1: [Problem Description]
+
+**Symptoms:**
+- [What user observes]
+
+**Cause:**
+[Why it happens]
+
+**Solution:**
+```bash
+[fix command]
+```
+
+---
+
+### Issue 2: [Another Problem]
+
+[Same structure]
+
+## Cleanup
+
+```bash
+# Cleanup commands
+```
+
+> ⚠️ **Warning:** [Important notes]
+
+## Summary
+
+### What You Accomplished
+
+- [Accomplishment 1]
+- [Accomplishment 2]
+
+### Key Takeaways
+
+- [Concept learned]
+
+### Next Steps
+
+- [Follow-up recommendation]
+
+## Additional Resources
+
+- [Resource 1] - [Description]
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**HEADING HIERARCHY (MANDATORY):**
+- H1 (#): ONLY for lab title - ONE per lab
+- H2 (##): Major sections
+- H3 (###): Steps, subsections, issues
+- NEVER skip heading levels (H1 → H3 is INVALID)
+
+**REQUIRED SECTIONS (ALL MUST BE PRESENT FOR EACH LAB):**
+1. Metadata (H2) - Table with Duration, Complexity, Bloom Level
+2. Overview (H2)
+3. Learning Objectives (H2) - With checkboxes
+4. Prerequisites (H2)
+5. Lab Environment (H2)
+6. Step-by-Step Instructions (H2) - Steps as H3
+7. Validation & Testing (H2)
+8. Troubleshooting (H2) - At least 2 issues
+9. Cleanup (H2)
+10. Summary (H2)
+
+**STEP STRUCTURE (EVERY STEP MUST HAVE):**
+- Objective, Instructions, Expected Output, Verification
+- Use `---` between steps
+
+**CODE BLOCKS:**
+- REAL, EXECUTABLE commands - NO placeholders like <filename>
+- Always specify language (bash, python, yaml, etc.)
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT (USE DELIMITERS)
+═══════════════════════════════════════════════════════════════════════════════
+
+---LAB_START---
+LAB_ID: [lab_id]
+---MARKDOWN---
+# Lab [lab_id]: [Full Title]
+
+[Complete markdown following the schema above]
+
+---LAB_END---
+
+---LAB_START---
+LAB_ID: [next_lab_id]
+---MARKDOWN---
+# Lab [next_lab_id]: [Next Lab Title]
+...
+---LAB_END---
+
+IMPORTANT: Use the delimiter format exactly as shown. Do NOT use JSON format.
+Generate ALL {len(lab_plans)} labs now:
+"""
+    
+    try:
+        if model_provider == "openai":
+            secret_data = get_secret("aurora/openai-api-key")
+            api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                print("⚠️  OpenAI API key not found, falling back to Bedrock")
+                model_provider = "bedrock"
+            else:
+                response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+        
+        if model_provider == "bedrock":
+            response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+        
+        print("✅ AI response received, parsing with delimiters...")
+        # Keep full model output for fallbacks (JSON branch mutates working copies)
+        original_response_text = response_text
+        response_text = _normalize_lab_delimiters(response_text)
+
+        # Parse using delimiters instead of JSON
+        labs_dict = {}
+
+        # Split by lab sections
+        lab_sections = response_text.split('---LAB_START---')
+        
+        for section in lab_sections[1:]:  # Skip first empty split
+            if '---LAB_END---' not in section:
+                continue
+            
+            # Extract lab_id and markdown
+            try:
+                header_part, rest = section.split('---MARKDOWN---', 1)
+                markdown_part = rest.split('---LAB_END---')[0].strip()
+                
+                # Extract lab_id from header (tolerate spacing / markdown noise)
+                for line in header_part.split('\n'):
+                    raw_line = line.strip()
+                    if raw_line.upper().startswith("LAB_ID:"):
+                        parsed_id = raw_line.split(":", 1)[1].strip().strip("*`_ ")
+                        if parsed_id and markdown_part.strip():
+                            labs_dict[parsed_id] = markdown_part
+                            print(f"  ✓ Lab {parsed_id}: {len(markdown_part)} characters")
+                        break
+            except Exception as e:
+                print(f"  ⚠️  Failed to parse lab section: {e}")
+                continue
+        
+        if not labs_dict:
+            print("⚠️  No labs found in response, trying fallback JSON parsing...")
+            # Fallback to JSON if delimiter format failed
+            try:
+                json_candidate = original_response_text
+                if "```json" in json_candidate:
+                    json_candidate = json_candidate.split("```json")[1].split("```")[0]
+                elif "```" in json_candidate:
+                    json_candidate = json_candidate.split("```")[1].split("```")[0]
+                
+                result = json.loads(json_candidate.strip())
+                for lab_data in result.get('labs', []):
+                    lab_id = lab_data['lab_id']
+                    markdown = lab_data['markdown']
+                    labs_dict[lab_id] = markdown
+                    print(f"  ✓ Lab {lab_id}: {len(markdown)} characters (from JSON)")
+            except Exception as fallback_error:
+                print(f"⚠️  Fallback JSON parsing also failed: {fallback_error}")
+                
+                # Third fallback: If only ONE lab requested and response looks like markdown, use it directly
+                if len(lab_plans) == 1:
+                    print("🔄 Trying raw markdown fallback for single lab...")
+                    raw_response = _strip_outer_markdown_fence(original_response_text)
+                    # Delimiter/JSON failed; accept substantial markdown (incl. Spanish section titles)
+                    if raw_response and _looks_like_lab_markdown(raw_response):
+                        lab_id = lab_plans[0]['lab_id']
+                        labs_dict[lab_id] = raw_response.strip()
+                        print(
+                            f"  ✓ Lab {lab_id}: {len(raw_response)} characters (from raw markdown)"
+                        )
+                    else:
+                        raise ValueError("Could not parse labs from AI response in any format")
+                else:
+                    raise ValueError("Could not parse labs from AI response in any format")
+
+        # Single-lab: delimiters often drift (extra prose, wrong LAB_ID line). Recover before return.
+        if len(lab_plans) == 1:
+            exp = lab_plans[0]["lab_id"]
+            cur = (labs_dict.get(exp) or "").strip()
+            if not cur:
+                if len(labs_dict) == 1:
+                    only_k, only_v = next(iter(labs_dict.items()))
+                    only_v = (only_v or "").strip()
+                    if only_v:
+                        labs_dict = {exp: only_v}
+                        print(
+                            f"  ✓ Remapped single lab key {only_k!r} → {exp!r} ({len(only_v)} chars)"
+                        )
+                        cur = only_v
+                if not (labs_dict.get(exp) or "").strip():
+                    print("🔄 Single-lab: delimiter parse empty; trying raw markdown fallback...")
+                    raw = _strip_outer_markdown_fence(original_response_text)
+                    if raw and _looks_like_lab_markdown(raw):
+                        labs_dict[exp] = raw.strip()
+                        print(
+                            f"  ✓ Lab {exp}: {len(raw)} characters (raw markdown fallback)"
+                        )
+                    elif raw:
+                        print(
+                            f"  ⚠️ Raw response {len(raw)} chars but heuristic failed; preview: {raw[:400]!r}"
+                        )
+
+        print(f"✅ Successfully generated {len(labs_dict)} lab guides")
+        return labs_dict
+    
+    except Exception as e:
+        print(f"❌ Error generating batch labs: {e}")
+        preview = locals().get("response_text")
+        print(f"Response preview: {preview[:1000] if preview else 'N/A'}...")
+        raise
+
+
+def lambda_handler(event, context):
+    """
+    Lambda handler for Lab Writer (Agent 2).
+    
+    Input event:
+    {
+        "course_bucket": "crewai-course-artifacts",
+        "master_plan_key": "project/labguide/lab-master-plan.json",
+        "project_folder": "251014-kubernetes-course",
+        "model_provider": "bedrock"
+    }
+    
+    Output:
+    {
+        "statusCode": 200,
+        "lab_guides_generated": 15,
+        "lab_guide_keys": ["project/labguide/lab-01-01-01-setup.md", ...],
+        "project_folder": "251014-kubernetes-course",
+        "bucket": "crewai-course-artifacts"
+    }
+    """
+    
+    print("\n" + "="*70)
+    print("📝 LAB WRITER - AGENT 2: STEP-BY-STEP INSTRUCTIONS")
+    print("="*70)
+    
+    try:
+        # Extract parameters
+        course_bucket = event.get('course_bucket', 'crewai-course-artifacts')
+        master_plan_key = event['master_plan_key']
+        project_folder = event['project_folder']
+        model_provider = event.get('model_provider', 'bedrock')
+        
+        # FORCE Bedrock for lab generation (more reliable format compliance)
+        # GPT-5 shows model drift: correct format initially, missing headers later
+        # Claude Sonnet 4.6 consistently generates proper lab headers
+        model_provider = 'bedrock'
+        
+        lab_ids_to_process = event.get('lab_ids', [])  # NEW: For batch processing
+        
+        print(f"📦 Bucket: {course_bucket}")
+        print(f"📋 Master Plan: {master_plan_key}")
+        print(f"📁 Project: {project_folder}")
+        print(f"🤖 Model: {model_provider} (forced to Bedrock Sonnet 4.6 for lab reliability)")
+        if lab_ids_to_process:
+            print(f"🎯 Batch Mode: Processing specific labs: {', '.join(lab_ids_to_process)}")
+        else:
+            print(f"🎯 Full Mode: Processing all labs")
+        
+        # Step 1: Load master plan
+        master_plan = load_master_plan_from_s3(course_bucket, master_plan_key)
+        
+        lab_plans = master_plan.get('lab_plans', [])
+        if not lab_plans:
+            print("⚠️  No lab plans found in master plan!")
+            raise ValueError("No lab plans found in master plan")
+        
+        # NEW: Filter to only process specified labs if batch mode
+        if lab_ids_to_process:
+            original_count = len(lab_plans)
+            lab_plans = [lab for lab in lab_plans if lab['lab_id'] in lab_ids_to_process]
+            print(f"📊 Filtered {original_count} labs → {len(lab_plans)} labs for this batch")
+        
+        # Extract language from metadata
+        course_language = master_plan.get('metadata', {}).get('course_language', 'es')
+        language_names = {
+            'en': 'English',
+            'es': 'Spanish (Español)',
+            'fr': 'French (Français)',
+            'de': 'German (Deutsch)',
+            'pt': 'Portuguese (Português)',
+            'it': 'Italian (Italiano)'
+        }
+        target_language = language_names.get(course_language, 'Spanish (Español)')
+        
+        print(f"\n🌐 Target Language: {target_language} ({course_language})")
+        print(f"📊 Total labs to generate: {len(lab_plans)}\n")
+        
+        # Build master context for all labs (including language)
+        master_context = {
+            'hardware_requirements': master_plan.get('hardware_requirements', []),
+            'software_requirements': master_plan.get('software_requirements', []),
+            'special_considerations': master_plan.get('special_considerations', []),
+            'overall_objectives': master_plan.get('overall_objectives', []),
+            'target_language': target_language  # NEW: Pass language to prompt
+        }
+        
+        # Step 2: Generate lab guides ONE AT A TIME for reliability
+        # both GPT-5 and Bedrock handle single-lab requests reliably
+        # GPT-5 sometimes skips labs in multi-lab requests
+        labs_markdown = {}
+        
+        # Maps lab_id to its lesson content key
+        lab_lesson_keys = event.get('lab_lesson_keys', {})
+
+        for idx, lab_plan in enumerate(lab_plans, start=1):
+            lab_id = lab_plan['lab_id']
+            print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
+
+            if _lab_skip_if_exists_enabled():
+                existing_key = _find_existing_lab_guide_key(
+                    course_bucket, project_folder, lab_id
+                )
+                if existing_key:
+                    try:
+                        body = s3_client.get_object(
+                            Bucket=course_bucket, Key=existing_key
+                        )["Body"].read().decode("utf-8")
+                        if body.strip():
+                            labs_markdown[lab_id] = body
+                            print(
+                                f"  ⏭️  Skipping generation; using existing s3://{course_bucket}/{existing_key}"
+                            )
+                            continue
+                    except Exception as e:
+                        print(f"⚠️  Could not read existing lab {existing_key}, regenerating: {e}")
+
+            # Load specific lesson content if available
+            lesson_content = ""
+            if lab_id in lab_lesson_keys:
+                lesson_key = lab_lesson_keys[lab_id]
+                lesson_content = load_lesson_content(course_bucket, lesson_key)
+
+            last_error: Optional[Exception] = None
+            for attempt in range(1, MAX_LAB_GENERATION_ATTEMPTS + 1):
+                try:
+                    batch_results = generate_all_labs_batch(
+                        lab_plans=[lab_plan],
+                        master_context=master_context,
+                        model_provider=model_provider,
+                        lesson_content=lesson_content,
+                    )
+                    if lab_id in batch_results and (batch_results[lab_id] or "").strip():
+                        labs_markdown[lab_id] = batch_results[lab_id]
+                        print(f"  ✅ Lab {lab_id} generated (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
+                        break
+                    last_error = ValueError(f"Model returned no content for {lab_id}")
+                    print(f"  ⚠️ Empty content for {lab_id} on attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS}")
+                except Exception as e:
+                    last_error = e
+                    print(
+                        f"  ❌ Lab {lab_id} attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS} failed: {e}"
+                    )
+                if attempt < MAX_LAB_GENERATION_ATTEMPTS:
+                    print("  🔁 Retrying...")
+                    if last_error is not None and _bedrock_error_is_transient(last_error):
+                        _sleep_before_bedrock_retry(attempt - 1)
+
+            if lab_id not in labs_markdown:
+                msg = f"Lab {lab_id} failed after {MAX_LAB_GENERATION_ATTEMPTS} attempts"
+                if last_error:
+                    msg += f": {last_error}"
+                raise RuntimeError(msg)
+        
+        # Step 3: Save each lab guide to S3
+        lab_guide_keys = []
+        print(f"\n💾 Saving {len(labs_markdown)} lab guides to S3...")
+        
+        for lab_plan in lab_plans:
+            lab_id = lab_plan['lab_id']
+            
+            if lab_id not in labs_markdown:
+                print(f"  ⚠️  Lab {lab_id} not found in generated content, skipping")
+                continue
+            
+            try:
+                lab_key = save_lab_guide_to_s3(
+                    bucket=course_bucket,
+                    project_folder=project_folder,
+                    lab_id=lab_id,
+                    lab_title=lab_plan['lab_title'],
+                    lab_guide=labs_markdown[lab_id]
+                )
+                lab_guide_keys.append(lab_key)
+                print(f"  ✅ Saved lab {lab_id}")
+            except Exception as e:
+                print(f"  ❌ Failed to save lab {lab_id}: {e}")
+                raise RuntimeError(f"Failed to save lab guide {lab_id} to S3: {e}") from e
+
+        if len(lab_guide_keys) != len(lab_plans):
+            raise RuntimeError(
+                f"Expected {len(lab_plans)} lab files saved, got {len(lab_guide_keys)}"
+            )
+
+        print(f"\n{'='*70}")
+        print(f"✅ LAB WRITING COMPLETED")
+        print(f"   Generated: {len(lab_guide_keys)}/{len(lab_plans)} labs")
+        print(f"{'='*70}\n")
+
+        return {
+            'statusCode': 200,
+            'lab_guides_generated': len(lab_guide_keys),
+            'lab_guide_keys': lab_guide_keys,
+            'project_folder': project_folder,
+            'bucket': course_bucket,
+            'model_provider': model_provider
+        }
+    
+    except KeyError as e:
+        print(f"❌ Missing required parameter: {e}")
+        raise ValueError(f"Missing required parameter: {e}") from e
+
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
