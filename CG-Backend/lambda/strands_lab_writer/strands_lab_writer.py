@@ -1284,7 +1284,7 @@ def lambda_handler(event, context):
             print(f"📊 Filtered {original_count} labs → {len(lab_plans)} labs for this batch")
         
         # Extract language from metadata
-        course_language = master_plan.get('metadata', {}).get('course_language', 'en')
+        course_language = master_plan.get('metadata', {}).get('course_language', 'es')
         language_names = {
             'en': 'English',
             'es': 'Spanish (Español)',
@@ -1293,7 +1293,7 @@ def lambda_handler(event, context):
             'pt': 'Portuguese (Português)',
             'it': 'Italian (Italiano)'
         }
-        target_language = language_names.get(course_language, 'English')
+        target_language = language_names.get(course_language, 'Spanish (Español)')
         
         print(f"\n🌐 Target Language: {target_language} ({course_language})")
         print(f"📊 Total labs to generate: {len(lab_plans)}\n")

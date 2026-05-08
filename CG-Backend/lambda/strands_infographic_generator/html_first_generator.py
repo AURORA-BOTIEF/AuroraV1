@@ -2260,23 +2260,19 @@ def select_best_lab_guide(
 
 def detect_language(book_data: Dict) -> bool:
     """
-    Detect if course is in Spanish.
-    Uses outline metadata as primary source, falls back to heuristic.
-    Returns True if Spanish, False if English.
+    True if course UI language should be Spanish.
+    Spanish by default; English only when outline explicitly sets English.
     """
-    # Primary: Check outline metadata
     outline_lang = book_data.get('course_metadata', {}).get('language', '')
-    if outline_lang:
-        is_spanish = outline_lang.lower() in ['es', 'español', 'spanish']
-        logger.info(f"🌐 Language from outline: {outline_lang} → is_spanish={is_spanish}")
-        return is_spanish
-    
-    # Fallback: Heuristic detection
-    lessons = book_data.get('lessons', [])
-    sample_text = ' '.join([l.get('title', '') for l in lessons[:3]])
-    is_spanish = any(word in sample_text.lower() for word in ['introducción', 'conceptos', 'básicos', 'lección'])
-    logger.info(f"🌐 Language from heuristic → is_spanish={is_spanish}")
-    return is_spanish
+    if outline_lang and str(outline_lang).strip():
+        s = str(outline_lang).strip().lower()
+        if s.startswith('en') or 'english' in s or 'inglés' in s or 'ingles' in s:
+            logger.info(f"🌐 Language from outline: {outline_lang} → English")
+            return False
+        logger.info(f"🌐 Language from outline: {outline_lang} → Spanish")
+        return True
+    logger.info("🌐 No outline language → default Spanish")
+    return True
 
 
 # ============================================================================

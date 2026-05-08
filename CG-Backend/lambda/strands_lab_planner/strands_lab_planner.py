@@ -44,6 +44,17 @@ def get_secret(secret_name: str) -> dict:
         return {}
 
 
+def outline_language_code(course_info: Optional[dict]) -> str:
+    """Spanish by default; English only when outline explicitly sets English."""
+    raw = (course_info or {}).get("language")
+    if raw is None or not str(raw).strip():
+        return "es"
+    s = str(raw).strip().lower()
+    if s.startswith("en") or "english" in s or "inglés" in s or "ingles" in s:
+        return "en"
+    return "es"
+
+
 def load_outline_from_s3(bucket: str, key: str) -> dict:
     """Load and parse course outline YAML from S3."""
     try:
@@ -278,7 +289,7 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
 
 def build_fallback_lab_plans_from_outline(
     labs: List[Dict[str, Any]],
-    course_language: str = "en",
+    course_language: str = "es",
 ) -> List[Dict[str, Any]]:
     """
     Minimal lab_plans when the LLM returns nothing or unparsable JSON, so LabBatchExpander
@@ -426,7 +437,7 @@ def generate_lab_master_plan(
     num_batches = (len(labs) + batch_size - 1) // batch_size
     print(f"📦 Processing {len(labs)} labs in {num_batches} batch(es)")
 
-    course_language = (course_info or {}).get("language") or "en"
+    course_language = outline_language_code(course_info)
     BATCH_MAX_ATTEMPTS = 3
 
     all_lab_plans = []
@@ -798,7 +809,7 @@ def lambda_handler(event, context):
         master_plan["total_labs"] = len(lab_plan_list)
 
         # Add metadata (including language for LabWriter)
-        course_language = course_info.get('language', 'en')
+        course_language = outline_language_code(course_info)
         master_plan['metadata'] = {
             'generated_at': datetime.utcnow().isoformat(),
             'model_provider': model_provider,

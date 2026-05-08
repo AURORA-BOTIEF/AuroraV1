@@ -76,6 +76,16 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 
+def outline_metadata_is_spanish(language_value: Optional[str]) -> bool:
+    """Spanish by default; English only when outline metadata explicitly requests English."""
+    if language_value is None or not str(language_value).strip():
+        return True
+    s = str(language_value).strip().lower()
+    if s.startswith("en") or "english" in s or "inglés" in s or "ingles" in s:
+        return False
+    return True
+
+
 def get_secret(secret_name: str) -> dict:
     """Retrieve secret from AWS Secrets Manager."""
     try:
@@ -787,24 +797,17 @@ OUTPUT FORMAT (JSON):
     if image_url_mapping:
         logger.info(f"   Sample mappings: {list(image_url_mapping.items())[:3]}")
     
-    # Detect language from outline metadata (primary source) or fallback to heuristic
-    is_spanish = False
+    # Detect language: default Spanish; English only if outline explicitly sets it
+    is_spanish = True
     if 'outline_modules' in book_data:
-        # Try to get language from outline (stored in course_metadata during load_book_from_s3)
         outline_lang = book_data.get('course_metadata', {}).get('language', '')
-        if outline_lang:
-            is_spanish = outline_lang.lower() in ['es', 'español', 'spanish']
+        is_spanish = outline_metadata_is_spanish(outline_lang)
+        if outline_lang and str(outline_lang).strip():
             logger.info(f"🌐 Using language from outline: {outline_lang} -> is_spanish={is_spanish}")
         else:
-            # Fallback to heuristic if outline doesn't have language field
-            sample_text = ' '.join([l.get('title', '') for l in lessons[:3]])
-            is_spanish = any(word in sample_text.lower() for word in ['introducción', 'conceptos', 'básicos', 'lección'])
-            logger.info(f"🌐 Using heuristic language detection -> is_spanish={is_spanish}")
+            logger.info("🌐 No outline language field → default Spanish (is_spanish=True)")
     else:
-        # Fallback to heuristic if no outline available
-        sample_text = ' '.join([l.get('title', '') for l in lessons[:3]])
-        is_spanish = any(word in sample_text.lower() for word in ['introducción', 'conceptos', 'básicos', 'lección'])
-        logger.info(f"🌐 Using heuristic language detection (no outline) -> is_spanish={is_spanish}")
+        logger.info("🌐 No outline_modules in book_data → default Spanish (is_spanish=True)")
     
     # Add introduction slides ONLY for first batch (batch 0)
     if is_first_batch:
@@ -1908,7 +1911,7 @@ def lambda_handler(event, context):
             # Add introduction slides for first batch
             # Determine language
             course_metadata = book_data.get('course_metadata', {})
-            is_spanish = course_metadata.get('language', '').lower() in ['es', 'español', 'spanish']
+            is_spanish = outline_metadata_is_spanish(course_metadata.get('language'))
             
             # Add introduction slides for first batch
             if is_first_batch:

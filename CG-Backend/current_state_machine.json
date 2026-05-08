@@ -16,6 +16,7 @@
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "image_model.$": "$.image_model",
+        "course_language.$": "$.course_language",
         "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate",
         "lesson_to_generate": null,
         "lesson_requirements": null
@@ -531,6 +532,7 @@
           "outline_s3_key.$": "$.outline_s3_key",
           "project_folder.$": "$.project_folder",
           "image_model.$": "$.image_model",
+          "course_language.$": "$.course_language",
           "lesson_to_generate.$": "$.lesson_to_generate",
           "lesson_requirements.$": "$.lesson_requirements"
         }
@@ -906,7 +908,8 @@
                 "project_folder.$": "$.batch_task.project_folder",
                 "prompts.$": "$.remaining_prompts",
                 "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix",
-                "image_model.$": "$.batch_task.image_model"
+                "image_model.$": "$.batch_task.image_model",
+                "course_language.$": "$.batch_task.course_language"
               }
             },
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -954,7 +957,8 @@
                 "course_bucket.$": "$.batch_task.course_bucket",
                 "lesson_keys.$": "$.batch_result.Payload.lesson_keys",
                 "model_provider.$": "$.batch_task.model_provider",
-                "project_folder.$": "$.batch_task.project_folder"
+                "project_folder.$": "$.batch_task.project_folder",
+                "course_language.$": "$.batch_task.course_language"
               }
             },
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -1322,6 +1326,7 @@
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "image_model.$": "$.image_model",
+        "course_language.$": "$.course_language",
         "lesson_to_generate.$": "$.lesson_to_generate",
         "lesson_requirements": null
       }
@@ -1340,6 +1345,7 @@
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "image_model.$": "$.image_model",
+        "course_language.$": "$.course_language",
         "lesson_to_generate": null,
         "lesson_requirements": null
       }

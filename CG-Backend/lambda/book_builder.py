@@ -455,20 +455,24 @@ def lambda_handler(event, context):
         }
 
 def detect_spanish_course(s3_client, course_bucket, outline_s3_key):
-    """Determine if the course language is Spanish from outline metadata."""
+    """Spanish by default; English only when outline metadata explicitly requests English."""
     if not outline_s3_key:
-        return False
+        return True
 
     try:
         response = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
         outline_text = response['Body'].read().decode('utf-8')
         outline_data = yaml.safe_load(outline_text) or {}
         course_info = outline_data.get('course', outline_data)
-        language = str(course_info.get('language', outline_data.get('language', ''))).lower()
-        return language.startswith('es')
+        language = str(course_info.get('language', outline_data.get('language', ''))).strip().lower()
+        if not language:
+            return True
+        if language.startswith('en') or 'english' in language or 'inglés' in language or 'ingles' in language:
+            return False
+        return True
     except Exception as e:
         print(f"Warning: Could not detect course language from outline: {e}")
-        return False
+        return True
 
 
 def load_outline_data(s3_client, course_bucket, outline_s3_key):

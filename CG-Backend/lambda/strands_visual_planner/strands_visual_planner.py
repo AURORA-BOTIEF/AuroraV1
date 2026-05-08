@@ -210,33 +210,97 @@ def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) ->
         raise
 
 
-def process_visual_batch(visuals: List[Dict[str, Any]], model_provider: str = "bedrock") -> List[Dict[str, Any]]:
+def normalize_visual_course_language(lang: str | None) -> str:
+    """Default Spanish; English only when explicitly requested."""
+    if lang is None:
+        return "es"
+    s = str(lang).strip().lower()
+    if not s:
+        return "es"
+    if s.startswith("en") or "english" in s or "inglés" in s or "ingles" in s:
+        return "en"
+    if s.startswith("es") or "español" in s or "espanol" in s:
+        return "es"
+    return "es"
+
+
+def process_visual_batch(
+    visuals: List[Dict[str, Any]],
+    model_provider: str = "bedrock",
+    course_language: str = "es",
+) -> List[Dict[str, Any]]:
     """
     Process all visual tags in a single LLM API call.
-    
+
     Classifies each as diagram/artistic_image and creates enhanced prompts.
-    Modern LLMs can handle dozens of visuals in one call.
-    
-    CRITICAL: All prompts MUST be generated 100% in English for optimal
-    image generation quality (Gemini produces fewer text errors in English).
-    
-    Args:
-        visuals: List of visual tags from multiple lessons
-        model_provider: "bedrock" or "openai"
-    
-    Returns:
-        List of enhanced visual prompts with classification
+    Instructions match the course language (Spanish vs English) so on-image text aligns with lessons.
     """
-    
     if not visuals:
         return []
-    
-    # Build the unified prompt for classification + enhancement
-    prompt = f"""You are an expert visual prompt engineer specializing in creating detailed, precise image generation prompts.
+
+    lang = normalize_visual_course_language(course_language)
+    visuals_json = json.dumps(visuals, indent=2)
+
+    if lang == "es":
+        prompt = f"""You are an expert visual prompt engineer specializing in creating detailed, precise image generation prompts.
+
+⚠️ REQUISITO DE IDIOMA (CURSO EN ESPAÑOL) ⚠️
+TODO el contenido que generes (en especial el campo enhanced_prompt) DEBE estar en ESPAÑOL.
+Todo texto que deba aparecer DENTRO de la imagen (rótulos, títulos, anotaciones, botones, mensajes de error, leyendas) DEBE estar en ESPAÑOL, coherente con el curso.
+NO traduzcas el contenido didáctico al inglés salvo nombres propios de productos, APIs o comandos que en la práctica se muestran siempre en inglés.
+
+Recibirás una lista de descripciones visuales extraídas de lecciones técnicas. Para cada elemento:
+
+1. **Clasifica el tipo**:
+   - "diagram": diagramas de flujo, arquitectura, secuencias, gráficos
+   - "artistic_image": escenas, fotos conceptuales, metáforas visuales
+
+2. **OBLIGATORIO: Todo en español** (salvo excepciones técnicas citadas):
+   - El campo enhanced_prompt DEBE estar 100% en español
+   - Las etiquetas dentro de la imagen en español (p. ej. "Base de datos", "Cliente", "Servidor")
+   - Conserva la precisión técnica; no cambies el significado
+
+3. **Crea un enhanced_prompt detallado EN ESPAÑOL** con:
+   - Texto exacto y ortografía correcta para cada etiqueta visible (en español)
+   - Tipografía: estilo, peso, tamaño
+   - Disposición: posición, espaciado, alineación
+   - Colores: códigos hex o nombres (#0066CC azul, etc.)
+   - Estilo: profesional, moderno, limpio, técnico
+   - Verificación: "Comprueba que todo el texto visible esté en español: [lista de términos críticos]"
+
+INPUT VISUALS:
+{visuals_json}
+
+Devuelve SOLO JSON válido (sin markdown ni bloques de código) en este formato exacto:
+{{
+  "visuals": [
+    {{
+      "id": "01-01-0001",
+      "lesson_id": "01-01",
+      "description": "descripción original",
+      "type": "diagram|artistic_image",
+      "enhanced_prompt": "Prompt detallado EN ESPAÑOL con especificaciones exactas..."
+    }},
+    ...
+  ]
+}}
+
+CRÍTICO: El campo "id" DEBE copiarse EXACTAMENTE del input. NO lo modifiques.
+
+⚠️ LISTA DE VERIFICACIÓN:
+1. ✓ ¿El "id" coincide exactamente con el input?
+2. ✓ ¿enhanced_prompt está 100% en español?
+3. ✓ ¿Todo texto dentro de la imagen está en español (salvo nombres de API/producto si aplica)?
+4. ✓ ¿Ortografía y términos técnicos correctos?
+5. ✓ ¿Colores y tipografía especificados?
+
+Si hay texto para la imagen que no esté en español sin justificación técnica, corrígelo antes de responder."""
+
+    else:
+        prompt = f"""You are an expert visual prompt engineer specializing in creating detailed, precise image generation prompts.
 
 ⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
-ALL output MUST be 100% in ENGLISH. This is mandatory for optimal image generation quality.
-The image generation model (Google Gemini) produces significantly fewer text rendering errors when prompts are in English.
+ALL output MUST be 100% in ENGLISH. This is mandatory for optimal image generation quality when the course is in English.
 
 You will receive a list of visual descriptions extracted from technical course lessons. For each visual:
 
@@ -246,17 +310,8 @@ You will receive a list of visual descriptions extracted from technical course l
 
 2. **MANDATORY: Write everything in English** (CRITICAL - NON-NEGOTIABLE):
    - The enhanced_prompt field MUST be 100% in English
-   - ALL text that will appear IN the diagram/image MUST be in English:
-     * Node labels: "Base de datos" → "Database"
-     * Button labels: "Comprar ahora" → "Buy now"
-     * Annotations: "Anillo de enfoque visible" → "Visible focus ring"
-     * Titles: "Accesibilidad: enfoque visible" → "Accessibility: visible focus"
-     * Error messages, warnings, tooltips - EVERYTHING must be English
-     * Technical terms: "Servidor" → "Server", "Cliente" → "Client"
-   - If the original description is in Spanish or another language, translate it completely
-   - Preserve technical accuracy while translating
-   - Example: "Diagrama del ciclo HTTP con solicitud y respuesta" → 
-     "Diagram of HTTP request-response cycle showing client, server, request, and response"
+   - ALL text that will appear IN the diagram/image MUST be in English
+   - If the original description is in another language, translate it completely while preserving technical accuracy
 
 3. **Create an enhanced prompt** (IN ENGLISH) with:
    - **Exact text with correct spelling**: List every label, title, annotation IN ENGLISH
@@ -267,7 +322,7 @@ You will receive a list of visual descriptions extracted from technical course l
    - **Verification**: "Ensure all text is spelled correctly: [list critical English terms]"
 
 INPUT VISUALS:
-{json.dumps(visuals, indent=2)}
+{visuals_json}
 
 Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
 {{
@@ -289,14 +344,13 @@ CRITICAL: The "id" field MUST be copied EXACTLY from the input (e.g., "02-01-000
 1. ✓ Is the "id" field copied EXACTLY from input? (CRITICAL - DO NOT CHANGE IDs)
 2. ✓ Is the enhanced_prompt 100% in English? (MANDATORY)
 3. ✓ Are ALL labels, titles, and annotations in English?
-4. ✓ Did you translate any Spanish/other language text to English?
-5. ✓ Are technical terms spelled correctly?
-6. ✓ Did you include specific color codes?
-7. ✓ Did you specify text placement and typography?
+4. ✓ Are technical terms spelled correctly?
+5. ✓ Did you include specific color codes?
+6. ✓ Did you specify text placement and typography?
 
 If ANY text in enhanced_prompt is not in English, FIX IT before responding."""
 
-    print(f"🤖 Calling {model_provider.upper()} with {len(visuals)} visual tags...")
+    print(f"🤖 Calling {model_provider.upper()} with {len(visuals)} visual tags (course_language={lang})...")
     
     try:
         if model_provider == 'bedrock':
@@ -349,10 +403,12 @@ def lambda_handler(event: Dict[str, Any], context):
         course_bucket = event.get('course_bucket')
         project_folder = event.get('project_folder')
         model_provider = event.get('model_provider', 'bedrock').lower()
-        
+        course_language = normalize_visual_course_language(event.get('course_language'))
+
         print(f"📦 Bucket: {course_bucket}")
         print(f"📁 Project: {project_folder}")
         print(f"🤖 Model: {model_provider}")
+        print(f"🌐 Course language (visuals): {course_language}")
         print(f"📚 Processing {len(lesson_keys)} lessons")
         
         if not lesson_keys:
@@ -401,7 +457,7 @@ def lambda_handler(event: Dict[str, Any], context):
         print(f"\n📊 Total visual tags: {len(all_visuals)}")
         
         # Step 2: Process ALL visuals in a SINGLE API call
-        enhanced_visuals = process_visual_batch(all_visuals, model_provider)
+        enhanced_visuals = process_visual_batch(all_visuals, model_provider, course_language)
         
         # Step 3: Generate prompt files and save to S3
         generated_prompts = []

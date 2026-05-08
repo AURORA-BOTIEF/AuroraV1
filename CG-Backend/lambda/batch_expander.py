@@ -45,6 +45,20 @@ s3_client = boto3.client('s3')
 MAX_LESSONS_PER_BATCH = 1
 
 
+def normalize_course_language(lang) -> str:
+    """Default Spanish; English only when outline/API explicitly requests English."""
+    if lang is None:
+        return "es"
+    s = str(lang).strip().lower()
+    if not s:
+        return "es"
+    if s.startswith("en") or "english" in s or "inglés" in s or "ingles" in s:
+        return "en"
+    if s.startswith("es") or "español" in s or "espanol" in s:
+        return "es"
+    return "es"
+
+
 def lambda_handler(event, context):
     """
     Expand modules into batch tasks for parallel processing.
@@ -94,6 +108,15 @@ def lambda_handler(event, context):
         # Get modules from course structure
         course_data = outline_data.get('course', outline_data)  # Support both formats
         modules = course_data.get('modules', [])
+
+        outline_lang_raw = course_data.get("language")
+        if outline_lang_raw and str(outline_lang_raw).strip():
+            course_language = normalize_course_language(outline_lang_raw)
+        elif event.get("course_language"):
+            course_language = normalize_course_language(event.get("course_language"))
+        else:
+            course_language = "es"
+        print(f"🌐 Batch expander course_language: {course_language}")
         
         if not modules_to_generate:
             # If not specified, generate all modules
@@ -137,7 +160,7 @@ def lambda_handler(event, context):
                     'model_provider': model_provider,
                     'content_source': content_source,
                     'image_model': image_model,
-                    'image_model': image_model,
+                    'course_language': course_language,
                     'lesson_requirements': lesson_requirements,
                     'force_regenerate': True  # Always true for specific regeneration
                 }
@@ -169,8 +192,7 @@ def lambda_handler(event, context):
                     'model_provider': model_provider,
                     'content_source': content_source,
                     'image_model': image_model,
-                    'content_source': content_source,
-                    'image_model': image_model,
+                    'course_language': course_language,
                     'lesson_requirements': lesson_requirements,  # Pass additional requirements to content generator
                     # Safeguard: Force regeneration ONLY if a specific lesson was requested
                     'force_regenerate': bool(lesson_to_generate)
@@ -191,7 +213,8 @@ def lambda_handler(event, context):
             'total_modules': len(modules_to_generate),
             'course_bucket': course_bucket,
             'project_folder': project_folder,
-            'model_provider': model_provider
+            'model_provider': model_provider,
+            'course_language': course_language,
         }
     
     except Exception as e:

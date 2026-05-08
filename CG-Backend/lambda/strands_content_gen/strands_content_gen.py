@@ -157,9 +157,13 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
 
 
 def is_spanish_course(course_data: dict) -> bool:
-    """Detect whether the course should be generated in Spanish."""
-    language = str(course_data.get('language', '')).lower()
-    return language.startswith('es')
+    """Spanish by default; English only when outline explicitly sets English."""
+    language = str(course_data.get('language', '')).strip().lower()
+    if not language:
+        return True
+    if language.startswith('en') or 'english' in language or 'inglés' in language or 'ingles' in language:
+        return False
+    return True
 
 
 def build_course_context(course_data: dict, spanish_course: bool = False) -> str:

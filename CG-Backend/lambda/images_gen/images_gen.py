@@ -24,9 +24,10 @@ import time
 import logging
 import urllib.error
 import urllib.request
+from functools import partial
 from io import BytesIO
 from PIL import Image
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 # Configure logging
@@ -180,71 +181,89 @@ def get_google_service_account() -> Dict[str, Any]:
 # IMAGE GENERATION
 # ============================================================================
 
-def optimize_prompt_for_gemini(prompt_text: str) -> str:
+def normalize_image_locale(lang: Optional[str]) -> str:
+    """Default Spanish for on-image text; English only when course_language is explicitly English."""
+    if lang is None:
+        return 'es'
+    s = str(lang).strip().lower()
+    if not s:
+        return 'es'
+    if s.startswith('en') or 'english' in s or 'inglés' in s or 'ingles' in s:
+        return 'en'
+    return 'es'
+
+
+def optimize_prompt_for_image_generation(prompt_text: str, image_locale: str = 'es') -> str:
     """
-    Optimize prompt text for better Gemini image generation results.
-    
-    Key improvements:
-    1. PRESERVE detailed enhanced_prompts (from Visual Planner) - don't simplify them
-    2. Add explicit ENGLISH language enforcement
-    3. For simple descriptions, add style guidance
-    4. Convert text-heavy requests to conceptual illustrations
-    
-    Args:
-        prompt_text: Original prompt description
-        
-    Returns:
-        str: Optimized prompt with English enforcement
+    Optimize prompt for Gemini/OpenAI image APIs.
+
+    Preserves detailed enhanced_prompts from Visual Planner; enforces on-image text
+    language to match the course (Spanish vs English).
     """
-    # CRITICAL: English enforcement prefix - ALWAYS added
-    # This ensures Gemini generates text in English, not the course's language
+    loc = normalize_image_locale(image_locale)
+
+    if loc == 'es':
+        lang_prefix = (
+            '⚠️ INSTRUCCIÓN CRÍTICA: TODO EL TEXTO LEGIBLE EN LA IMAGEN DEBE ESTAR EN ESPAÑOL. '
+            'Rótulos, títulos, anotaciones, botones y leyendas en español (salvo nombres propios de productos/APIs '
+            'que deban mantenerse como marca). No sustituir por inglés salvo esos casos.\n\n'
+        )
+        detailed_prompt_indicators = [
+            'typography:', 'exact on-canvas text', 'layout:', 'colors and styling:',
+            'verification:', 'style notes:', 'alignment and spacing:', 'font:',
+            'spell exactly', 'professional illustration', '#ffffff', '1920x1080',
+            'tipografía:', 'texto exacto', 'disposición:', 'colores y estilo:',
+        ]
+        is_detailed_prompt = any(indicator in prompt_text.lower() for indicator in detailed_prompt_indicators)
+        if is_detailed_prompt:
+            logger.info('📝 Detected detailed enhanced_prompt — preserving with Spanish on-image text enforcement')
+            return f'{lang_prefix}{prompt_text}'
+
+        logger.info('📝 Simple description — applying Spanish template optimization')
+        text_heavy_keywords = [
+            'tabla', 'screenshot', 'captura', 'texto', 'fragmento de código', 'terminal',
+            'línea de comandos', 'hoja de cálculo', 'documento', 'formulario',
+            'table', 'screenshot', 'text', 'code snippet', 'terminal',
+            'command line', 'spreadsheet', 'document', 'form',
+        ]
+        is_text_heavy = any(keyword in prompt_text.lower() for keyword in text_heavy_keywords)
+        if is_text_heavy:
+            prefix = 'Crea una ilustración conceptual profesional EN ESPAÑOL que represente: '
+            suffix = '. Estilo: limpio, moderno, minimalista, basado en iconos. Todas las etiquetas y textos visibles en español.'
+        else:
+            prefix = 'Crea una ilustración educativa profesional EN ESPAÑOL: '
+            suffix = '. Estilo: limpio, moderno, alta calidad, bien compuesto. Todo texto, etiquetas y anotaciones en español.'
+        return f'{lang_prefix}{prefix}{prompt_text}{suffix}'
+
+    # English (default)
     english_prefix = (
-        "⚠️ CRITICAL INSTRUCTION: ALL TEXT RENDERED IN THE IMAGE MUST BE IN ENGLISH. "
-        "Do NOT use Spanish, Portuguese, or any other language. "
-        "Every label, title, annotation, and text element must be written in English only.\n\n"
+        '⚠️ CRITICAL INSTRUCTION: ALL TEXT RENDERED IN THE IMAGE MUST BE IN ENGLISH. '
+        'Labels, titles, annotations, and UI copy in English unless the lesson explicitly requires another language.\n\n'
     )
-    
-    # Check if this is already a detailed enhanced_prompt from Visual Planner
-    # These prompts contain specific formatting instructions and should be preserved
     detailed_prompt_indicators = [
         'typography:', 'exact on-canvas text', 'layout:', 'colors and styling:',
         'verification:', 'style notes:', 'alignment and spacing:', 'font:',
-        'spell exactly', 'professional illustration', '#ffffff', '1920x1080'
+        'spell exactly', 'professional illustration', '#ffffff', '1920x1080',
     ]
-    
     is_detailed_prompt = any(indicator in prompt_text.lower() for indicator in detailed_prompt_indicators)
-    
     if is_detailed_prompt:
-        # This is a detailed enhanced_prompt - preserve it, just add English enforcement
-        logger.info("📝 Detected detailed enhanced_prompt - preserving with English enforcement")
-        return f"{english_prefix}{prompt_text}"
-    
-    # For simple descriptions, apply the template optimization
-    logger.info("📝 Simple description detected - applying template optimization")
-    
-    # Keywords that indicate text-heavy content Gemini struggles with
-    text_heavy_keywords = ['table', 'screenshot', 'text', 'code snippet', 'terminal', 
+        logger.info('📝 Detected detailed enhanced_prompt — preserving with English enforcement')
+        return f'{english_prefix}{prompt_text}'
+
+    logger.info('📝 Simple description detected — applying English template optimization')
+    text_heavy_keywords = ['table', 'screenshot', 'text', 'code snippet', 'terminal',
                           'command line', 'spreadsheet', 'document', 'form']
-    
-    # Check if prompt is text-heavy
     is_text_heavy = any(keyword in prompt_text.lower() for keyword in text_heavy_keywords)
-    
     if is_text_heavy:
-        # For text-heavy content, request a conceptual illustration instead
-        prefix = "Create a professional conceptual illustration IN ENGLISH representing: "
-        suffix = ". Style: clean, modern, minimalist, icon-based design. All labels and text must be in English."
+        prefix = 'Create a professional conceptual illustration IN ENGLISH representing: '
+        suffix = '. Style: clean, modern, minimalist, icon-based design. All labels and text in English.'
     else:
-        # For visual content, enhance with quality keywords
-        prefix = "Create a professional educational illustration IN ENGLISH: "
-        suffix = ". Style: clean, modern, high-quality, well-composed. All text, labels, and annotations must be in English only."
-    
-    # Build optimized prompt with English enforcement
-    optimized = f"{english_prefix}{prefix}{prompt_text}{suffix}"
-    
-    return optimized
+        prefix = 'Create a professional educational illustration IN ENGLISH: '
+        suffix = '. Style: clean, modern, high-quality, well-composed. All text, labels, and annotations in English.'
+    return f'{english_prefix}{prefix}{prompt_text}{suffix}'
 
 
-def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: int = 0) -> tuple:
+def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: int = 0, *, image_locale: str = 'es') -> tuple:
     """
     Generate an image using Gemini with optimized prompts and retry logic.
 
@@ -261,9 +280,8 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: 
         logger.info(f"Generating image for prompt: {prompt_id} (attempt {retry_count + 1}/{MAX_RETRIES + 1})")
         logger.info(f"Prompt text length: {len(prompt_text)} characters")
         logger.info(f"Prompt preview: {prompt_text[:150]}{'...' if len(prompt_text) > 150 else ''}")
-        
-        # Optimize prompt for better Gemini results
-        optimized_prompt = optimize_prompt_for_gemini(prompt_text)
+
+        optimized_prompt = optimize_prompt_for_image_generation(prompt_text, image_locale)
         logger.info(f"Optimized prompt: {optimized_prompt[:200]}{'...' if len(optimized_prompt) > 200 else ''}")
         
         # Configure safety settings to be more permissive for educational content
@@ -308,7 +326,10 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: 
                         logger.info(f"Retrying with simplified prompt...")
                         time.sleep(RETRY_DELAY)
                         # Use original prompt without optimization
-                        return generate_image_gemini(model, prompt_id, f"Simple illustration: {prompt_text[:100]}", retry_count + 1)
+                        return generate_image_gemini(
+                            model, prompt_id, f"Simple illustration: {prompt_text[:100]}",
+                            retry_count + 1, image_locale=image_locale,
+                        )
                     
                     return False, None, f"Blocked by safety filter: {block_reason}"
         
@@ -399,7 +420,9 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: 
                             time.sleep(RETRY_DELAY)
                             # Try with a more direct, simplified prompt
                             simplified_prompt = f"Professional illustration: {prompt_text[:150]}"
-                            return generate_image_gemini(model, prompt_id, simplified_prompt, retry_count + 1)
+                            return generate_image_gemini(
+                                model, prompt_id, simplified_prompt, retry_count + 1, image_locale=image_locale,
+                            )
                         
                         return False, None, "No valid image data found in any part"
                 else:
@@ -423,7 +446,7 @@ def generate_image_gemini(model, prompt_id: str, prompt_text: str, retry_count: 
         if retry_count < MAX_RETRIES:
             logger.info(f"🔄 Retrying after exception (attempt {retry_count + 2}/{MAX_RETRIES + 1})...")
             time.sleep(RETRY_DELAY)
-            return generate_image_gemini(model, prompt_id, prompt_text, retry_count + 1)
+            return generate_image_gemini(model, prompt_id, prompt_text, retry_count + 1, image_locale=image_locale)
         
         return False, None, str(e)
 
@@ -436,10 +459,12 @@ def generate_image_openai(
     prompt_id: str,
     prompt_text: str,
     retry_count: int = 0,
+    *,
+    image_locale: str = 'es',
 ) -> tuple:
     """Generate one image via OpenAI Images API (e.g. gpt-image-2)."""
     try:
-        optimized_prompt = optimize_prompt_for_gemini(prompt_text)
+        optimized_prompt = optimize_prompt_for_image_generation(prompt_text, image_locale)
         if len(optimized_prompt) > 32000:
             optimized_prompt = optimized_prompt[:32000]
 
@@ -491,14 +516,18 @@ def generate_image_openai(
         logger.error(f'OpenAI HTTP {e.code} for {prompt_id}: {err_txt[:800]}')
         if retry_count < MAX_RETRIES and e.code in (429, 500, 502, 503):
             time.sleep(RETRY_DELAY * (retry_count + 1))
-            return generate_image_openai(api_key, model_id, prompt_id, prompt_text, retry_count + 1)
+            return generate_image_openai(
+                api_key, model_id, prompt_id, prompt_text, retry_count + 1, image_locale=image_locale,
+            )
         return False, None, f'OpenAI HTTP {e.code}: {err_txt[:400]}'
 
     except Exception as e:
         logger.error(f'❌ OpenAI image generation error for {prompt_id}: {e}', exc_info=True)
         if retry_count < MAX_RETRIES:
             time.sleep(RETRY_DELAY)
-            return generate_image_openai(api_key, model_id, prompt_id, prompt_text, retry_count + 1)
+            return generate_image_openai(
+                api_key, model_id, prompt_id, prompt_text, retry_count + 1, image_locale=image_locale,
+            )
         return False, None, str(e)
 
 
@@ -612,6 +641,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         logger.info(f"🔍 DEBUG - Final image_model after processing: {image_model}")
         use_openai = is_openai_image_model(image_model)
 
+        course_language_norm = normalize_image_locale(exec_input.get('course_language'))
+        logger.info(f"🌐 course_language for image prompts: {course_language_norm}")
+
         rate_limit_override = exec_input.get('rate_limit_override')  # For performance testing
 
         # Override rate limit if specified (for testing)
@@ -718,7 +750,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 openai_model_id = DEFAULT_OPENAI_IMAGE_MODEL
 
             def openai_wrapped(_m, pid: str, txt: str):
-                return generate_image_openai(openai_api_key, openai_model_id, pid, txt)
+                return generate_image_openai(
+                    openai_api_key, openai_model_id, pid, txt, image_locale=course_language_norm,
+                )
 
             generate_func = openai_wrapped
             logger.info(f"✅ OpenAI Images ready (model_id={openai_model_id})")
@@ -750,7 +784,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 genai.configure(api_key=google_api_key)
                 model_to_use = image_model if image_model else GEMINI_MODEL
                 model = genai.GenerativeModel(model_to_use)
-                generate_func = generate_image_gemini
+                generate_func = partial(generate_image_gemini, image_locale=course_language_norm)
                 logger.info(f"✅ Initialized Gemini model: {model_to_use}")
             except Exception as e:
                 logger.info(f"❌ Failed to configure Gemini: {e}")
