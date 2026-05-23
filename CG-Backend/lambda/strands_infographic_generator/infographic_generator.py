@@ -48,8 +48,8 @@ s3_client = boto3.client('s3')
 bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=boto_config)
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
-# Model Configuration - Using Claude Haiku 4.5 inference profile (faster, cheaper)
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+# Model Configuration
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
 # Height Estimation Constants (pixels) - MATCHED TO ACTUAL HTML CSS RENDERING
@@ -1886,7 +1886,12 @@ def lambda_handler(event, context):
             logger.info("🚀 USING HTML-FIRST ARCHITECTURE")
             logger.info("=" * 80)
             
-            from html_first_generator import HTMLFirstGenerator, generate_html_output
+            from html_first_generator import (
+                HTMLFirstGenerator,
+                _extract_introduction_from_content,
+                generate_html_output,
+                strip_redundant_lesson_ai_openings,
+            )
             
             # Build image mapping
             image_url_mapping = {}
@@ -1944,6 +1949,15 @@ def lambda_handler(event, context):
                 
                 # Generate slides for this lesson
                 lesson_slides = generator.generate_from_lesson(lesson, lesson_idx, lesson_images)
+                lesson_slides = strip_redundant_lesson_ai_openings(
+                    lesson_slides,
+                    is_spanish_course=is_spanish,
+                    strip_intro=bool(
+                        _extract_introduction_from_content(
+                            lesson.get('content', '')
+                        ).strip()
+                    ),
+                )
                 all_slides.extend(lesson_slides)
                 
                 logger.info(f"✅ Generated {len(lesson_slides)} slides for lesson {lesson_idx}")

@@ -385,7 +385,7 @@ Resources:
       Environment:
         Variables:
           PYTHONPATH: /opt/python
-          BEDROCK_MODEL: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -418,7 +418,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: StrandsVisualOptimizer
-      Description: Agent 2 - Intelligently optimizes oversized slides using Claude Haiku 4.5 (post-processing)
+      Description: Agent 2 - Intelligently optimizes oversized slides using Claude Sonnet 4.6 (post-processing)
       Runtime: python3.12
       Handler: visual_optimizer.lambda_handler
       CodeUri: ./lambda/strands_visual_optimizer/
@@ -431,7 +431,7 @@ Resources:
         - !Ref PPTLayer
       Environment:
         Variables:
-          BEDROCK_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          BEDROCK_MODEL_ID: us.anthropic.claude-sonnet-4-6
           PYTHONPATH: /opt/python
       Policies:
         - Version: '2012-10-17'

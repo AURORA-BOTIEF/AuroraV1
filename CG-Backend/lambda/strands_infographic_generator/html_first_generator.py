@@ -27,6 +27,7 @@ Key Innovation:
 import copy
 import json
 import logging
+import math
 import os
 import re
 import boto3
@@ -38,6 +39,24 @@ from typing import Any, Dict, List, Tuple, Optional
 from datetime import datetime
 
 logger = logging.getLogger("aurora.infographic_generator")
+
+
+DEFAULT_RELAXED_MINUTES_PER_CONTENT_SLIDE = max(
+    3, int(os.getenv("INFOGRAPHIC_RELAXED_MINUTES_PER_SLIDE", "5"))
+)
+DEFAULT_BALANCED_MINUTES_PER_CONTENT_SLIDE = max(
+    2, int(os.getenv("INFOGRAPHIC_BALANCED_MINUTES_PER_SLIDE", "3"))
+)
+DEFAULT_DENSE_MINUTES_PER_CONTENT_SLIDE = max(
+    1, int(os.getenv("INFOGRAPHIC_DENSE_MINUTES_PER_SLIDE", "2"))
+)
+DEFAULT_MIN_CONTENT_SLIDES = max(
+    1, int(os.getenv("INFOGRAPHIC_MIN_CONTENT_SLIDES_PER_LESSON", "2"))
+)
+DEFAULT_MAX_CONTENT_SLIDES = max(
+    DEFAULT_MIN_CONTENT_SLIDES,
+    int(os.getenv("INFOGRAPHIC_MAX_CONTENT_SLIDES_PER_LESSON", "24")),
+)
 
 
 def highlight_code_with_pygments(code: str, language: str) -> str:
@@ -1723,6 +1742,135 @@ def _is_lesson_summary_slide(slide: Dict) -> bool:
     )
 
 
+def _asci_fold_lower(s: str) -> str:
+    """Normalize for heading comparison (strip accents)."""
+    if not s:
+        return ''
+    return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii').lower().strip()
+
+
+def _split_module_title_visual(title: str, module_number) -> Tuple[str, str]:
+    """
+    Split outline/module title into (chapter_label, chapter_name) for module-title slides.
+
+    Supports 'Capítulo 1: Nombre', 'Capítulo 1. Nombre', 'Module 3 - Title', plain names with
+    module_number for the label column, etc. Drops redundant 'Capítulo N.' from chapter_name so
+    the second line shows only the human-readable chapter title.
+    """
+    raw = (title or '').strip()
+    prefers_es = bool(re.search(r'\b(cap[ií]tulo|m[oó]dulo)\b', raw, re.IGNORECASE))
+    prefers_en = bool(re.search(r'\b(module|chapter)\b', raw, re.IGNORECASE))
+    chap_word = 'Capítulo' if (prefers_es or not prefers_en) else 'Chapter'
+
+    num_from_meta = ''
+    if module_number is not None and module_number != '':
+        try:
+            num_from_meta = str(int(module_number))
+        except (TypeError, ValueError):
+            num_from_meta = str(module_number).strip()
+
+    m = re.match(
+        r'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s+(\d+)\s*:\s*(.+)$',
+        raw,
+        re.IGNORECASE,
+    )
+    if m:
+        return f'{chap_word} {m.group(1)}', m.group(2).strip()
+
+    m = re.match(
+        r'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s+(\d+)\s*[.–\-]\s*(.+)$',
+        raw,
+        re.IGNORECASE,
+    )
+    if m:
+        return f'{chap_word} {m.group(1)}', m.group(2).strip()
+
+    m = re.match(
+        r'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s+(\d+)\s*$',
+        raw,
+        re.IGNORECASE,
+    )
+    if m:
+        return f'{chap_word} {m.group(1)}', ''
+
+    if num_from_meta:
+        chap_label = f'{chap_word} {num_from_meta}'
+        m_strip = re.match(
+            rf'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s*{re.escape(num_from_meta)}\s*'
+            r'[.:–\-\s]+\s*(.+)$',
+            raw,
+            re.IGNORECASE,
+        )
+        if m_strip:
+            return chap_label, m_strip.group(1).strip()
+        spacer = re.match(
+            rf'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s*{re.escape(num_from_meta)}\s+(.+)$',
+            raw,
+            re.IGNORECASE,
+        )
+        if spacer:
+            remainder = spacer.group(1).strip()
+            remainder = re.sub(r'^[.:\-–]+\s*', '', remainder)
+            return chap_label, remainder
+        return chap_label, raw
+
+    return raw, ''
+
+
+def _is_learning_objectives_opening_slide(slide: Dict) -> bool:
+    """First-slide duplicate of chapter objectives (still emitted by LLM despite title slides)."""
+    tl = _asci_fold_lower(slide.get('title', ''))
+    if not tl:
+        return False
+    if tl in ('learning objectives', 'learning objective'):
+        return True
+    if 'objetivos' in tl and 'aprendizaje' in tl:
+        return True
+    return False
+
+
+def _is_introduction_opening_slide(slide: Dict, is_spanish_course: bool) -> bool:
+    """Intro opener redundant when the branded lesson slide already inlined ## Introducción."""
+    tl = _asci_fold_lower(slide.get('title', ''))
+    if not tl:
+        return False
+    if is_spanish_course:
+        # Match "Introducción", "Introducción a X", headings only (ASCII-folded → introduccion*)
+        return tl.startswith('introduccion') or tl == 'introduction'
+    # EN: avoid stripping "Introduction to Topic" substantive slides unless it is generic only.
+    return tl == 'introduction'
+
+
+def strip_redundant_lesson_ai_openings(
+    slides: List[Dict],
+    *,
+    is_spanish_course: bool,
+    strip_intro: bool,
+) -> List[Dict]:
+    """Remove objectives/intro slides the model still emits at the start of each lesson."""
+    if not slides:
+        return slides
+    out = list(slides)
+    while out:
+        first = out[0]
+        if _is_learning_objectives_opening_slide(first):
+            logger.info(
+                "Dropping redundant opening slide (objectives): %r",
+                first.get('title', ''),
+            )
+            out.pop(0)
+            continue
+        if strip_intro and _is_introduction_opening_slide(first, is_spanish_course):
+            logger.info(
+                "Dropping redundant opening slide (introduction): %r",
+                first.get('title', ''),
+            )
+            out.pop(0)
+            continue
+        break
+    return out
+
+
 def create_chapter_summary_slide(
     module_number: int,
     summary_items: List[str],
@@ -1848,6 +1996,97 @@ def _extract_introduction_from_content(content: str) -> str:
     raw = match.group(1).strip()
     first_para = raw.split('\n\n')[0].replace('\n', ' ').strip()
     return first_para
+
+
+def create_fallback_lesson_content_slides(lesson: Dict, is_spanish: bool) -> List[Dict]:
+    """Build deterministic lesson-content slides when AI output is fully filtered out."""
+    content = lesson.get('content', '') or ''
+    if not content.strip():
+        return []
+
+    excluded_heading_keywords = (
+        'introduccion',
+        'introduction',
+        'objetivo',
+        'learning objective',
+        'summary',
+        'resumen',
+        'puntos clave',
+        'reference',
+        'referencia',
+        'bibliograf',
+        'lab',
+        'laboratorio',
+        'practica',
+        'actividad',
+        'activity',
+    )
+
+    sections: List[Tuple[str, str]] = []
+    current_heading = ''
+    current_lines: List[str] = []
+    skip_current_section = False
+
+    def flush_current_section() -> None:
+        if skip_current_section:
+            return
+        body = '\n'.join(current_lines).strip()
+        if body:
+            sections.append((current_heading, body))
+
+    for raw_line in content.splitlines():
+        heading_match = re.match(r'^\s{0,3}(#{2,6})\s+(.+?)\s*$', raw_line)
+        if heading_match:
+            flush_current_section()
+            current_heading = heading_match.group(2).strip()
+            current_lines = []
+            normalized_heading = _asci_fold_lower(current_heading)
+            skip_current_section = any(k in normalized_heading for k in excluded_heading_keywords)
+            continue
+        current_lines.append(raw_line)
+    flush_current_section()
+
+    fallback_slides: List[Dict] = []
+    lesson_title = lesson.get('title', 'Contenido')
+    default_title = 'Contenido clave' if is_spanish else 'Key Content'
+    max_items_per_slide = 5
+
+    for heading, section_text in sections:
+        bullets = _section_to_bullets(section_text)
+        if not bullets:
+            continue
+        display_title = heading.strip() or default_title
+        for idx in range(0, len(bullets), max_items_per_slide):
+            chunk = bullets[idx: idx + max_items_per_slide]
+            part = idx // max_items_per_slide
+            slide_title = display_title if part == 0 else f"{display_title} — parte {part + 1}"
+            fallback_slides.append({
+                'title': slide_title,
+                'subtitle': lesson_title,
+                'layout': 'text-only',
+                'content_blocks': [{
+                    'type': 'bullets',
+                    'items': chunk,
+                }],
+                'notes': 'Deterministic lesson fallback content',
+            })
+
+    if fallback_slides:
+        return fallback_slides
+
+    residual_bullets = _section_to_bullets(content)
+    if not residual_bullets:
+        return []
+    return [{
+        'title': default_title,
+        'subtitle': lesson_title,
+        'layout': 'text-only',
+        'content_blocks': [{
+            'type': 'bullets',
+            'items': residual_bullets[:max_items_per_slide],
+        }],
+        'notes': 'Deterministic lesson fallback content',
+    }]
 
 
 def create_lesson_title_slides(
@@ -2153,6 +2392,116 @@ def _normalize_text(value: str) -> str:
     normalized = re.sub(r'[^a-z0-9\s\-]', ' ', normalized)
     normalized = re.sub(r'\s+', ' ', normalized).strip()
     return normalized
+
+
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        parsed = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _find_outline_lesson_duration_minutes(
+    lesson: Dict,
+    outline_modules: List[Dict],
+) -> Optional[int]:
+    module_number = _coerce_positive_int(lesson.get('module_number'))
+    if not module_number or module_number > len(outline_modules):
+        return None
+
+    lesson_title = _normalize_text(lesson.get('title', ''))
+    if not lesson_title:
+        return None
+
+    module_info = outline_modules[module_number - 1] or {}
+    for outline_lesson in module_info.get('lessons', []):
+        if _normalize_text(outline_lesson.get('title', '')) != lesson_title:
+            continue
+        return _coerce_positive_int(outline_lesson.get('duration_minutes'))
+    return None
+
+
+def _build_content_slide_budget(
+    lesson: Dict,
+    outline_modules: List[Dict],
+    global_slides_per_lesson: int,
+    image_count: int,
+) -> Dict[str, Any]:
+    duration_minutes = _coerce_positive_int(lesson.get('duration_minutes'))
+    budget_source = 'lesson.duration_minutes'
+    if duration_minutes is None:
+        duration_minutes = _find_outline_lesson_duration_minutes(lesson, outline_modules)
+        budget_source = 'outline.lesson.duration_minutes'
+
+    lesson_content = lesson.get('content', '') or ''
+    heading_count = len(re.findall(r'^#{2,4}\s+', lesson_content, flags=re.MULTILINE))
+    code_block_count = len(re.findall(r'```', lesson_content)) // 2
+    markdown_table_lines = len(re.findall(r'^\|.+\|\s*$', lesson_content, flags=re.MULTILINE))
+    table_count = 1 if markdown_table_lines >= 2 else 0
+    topic_count = len(lesson.get('topics', []) or [])
+    word_count = len(re.findall(r'\w+', lesson_content))
+    complexity_factor = min(
+        1.0,
+        (
+            topic_count * 2
+            + heading_count
+            + code_block_count * 2
+            + table_count * 2
+            + image_count
+            + min(6, word_count // 250)
+        )
+        / 14.0,
+    )
+
+    if duration_minutes is None:
+        requested_cap = _coerce_positive_int(global_slides_per_lesson)
+        min_slides = max(DEFAULT_MIN_CONTENT_SLIDES, requested_cap or DEFAULT_MIN_CONTENT_SLIDES)
+        target_slides = min_slides
+        budget_source = 'slides_per_lesson_fallback'
+        max_slides = max(min_slides, requested_cap or target_slides)
+    else:
+        min_slides = max(
+            DEFAULT_MIN_CONTENT_SLIDES,
+            math.ceil(duration_minutes / DEFAULT_RELAXED_MINUTES_PER_CONTENT_SLIDE),
+        )
+        preferred_slides = max(
+            min_slides,
+            math.ceil(duration_minutes / DEFAULT_BALANCED_MINUTES_PER_CONTENT_SLIDE),
+        )
+        max_slides = min(
+            DEFAULT_MAX_CONTENT_SLIDES,
+            max(min_slides, math.ceil(duration_minutes / DEFAULT_DENSE_MINUTES_PER_CONTENT_SLIDE)),
+        )
+
+        complexity_offset = 0
+        if complexity_factor >= 0.8 and preferred_slides + 2 <= max_slides:
+            complexity_offset = 2
+        elif complexity_factor >= 0.55 and preferred_slides + 1 <= max_slides:
+            complexity_offset = 1
+        elif complexity_factor <= 0.2 and preferred_slides - 1 >= min_slides:
+            complexity_offset = -1
+
+        target_slides = min(max_slides, max(min_slides, preferred_slides + complexity_offset))
+
+    min_slides = max(DEFAULT_MIN_CONTENT_SLIDES, min_slides)
+    target_slides = max(min_slides, target_slides)
+    max_slides = max(target_slides, max_slides)
+    image_slide_target = 0
+    if image_count > 0 and target_slides > 0:
+        image_slide_target = min(image_count, max(1, math.ceil(target_slides * 0.45)))
+
+    return {
+        'duration_minutes': duration_minutes,
+        'min_content_slides': min_slides,
+        'target_content_slides': target_slides,
+        'max_content_slides': max_slides,
+        'image_slide_target': image_slide_target,
+        'complexity_factor': complexity_factor,
+        'source': budget_source,
+    }
 
 
 def _extract_first_heading(content: str) -> str:
@@ -2509,7 +2858,135 @@ class HTMLFirstGenerator:
             )
         return out
 
-    def generate_from_lesson(self, lesson: Dict, lesson_idx: int, images: List[Dict]) -> List[Dict]:
+    def _request_lesson_draft(
+        self,
+        web_designer,
+        lesson_title: str,
+        lesson_content: str,
+        image_context: str,
+        retry_reason: str = "",
+    ) -> List[Dict]:
+        prompt = f"Create slides for this content:\n\n{lesson_content}{image_context}"
+        if retry_reason:
+            prompt += f"\n\nREVISION REQUIRED:\n{retry_reason}"
+
+        response = web_designer(prompt)
+
+        response_text = ""
+        if hasattr(response, 'message'):
+            msg = response.message
+            if hasattr(msg, 'content'):
+                content = msg.content
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and 'text' in block:
+                            response_text += block['text']
+                        elif hasattr(block, 'text'):
+                            response_text += str(block.text)
+                        else:
+                            response_text += str(block)
+                elif isinstance(content, str):
+                    response_text = content
+                else:
+                    response_text = str(content)
+            elif isinstance(msg, dict) and 'content' in msg:
+                content = msg['content']
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and 'text' in block:
+                            response_text += block['text']
+                        else:
+                            response_text += str(block)
+                else:
+                    response_text = str(content)
+            else:
+                response_text = str(msg)
+        elif hasattr(response, 'output'):
+            response_text = str(response.output)
+        elif hasattr(response, 'text'):
+            response_text = str(response.text)
+        else:
+            response_text = str(response)
+
+        response_text = response_text.strip()
+        logger.info(f"📄 AI Response (first 500 chars): {response_text[:500]}...")
+
+        response_text = re.sub(r'^```\w*\s*\n?', '', response_text, flags=re.MULTILINE)
+        response_text = re.sub(r'\n?```\s*$', '', response_text, flags=re.MULTILINE)
+        response_text = response_text.strip()
+
+        start_idx = response_text.find('{')
+        if start_idx == -1:
+            logger.error(f"No JSON found in AI response: {response_text[:200]}")
+            return []
+
+        try:
+            parsed_response, _ = json.JSONDecoder().raw_decode(response_text[start_idx:])
+        except json.JSONDecodeError as e:
+            logger.warning(f"⚠️ JSON Parse Error: {e}. Attempting repair...")
+            repaired_json = self._repair_json(response_text[start_idx:])
+            try:
+                parsed_response, _ = json.JSONDecoder().raw_decode(repaired_json)
+                logger.info("✅ JSON Repair successful")
+            except json.JSONDecodeError as e2:
+                logger.error(f"❌ JSON Repair failed: {e2}")
+                return []
+
+        draft_slides = self._normalize_ai_slides(
+            parsed_response.get('slides', []), lesson_title
+        )
+        logger.info(
+            f"Parsed {len(draft_slides)} draft slides (after normalization)"
+        )
+        return draft_slides
+
+    def _finalize_validated_slides(self, draft_slides: List[Dict], web_designer) -> List[Dict]:
+        final_slides = []
+        for slide in draft_slides:
+            validated_slides = self.validate_and_refine_slide(slide, web_designer)
+            for validated_slide in validated_slides:
+                transformed_slide = self._transform_to_system_format(validated_slide)
+                final_slides.append(transformed_slide)
+        return final_slides
+
+    def _clip_content_slides_to_budget(
+        self,
+        slides: List[Dict],
+        max_content_slides: int,
+    ) -> List[Dict]:
+        if max_content_slides <= 0 or len(slides) <= max_content_slides:
+            return slides
+
+        image_indices = [
+            idx
+            for idx, slide in enumerate(slides)
+            if any(block.get('type') == 'image' for block in slide.get('content_blocks', []))
+        ]
+        keep_image_count = min(
+            len(image_indices),
+            max(1, math.ceil(max_content_slides * 0.5)),
+        )
+        prioritized_indices = list(image_indices[:keep_image_count])
+        prioritized_indices.extend(
+            idx for idx in range(len(slides)) if idx not in prioritized_indices
+        )
+        selected_indices = sorted(prioritized_indices[:max_content_slides])
+        clipped = [slides[idx] for idx in selected_indices]
+        logger.warning(
+            "✂️ Clipped development slides from %s to %s to respect the lesson budget",
+            len(slides),
+            len(clipped),
+        )
+        return clipped
+
+    def generate_from_lesson(
+        self,
+        lesson: Dict,
+        lesson_idx: int,
+        images: List[Dict],
+        content_slide_budget: Optional[Dict[str, Any]] = None,
+        retry_reason: str = "",
+    ) -> List[Dict]:
         """
         Generate slides for a lesson using STRICT TEMPLATE SYSTEM + VALIDATION LOOP.
         """
@@ -2520,8 +2997,42 @@ class HTMLFirstGenerator:
         
         # FILTER OUT LAB SECTIONS (theory content only)
         lesson_content = self._remove_lab_sections(lesson_content)
+
+        content_slide_budget = content_slide_budget or {}
+        min_content_slides = max(
+            1,
+            _coerce_positive_int(content_slide_budget.get('min_content_slides'))
+            or DEFAULT_MIN_CONTENT_SLIDES,
+        )
+        target_content_slides = max(
+            min_content_slides,
+            _coerce_positive_int(content_slide_budget.get('target_content_slides'))
+            or min_content_slides,
+        )
+        max_content_slides = max(
+            target_content_slides,
+            _coerce_positive_int(content_slide_budget.get('max_content_slides'))
+            or target_content_slides,
+        )
+        image_slide_target = min(
+            len(images),
+            _coerce_positive_int(content_slide_budget.get('image_slide_target')) or 0,
+        )
+        duration_minutes = _coerce_positive_int(content_slide_budget.get('duration_minutes'))
+        complexity_factor = float(content_slide_budget.get('complexity_factor') or 0.0)
+        budget_source = content_slide_budget.get('source', 'unknown')
         
         logger.info(f"\n📝 Strict-Template Generation for: {lesson_title}")
+        logger.info(
+            "⏱️ Content slide budget: min=%s target=%s max=%s duration=%s source=%s complexity=%.2f image_target=%s",
+            min_content_slides,
+            target_content_slides,
+            max_content_slides,
+            duration_minutes,
+            budget_source,
+            complexity_factor,
+            image_slide_target,
+        )
         
         
         # 1. Define the Creator Agent
@@ -2564,6 +3075,22 @@ TARGET: Create HTML slides by filling pre-defined templates with SMART CONTENT D
    - If the source lesson is in Spanish, every slide title, bullet, table header, and callout MUST be in Spanish.
    - Do not produce English slide titles or explanatory bullets for Spanish theory content (English code/commands and vendor names are allowed).
 
+6. **NO DUPLICATE OPENERS** — The deck already has branded slides for objectives (per chapter) and for each lesson introduction. Do NOT start your slides with a slide titled like "Objetivos de Aprendizaje"/"Learning Objectives", nor with "Introducción…"/"Introduction…" overview slides — begin directly with substantive lesson content instead.
+
+7. **TIME-BASED CONTENT BUDGET**:
+    - This lesson should use BETWEEN {min_content_slides} AND {max_content_slides} development slides based on lesson duration.
+    - Recommended target: around {target_content_slides} development slides for balanced pacing.
+    - These counts EXCLUDE lesson-title, chapter, summary, lab, and reference slides handled elsewhere.
+    - Aim for an instructor pacing of roughly 2 to 5 minutes per development slide.
+    - Simpler topics can stay closer to the lower bound; complex or technical topics can move toward the upper bound.
+    - Merge closely related subtopics when the topic is straightforward, but split dense concepts, long code explanations, comparisons, or multi-step workflows across more slides when needed.
+
+8. **VISUAL PRIORITY**:
+    - Prioritize image-rich teaching slides whenever visuals are available.
+    - Prefer about {image_slide_target} image-based development slides for this lesson when visuals are available.
+    - Spread visuals across the lesson; do not cluster them all at the start.
+    - Each image slide must explain the visual with concise, didactic bullets.
+
 ⚠️ JSON SYNTAX RULES (STRICT):
    - NO trailing commas in lists or objects
    - All strings must be double-quoted
@@ -2599,100 +3126,60 @@ OUTPUT JSON FORMAT:
         )
 
         # 2. Optimization Loop (The "Second Agent")
-        final_slides = []
-        
-        # Initial draft generation
         try:
             image_context = ""
             if images:
-                image_context = "\\n\\nAVAILABLE IMAGES (YOU MUST INCLUDE ALL OF THESE USING IMAGE LAYOUTS):\\n"
+                image_context = (
+                    "\\n\\nAVAILABLE IMAGES (PRIORITIZE THESE IN IMAGE LAYOUTS):\\n"
+                    f"- Prefer up to {image_slide_target or len(images)} of these visuals within the lesson budget.\\n"
+                )
                 for i, img in enumerate(images):
-                    image_context += f"- ID: {img.get('alt_text', f'image_{i}')}\\n"
-                    
-            response = web_designer(f"Create slides for this content:\\n\\n{lesson_content}{image_context}")
-            
-            # Extract text from Strands Agent response object
-            response_text = ""
-            if hasattr(response, 'message'):
-                msg = response.message
-                if hasattr(msg, 'content'):
-                    content = msg.content
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and 'text' in block:
-                                response_text += block['text']
-                            elif hasattr(block, 'text'):
-                                response_text += str(block.text)
-                            else:
-                                response_text += str(block)
-                    elif isinstance(content, str):
-                        response_text = content
-                    else:
-                        response_text = str(content)
-                elif isinstance(msg, dict) and 'content' in msg:
-                    content = msg['content']
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and 'text' in block:
-                                response_text += block['text']
-                            else:
-                                response_text += str(block)
-                    else:
-                        response_text = str(content)
-                else:
-                    response_text = str(msg)
-            elif hasattr(response, 'output'):
-                response_text = str(response.output)
-            elif hasattr(response, 'text'):
-                response_text = str(response.text)
-            else:
-                response_text = str(response)
-            
-            response_text = response_text.strip()
-            logger.info(f"📄 AI Response (first 500 chars): {response_text[:500]}...")
-            
-            # ROBUST markdown fence stripping - handle various formats
-            import re
-            response_text = re.sub(r'^```\w*\s*\n?', '', response_text, flags=re.MULTILINE)
-            response_text = re.sub(r'\n?```\s*$', '', response_text, flags=re.MULTILINE)
-            response_text = response_text.strip()
-            
-            # Parse JSON from response
-            start_idx = response_text.find('{')
-            if start_idx == -1:
-                logger.error(f"No JSON found in AI response: {response_text[:200]}")
-                return []
-            
-            import json
-            try:
-                parsed_response, _ = json.JSONDecoder().raw_decode(response_text[start_idx:])
-            except json.JSONDecodeError as e:
-                logger.warning(f"⚠️ JSON Parse Error: {e}. Attempting repair...")
-                repaired_json = self._repair_json(response_text[start_idx:])
-                try:
-                    parsed_response, _ = json.JSONDecoder().raw_decode(repaired_json)
-                    logger.info("✅ JSON Repair successful")
-                except json.JSONDecodeError as e2:
-                    logger.error(f"❌ JSON Repair failed: {e2}")
-                    return []
-
-            draft_slides = self._normalize_ai_slides(
-                parsed_response.get('slides', []), lesson_title
+                    suggested_layout = img.get('suggested_layout', 'split')
+                    image_context += (
+                        f"- ID: {img.get('alt_text', f'image_{i}')} "
+                        f"(suggested_layout={suggested_layout})\\n"
+                    )
+            draft_slides = self._request_lesson_draft(
+                web_designer,
+                lesson_title,
+                lesson_content,
+                image_context,
+                retry_reason=retry_reason,
             )
-            logger.info(
-                f"Parsed {len(draft_slides)} draft slides (after normalization)"
-            )
-            
         except Exception as e:
             logger.error(f"AI Generation failed: {e}")
             return []
 
-        # Validation & Refinement Loop
-        for slide in draft_slides:
-            validated_slides = self.validate_and_refine_slide(slide, web_designer)
-            for validated_slide in validated_slides:
-                transformed_slide = self._transform_to_system_format(validated_slide)
-                final_slides.append(transformed_slide)
+        final_slides = self._finalize_validated_slides(draft_slides, web_designer)
+
+        if len(final_slides) > max_content_slides:
+            logger.warning(
+                "⚠️ Development slides exceeded budget after validation: %s > %s. Retrying with stronger compression.",
+                len(final_slides),
+                max_content_slides,
+            )
+            retry_reason = (
+                f"Your previous draft expanded to {len(final_slides)} development slides after layout validation. "
+                f"Regenerate this lesson within the range of {min_content_slides} to {max_content_slides} development slides and aim for about {target_content_slides}. "
+                "Compress adjacent concepts, shorten bullets further, and prefer one strong image with concise explanation instead of extra follow-up slides."
+            )
+            try:
+                draft_slides = self._request_lesson_draft(
+                    web_designer,
+                    lesson_title,
+                    lesson_content,
+                    image_context,
+                    retry_reason=retry_reason,
+                )
+                final_slides = self._finalize_validated_slides(draft_slides, web_designer)
+            except Exception as e:
+                logger.error(f"AI Regeneration failed: {e}")
+
+        if len(final_slides) > max_content_slides:
+            final_slides = self._clip_content_slides_to_budget(
+                final_slides,
+                max_content_slides,
+            )
 
         return final_slides
 
@@ -3616,10 +4103,62 @@ def generate_complete_course(
         logger.info(f"⏱️  Elapsed time: {elapsed_time:.1f}s")
         
         # Generate content slides for this lesson using HTML-First
-        lesson_slides = generator.generate_from_lesson(lesson, lesson_idx, lesson_images)
-        
+        content_slide_budget = _build_content_slide_budget(
+            lesson,
+            book_data.get('outline_modules', []),
+            slides_per_lesson,
+            len(lesson_images),
+        )
+        lesson_slides = generator.generate_from_lesson(
+            lesson,
+            lesson_idx,
+            lesson_images,
+            content_slide_budget=content_slide_budget,
+        )
+        original_lesson_slides = list(lesson_slides)
+
+        lesson_slides = strip_redundant_lesson_ai_openings(
+            lesson_slides,
+            is_spanish_course=is_spanish,
+            strip_intro=bool(
+                _extract_introduction_from_content(lesson.get('content', '')).strip()
+            ),
+        )
+
         # Suppress per-lesson summary/Resumen slides (chapter summary added separately)
         lesson_slides = [s for s in lesson_slides if not _is_lesson_summary_slide(s)]
+
+        if not lesson_slides and lesson.get('content', '').strip():
+            logger.warning(
+                "⚠️ Lesson %s lost all generated content slides after filtering. Retrying with substantive-only guidance.",
+                lesson_title,
+            )
+            lesson_slides = generator.generate_from_lesson(
+                lesson,
+                lesson_idx,
+                lesson_images,
+                content_slide_budget=content_slide_budget,
+                retry_reason=(
+                    "The previous draft produced no substantive lesson-content slides after filtering. "
+                    "Do NOT emit objective, introduction, recap, or summary slides. "
+                    "Produce only substantive concept, explanation, comparison, process, or code slides."
+                ),
+            )
+            lesson_slides = strip_redundant_lesson_ai_openings(
+                lesson_slides,
+                is_spanish_course=is_spanish,
+                strip_intro=bool(
+                    _extract_introduction_from_content(lesson.get('content', '')).strip()
+                ),
+            )
+            lesson_slides = [s for s in lesson_slides if not _is_lesson_summary_slide(s)]
+
+        if not lesson_slides and original_lesson_slides:
+            logger.warning(
+                "⚠️ Lesson %s still has no substantive AI slides after retry. Using deterministic fallback.",
+                lesson_title,
+            )
+            lesson_slides = create_fallback_lesson_content_slides(lesson, is_spanish)
         
         # Update slide numbers
         for slide in lesson_slides:
@@ -5763,16 +6302,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         elif layout == 'module-title':
             # Parse module number from slide data or title
             mod_num = slide.get('module_number', '')
-            # Detect language from title pattern
-            is_es = bool(re.search(r'(?:M[oó]dulo|Cap[ií]tulo)', title, re.IGNORECASE))
-            # Try to split "Módulo 1: Nombre" into chapter label + name
-            mod_match = re.match(r'^(?:M[oó]dulo|Cap[ií]tulo|Module|Chapter)\s+(\d+)\s*:\s*(.+)$', title, re.IGNORECASE)
-            if mod_match:
-                chapter_label = f"{'Capítulo' if is_es else 'Chapter'} {mod_match.group(1)}"
-                chapter_name = mod_match.group(2).strip()
-            else:
-                chapter_label = f"{'Capítulo' if is_es else 'Chapter'} {mod_num}" if mod_num else title
-                chapter_name = title if mod_num else ''
+            chapter_label, chapter_name = _split_module_title_visual(title, mod_num)
+            is_es = bool(re.search(r'(?:cap[ií]tulo|m[oó]dulo)\b', chapter_label, re.IGNORECASE))
             
             # Extract objectives from content_blocks
             obj_items = []

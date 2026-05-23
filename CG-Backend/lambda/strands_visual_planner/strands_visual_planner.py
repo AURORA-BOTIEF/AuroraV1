@@ -55,7 +55,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Changed from Sonnet to Haiku for performance
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
 BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
