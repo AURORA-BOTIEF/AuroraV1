@@ -1085,7 +1085,7 @@ def gather_chapter_reference_strings(
             continue
         refs_md.extend(extract_references_from_lesson_content(les.get('content', '') or ''))
 
-    merged = deduplicate_references(refs_md + urls)
+    merged = _select_reference_urls(refs_md + urls)
     if merged:
         return merged
 
@@ -1387,6 +1387,74 @@ def deduplicate_references(refs: List[str]) -> List[str]:
         seen.add(key)
         out.append(s)
     return out
+
+
+_REFERENCE_URL_RE = re.compile(r'https?://[^\s\)\]\>\"\']+', re.IGNORECASE)
+_REFERENCE_MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((https?://[^)]+)\)', re.IGNORECASE)
+
+
+def _extract_reference_url(item: str) -> str:
+    text = (item or '').strip()
+    if not text:
+        return ''
+    md_match = _REFERENCE_MD_LINK_RE.search(text)
+    if md_match:
+        return md_match.group(2).strip().rstrip('.,);')
+    bare_match = _REFERENCE_URL_RE.search(text)
+    if bare_match:
+        return bare_match.group(0).strip().rstrip('.,);')
+    return ''
+
+
+def _reference_url_is_reachable(url: str) -> bool:
+    try:
+        from book_builder import _check_url_reachable  # type: ignore
+        return _check_url_reachable(url)
+    except Exception:
+        return True
+
+
+def _select_reference_urls(items: List[str], max_links: int = 5, min_links: int = 3) -> List[str]:
+    """Keep a single compact bibliography slide with validated links when possible."""
+    ordered: List[str] = []
+    seen: set[str] = set()
+    for item in items:
+        url = _extract_reference_url(item)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        ordered.append(url)
+
+    if not ordered:
+        return []
+
+    reachable: List[str] = []
+    fallback: List[str] = []
+    for url in ordered:
+        if _reference_url_is_reachable(url):
+            reachable.append(url)
+        else:
+            fallback.append(url)
+        if len(reachable) >= max_links:
+            break
+
+    if len(reachable) >= min_links:
+        return reachable[:max_links]
+
+    merged = list(reachable)
+    for url in fallback:
+        if url not in merged:
+            merged.append(url)
+        if len(merged) >= max_links:
+            break
+
+    if merged:
+        logger.warning(
+            "⚠️ Reference reachability budget could not validate at least %s URLs; using best-effort set of %s",
+            min_links,
+            len(merged),
+        )
+    return merged[:max_links]
 
 
 def sanitize_repo_name(name: str) -> str:
@@ -2341,46 +2409,42 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
 
 
 def create_references_slides(module_title: str, references: List[str], is_spanish: bool, slide_counter: int) -> List[Dict]:
-    """Create one or more reference slides using bibliography extracted from theory book lessons."""
+    """Create a single reference slide using the most relevant validated links."""
     cleaned_references = [ref.strip() for ref in references if isinstance(ref, str) and ref.strip()]
+    selected_urls = _select_reference_urls(cleaned_references)
 
     # Remove duplicates preserving order
     deduped = []
     seen = set()
-    for ref in cleaned_references:
+    for ref in (selected_urls or cleaned_references):
         key = ref.lower()
-        if key not in seen:
-            deduped.append(ref)
-            seen.add(key)
+        if key in seen:
+            continue
+        deduped.append(ref)
+        seen.add(key)
 
     if not deduped:
         deduped = [
             "Documentación oficial del curso" if is_spanish else "Official course documentation"
         ]
 
-    chunks = _chunk_reference_items_for_slides(deduped)
-    slides = []
+    if len(deduped) > 5:
+        deduped = deduped[:5]
 
-    for idx, chunk in enumerate(chunks, 1):
-        title = "Referencias Bibliográficas" if is_spanish else "Bibliographic References"
-        if len(chunks) > 1:
-            title = f"{title} ({idx}/{len(chunks)})"
-
-        slides.append({
-            "slide_number": slide_counter + idx - 1,
-            "title": title,
-            "subtitle": module_title,
-            "layout": "single-column",
-            "content_blocks": [{
-                "type": "bullets",
-                "heading": "",
-                "items": chunk,
-                "autolink_urls": True,
-            }],
-            "notes": "Module references from theory book bibliography"
-        })
-
-    return slides
+    title = "Referencias Bibliográficas" if is_spanish else "Bibliographic References"
+    return [{
+        "slide_number": slide_counter,
+        "title": title,
+        "subtitle": module_title,
+        "layout": "single-column",
+        "content_blocks": [{
+            "type": "bullets",
+            "heading": "",
+            "items": deduped,
+            "autolink_urls": True,
+        }],
+        "notes": "Module references from theory book bibliography"
+    }]
 
 
 def _normalize_text(value: str) -> str:
