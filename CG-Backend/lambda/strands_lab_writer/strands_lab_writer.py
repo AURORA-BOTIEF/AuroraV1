@@ -282,7 +282,7 @@ If {target_language} is Spanish, use these section titles:
 - "Solución de Problemas" instead of "Troubleshooting"
 - "Limpieza" instead of "Cleanup"
 - "Resumen" instead of "Summary"
-- "Recursos Adicionales" instead of "Additional Resources"
+- "Referencias Bibliográficas" instead of "Bibliographic References"
 
 LAB INFORMATION:
 - Lab ID: {lab_id}
@@ -342,6 +342,10 @@ By completing this lab, you will be able to:
 - [ ] [Objective 1 - specific and measurable]
 - [ ] [Objective 2 - specific and measurable]
 - [ ] [Objective 3 - specific and measurable]
+
+## Objetivo visual (THOR)
+
+Brief diagram or screenshot summary of lab tasks; include placeholder path such as `../images/lab-visual.png`.
 
 ## Prerequisites
 
@@ -533,10 +537,10 @@ To reset your environment after completing this lab:
 - [Suggested follow-up lab or lesson]
 - [Additional practice recommendation]
 
-## Additional Resources
+## Bibliographic References
 
-- [Resource 1 title] - [Brief description]
-- [Resource 2 title] - [Brief description]
+- [Reference 1 title] - [Brief description]
+- [Reference 2 title] - [Brief description]
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -860,7 +864,7 @@ If generating in Spanish, use these section titles:
 - "Solución de Problemas" instead of "Troubleshooting"
 - "Limpieza" instead of "Cleanup"
 - "Resumen" instead of "Summary"
-- "Recursos Adicionales" instead of "Additional Resources"
+- "Referencias Bibliográficas" instead of "Bibliographic References"
 
 MASTER CONTEXT:
 Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}
@@ -908,6 +912,10 @@ By completing this lab, you will be able to:
 - [ ] [Objective 1 - specific and measurable]
 - [ ] [Objective 2 - specific and measurable]
 - [ ] [Objective 3 - specific and measurable]
+
+## Objetivo visual (THOR)
+
+Brief diagram or screenshot summary of lab tasks; include placeholder path such as `../images/lab-visual.png`.
 
 ## Prerequisites
 
@@ -1276,7 +1284,7 @@ def lambda_handler(event, context):
             print(f"📊 Filtered {original_count} labs → {len(lab_plans)} labs for this batch")
         
         # Extract language from metadata
-        course_language = master_plan.get('metadata', {}).get('course_language', 'en')
+        course_language = master_plan.get('metadata', {}).get('course_language', 'es')
         language_names = {
             'en': 'English',
             'es': 'Spanish (Español)',
@@ -1285,7 +1293,7 @@ def lambda_handler(event, context):
             'pt': 'Portuguese (Português)',
             'it': 'Italian (Italiano)'
         }
-        target_language = language_names.get(course_language, 'English')
+        target_language = language_names.get(course_language, 'Spanish (Español)')
         
         print(f"\n🌐 Target Language: {target_language} ({course_language})")
         print(f"📊 Total labs to generate: {len(lab_plans)}\n")

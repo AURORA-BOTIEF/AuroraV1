@@ -157,26 +157,61 @@ def calculate_target_words(lesson_data: dict, module_info: dict) -> int:
 
 
 def is_spanish_course(course_data: dict) -> bool:
-    """Detect whether the course should be generated in Spanish."""
-    language = str(course_data.get('language', '')).lower()
-    return language.startswith('es')
+    """Spanish by default; English only when outline explicitly sets English."""
+    language = str(course_data.get('language', '')).strip().lower()
+    if not language:
+        return True
+    if language.startswith('en') or 'english' in language or 'inglés' in language or 'ingles' in language:
+        return False
+    return True
+
+
+def extract_outline_language(outline_data: dict) -> str:
+    """
+    Read course language from common outline shapes (course.language, root language, metadata).
+    Returns raw string or '' if absent (caller uses Spanish-by-default policy).
+    """
+    if not outline_data or not isinstance(outline_data, dict):
+        return ''
+    for block in (outline_data.get('course'), outline_data.get('course_metadata')):
+        if isinstance(block, dict):
+            for key in ('language', 'lang', 'locale'):
+                val = block.get(key)
+                if val is not None and str(val).strip():
+                    return str(val).strip()
+    for key in ('language', 'lang', 'locale'):
+        val = outline_data.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ''
 
 
 def build_course_context(course_data: dict, spanish_course: bool = False) -> str:
-    """Build complete course outline context."""
+    """Build complete course outline context (Spanish or English headers to match output language)."""
     course_title = course_data.get('title', 'Course')
     modules = course_data.get('modules', [])
-    module_term = "CAPÍTULO" if spanish_course else "MODULE"
-    lesson_term = "Lección" if spanish_course else "Lesson"
-
-    context_lines = [
-        "════════════════════════════════════════════════════════════════════════",
-        "COMPLETE COURSE OUTLINE - MUST REFERENCE THIS EXACT STRUCTURE",
-        "════════════════════════════════════════════════════════════════════════",
-        f"Course: {course_title}",
-        f"Total Modules: {len(modules)}",
-        ""
-    ]
+    if spanish_course:
+        context_lines = [
+            "════════════════════════════════════════════════════════════════════════",
+            "TEMARIO COMPLETO DEL CURSO — RESPETA EXACTAMENTE ESTA ESTRUCTURA",
+            "════════════════════════════════════════════════════════════════════════",
+            f"Curso: {course_title}",
+            f"Total de capítulos: {len(modules)}",
+            "",
+        ]
+        module_term = "CAPÍTULO"
+        lesson_term = "Lección"
+    else:
+        context_lines = [
+            "════════════════════════════════════════════════════════════════════════",
+            "COMPLETE COURSE OUTLINE - MUST REFERENCE THIS EXACT STRUCTURE",
+            "════════════════════════════════════════════════════════════════════════",
+            f"Course: {course_title}",
+            f"Total Modules: {len(modules)}",
+            "",
+        ]
+        module_term = "MODULE"
+        lesson_term = "Lesson"
 
     for i, module in enumerate(modules, 1):
         context_lines.append(f"{module_term} {i}: {module.get('title', 'Untitled')}")
@@ -222,6 +257,7 @@ def generate_batch_single_call(
     
     # Build course context
     spanish_course = is_spanish_course(course_data)
+    print(f"🌐 spanish_course={spanish_course} (outline language field={course_data.get('language', '')!r})")
     module_term = "Capítulo" if spanish_course else "Module"
     lesson_term = "Lección" if spanish_course else "Lesson"
     course_context = build_course_context(
@@ -232,162 +268,237 @@ def generate_batch_single_call(
         },
         spanish_course=spanish_course
     )
-    
+
+    dur_label = "Duración" if spanish_course else "Duration"
+    min_label = "minutos" if spanish_course else "minutes"
+    bloom_label = "Nivel Bloom" if spanish_course else "Bloom Level"
+    target_label = "Extensión objetivo" if spanish_course else "Target Length"
+    words_label = "palabras" if spanish_course else "words"
+    topics_header = "Temas" if spanish_course else "Topics"
+    labs_header = "Actividades de laboratorio" if spanish_course else "Lab Activities"
+    none_placeholder = "      (No especificados)" if spanish_course else "      (None specified)"
+
     # Build lesson specifications
     lesson_specs = []
     for i, lesson in enumerate(batch_lessons, start=batch_start_idx):
         target_words = calculate_target_words(lesson, module_data)
-        
+
         topics_list = lesson.get('topics', [])
         topics_formatted = []
         for t in topics_list:
             if isinstance(t, dict):
                 t_title = t.get('title', 'Untitled')
                 t_dur = t.get('duration_minutes', 0)
-                topics_formatted.append(f"      - {t_title} (Duration: {t_dur} min)")
+                topics_formatted.append(f"      - {t_title} ({dur_label}: {t_dur} {min_label})")
             else:
                 topics_formatted.append(f"      - {str(t)}")
         topics_str = "\n".join(topics_formatted)
-        
+
         lab_activities = lesson.get('lab_activities', [])
         labs_formatted = []
         for l in lab_activities:
             if isinstance(l, dict):
                 l_title = l.get('title', 'Untitled')
                 l_dur = l.get('duration_minutes', 0)
-                labs_formatted.append(f"      - {l_title} (Duration: {l_dur} min)")
+                labs_formatted.append(f"      - {l_title} ({dur_label}: {l_dur} {min_label})")
             else:
                 labs_formatted.append(f"      - {str(l)}")
         labs_str = "\n".join(labs_formatted)
-        
+
         spec = f"""
     {lesson_term} {i + 1}: {lesson.get('title', 'Untitled')}
-    Duration: {lesson.get('duration_minutes', module_duration)} minutes
-    Bloom Level: {lesson.get('bloom_level', module_bloom)}
-    Target Length: ~{target_words} words
-    Topics:
-{topics_str if topics_str else "      (None specified)"}
-    Lab Activities:
-{labs_str if labs_str else "      (None specified)"}
+    {dur_label}: {lesson.get('duration_minutes', module_duration)} {min_label}
+    {bloom_label}: {lesson.get('bloom_level', module_bloom)}
+    {target_label}: ~{target_words} {words_label}
+    {topics_header}:
+{topics_str if topics_str else none_placeholder}
+    {labs_header}:
+{labs_str if labs_str else none_placeholder}
 """
         lesson_specs.append(spec)
-    
+
     lessons_specification = "\n".join(lesson_specs)
-    
-    # Build additional requirements section if provided
-    additional_requirements_section = ""
+
     if lesson_requirements and lesson_requirements.strip():
-        additional_requirements_section = f"""
+        if spanish_course:
+            additional_requirements_section = f"""
+REQUISITOS ADICIONALES (INDICADOS POR EL USUARIO):
+{lesson_requirements}
+Intégralos en las lecciones sin contradecir el temario oficial.
+"""
+        else:
+            additional_requirements_section = f"""
 ADDITIONAL REQUIREMENTS (USER-SPECIFIED):
 {lesson_requirements}
 Please incorporate these additional requirements into the lesson content.
 """
-    
-    # Build the prompt with standardized schema
-    prompt = f"""You are an expert technical educator creating lesson content for a professional course.
+    else:
+        additional_requirements_section = ""
 
-{course_context}
+    role_line = (
+        "Eres un educador técnico experto que redacta lecciones profesionales en ESPAÑOL para hispanohablantes."
+        if spanish_course
+        else "You are an expert technical educator creating lesson content for a professional course in ENGLISH."
+    )
 
-TASK: Generate complete, detailed lesson content for {num_lessons} lesson(s) in {module_term} {module_number}.
-
-{module_term.upper()} {module_number}: {module_title}
-Description: {module_description}
-
-LESSONS TO GENERATE:
-{lessons_specification}
-{additional_requirements_section}
-
+    language_directive = (
+        """═══════════════════════════════════════════════════════════════════════════════
+IDIOMA DE SALIDA (OBLIGATORIO)
 ═══════════════════════════════════════════════════════════════════════════════
-MANDATORY LESSON STRUCTURE SCHEMA (FOLLOW EXACTLY)
+- El curso está en **ESPAÑOL**. Todo el texto pedagógico (párrafos, listas, explicaciones, títulos H1–H3, tablas salvo identificadores técnicos) debe estar en **español** profesional.
+- No escribas secciones narrativas completas en inglés. No mezcles idiomas en el cuerpo de la lección.
+- Los bloques de código, comandos CLI, rutas y nombres de API pueden seguir la convención habitual (a menudo en inglés); el comentario y la explicación alrededor deben estar en español.
+- Las descripciones dentro de las etiquetas [VISUAL: …] deben estar en **español**.
+"""
+        if spanish_course
+        else """═══════════════════════════════════════════════════════════════════════════════
+OUTPUT LANGUAGE (MANDATORY)
 ═══════════════════════════════════════════════════════════════════════════════
+- The course is in **ENGLISH**. Write all pedagogical prose and headings in English.
+- Code blocks and CLI may follow industry conventions.
+"""
+    )
 
-Each lesson MUST follow this EXACT structure with proper heading hierarchy.
+    task_line = (
+        f"TAREA: Genera el contenido completo y detallado de {num_lessons} lección(es) del {module_term} {module_number}."
+        if spanish_course
+        else f"TASK: Generate complete, detailed lesson content for {num_lessons} lesson(s) in {module_term} {module_number}."
+    )
+    module_header = (
+        f"{module_term.upper()} {module_number}: {module_title}\nDescripción: {module_description}"
+        if spanish_course
+        else f"{module_term.upper()} {module_number}: {module_title}\nDescription: {module_description}"
+    )
+    lessons_header = "LECCIONES A GENERAR:" if spanish_course else "LESSONS TO GENERATE:"
+    structure_title = (
+        "ESQUEMA OBLIGATORIO DE CADA LECCIÓN (SIGUE AL PIE DE LA LETRA)"
+        if spanish_course
+        else "MANDATORY LESSON STRUCTURE SCHEMA (FOLLOW EXACTLY)"
+    )
 
-**IMPORTANT: ALL SECTION TITLES MUST BE IN THE SAME LANGUAGE AS THE COURSE OUTLINE.**
-If the course is in Spanish, use Spanish titles (e.g., "Objetivos de Aprendizaje", "Introducción", "Resumen").
-If the course is in English, use English titles.
-Match the language of the course content throughout.
+    schema_spanish = (
+        "```\n"
+        f"# {module_number}.N: [Título de la lección en español]\n\n"
+        "## Objetivos de Aprendizaje\n\n"
+        "Al finalizar esta lección, serás capaz de:\n\n"
+        "- [Verbo Bloom] + [resultado medible 1]\n"
+        "- [Verbo Bloom] + [resultado medible 2]\n"
+        "- [Verbo Bloom] + [resultado medible 3]\n\n"
+        "## Introducción\n\n"
+        "[2–3 párrafos en español sobre el tema, importancia y qué se verá]\n\n"
+        "## [Título del tema 1 según el YAML]\n\n"
+        "### Visión General del Concepto\n\n"
+        "[Explicación en español]\n\n"
+        "### Detalles Técnicos\n\n"
+        "[Profundización en español]\n\n"
+        "### Aplicación Práctica\n\n"
+        "[Ejemplo en español; código si aplica]\n\n"
+        "[VISUAL: MM-LL-XXXX - descripción del diagrama en español]\n\n"
+        "## [Más temas del YAML con el mismo patrón H2 + tres H3]\n\n"
+        "## Resumen\n\n"
+        "### Puntos Clave\n\n"
+        "- [Punto 1 en español]\n"
+        "- [Punto 2 en español]\n\n"
+        "### Próximos Pasos\n\n"
+        "[Texto en español]\n\n"
+        "## Referencias Bibliográficas\n\n"
+        "- [Descripción en español](https://url-real)\n"
+        "```"
+    )
 
-**SPANISH TERMINOLOGY ENFORCEMENT (MANDATORY):**
-- For Spanish courses, ALWAYS use "Capítulo" (never "Módulo" and never "Module").
-- For Spanish courses, ALWAYS use "Lección" (never "Lesson").
-- Even if the outline contains mixed terms, normalize generated content to these terms.
+    schema_english = (
+        "```\n"
+        f"# {module_number}.N: [Lesson title in English]\n\n"
+        "## Learning Objectives\n\n"
+        "By the end of this lesson, you will be able to:\n\n"
+        "- [Bloom verb] + [measurable outcome 1]\n"
+        "- [Bloom verb] + [measurable outcome 2]\n\n"
+        "## Introduction\n\n"
+        "[2–3 paragraphs in English]\n\n"
+        "## [Topic title from YAML]\n\n"
+        "### Concept Overview\n\n"
+        "### Technical Details\n\n"
+        "### Practical Application\n\n"
+        "[VISUAL: MM-LL-XXXX - description in English]\n\n"
+        "## Summary\n\n"
+        "### Key Takeaways\n\n"
+        "### Next Steps\n\n"
+        "## Bibliographic References\n\n"
+        "- [Description](https://real-url)\n"
+        "```"
+    )
+    schema_block = schema_spanish if spanish_course else schema_english
 
-```
-# {module_number}.N: [Título de la lección]
-
-## Objetivos de Aprendizaje  (or "Learning Objectives" if English)
-
-Al finalizar esta lección, serás capaz de:  (or "By the end of this lesson, you will be able to:" if English)
-
-- [Verbo Bloom] + [resultado medible 1]
-- [Verbo Bloom] + [resultado medible 2]
-- [Verbo Bloom] + [resultado medible 3]
-
-## Introducción  (or "Introduction" if English)
-
-[2-3 paragraphs introducing the lesson topic]
-[Explain the importance and relevance]
-[Preview what will be covered]
-
-## [Título del Tema 1]  (Topic titles in course language)
-
-### Visión General del Concepto  (or "Concept Overview" if English)
-
-[Explain WHAT the concept is]
-[Explain WHY it matters in context]
-
-### Detalles Técnicos  (or "Technical Details" if English)
-
-[Deep dive into mechanics, architecture, or theory]
-[Include specific details appropriate for the Bloom level]
-
-### Aplicación Práctica  (or "Practical Application" if English)
-
-[Real-world example or scenario]
-[Code example if applicable]
-
-[VISUAL: MM-LL-XXXX - Description of diagram/image if needed]
-
-## [Título del Tema 2]
-
-### Visión General del Concepto
-[Same structure as Topic 1]
-
-### Detalles Técnicos
-[Continue pattern]
-
-### Aplicación Práctica
-[Continue pattern]
-
-## Resumen  (or "Summary" if English)
-
-### Puntos Clave  (or "Key Takeaways" if English)
-
-- [Main point 1 from the lesson]
-- [Main point 2 from the lesson]
-- [Main point 3 from the lesson]
-
-### Próximos Pasos  (or "What's Next" if English)
-
-[Brief preview of how this connects to upcoming lessons]
-
-## Recursos Adicionales  (or "Additional Resources" if English)
-
-- [Resource 1 with description]
-- [Resource 2 with description]
-
-## Bibliografía  (or "Bibliography" if English)
-
-- [If content is based on model knowledge only, include model attribution used]
-- [If internet/web sources were used, include title + URL for each source]
-```
-
+    yaml_fidelity = (
+        """═══════════════════════════════════════════════════════════════════════════════
+FIDELIDAD A LOS TEMAS DEL YAML (CRÍTICO)
 ═══════════════════════════════════════════════════════════════════════════════
-CRITICAL FORMATTING RULES
+- Para cada lección, la sección de temas proviene del outline oficial.
+- Debes cubrir **todos** los temas listados: un **H2 por tema** (después de Introducción) con título alineado al YAML.
+- No omitas ni sustituyas temas; respeta el orden del outline.
+"""
+        if spanish_course
+        else """═══════════════════════════════════════════════════════════════════════════════
+YAML TOPIC FIDELITY (CRITICAL — THOR)
 ═══════════════════════════════════════════════════════════════════════════════
+- For EACH lesson in this batch, the LESSONS TO GENERATE section lists **Topics** copied from the official YAML outline.
+- You MUST cover **every** listed topic. Create **one H2 section per topic** (after Introduction) whose title matches or closely matches that topic's title from the YAML.
+- Do not skip, rename arbitrarily, or substitute unrelated topics. Order topic sections in the same order as listed in the YAML for that lesson.
+"""
+    )
 
-**HEADING HIERARCHY (MANDATORY):**
+    visual_section = (
+        """═══════════════════════════════════════════════════════════════════════════════
+ENRIQUECIMIENTO VISUAL (OBLIGATORIO)
+═══════════════════════════════════════════════════════════════════════════════
+- No entregues solo texto continuo: incluye diagramas y visuales conceptuales.
+- En cada sección de tema, incluye al menos una etiqueta [VISUAL: MM-LL-XXXX - …] en español.
+"""
+        if spanish_course
+        else """═══════════════════════════════════════════════════════════════════════════════
+VISUAL ENRICHMENT (MANDATORY — THOR)
+═══════════════════════════════════════════════════════════════════════════════
+- The material must NOT be plain walls of text: include conceptual diagrams and explanatory visuals.
+- For EACH topic section, include at least one [VISUAL: MM-LL-XXXX - ...] tag describing a diagram, architecture figure, flowchart, or illustration that supports learning.
+- Prefer diagrams and structured visuals where concepts allow.
+"""
+    )
+
+    refs_section = (
+        """═══════════════════════════════════════════════════════════════════════════════
+REFERENCIAS BIBLIOGRÁFICAS — CALIDAD DE ENLACES
+═══════════════════════════════════════════════════════════════════════════════
+- Cada enlace externo debe ser **https://** y real (sin example.com).
+- Un enlace markdown por viñeta: `- [Descripción](https://…)` en una sola línea.
+"""
+        if spanish_course
+        else """═══════════════════════════════════════════════════════════════════════════════
+REFERENCIAS BIBLIOGRÁFICAS — LINK QUALITY (THOR)
+═══════════════════════════════════════════════════════════════════════════════
+- Under "Bibliographic References", every external link MUST use **https://** with a real, reachable destination (no example.com placeholders).
+- Format **each** resource as **one markdown link per bullet**, on a single line: `- [Clear description](https://domain/path)` (do NOT put bare URLs on a separate line under the title).
+- Prefer official documentation, vendor docs, or primary sources; avoid aggregator pages when a primary URL exists.
+"""
+    )
+
+    heading_rules = (
+        """**JERARQUÍA DE ENCABEZADOS (OBLIGATORIO):**
+- H1 (#): solo el título de la lección (uno por lección). Formato numérico `{module_number}.N: [Título]` sin prefijo "Lección".
+- H2 (##): secciones principales en español.
+- H3 (###): subsecciones.
+- No saltes niveles (H1 → H3 inválido).
+
+**SECCIONES OBLIGATORIAS:**
+1. Objetivos de Aprendizaje (H2)
+2. Introducción (H2)
+3. Un H2 por cada tema del YAML con tres H3 (Visión General, Detalles Técnicos, Aplicación Práctica)
+4. Resumen (H2) con Puntos Clave y Próximos Pasos (H3)
+5. Referencias Bibliográficas (H2) con enlaces https válidos.
+
+**NO incluyas sección de preguntas de repaso** (se genera aparte).
+"""
+        if spanish_course
+        else """**HEADING HIERARCHY (MANDATORY):**
 - H1 (#): ONLY for lesson title - ONE per lesson
 - H2 (##): Major sections (Learning Objectives, Introduction, Topics, Summary, etc.)
 - H3 (###): Subsections within H2 (Concept Overview, Technical Details, etc.)
@@ -396,31 +507,49 @@ CRITICAL FORMATTING RULES
 - In H1 titles, use numeric format only: "{module_number}.N: [Title]" (do NOT prefix with "Lesson" or "Lección").
 
 **REQUIRED SECTIONS (MUST INCLUDE - USE COURSE LANGUAGE FOR TITLES):**
-1. Learning Objectives / Objetivos de Aprendizaje (H2) - 3-5 bullet points with Bloom verbs
-2. Introduction / Introducción (H2) - 2-3 paragraphs
-3. At least ONE topic section (H2) with subsections (H3)
-4. Summary / Resumen (H2) with Key Takeaways / Puntos Clave (H3)
-5. Additional Resources / Recursos Adicionales (H2) - optional
-6. Bibliography / Bibliografía (H2) - REQUIRED
-
-**BIBLIOGRAPHY RULES (MANDATORY):**
-- Every lesson MUST include Bibliography / Bibliografía.
-- If no web/internet source was used, include one entry with model attribution:
-    - "Anthropic Claude Sonnet 4.6 (Amazon Bedrock)" when using bedrock.
-    - "OpenAI GPT-5" when using openai.
-- If web/internet sources were used, include source title and URL for each source.
+1. Learning Objectives (H2) - 3-5 bullet points with Bloom verbs
+2. Introduction (H2) - 2-3 paragraphs
+3. At least ONE topic section (H2) with subsections (H3); one H2 per topic listed for that lesson in the outline.
+4. Summary (H2) with Key Takeaways (H3)
+5. Bibliographic References (H2) — required; use valid https links only.
 
 **DO NOT INCLUDE Review Questions section - this will be handled separately.**
+"""
+    )
 
-**BLOOM'S TAXONOMY VERBS (USE BASED ON LESSON LEVEL):**
+    bloom_block = (
+        """**VERBOS DE LA TAXONOMÍA DE BLOOM (según nivel de la lección):**
+- Recordar: Definir, Enumerar, Identificar, Nombrar
+- Comprender: Describir, Explicar, Resumir, Interpretar
+- Aplicar: Implementar, Ejecutar, Usar, Demostrar, Resolver
+- Analizar: Comparar, Diferenciar, Examinar, Investigar
+- Evaluar: Evaluar, Criticar, Juzgar, Justificar, Recomendar
+- Crear: Diseñar, Desarrollar, Construir, Producir, Componer
+"""
+        if spanish_course
+        else """**BLOOM'S TAXONOMY VERBS (USE BASED ON LESSON LEVEL):**
 - Remember: Define, List, Identify, Name, Recall
 - Understand: Describe, Explain, Summarize, Interpret
 - Apply: Implement, Execute, Use, Demonstrate, Solve
 - Analyze: Compare, Differentiate, Examine, Investigate
 - Evaluate: Assess, Critique, Judge, Justify, Recommend
 - Create: Design, Develop, Construct, Produce, Compose
+"""
+    )
 
-**TABLES (USE NATIVE MARKDOWN):**
+    tables_code = (
+        """**TABLAS (Markdown nativo):** no uses etiquetas VISUAL para tablas; formato estándar de tabla.
+
+**BLOQUES DE CÓDIGO:** siempre con idioma (```python, ```bash, etc.). No uses VISUAL para código.
+
+**ETIQUETAS VISUAL:**
+- Formato: [VISUAL: MM-LL-XXXX - descripción en español]
+- MM = módulo en 2 dígitos: {module_number:02d}
+- LL = lección en 2 dígitos
+- XXXX = contador global empezando en {starting_visual_number:04d}
+"""
+        if spanish_course
+        else """**TABLES (USE NATIVE MARKDOWN):**
 - DO NOT create visual tags for tables
 - Use proper Markdown table formatting:
   | Column 1 | Column 2 | Column 3 |
@@ -448,8 +577,16 @@ CRITICAL FORMATTING RULES
 - Examples:
   [VISUAL: {module_number:02d}-01-{starting_visual_number:04d} - Architecture diagram showing client-server communication flow]
   [VISUAL: {module_number:02d}-02-{(starting_visual_number+1):04d} - Flowchart of the authentication process]
+"""
+    )
 
-**ACADEMIC DEPTH:**
+    depth_pedagogy = (
+        """**PROFUNDIDAD ACADÉMICA:** curso para profesionales; cada tema: Visión General → Detalles → Aplicación Práctica.
+
+**CLARIDAD:** lenguaje sencillo, ejemplos concretos, analogías si ayudan, párrafos breves.
+"""
+        if spanish_course
+        else """**ACADEMIC DEPTH:**
 - This is an ACADEMIC COURSE for professionals
 - Each topic MUST follow the structure: Concept Overview → Technical Details → Practical Application
 - Match content depth to the Bloom level specified
@@ -460,8 +597,20 @@ CRITICAL FORMATTING RULES
 - Include concrete examples in each major topic.
 - Include analogies when explaining abstract concepts.
 - Prefer short paragraphs and clear transitions.
+"""
+    )
 
+    output_tail = (
+        """═══════════════════════════════════════════════════════════════════════════════
+FORMATO DE SALIDA
 ═══════════════════════════════════════════════════════════════════════════════
+Genera las lecciones separadas por este delimitador exacto:
+═══════════════════════════════════════════════════════════════════════
+
+Comienza a generar ahora:
+"""
+        if spanish_course
+        else """═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -469,6 +618,65 @@ Generate the lessons separated by this exact delimiter:
 ═══════════════════════════════════════════════════════════════════════
 
 Begin generating now:
+"""
+    )
+
+    terminology_note = (
+        """
+**TERMINOLOGÍA EN ESPAÑOL (OBLIGATORIO):** usa siempre "Capítulo" (nunca "Module"/"Módulo") y "Lección" (nunca "Lesson") en el texto generado.
+"""
+        if spanish_course
+        else ""
+    )
+
+    structure_intro = (
+        "Cada lección debe seguir esta estructura de encabezados."
+        if spanish_course
+        else "Each lesson MUST follow this exact heading hierarchy."
+    )
+
+    prompt = f"""{role_line}
+
+{language_directive}
+
+{course_context}
+
+{task_line}
+
+{module_header}
+
+{lessons_header}
+{lessons_specification}
+{additional_requirements_section}
+
+═══════════════════════════════════════════════════════════════════════════════
+{structure_title}
+═══════════════════════════════════════════════════════════════════════════════
+
+{structure_intro}
+{terminology_note}
+
+{schema_block}
+
+{yaml_fidelity}
+
+{visual_section}
+
+{refs_section}
+
+═══════════════════════════════════════════════════════════════════════════════
+{"REGLAS DE FORMATO CRÍTICAS" if spanish_course else "CRITICAL FORMATTING RULES"}
+═══════════════════════════════════════════════════════════════════════════════
+
+{heading_rules}
+
+{bloom_block}
+
+{tables_code}
+
+{depth_pedagogy}
+
+{output_tail}
 """
     
     print(f"🤖 Calling {model_provider.upper()} API...")
@@ -791,15 +999,18 @@ def lambda_handler(event, context):
         print(f"📚 GENERATING MODULE {module_num} - BATCH {batch_index}/{total_batches}")
         print(f"{'='*70}")
         
+        outline_lang_raw = extract_outline_language(outline_data)
+        print(f"🌐 Outline language raw: {outline_lang_raw!r}")
+
         generated_lessons = generate_batch_single_call(
             module_number=module_num,
             batch_start_idx=batch_start_idx,
             batch_end_idx=batch_end_idx,
             module_data=module_data,
             course_data={
-                'title': course_info.get('title', 'Course'),
+                'title': course_info.get('title', course_data.get('title', 'Course')),
                 'modules': modules,
-                'language': course_info.get('language', outline_data.get('language', ''))
+                'language': outline_lang_raw,
             },
             model_provider=model_provider,
             openai_api_key=openai_api_key,

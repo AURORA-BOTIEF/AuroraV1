@@ -21,7 +21,7 @@ s3_client = boto3.client('s3', region_name='us-east-1')
 bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_MODEL = "us.anthropic.claude-haiku-4.5-20251001-v1:0"
+DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
 # PPT Dimension Constants - MUST MATCH actual HTML rendering
 # Browser slide is 720px height with FIXED layout

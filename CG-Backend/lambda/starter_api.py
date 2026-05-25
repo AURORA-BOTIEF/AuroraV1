@@ -231,6 +231,38 @@ def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
         return False
 
 
+def normalize_course_language_code(lang) -> str:
+    """Map outline/API language to 'es' or 'en'. Default Spanish; English only if explicitly requested."""
+    if lang is None:
+        return "es"
+    s = str(lang).strip().lower()
+    if not s:
+        return "es"
+    if s.startswith("en") or "english" in s or "inglés" in s or "ingles" in s:
+        return "en"
+    if s.startswith("es") or "español" in s or "espanol" in s:
+        return "es"
+    return "es"
+
+
+def read_course_language_from_outline(s3_client, bucket: str, s3_key: str | None) -> str | None:
+    """Return raw language field from outline YAML, or None."""
+    if not s3_key or not bucket:
+        return None
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+        outline_content = response["Body"].read().decode("utf-8")
+        outline_data = yaml.safe_load(outline_content)
+        if not outline_data:
+            return None
+        course = outline_data.get("course", outline_data)
+        raw = course.get("language")
+        return str(raw).strip() if raw else None
+    except Exception as e:
+        print(f"⚠️ Could not read course language from outline: {e}")
+        return None
+
+
 def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     """
     Parse module input into list of module numbers.
@@ -506,6 +538,7 @@ def lambda_handler(event, context):
         #         lessons: [...]
         #         lab_activities: [...]
         # ========================================================================
+        s3_client = None
         if outline_s3_key:
             s3_client = boto3.client('s3')
             normalize_outline_yaml(s3_client, course_bucket, outline_s3_key)
@@ -568,6 +601,22 @@ def lambda_handler(event, context):
                 })
             }
 
+        # Course language: outline YAML is source of truth; optional API override if outline has no language
+        raw_outline_lang = (
+            read_course_language_from_outline(s3_client, course_bucket, outline_s3_key)
+            if outline_s3_key and s3_client
+            else None
+        )
+        if raw_outline_lang and str(raw_outline_lang).strip():
+            course_language = normalize_course_language_code(raw_outline_lang)
+            print(f"🌐 course_language from outline: raw={raw_outline_lang!r} -> {course_language}")
+        elif body.get("course_language") is not None and str(body.get("course_language") or "").strip():
+            course_language = normalize_course_language_code(body.get("course_language"))
+            print(f"🌐 course_language from API body (no outline language): {course_language}")
+        else:
+            course_language = "es"
+            print(f"🌐 course_language default (no outline key): {course_language}")
+
         # Initialize Step Functions client
         sf_client = boto3.client('stepfunctions')
 
@@ -592,6 +641,7 @@ def lambda_handler(event, context):
             "lab_requirements": lab_requirements,  # Always include (empty string if not provided)
             "lesson_requirements": lesson_requirements,  # Always include (empty string if not provided)
             "lab_ids_to_regenerate": body.get('lab_ids_to_regenerate'),  # NEW: Always include (None if not provided)
+            "course_language": course_language,
         }
         
         # Only include optional parameters if they were provided

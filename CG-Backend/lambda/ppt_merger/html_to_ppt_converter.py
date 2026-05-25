@@ -19,6 +19,32 @@ from typing import Dict, Optional
 # Use same logger as main module so logs appear in CloudWatch
 logger = logging.getLogger("aurora.infographic_generator")
 
+# THOR / Netec — estándar de tipografías (ppt)
+PT_CHAPTER_LABEL = 80  # "Capítulo N"
+PT_CHAPTER_NAME = 30  # nombre del capítulo / subtítulo en slides branded (THOR)
+PT_LESSON_LABEL = 54  # lección 1.1, etc.
+PT_CONTENT_TITLE = 40  # títulos en slides de desarrollo
+PT_DEFAULT_SLIDE_TITLE = 40
+
+
+def _normalize_ppt_plain_text(text: str) -> str:
+    """Strip markdown asterisks and ellipsis truncation markers for PPT display (THOR)."""
+    if not text:
+        return ""
+    raw = str(text).strip()
+    low = raw.lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        return raw.replace("**", "").strip()
+    t = raw.replace("**", "").strip()
+    while t.startswith("*") and len(t) > 1:
+        t = t[1:].strip()
+    while t.endswith("*") and len(t) > 1:
+        t = t[:-1].strip()
+    t = re.sub(r"\btruncated\b", "…", t, flags=re.IGNORECASE)
+    if t and t[-1] not in ".!?;:":
+        t = t + "."
+    return t
+
 
 def convert_html_to_pptx_new(
     html_content: str, 
@@ -181,7 +207,14 @@ def convert_html_to_pptx_new(
         
         # Add ALL content blocks (no splitting - HTML already decided structure)
         # Pass subtitle_height so content block can position itself correctly
-        _add_content_blocks(slide, slide_data['content_blocks'], colors, has_images=has_images and has_text_content, subtitle_height=subtitle_height)
+        _add_content_blocks(
+            slide,
+            slide_data['content_blocks'],
+            colors,
+            has_images=has_images and has_text_content,
+            subtitle_height=subtitle_height,
+            has_bibliography_layout=slide_data.get('has_bibliography_layout', False),
+        )
         
         # Add images if present
         if slide_data['images'] and course_bucket and project_folder:
@@ -320,7 +353,7 @@ def _extract_slide_data(slide_html) -> Dict:
         title_elem = slide_html.find('h1', class_='main-title')
     else:
         title_elem = slide_html.find('h1', class_='slide-title')
-    title = title_elem.get_text(strip=True) if title_elem else "Untitled"
+    title = _normalize_ppt_plain_text(title_elem.get_text(strip=True)) if title_elem else "Untitled"
     logger.info(f"  📝 Extracted title: {title[:50]}")
     
     # Extract subtitle (different selector for special title slides)
@@ -328,7 +361,7 @@ def _extract_slide_data(slide_html) -> Dict:
         subtitle_elem = slide_html.find('p', class_='main-subtitle')
     else:
         subtitle_elem = slide_html.find('p', class_='slide-subtitle')
-    subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else None
+    subtitle = _normalize_ppt_plain_text(subtitle_elem.get_text(strip=True)) if subtitle_elem else None
     if subtitle:
         logger.info(f"  📝 Extracted subtitle: {subtitle[:50]}")
     
@@ -348,7 +381,7 @@ def _extract_slide_data(slide_html) -> Dict:
         # Check for heading within this block
         h2 = block_div.find('h2', class_='block-heading')
         if h2:
-            heading_text = h2.get_text(strip=True)
+            heading_text = _normalize_ppt_plain_text(h2.get_text(strip=True))
             logger.info(f"      ✓ Heading: {heading_text[:50]}")
             content_blocks.append({
                 'type': 'heading',
@@ -360,12 +393,13 @@ def _extract_slide_data(slide_html) -> Dict:
         if ul:
             items = []
             for li in ul.find_all('li'):
-                item_text = li.get_text(strip=True)
+                item_text = _normalize_ppt_plain_text(li.get_text(strip=True))
+                html_inner = li.decode_contents()
                 # Preserve level information from HTML class
                 if 'level-2' in li.get('class', []):
-                    items.append({'text': item_text, 'level': 2})
+                    items.append({'text': item_text, 'html_inner': html_inner, 'level': 2})
                 else:
-                    items.append({'text': item_text, 'level': 1})
+                    items.append({'text': item_text, 'html_inner': html_inner, 'level': 1})
             
             if items:
                 logger.info(f"      ✓ Bullets: {len(items)} items")
@@ -380,7 +414,7 @@ def _extract_slide_data(slide_html) -> Dict:
         # Check for callout within this block
         callout = block_div.find('div', class_='callout')
         if callout:
-            callout_text = callout.get_text(strip=True)
+            callout_text = _normalize_ppt_plain_text(callout.get_text(strip=True))
             if callout_text:  # Only add if not empty
                 logger.info(f"      ✓ Callout: {callout_text[:50]}")
                 content_blocks.append({
@@ -411,14 +445,22 @@ def _extract_slide_data(slide_html) -> Dict:
     notes = notes_div.get_text(strip=True) if notes_div else ''
     if notes:
         logger.info(f"  📝 Found notes: {notes[:30]}...")
-    
+
+    _ttl = title or ''
+    has_bibliography_layout = (
+        slide_html.select_one('.slide-content.bibliography-slide') is not None
+        or 'Referencias Bibliográficas' in _ttl
+        or 'Bibliographic References' in _ttl
+    )
+
     return {
         'title': title,
         'subtitle': subtitle,
         'content_blocks': content_blocks,
         'images': images,
         'notes': notes,
-        'layout_type': layout_type
+        'layout_type': layout_type,
+        'has_bibliography_layout': has_bibliography_layout,
     }
 
 
@@ -457,7 +499,7 @@ def _set_slide_title(slide, title: str, colors: Dict):
         # Set title text
         title_para = title_frame.paragraphs[0]
         title_para.text = title
-        title_para.font.size = Pt(32)
+        title_para.font.size = Pt(PT_DEFAULT_SLIDE_TITLE)
         title_para.font.bold = True
         title_para.font.color.rgb = colors['primary']
         
@@ -644,7 +686,11 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
                 
                 title_para = title_frame.paragraphs[0]
                 title_para.text = title
-                title_para.font.size = Pt(48)
+                _ttl = (title or "").strip().lower()
+                if _ttl.startswith("capítulo") or _ttl.startswith("chapter"):
+                    title_para.font.size = Pt(PT_CHAPTER_LABEL)
+                else:
+                    title_para.font.size = Pt(48)
                 title_para.font.bold = True
                 title_para.font.color.rgb = RGBColor(0, 60, 120)  # Dark blue
                 title_para.alignment = PP_ALIGN.LEFT
@@ -711,7 +757,7 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
                 
                 title_para = title_frame.paragraphs[0]
                 title_para.text = title
-                title_para.font.size = Pt(42)
+                title_para.font.size = Pt(PT_LESSON_LABEL)
                 title_para.font.bold = True
                 title_para.font.color.rgb = RGBColor(0, 60, 120)  # Dark blue
                 title_para.alignment = PP_ALIGN.LEFT
@@ -730,7 +776,7 @@ def _create_branded_title_slide(prs, blank_layout, slide_data: Dict, colors: Dic
                     
                     subtitle_para = subtitle_frame.paragraphs[0]
                     subtitle_para.text = subtitle
-                    subtitle_para.font.size = Pt(28)
+                    subtitle_para.font.size = Pt(PT_CHAPTER_NAME)
                     subtitle_para.font.bold = False
                     subtitle_para.font.color.rgb = RGBColor(0, 188, 235)  # Cyan
                     subtitle_para.alignment = PP_ALIGN.LEFT
@@ -883,7 +929,37 @@ def _add_logo_to_regular_slide(slide, course_bucket: str, project_folder: str, s
         logger.error(traceback.format_exc())
 
 
-def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: bool = False, subtitle_height: float = 0):
+def _append_bullet_item_runs(paragraph, *, html_inner: str, plain_text: str, body_pt: int, font_name: str):
+    """After bullet glyph run: append linked/plain runs from HTML fragment (shared with html_to_ppt_styled)."""
+    from html_to_ppt_styled import _add_li_content_runs
+
+    inner = (html_inner or '').strip()
+    if inner:
+        frag = BeautifulSoup(f"<li>{inner}</li>", 'html.parser')
+        fake_li = frag.find('li')
+        if fake_li:
+            _add_li_content_runs(
+                paragraph,
+                fake_li,
+                font_pt=Pt(body_pt),
+                font_name=font_name,
+                default_color=RGBColor(0, 0, 0),
+            )
+            return
+    text_run = paragraph.add_run()
+    text_run.text = plain_text
+    text_run.font.size = Pt(body_pt)
+    text_run.font.color.rgb = RGBColor(0, 0, 0)
+
+
+def _add_content_blocks(
+    slide,
+    content_blocks: list,
+    colors: Dict,
+    has_images: bool = False,
+    subtitle_height: float = 0,
+    has_bibliography_layout: bool = False,
+):
     """Add content blocks to slide with improved overflow detection and positioning.
     
     Args:
@@ -933,7 +1009,10 @@ def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: b
         text_frame.vertical_anchor = MSO_ANCHOR.TOP
         
         logger.info(f"📝 Processing {len(content_blocks)} content blocks...")
-        
+        from html_to_ppt_styled import FONT_PPT_BODY_SAFE
+
+        bib_font = FONT_PPT_BODY_SAFE if has_bibliography_layout else 'Calibri'
+
         # Separate callouts from other content - we'll add them at the end
         regular_blocks = []
         callout_blocks = []
@@ -963,7 +1042,7 @@ def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: b
                     p = text_frame.add_paragraph()
                     
                 p.text = block.get('text', '')
-                p.font.size = Pt(24)
+                p.font.size = Pt(PT_CONTENT_TITLE)
                 p.font.bold = True
                 p.font.color.rgb = colors['primary']
                 p.space_before = Pt(20)  # Add spacing before heading (matches HTML margin-top: 25px)
@@ -1001,15 +1080,19 @@ def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: b
                     else:
                         p = text_frame.add_paragraph()
                     
-                    # Get item text and level from HTML structure
                     if isinstance(item, dict):
                         item_text = item.get('text', '')
                         item_level = item.get('level', 1)
+                        html_inner = item.get('html_inner', '') or ''
                     else:
                         # Fallback for old format (plain strings)
                         item_text = str(item)
                         item_level = 1
-                    
+                        html_inner = ''
+
+                    lvl1_body = 16 if has_bibliography_layout else 20
+                    lvl2_body = 15 if has_bibliography_layout else 18
+
                     if item_level == 2:
                         # Second level: Cyan square bullet, indented
                         bullet_run = p.add_run()
@@ -1017,13 +1100,15 @@ def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: b
                         bullet_run.font.size = Pt(20)
                         bullet_run.font.bold = True
                         bullet_run.font.color.rgb = colors.get('secondary', RGBColor(0, 188, 235))  # CYAN
-                        
-                        # Text in BLACK (matching HTML)
-                        text_run = p.add_run()
-                        text_run.text = item_text
-                        text_run.font.size = Pt(18)
-                        text_run.font.color.rgb = RGBColor(0, 0, 0)  # BLACK
-                        
+
+                        _append_bullet_item_runs(
+                            p,
+                            html_inner=html_inner,
+                            plain_text=item_text,
+                            body_pt=lvl2_body,
+                            font_name=bib_font,
+                        )
+
                         p.level = 1  # Indented level
                         p.line_spacing = 1.3
                         p.space_after = Pt(4)
@@ -1034,13 +1119,15 @@ def _add_content_blocks(slide, content_blocks: list, colors: Dict, has_images: b
                         bullet_run.font.size = Pt(24)
                         bullet_run.font.bold = True
                         bullet_run.font.color.rgb = colors.get('accent', RGBColor(255, 204, 0))  # YELLOW #FFC000
-                        
-                        # Second run: BLACK text for item (matching HTML)
-                        text_run = p.add_run()
-                        text_run.text = item_text
-                        text_run.font.size = Pt(20)
-                        text_run.font.color.rgb = RGBColor(0, 0, 0)  # BLACK
-                        
+
+                        _append_bullet_item_runs(
+                            p,
+                            html_inner=html_inner,
+                            plain_text=item_text,
+                            body_pt=lvl1_body,
+                            font_name=bib_font,
+                        )
+
                         p.level = 0
                         p.line_spacing = 1.4
                         p.space_after = Pt(6)
@@ -1242,8 +1329,31 @@ def _download_image_from_s3(image_ref: str, course_bucket: str, project_folder: 
     try:
         # Clean reference
         clean_ref = image_ref.replace('USE_IMAGE: ', '').strip()
-        
-        # Check if it's a full S3 URL
+
+        if clean_ref.startswith('s3://'):
+            path = clean_ref[5:]
+            bucket, _, key = path.partition('/')
+            if bucket and key:
+                logger.info(f"📥 Downloading s3://{bucket}/{key}")
+                response = s3_client.get_object(Bucket=bucket, Key=key)
+                return response['Body'].read()
+
+        if (
+            project_folder
+            and not clean_ref.startswith('http')
+            and ('/' in clean_ref or clean_ref.endswith('.png') or clean_ref.endswith('.jpg'))
+        ):
+            rel = clean_ref.lstrip('./')
+            if not rel.startswith(project_folder):
+                candidate_key = f"{project_folder}/{rel}"
+            else:
+                candidate_key = rel
+            try:
+                logger.info(f"📥 Downloading relative image path: s3://{course_bucket}/{candidate_key}")
+                response = s3_client.get_object(Bucket=course_bucket, Key=candidate_key)
+                return response['Body'].read()
+            except Exception:
+                logger.debug(f"Relative path candidate failed: {candidate_key}")
         if clean_ref.startswith('http'):
             url_match = re.search(r'https://([^/]+)\.s3\.amazonaws\.com/(.+)', clean_ref)
             if url_match:
