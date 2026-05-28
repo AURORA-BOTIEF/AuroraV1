@@ -2370,40 +2370,15 @@ def create_lab_slides_from_content(lesson: Dict, is_spanish: bool, slide_counter
     })
     current_slide += 1
 
-    # Expected results slides (immediately after intro)
-    if expected_items:
-        expected_chunks = _chunk_items(expected_items, 6)
-        for idx, chunk in enumerate(expected_chunks, 1):
-            slides.append({
-                "slide_number": current_slide,
-                "title": (
-                    f"Resultados Esperados ({idx}/{len(expected_chunks)})" if len(expected_chunks) > 1 else "Resultados Esperados"
-                ) if is_spanish else (
-                    f"Expected Results ({idx}/{len(expected_chunks)})" if len(expected_chunks) > 1 else "Expected Results"
-                ),
-                "subtitle": lesson_title,
-                "layout": "text-only",
-                "content_blocks": [{"type": "bullets", "heading": "", "items": chunk}],
-                "notes": f"Expected outcomes for {lesson_title}"
-            })
-            current_slide += 1
-    else:
-        slides.append({
-            "slide_number": current_slide,
-            "title": "Resultado Esperado" if is_spanish else "Expected Result",
-            "subtitle": lesson_title,
-            "layout": "text-only",
-            "content_blocks": [{
-                "type": "bullets",
-                "heading": "",
-                "items": [
-                    "Completar correctamente la actividad siguiendo la guía del laboratorio."
-                    if is_spanish else
-                    "Successfully complete the activity following the lab guide."
-                ]
-            }],
-            "notes": f"Fallback expected result for {lesson_title}"
-        })
+    # Single expected-results slide (empty body for instructor to fill in)
+    slides.append({
+        "slide_number": current_slide,
+        "title": "Resultados Esperados" if is_spanish else "Expected Results",
+        "subtitle": lesson_title,
+        "layout": "text-only",
+        "content_blocks": [],
+        "notes": f"Expected outcomes for {lesson_title} (instructor-editable)"
+    })
 
     return slides
 

@@ -344,6 +344,7 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
     # Pre-scan: find the index of the last slide (¡Gracias!) to inject glossary before it
     _last_slide_idx = len(slides_html) - 1
     _glossary_injected = False
+    _seen_expected_keys = set()
 
     for idx, slide_html in enumerate(slides_html):
         logger.info(f"Processing slide {idx + 1}/{len(slides_html)}")
@@ -383,6 +384,7 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
         elif slide_html.find(class_='lab-intro-slide'):
             slide = create_lab_intro_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
         elif slide_html.find(class_='glossary-slide'):
+            _glossary_injected = True
             slide = create_glossary_slide(prs, blank_layout, slide_html, logo_bytes)
         elif slide_html.find(class_='gracias-slide'):
             # Inject chapter summary for last module if not done yet
@@ -482,10 +484,20 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
                 logger.info(f"   ⏭️ Skipping per-lesson summary slide: {_content_title_text}")
                 continue
 
-            # Backward compat: detect old lab overview slides (subtitle "Actividad Práctica")
             _subtitle_elem = slide_html.find(class_='slide-subtitle')
-            _subtitle_text = _subtitle_elem.get_text(strip=True).lower() if _subtitle_elem else ''
-            if 'actividad' in _subtitle_text or _content_title_text.lower().startswith('laboratorio'):
+            _subtitle_text = _subtitle_elem.get_text(strip=True) if _subtitle_elem else ''
+            _subtitle_text_lower = _subtitle_text.lower()
+
+            if _is_expected_results_slide(_content_title_text):
+                _expected_key = _subtitle_text or _content_title_text
+                if _expected_key in _seen_expected_keys:
+                    logger.info(f"   ⏭️ Skipping duplicate expected-results slide: {_content_title_text}")
+                    continue
+                _seen_expected_keys.add(_expected_key)
+                logger.info(f"   📋 Expected-results slide (empty body): {_content_title_text}")
+
+            # Backward compat: detect old lab overview slides (subtitle "Actividad Práctica")
+            if 'actividad' in _subtitle_text_lower or _content_title_text.lower().startswith('laboratorio'):
                 logger.info(f"   🔬 Converting old lab overview to lab-intro: {_content_title_text}")
                 slide = create_lab_intro_slide(prs, blank_layout, slide_html, logo_bytes, ctx)
             else:
@@ -591,17 +603,54 @@ def download_image_from_s3(s3_client, bucket: str, image_url: str) -> bytes:
         return None
 
 
+def _image_slide_layout(position: str, content_top_in: float) -> dict:
+    """Compute image + text column geometry for image-left / image-right slides."""
+    slide_w = 13.333
+    margin_lr = 0.45
+    logo_top = 6.58
+    content_bottom = logo_top - 0.14
+    img_top = content_top_in + 0.06
+    avail_h = max(3.5, content_bottom - img_top)
+
+    img_w = 7.95
+    gap = 0.20
+    text_w = slide_w - (margin_lr * 2) - img_w - gap
+
+    if position == 'left':
+        img_left = margin_lr
+        text_left = margin_lr + img_w + gap
+    else:
+        text_left = margin_lr
+        img_left = margin_lr + text_w + gap
+
+    return {
+        'img_left': img_left,
+        'img_top': img_top,
+        'img_width': img_w,
+        'img_height': min(avail_h, 5.15),
+        'text_left': text_left,
+        'text_width': max(4.15, text_w),
+        'bullet_pt': 17,
+    }
+
+
 def add_content_image(slide, img_url: str, position: str, ctx: dict):
-    """Add content image to slide."""
+    """Add content image to slide (expanded layout when layout dict is in ctx)."""
     img_bytes = download_image_from_s3(ctx.get('s3_client'), ctx.get('bucket'), img_url)
     if not img_bytes:
         logger.warning(f"Could not download image: {img_url[:60]}...")
         return
-    
+
     try:
         img_stream = io.BytesIO(img_bytes)
-        
-        if position == 'left':
+        layout = ctx.get('image_layout')
+
+        if layout:
+            left = Inches(layout['img_left'])
+            top = Inches(layout['img_top'])
+            width = Inches(layout['img_width'])
+            height = Inches(layout['img_height'])
+        elif position == 'left':
             left = CONTENT_LEFT
             top = ctx.get('content_top', CONTENT_TOP)
             width = Inches(5)
@@ -611,7 +660,7 @@ def add_content_image(slide, img_url: str, position: str, ctx: dict):
             top = ctx.get('content_top', CONTENT_TOP)
             width = Inches(5)
             height = Inches(4)
-        
+
         slide.shapes.add_picture(img_stream, left, top, width, height)
         logger.info(f"✅ Added image at {position}")
     except Exception as e:
@@ -1204,39 +1253,54 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     fill.solid()
     fill.fore_color.rgb = COLORS['white']
 
-    # Dashed title box (top area — taller, pushed down)
-    title_box_shape = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.5), Inches(12.1), Inches(2.3)
+    title_elem = slide_html.find(class_='lab-intro-title') or slide_html.find(class_='slide-title')
+    title_text = title_elem.get_text(strip=True) if title_elem else "Lab Activity"
+    lab_box_width = 11.7
+    title_pt, title_lines = _fit_text_to_box(
+        title_text, PT_LAB_INTRO_TITLE, 22, lab_box_width, orphan_max=2, max_lines=3
     )
-    title_box_shape.fill.background()  # No fill
+    num_title_lines = len(title_lines)
+    title_text_h = _title_block_height_in(num_title_lines, title_pt, baseline_pt=50.0)
+
+    title_box_top = 0.5
+    title_pad_top = 0.35
+    title_box_h = title_text_h * 1.15 + 0.55
+    title_text_top = title_box_top + title_pad_top
+    title_box_bottom = title_box_top + title_box_h
+
+    # Dashed title box sized to wrapped title
+    title_box_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0.6), Inches(title_box_top), Inches(12.1), Inches(title_box_h)
+    )
+    title_box_shape.fill.background()
     ln = title_box_shape.line
     ln.color.rgb = RGBColor(170, 170, 170)
     ln.width = Pt(1.5)
-    ln.dash_style = 3  # dash
+    ln.dash_style = 3
 
-    # Title text (centered in box — larger font)
-    title_elem = slide_html.find(class_='lab-intro-title') or slide_html.find(class_='slide-title')
-    title_text = title_elem.get_text(strip=True) if title_elem else "Lab Activity"
-    t_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.9), Inches(11.7), Inches(1.6))
+    t_box = slide.shapes.add_textbox(
+        Inches(0.8), Inches(title_text_top), Inches(lab_box_width), Inches(title_text_h)
+    )
     tf = t_box.text_frame
-    tf.word_wrap = True
-    p = tf.paragraphs[0]
-    p.text = title_text
-    p.font.size = Pt(PT_LAB_INTRO_TITLE)
-    p.font.bold = True
-    p.font.name = FONTS['title']
-    p.font.color.rgb = RGBColor(17, 17, 17)
-    p.alignment = PP_ALIGN.CENTER
+    tf.word_wrap = False
+    _apply_wrapped_title(
+        tf, title_lines, title_pt,
+        bold=True, color=RGBColor(17, 17, 17),
+        font_name=FONTS['title'], alignment=PP_ALIGN.CENTER,
+    )
+
+    accent_top = title_box_bottom + 0.12
     accent = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(2.9), Inches(2.4), Inches(0.1)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(accent_top), Inches(2.4), Inches(0.1)
     )
     accent.fill.solid()
     accent.fill.fore_color.rgb = COLORS['bullet_marker']
     accent.line.fill.background()
 
-    # Gray divider line
+    divider_top = accent_top + 0.14
     div = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(3.1), Inches(12.1), Inches(0.02)
+        MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(divider_top), Inches(12.1), Inches(0.02)
     )
     div.fill.solid()
     div.fill.fore_color.rgb = RGBColor(199, 199, 199)
@@ -1245,11 +1309,14 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     obj_reg = slide_html.find(class_='lab-intro-region-objective')
     ins_reg = slide_html.find(class_='lab-intro-region-instructions')
 
-    # Objective + instructions: one text frame (matches HTML .lab-intro-stack); avoids overlap from stacked boxes
-    stack_top = Inches(3.18)
-    stack_height = Inches(3.12)
+    stack_top_in = divider_top + 0.10
+    clock_band_top = 6.38
+    stack_max_bottom = clock_band_top - 0.42
+    stack_height_in = max(2.0, min(3.35, stack_max_bottom - stack_top_in))
+    stack_top = Inches(stack_top_in)
+    stack_height = Inches(stack_height_in)
     stack_left = Inches(0.55)
-    stack_width = Inches(12.15)
+    stack_width = Inches(12.05)
     lab_body_font = FONT_PPT_BODY_SAFE
     lab_body_pt = Pt(15)
     lab_heading_pt = Pt(17)
@@ -1305,8 +1372,8 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
         if obj_reg:
             gap_p = _next_paragraph()
             gap_p.text = ""
-            gap_p.space_before = Pt(14)
-            gap_p.space_after = Pt(4)
+            gap_p.space_before = Pt(2)
+            gap_p.space_after = Pt(2)
         _emit_region(ins_reg)
     else:
         heading_elem = slide_html.find(class_='lab-intro-section-heading')
@@ -1334,12 +1401,15 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
                 bp, obj_elem, font_pt=lab_body_pt, font_name=lab_body_font, default_color=RGBColor(51, 51, 51)
             )
 
-    # Clock image + duration (bottom-right)
+    # Clock image + duration (bottom-right, fixed band — does not overlap instructions)
+    clock_top_in = clock_band_top
     asset_bytes = _download_asset_image(ctx.get('s3_client'), ctx.get('bucket'), 'Reloj.png')
     if asset_bytes:
         try:
             img_stream = io.BytesIO(asset_bytes)
-            slide.shapes.add_picture(img_stream, Inches(8.5), Inches(5.8), Inches(1.0), Inches(1.0))
+            slide.shapes.add_picture(
+                img_stream, Inches(8.5), Inches(clock_top_in), Inches(1.0), Inches(1.0)
+            )
         except Exception as e:
             logger.warning(f"Could not add Reloj.png: {e}")
 
@@ -1355,7 +1425,9 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     if dur_elem or dur_box_elem:
         dur_label_text = dur_elem.get_text(strip=True) if dur_elem else 'Tiempo para esta actividad:'
         dur_value_text = dur_val_elem.get_text(strip=True) if dur_val_elem else ''
-        d_box = slide.shapes.add_textbox(Inches(9.6), Inches(5.7), Inches(3.5), Inches(0.5))
+        d_box = slide.shapes.add_textbox(
+            Inches(9.6), Inches(clock_top_in + 0.22), Inches(3.5), Inches(0.5)
+        )
         dp = d_box.text_frame.paragraphs[0]
         dp.text = dur_label_text
         dp.font.size = Pt(16)
@@ -1487,14 +1559,6 @@ def create_gracias_slide(prs, layout, slide_html, logo_bytes, ctx):
     white_panel.fill.solid()
     white_panel.fill.fore_color.rgb = COLORS['white']
     white_panel.line.fill.background()
-
-    # Curved edge: white oval that softens the right border of the panel
-    curve = slide.shapes.add_shape(
-        MSO_SHAPE.OVAL, Inches(4.5), Inches(-1.0), Inches(4.0), Inches(9.5)
-    )
-    curve.fill.solid()
-    curve.fill.fore_color.rgb = COLORS['white']
-    curve.line.fill.background()
 
     # Yellow accent bar (top-left)
     accent = slide.shapes.add_shape(
@@ -1749,20 +1813,25 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
     yellow_bar.fill.fore_color.rgb = COLORS['bullet_marker']
     yellow_bar.line.fill.background()
     
-    # Title (centered, dark)
+    lesson_box_width = 12.333
+    title_top_in = 0.32
+    title_pt, title_lines = _fit_text_to_box(
+        title_text, PT_LESSON_TITLE, 36, lesson_box_width, orphan_max=2, max_lines=4
+    )
+    title_height_in = _title_block_height_in(
+        len(title_lines), title_pt, baseline_pt=float(PT_LESSON_TITLE)
+    ) + 0.35
     title_box = slide.shapes.add_textbox(
-        Inches(0.5), Inches(1.5), Inches(12.333), Inches(1.8)
+        Inches(0.5), Inches(title_top_in), Inches(lesson_box_width), Inches(title_height_in)
     )
     tf = title_box.text_frame
-    tf.word_wrap = True
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]
-    p.text = title_text
-    p.font.size = Pt(PT_LESSON_TITLE)
-    p.font.name = FONTS['title']
-    p.font.bold = True
-    p.font.color.rgb = COLORS['primary']
-    p.alignment = PP_ALIGN.CENTER
+    tf.word_wrap = False
+    tf.margin_bottom = Inches(0.08)
+    _apply_wrapped_title(
+        tf, title_lines, title_pt,
+        bold=True, color=COLORS['primary'], alignment=PP_ALIGN.CENTER,
+    )
+    divider_top_in = title_top_in + title_height_in + 0.58
 
     # Introduction text (from new HTML classes)
     intro_heading_elem = slide_html.find(class_='lesson-intro-heading')
@@ -1799,17 +1868,17 @@ def create_lesson_title_slide(prs, layout, slide_html, logo_bytes, supp=None, mo
                 intro_items = [intro_text]
 
     if intro_items or intro_heading:
-        # Divider (left-aligned)
+        # Divider sits below title (dynamic — avoids overlap on 3-line titles)
         divider = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(0.6), Inches(3.5),
+            Inches(0.6), Inches(divider_top_in),
             Inches(11.2), Inches(0.02)
         )
         divider.fill.solid()
         divider.fill.fore_color.rgb = RGBColor(199, 199, 199)
         divider.line.fill.background()
 
-        y_pos = 3.7
+        y_pos = divider_top_in + 0.38
 
         # "Introducción" heading bullet (left-aligned)
         if intro_heading:
@@ -1882,9 +1951,13 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     subtitle_text = subtitle_elem.get_text(strip=True) if subtitle_elem else ""
     
     header_height = add_header_bar(slide, title_text, subtitle_text)
-    
-    content_top_pos = header_height + Inches(0.2) # Start content below header
-    
+
+    if _is_expected_results_slide(title_text):
+        add_logo_bottom_left(slide, logo_bytes)
+        return slide
+
+    content_top_pos = header_height + Inches(0.2)  # Start content below header
+
     content_elem = slide_html.find(class_='slide-content')
     if not content_elem:
         add_logo_bottom_left(slide, logo_bytes)
@@ -1904,21 +1977,20 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     if not img_elem:
         img_elem = slide_html.find('img', class_='slide-image')
     
+    image_bullet_pt = 20
     if img_elem and img_elem.get('src'):
         img_url = img_elem.get('src')
         logger.info(f"Found slide image: {img_url[:80]}...")
-        
-        # Pass content_top to image function
+
+        content_top_in = content_top_pos.inches if hasattr(content_top_pos, 'inches') else 1.4
+        img_layout = _image_slide_layout(image_position, content_top_in)
         ctx['content_top'] = content_top_pos
+        ctx['image_layout'] = img_layout
         add_content_image(slide, img_url, image_position, ctx)
-        
-        # Adjust bullet area based on image position
-        if image_position == 'left':
-            bullet_left = Inches(6)
-            bullet_width = Inches(6.5)
-        else:
-            bullet_left = CONTENT_LEFT
-            bullet_width = Inches(6)
+
+        bullet_left = Inches(img_layout['text_left'])
+        bullet_width = Inches(img_layout['text_width'])
+        image_bullet_pt = img_layout['bullet_pt']
     else:
         bullet_left = CONTENT_LEFT
         bullet_width = CONTENT_WIDTH
@@ -1945,7 +2017,8 @@ def create_content_slide(prs, layout, slide_html, logo_bytes, ctx):
 
     if bullets_elem:
         current_top = add_bullets(
-            slide, bullets_elem, current_top, bullet_left, bullet_width, is_bibliography=is_bibliography
+            slide, bullets_elem, current_top, bullet_left, bullet_width,
+            is_bibliography=is_bibliography, body_pt=image_bullet_pt,
         )
     
     if code_elem:
@@ -2088,60 +2161,196 @@ def _estimate_title_width(text: str) -> float:
         else: w += 1.0
     return w
 
+
+def _chars_per_line_for_font(font_pt: float, box_width_in: float = 12.0) -> float:
+    """Character units per line; baseline 40pt at 12\" width ≈ 38 units (PPT-safe)."""
+    baseline_chars = 38.0 * (box_width_in / 12.0)
+    return baseline_chars * (40.0 / font_pt)
+
+
+def _wrap_text_lines(text: str, max_width_units: float) -> list:
+    """Word-wrap text using per-character width estimates."""
+    text = (text or '').strip()
+    if not text:
+        return ['']
+    words = text.split()
+    lines = []
+    current_words = []
+    current_width = 0.0
+
+    for word in words:
+        word_w = _estimate_title_width(word)
+        space_w = 1.0 if current_words else 0.0
+        trial_width = current_width + space_w + word_w
+
+        if not current_words:
+            current_words = [word]
+            current_width = word_w
+        elif trial_width <= max_width_units:
+            current_words.append(word)
+            current_width = trial_width
+        else:
+            lines.append(' '.join(current_words))
+            current_words = [word]
+            current_width = word_w
+
+    if current_words:
+        lines.append(' '.join(current_words))
+    return lines if lines else ['']
+
+
+def _lines_for_font(text: str, font_pt: float, box_width_in: float = 12.0) -> list:
+    return _wrap_text_lines(text, _chars_per_line_for_font(font_pt, box_width_in))
+
+
+def _fit_text_to_box(
+    text: str,
+    max_pt: float,
+    min_pt: float,
+    box_width_in: float = 12.0,
+    orphan_max: int = 2,
+    shrink_step: float = 2.0,
+    max_lines: int = None,
+) -> tuple:
+    """
+    Return (font_pt, wrapped_lines).
+    Shrinks font when only 1–2 characters orphan onto a second line,
+    or when line count exceeds max_lines.
+    """
+    text = (text or '').strip()
+    if not text:
+        return max_pt, ['']
+
+    font_pt = max_pt
+    last_lines = ['']
+    while font_pt >= min_pt:
+        lines = _lines_for_font(text, font_pt, box_width_in)
+        last_lines = lines
+        if max_lines is not None and len(lines) > max_lines:
+            font_pt -= shrink_step
+            continue
+        if len(lines) == 1:
+            return font_pt, lines
+        if len(lines) == 2 and len(lines[1].strip()) <= orphan_max:
+            font_pt -= shrink_step
+            continue
+        return font_pt, lines
+
+    return min_pt, last_lines
+
+
+def _apply_wrapped_title(
+    text_frame,
+    lines: list,
+    font_pt: float,
+    *,
+    bold: bool = True,
+    color=None,
+    font_name: str = None,
+    alignment=None,
+):
+    """Set one paragraph per wrapped line so PowerPoint does not re-wrap differently."""
+    if color is None:
+        color = COLORS['primary']
+    if font_name is None:
+        font_name = FONTS['title']
+
+    text_frame.clear()
+    lines = [ln for ln in (lines or ['']) if ln is not None]
+    if not lines:
+        lines = ['']
+
+    for idx, line_text in enumerate(lines):
+        para = text_frame.paragraphs[0] if idx == 0 else text_frame.add_paragraph()
+        para.text = line_text
+        para.font.size = Pt(font_pt)
+        para.font.bold = bold
+        para.font.color.rgb = color
+        para.font.name = font_name
+        if alignment is not None:
+            para.alignment = alignment
+
+
+def _title_block_height_in(num_lines: int, font_pt: float, baseline_pt: float = 40.0) -> float:
+    """Height in inches for a wrapped title block (with safety margin)."""
+    line_h = 0.48 * (font_pt / baseline_pt)
+    per_line = max(line_h, 0.52)
+    return num_lines * per_line * 1.15 + 0.12
+
+
+def _is_expected_results_slide(title: str) -> bool:
+    """True for lab 'Resultados Esperados' / 'Expected Results' slides."""
+    if not title:
+        return False
+    t = re.sub(r'\s*\(\d+\s*/\s*\d+\)\s*$', '', title.strip(), flags=re.IGNORECASE).lower()
+    return (
+        'resultados esperados' in t
+        or 'expected results' in t
+        or t.startswith('resultado esperado')
+        or t.startswith('expected result')
+    )
+
+
 def add_header_bar(slide, title_text, subtitle_text=""):
     """
     Add a header region with yellow accent bar on left, dark title, and
     a thin divider line.  Matches the corporate template (no gradient).
     """
-    # Determine heights
-    is_long_title = _estimate_title_width(title_text) >= 39.0
-    has_subtitle = bool(subtitle_text)
-    base_h = 1.0
-    if has_subtitle:
-        base_h = 1.5
-    if is_long_title:
-        base_h = max(base_h, 1.8)
+    title_box_width = 12.0
+    title_top_in = 0.18
 
-    bar_height = Inches(base_h)
+    title_pt, title_lines = _fit_text_to_box(
+        title_text, PT_CONTENT_SLIDE_TITLE, 28, title_box_width, orphan_max=2
+    )
+    num_title_lines = len(title_lines)
+    title_height_in = _title_block_height_in(num_title_lines, title_pt)
+    title_bottom_in = title_top_in + title_height_in
+
+    subtitle_block_in = 0.0
+    subtitle_pt = 20
+    sub_lines = []
+    if subtitle_text:
+        subtitle_pt, sub_lines = _fit_text_to_box(
+            subtitle_text, 20, 14, title_box_width, orphan_max=2
+        )
+        sub_line_h = 0.33 * (subtitle_pt / 20.0)
+        subtitle_block_in = len(sub_lines) * max(sub_line_h, 0.30) * 1.1 + 0.08
+
+    gap_after_title = 0.12 if subtitle_text else 0.05
+    base_h = 0.35 + title_height_in + gap_after_title + subtitle_block_in
+    accent_h = max(0.4, base_h - 0.30)
 
     # Yellow accent bar on left (stops just above the gray divider)
     accent_bar = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
         Inches(0.4), Inches(0.22),
-        Inches(0.08), Inches(base_h - 0.30)
+        Inches(0.08), Inches(accent_h)
     )
     accent_bar.fill.solid()
     accent_bar.fill.fore_color.rgb = COLORS['bullet_marker']
     accent_bar.line.fill.background()
 
     # Title text (dark blue)
-    title_top = Inches(0.18)
-    title_height = Inches(0.9) if not is_long_title else Inches(1.5)
-
     title_box = slide.shapes.add_textbox(
-        Inches(0.65), title_top, Inches(12), title_height
+        Inches(0.65), Inches(title_top_in), Inches(12), Inches(title_height_in)
     )
     tf = title_box.text_frame
-    tf.word_wrap = True
-    p = tf.paragraphs[0]
-    p.text = title_text
-    p.font.size = Pt(PT_CONTENT_SLIDE_TITLE)
-    p.font.bold = True
-    p.font.color.rgb = COLORS['primary']
-    p.font.name = FONTS['title']
+    tf.word_wrap = False
+    _apply_wrapped_title(tf, title_lines, title_pt, bold=True, color=COLORS['primary'])
 
-    # Subtitle (secondary colour)
     if subtitle_text:
-        subtitle_top = Inches(0.9) if not is_long_title else Inches(1.1)
+        subtitle_top_in = title_bottom_in + 0.08
         subtitle_box = slide.shapes.add_textbox(
-            Inches(0.65), subtitle_top, Inches(12), Inches(0.5)
+            Inches(0.65), Inches(subtitle_top_in), Inches(12), Inches(subtitle_block_in)
         )
         tf_sub = subtitle_box.text_frame
-        p_sub = tf_sub.paragraphs[0]
-        p_sub.text = subtitle_text
-        p_sub.font.size = Pt(20)
-        p_sub.font.color.rgb = COLORS['secondary']
-        p_sub.font.name = FONTS['body']
+        tf_sub.word_wrap = False
+        _apply_wrapped_title(
+            tf_sub, sub_lines, subtitle_pt,
+            bold=False, color=COLORS['secondary'], font_name=FONTS['body'],
+        )
+
+    bar_height = Inches(base_h)
 
     # Divider line under header
     divider = slide.shapes.add_shape(
@@ -2243,7 +2452,7 @@ def _add_li_content_runs(paragraph, li, *, font_pt, font_name, default_color):
             )
 
 
-def add_bullets(slide, bullets_elem, top, left=None, width=None, is_bibliography=False):
+def add_bullets(slide, bullets_elem, top, left=None, width=None, is_bibliography=False, body_pt=20):
     """Add bullet list with styled markers; optional bibliography mode (smaller Calibri, fits above logo)."""
     if left is None:
         left = CONTENT_LEFT
@@ -2256,9 +2465,9 @@ def add_bullets(slide, bullets_elem, top, left=None, width=None, is_bibliography
         return top
 
     body_font = FONT_PPT_BODY_SAFE if is_bibliography else FONTS['body']
-    body_sz = Pt(16 if is_bibliography else 20)
+    body_sz = Pt(16 if is_bibliography else body_pt)
     bullet_sym_sz = body_sz
-    nested_sz = Pt(15 if is_bibliography else 18)
+    nested_sz = Pt(max(14, body_pt - 2) if not is_bibliography else 15)
 
     content_bottom_cap = SLIDE_HEIGHT - Inches(0.92)
     avail_h = max(Inches(1.25), content_bottom_cap - top)

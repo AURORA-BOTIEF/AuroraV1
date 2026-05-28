@@ -1134,80 +1134,200 @@ def extract_module_objectives(module_lessons: list, max_items: int = 4) -> list:
 
 
 def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries: int = 20) -> list:
-    """Extract term-definition pairs from lesson headings and emphasized terms."""
-    terms = []
+    """Extract high-confidence term-definition pairs from real lesson content."""
     term_set = set()
-    term_sources = {}
+    entries = []
+
+    def add_entry(term: str, definition: str, source_content: str = ""):
+        cleaned_term = clean_glossary_term(term)
+        if not is_valid_glossary_term(cleaned_term, is_spanish=is_spanish):
+            return
+
+        cleaned_def = clean_glossary_definition(definition)
+        if not is_valid_glossary_definition(cleaned_def, is_spanish=is_spanish):
+            if source_content:
+                cleaned_def = infer_definition_from_content(cleaned_term, source_content, is_spanish=is_spanish)
+
+        if not is_valid_glossary_definition(cleaned_def, is_spanish=is_spanish):
+            return
+
+        norm = cleaned_term.lower()
+        if norm in term_set:
+            return
+
+        term_set.add(norm)
+        entries.append((cleaned_term, cleaned_def))
 
     for _, module_data in sorted_modules:
         for lesson in module_data.get('lessons', []):
             content = lesson.get('content', '')
+            lines = content.splitlines()
 
-            # Candidate terms from headings
-            for line in content.splitlines():
+            # Priority 1: explicit glossary-style bullets.
+            # Example: - **SAST**: Análisis estático de seguridad...
+            for line in lines:
+                bullet_match = re.match(r'^\s*[-*]\s+\*\*([^*]{2,80})\*\*\s*:\s*(.+)$', line.strip())
+                if bullet_match:
+                    add_entry(bullet_match.group(1), bullet_match.group(2), content)
+
+                if len(entries) >= max_entries:
+                    return entries[:max_entries]
+
+            # Priority 2: candidate terms from headings with contextual definition.
+            for idx, line in enumerate(lines):
                 heading_match = re.match(r'^###?\s+(.+)$', line.strip())
                 if heading_match:
                     candidate = heading_match.group(1).strip().rstrip(':').strip()
-                    candidate = re.sub(r'^(\d+\.\d+\s*:\s*)', '', candidate)
-                    if is_valid_glossary_term(candidate):
-                        norm = candidate.lower()
-                        if norm not in term_set:
-                            term_set.add(norm)
-                            terms.append(candidate)
-                            term_sources[candidate] = content
+                    definition = extract_definition_after_heading(lines, idx)
+                    add_entry(candidate, definition, content)
 
-            # Candidate terms from bold markers
+                if len(entries) >= max_entries:
+                    return entries[:max_entries]
+
+            # Priority 3: candidate terms from bold markers inside running text.
             for candidate in re.findall(r'\*\*([^*]{2,80})\*\*', content):
-                candidate = candidate.strip().rstrip(':').strip()
-                if is_valid_glossary_term(candidate):
-                    norm = candidate.lower()
-                    if norm not in term_set:
-                        term_set.add(norm)
-                        terms.append(candidate)
-                        term_sources[candidate] = content
+                add_entry(candidate, "", content)
 
-            if len(terms) >= max_entries:
-                break
-        if len(terms) >= max_entries:
+                if len(entries) >= max_entries:
+                    return entries[:max_entries]
+
+    return entries[:max_entries]
+
+
+def clean_glossary_term(term: str) -> str:
+    if not term:
+        return ""
+
+    t = term.strip()
+    t = re.sub(r'^\d+(?:[\.-]\d+)+\s*[:\-]?\s*', '', t)
+    t = re.sub(r'\s*\(\s*duraci[oó]n\s*:[^)]+\)', '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\s*\(\s*duration\s*:[^)]+\)', '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\s+', ' ', t).strip(' :.-')
+    return t
+
+
+def clean_glossary_definition(definition: str) -> str:
+    if not definition:
+        return ""
+
+    d = definition.strip()
+    d = re.sub(r'^[-*>]+\s*', '', d)
+    d = re.sub(r'\s+', ' ', d).strip()
+    return d
+
+
+def is_valid_glossary_definition(definition: str, is_spanish: bool) -> bool:
+    if not definition:
+        return False
+    if len(definition) < 20 or len(definition) > 260:
+        return False
+
+    generic_es = (
+        'concepto clave abordado en este curso',
+        'glosario en preparación',
+    )
+    generic_en = (
+        'key concept covered in this course',
+        'glossary in preparation',
+    )
+    d = definition.lower()
+    generic = generic_es if is_spanish else generic_en
+    if any(g in d for g in generic):
+        return False
+    return True
+
+
+def extract_definition_after_heading(lines: list, heading_idx: int) -> str:
+    """Get first explanatory paragraph after a heading, skipping lists/code/headers."""
+    for j in range(heading_idx + 1, min(len(lines), heading_idx + 8)):
+        line = lines[j].strip()
+        if not line:
+            continue
+        if line.startswith('#'):
             break
+        if re.match(r'^[-*]\s+', line):
+            continue
+        if line.startswith('```'):
+            break
+        return line
+    return ""
 
-    entries = []
-    for term in terms[:max_entries]:
-        source_content = term_sources.get(term, '')
-        definition = infer_definition_from_content(term, source_content, is_spanish=is_spanish)
-        entries.append((term, definition))
-
-    return entries
-
-
-def is_valid_glossary_term(term: str) -> bool:
+def is_valid_glossary_term(term: str, is_spanish: bool = True) -> bool:
     """Basic filter for glossary candidate terms."""
     if not term:
         return False
     t = term.strip()
     if len(t) < 3 or len(t) > 80:
         return False
-    if re.match(r'^(objetivos de aprendizaje|introducción|resumen|bibliograf[íi]a|learning objectives|summary|bibliography)$', t, re.IGNORECASE):
+    if len(t.split()) > 7:
         return False
-    if re.match(r'^\d+([\.:]\d+)*$', t):
+
+    if re.match(r'^\d+(?:[\.-]\d+)+$', t):
         return False
+
+    if re.match(r'^\d+(?:[\.-]\d+)+\s+', t):
+        return False
+
+    forbidden_common = (
+        r'^(objetivos de aprendizaje|introducci[oó]n|resumen(?: del cap[ií]tulo)?|bibliograf[íi]a|metadatos|'
+        r'learning objectives|introduction|summary|chapter summary|bibliography|metadata|table of contents)$'
+    )
+    if re.match(forbidden_common, t, re.IGNORECASE):
+        return False
+
+    forbidden_context_es = r'(cap[ií]tulo|lecci[oó]n|pr[aá]ctica|duraci[oó]n|temario|agenda|pr[oó]ximos pasos)'
+    forbidden_context_en = r'(chapter|lesson|practice|duration|table of contents|next steps|agenda)'
+    forbidden_context = forbidden_context_es if is_spanish else forbidden_context_en
+    if re.search(forbidden_context, t, re.IGNORECASE):
+        return False
+
+    if re.match(r'^[A-Za-zÁÉÍÓÚÑáéíóúñ0-9][A-Za-zÁÉÍÓÚÑáéíóúñ0-9\s\-/()]+$', t) is None:
+        return False
+
+    # Avoid full-sentence style entries.
+    if any(p in t for p in ('.', ';', ' - ')):
+        return False
+
+    if t.lower() in {'información general', 'temas principales del capítulo', 'lecciones incluidas'}:
+        return False
+
     return True
 
 
 def infer_definition_from_content(term: str, content: str, is_spanish: bool) -> str:
     """Infer a concise definition from the first sentence that mentions the term."""
     if content:
+        # Prefer explicit inline definitions first.
+        inline_patterns = [
+            rf'\*\*{re.escape(term)}\*\*\s*:\s*([^\n]{{20,260}})',
+            rf'\b{re.escape(term)}\b\s*:\s*([^\n]{{20,260}})',
+        ]
+        for pattern in inline_patterns:
+            match = re.search(pattern, content, flags=re.IGNORECASE)
+            if match:
+                candidate = clean_glossary_definition(match.group(1))
+                if is_valid_glossary_definition(candidate, is_spanish=is_spanish):
+                    return candidate
+
         sentences = re.split(r'(?<=[.!?])\s+', re.sub(r'\s+', ' ', content))
         term_lower = term.lower()
         for sentence in sentences:
-            if term_lower in sentence.lower() and 30 <= len(sentence) <= 220:
+            lowered = sentence.lower()
+            if term_lower in lowered and 30 <= len(sentence) <= 220:
+                if is_spanish:
+                    if not any(k in lowered for k in (' es ', ' son ', ' se refiere ', ' consiste ', ' permite ', ' define ')):
+                        continue
+                else:
+                    if not any(k in lowered for k in (' is ', ' are ', ' refers to ', ' consists ', ' enables ', ' defines ')):
+                        continue
                 cleaned = sentence.strip()
                 cleaned = re.sub(r'^[-*]\s*', '', cleaned)
-                return cleaned
+                if is_valid_glossary_definition(cleaned, is_spanish=is_spanish):
+                    return cleaned
 
     if is_spanish:
-        return "Concepto clave abordado en este curso."
-    return "Key concept covered in this course."
+        return "Término técnico tratado durante el curso, contextualizado con ejemplos prácticos."
+    return "Technical term covered in the course and contextualized with practical examples."
 
 
 def generate_default_glossary_lines(is_spanish: bool) -> list:
