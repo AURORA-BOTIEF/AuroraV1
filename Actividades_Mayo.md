@@ -26,4 +26,4 @@ A continuación se describen las actividades de desarrollo de software realizada
 | 20 | 29-may-2026 | Recuperación de YAML malformado | Reparación de escalares sin comillas y líneas continuadas en outlines | 0,5 |
 | 21 | 29-may-2026 | Carga resiliente de outlines desde S3 | Fallback ante outlines corruptos al cargar desde almacenamiento | 0,5 |
 | 22 | 29-may-2026 | Mensajes de error en parseo de módulos | Retroalimentación clara ante fallos en parseo de módulos del curso | 0,5 |
-| | | | **Total** | **16,0** |
+| | | | **Total** | **18,0** |
