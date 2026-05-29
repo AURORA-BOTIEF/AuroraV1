@@ -13,6 +13,7 @@ Features:
 import os
 import json
 import yaml
+import re
 import boto3
 from botocore.config import Config
 from datetime import datetime
@@ -61,12 +62,54 @@ def load_outline_from_s3(bucket: str, key: str) -> dict:
         print(f"📥 Loading outline from s3://{bucket}/{key}")
         response = s3_client.get_object(Bucket=bucket, Key=key)
         yaml_content = response['Body'].read().decode('utf-8')
-        outline_data = yaml.safe_load(yaml_content)
+
+        try:
+            outline_data = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as parse_err:
+            print(f"⚠️  YAML parse failed, trying recovery for unquoted scalar values: {parse_err}")
+            recovered_yaml = recover_yaml_unquoted_scalars(yaml_content)
+            outline_data = yaml.safe_load(recovered_yaml)
+            print("✅ YAML recovered successfully after auto-quoting plain scalar values")
+
         print(f"✅ Outline loaded successfully")
         return outline_data
     except Exception as e:
         print(f"❌ Error loading outline: {e}")
         raise
+
+
+def recover_yaml_unquoted_scalars(yaml_content: str) -> str:
+    """Quote plain scalar values that contain colon-space and are likely YAML-breaking.
+
+    This recovers common malformed lines such as:
+      title: Práctica 13: API + RAG avanzado
+    """
+    repaired_lines = []
+    key_value_pattern = re.compile(r'^(\s*-?\s*[A-Za-z_][\w\-]*\s*:\s*)(.+)$')
+
+    for raw_line in yaml_content.splitlines():
+        line = raw_line.rstrip('\n')
+        match = key_value_pattern.match(line)
+        if not match:
+            repaired_lines.append(line)
+            continue
+
+        prefix, value = match.group(1), match.group(2).strip()
+
+        # Skip empty values and already-safe/structured YAML values.
+        if not value or value[0] in ("'", '"', '{', '[', '|', '>', '&', '*', '!'):
+            repaired_lines.append(line)
+            continue
+
+        # If scalar contains ": " it can be misinterpreted as nested mapping.
+        if ': ' in value:
+            escaped = value.replace("'", "''")
+            repaired_lines.append(f"{prefix}'{escaped}'")
+            continue
+
+        repaired_lines.append(line)
+
+    return '\n'.join(repaired_lines)
 
 
 def extract_all_labs(

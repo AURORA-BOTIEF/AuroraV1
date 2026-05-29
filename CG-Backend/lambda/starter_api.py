@@ -16,6 +16,9 @@ from datetime import datetime
 from botocore.exceptions import ClientError
 
 
+DEFAULT_IMAGE_MODEL = 'models/gemini-2.5-flash-image'
+
+
 def decode_jwt_payload_unverified(token: str) -> dict | None:
     """
     Decode JWT payload (middle segment) without signature verification.
@@ -89,40 +92,52 @@ def derive_user_email_from_claims(claims: dict) -> str | None:
 
 def repair_malformed_yaml(yaml_content: str) -> str:
     """
-    Attempt to repair common YAML syntax errors, specifically unquoted strings containing colons.
+    Attempt to repair common YAML syntax errors, especially unquoted wrapped scalars containing colons.
     """
-    import re
-    lines = yaml_content.split('\n')
+    lines = yaml_content.splitlines()
     repaired_lines = []
-    
-    # Pattern to find keys like 'title:', 'description:' followed by unquoted text with colons
-    # capturing groups: 1=indent+key, 2=value
-    # Look for lines that:
-    # 1. Start with spaces/dashes, then a key (title|description|objective)
-    # 2. Have a value that does NOT start with quote
-    # 3. Value contains a colon followed by space
-    target_keys = ['title', 'description', 'objective', 'summary']
-    key_pattern = '|'.join(target_keys)
-    
-    # Regex:
-    # ^(\s*(?:-\s+)?(?:{key_pattern}):\s+)  -> Group 1: indentation + key + colon + space
-    # (?!["'])                              -> Negative lookahead: value doesn't start with quote
-    # (.*:\s.*)                             -> Group 2: value containing ': '
-    # $                                     -> End of line
-    pattern = re.compile(f'^(\\s*(?:-\\s+)?(?:{key_pattern}):\\s+)(?!["\'])(.*:\\s.*)$')
+    key_value_pattern = re.compile(r'^(\s*-?\s*[A-Za-z_][\w\-]*\s*:\s*)(.+)$')
 
-    for line in lines:
-        match = pattern.match(line)
-        if match:
-            prefix = match.group(1)
-            value = match.group(2).strip()
-            # Escape existing quotes if needed
-            value = value.replace('"', '\\"')
-            repaired_lines.append(f'{prefix}"{value}"')
-            print(f"🔧 Repaired YAML line: {line.strip()} -> {prefix.strip()}\"{value}\"")
-        else:
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = key_value_pattern.match(line)
+        if not match:
             repaired_lines.append(line)
-            
+            i += 1
+            continue
+
+        prefix, value = match.group(1), match.group(2).strip()
+        base_indent = len(line) - len(line.lstrip(' '))
+
+        # Merge wrapped continuation lines for plain scalars.
+        j = i + 1
+        merged_value = value
+        while j < len(lines):
+            next_line = lines[j]
+            next_stripped = next_line.strip()
+            next_indent = len(next_line) - len(next_line.lstrip(' '))
+
+            if not next_stripped or next_indent <= base_indent:
+                break
+            if key_value_pattern.match(next_line):
+                break
+
+            merged_value = f"{merged_value} {next_stripped}"
+            j += 1
+
+        merged_value = re.sub(r'\s+', ' ', merged_value).strip()
+        repaired_line = f"{prefix}{merged_value}"
+
+        # Quote plain scalars that contain ': ' because YAML may interpret them as mappings.
+        if merged_value and merged_value[0] not in ('\'', '"', '{', '[', '|', '>', '&', '*', '!') and ': ' in merged_value:
+            escaped = merged_value.replace("'", "''")
+            repaired_line = f"{prefix}'{escaped}'"
+            print(f"🔧 Repaired YAML scalar: {line.strip()} -> {repaired_line.strip()}")
+
+        repaired_lines.append(repaired_line)
+        i = j if j > i + 1 else i + 1
+
     return '\n'.join(repaired_lines)
 
 
@@ -296,7 +311,11 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
                 s3_client = boto3.client('s3')
                 outline_obj = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
                 outline_content = outline_obj['Body'].read().decode('utf-8')
-                outline_data = yaml.safe_load(outline_content)
+                try:
+                    outline_data = yaml.safe_load(outline_content)
+                except yaml.YAMLError:
+                    repaired_content = repair_malformed_yaml(outline_content)
+                    outline_data = yaml.safe_load(repaired_content)
                 
                 # Outline should already be normalized by normalize_outline_yaml()
                 # Standard format: course.modules
@@ -304,15 +323,14 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
                 modules = course_data.get('modules', [])
                 
                 total_modules = len(modules)
+                if total_modules == 0:
+                    raise ValueError("No modules found in outline")
                 print(f"📊 'all' detected: generating all {total_modules} modules")
                 return list(range(1, total_modules + 1))
             except Exception as e:
-                print(f"⚠️  Could not determine total modules for 'all': {e}")
-                # Fallback to module 1
-                return [1]
+                raise ValueError(f"Could not determine total modules for 'all': {e}")
         else:
-            print("⚠️  'all' specified but no outline provided, defaulting to module 1")
-            return [1]
+            raise ValueError("'all' specified but outline_s3_key/course_bucket are missing")
     
     # Parse comma-separated and ranges
     modules = []
@@ -344,7 +362,9 @@ def parse_module_input(module_input, outline_s3_key=None, course_bucket=None):
     # Return sorted list
     modules.sort()
     print(f"📋 Parsed modules: {modules}")
-    return modules if modules else [1]  # Default to [1] if parsing failed
+    if not modules:
+        raise ValueError(f"Invalid module selection: {module_input}")
+    return modules
 
 def lambda_handler(event, context):
     """
@@ -566,9 +586,9 @@ def lambda_handler(event, context):
                 print(f"⚠️  Could not extract modules from lab_ids: {e}, defaulting to 'all'")
                 module_input = 'all'
         
-        # Default to module 1 if no module specified
+        # Default to full-course generation if no module is specified by the UI
         if not module_input:
-            module_input = 1
+            module_input = 'all'
         
         # Parse module input into list of module numbers
         modules_to_generate = parse_module_input(module_input, outline_s3_key, course_bucket)
@@ -576,6 +596,7 @@ def lambda_handler(event, context):
         lesson_to_generate = body.get('lesson_to_generate')  # Optional: generate specific lesson
         performance_mode = body.get('performance_mode', 'balanced')
         model_provider = body.get('model_provider', 'bedrock')
+        image_model = (body.get('image_model') or DEFAULT_IMAGE_MODEL).strip()
         max_images = body.get('max_images')  # Optional: will be determined by number of prompts
         project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
@@ -642,16 +663,12 @@ def lambda_handler(event, context):
             "lesson_requirements": lesson_requirements,  # Always include (empty string if not provided)
             "lab_ids_to_regenerate": body.get('lab_ids_to_regenerate'),  # NEW: Always include (None if not provided)
             "course_language": course_language,
+            "image_model": image_model,
         }
         
         # Only include optional parameters if they were provided
         if max_images is not None:
             execution_input["max_images"] = max_images
-            
-        # Pass image_model if provided (default handled by Lambda)
-        image_model = body.get('image_model')
-        if image_model:
-            execution_input["image_model"] = image_model
 
         print(f"Starting Step Functions execution with input: {json.dumps(execution_input, indent=2)}")
 
