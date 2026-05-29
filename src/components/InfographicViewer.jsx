@@ -714,18 +714,35 @@ function InfographicViewer() {
                                     headers: { 'Accept': 'application/json' }
                                 });
 
-                                // On server error (often API Gateway timeout), retry with check_only
+                                // On server error (often API Gateway timeout), poll until the new export lands.
                                 if (response.status === 500 || response.status === 504) {
-                                    console.log('Generation may have timed out, checking if file exists...');
-                                    if (btn) btn.textContent = '⏳ Verificando...';
+                                    console.log('Generation may have timed out, polling for refreshed PPT...');
 
-                                    // Wait a few seconds for upload to complete
-                                    await new Promise(r => setTimeout(r, 5000));
+                                    const maxAttempts = 12;
+                                    let pollResponse = response;
+                                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                                        if (btn) btn.textContent = `⏳ Verificando ${attempt}/${maxAttempts}...`;
+                                        await new Promise(r => setTimeout(r, 5000));
 
-                                    response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt?check_only=true`, {
-                                        method: 'GET',
-                                        headers: { 'Accept': 'application/json' }
-                                    });
+                                        pollResponse = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt?check_only=true`, {
+                                            method: 'GET',
+                                            headers: { 'Accept': 'application/json' }
+                                        });
+
+                                        if (pollResponse.ok) {
+                                            response = pollResponse;
+                                            break;
+                                        }
+
+                                        if (![404, 409].includes(pollResponse.status)) {
+                                            response = pollResponse;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!response.ok && pollResponse.ok) {
+                                        response = pollResponse;
+                                    }
                                 }
 
                                 if (!response.ok) {

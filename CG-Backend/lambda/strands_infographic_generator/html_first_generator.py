@@ -4154,8 +4154,6 @@ def generate_complete_course(
             lesson_images,
             content_slide_budget=content_slide_budget,
         )
-        original_lesson_slides = list(lesson_slides)
-
         lesson_slides = strip_redundant_lesson_ai_openings(
             lesson_slides,
             is_spanish_course=is_spanish,
@@ -4192,9 +4190,9 @@ def generate_complete_course(
             )
             lesson_slides = [s for s in lesson_slides if not _is_lesson_summary_slide(s)]
 
-        if not lesson_slides and original_lesson_slides:
+        if not lesson_slides and lesson.get('content', '').strip():
             logger.warning(
-                "⚠️ Lesson %s still has no substantive AI slides after retry. Using deterministic fallback.",
+                "⚠️ Lesson %s still has no substantive content slides after retry. Using deterministic fallback.",
                 lesson_title,
             )
             lesson_slides = create_fallback_lesson_content_slides(lesson, is_spanish)

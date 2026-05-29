@@ -1212,6 +1212,8 @@ def clean_glossary_definition(definition: str) -> str:
 
     d = definition.strip()
     d = re.sub(r'^[-*>]+\s*', '', d)
+    d = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', d)
+    d = re.sub(r'\]\([^\)]+\)', '', d)
     d = re.sub(r'\s+', ' ', d).strip()
     return d
 
@@ -1225,10 +1227,12 @@ def is_valid_glossary_definition(definition: str, is_spanish: bool) -> bool:
     generic_es = (
         'concepto clave abordado en este curso',
         'glosario en preparación',
+        'término técnico tratado durante el curso, contextualizado con ejemplos prácticos',
     )
     generic_en = (
         'key concept covered in this course',
         'glossary in preparation',
+        'technical term covered in the course and contextualized with practical examples',
     )
     d = definition.lower()
     generic = generic_es if is_spanish else generic_en
@@ -1270,7 +1274,13 @@ def is_valid_glossary_term(term: str, is_spanish: bool = True) -> bool:
 
     forbidden_common = (
         r'^(objetivos de aprendizaje|introducci[oó]n|resumen(?: del cap[ií]tulo)?|bibliograf[íi]a|metadatos|'
-        r'learning objectives|introduction|summary|chapter summary|bibliography|metadata|table of contents)$'
+        r'puntos clave|detalles t[eé]cnicos|referencias bibliogr[aá]ficas|visi[oó]n general del concepto|'
+        r'aplicaci[oó]n pr[aá]ctica|recursos adicionales|pr[oó]ximos pasos|nota|advertencia|ejemplo|observaci[oó]n|'
+        r'precio|compatibilidad t[eé]cnica|madurez del ecosistema|latencia geogr[aá]fica|'
+        r'learning objectives|introduction|summary|chapter summary|bibliography|metadata|table of contents|'
+        r'key takeaways|technical details|bibliographic references|concept overview|practical application|'
+        r'additional resources|what''s next|note|warning|example|observation|'
+        r'price|technical compatibility|ecosystem maturity|geographic latency)$'
     )
     if re.match(forbidden_common, t, re.IGNORECASE):
         return False
@@ -1289,6 +1299,16 @@ def is_valid_glossary_term(term: str, is_spanish: bool = True) -> bool:
         return False
 
     if t.lower() in {'información general', 'temas principales del capítulo', 'lecciones incluidas'}:
+        return False
+
+    generic_single_words_es = {
+        'nota', 'advertencia', 'ejemplo', 'observación', 'conclusión', 'modelo', 'modelos'
+    }
+    generic_single_words_en = {
+        'note', 'warning', 'example', 'observation', 'conclusion', 'model', 'models'
+    }
+    generic_single_words = generic_single_words_es if is_spanish else generic_single_words_en
+    if ' ' not in t and t.lower() in generic_single_words:
         return False
 
     return True
@@ -1311,6 +1331,11 @@ def infer_definition_from_content(term: str, content: str, is_spanish: bool) -> 
 
         sentences = re.split(r'(?<=[.!?])\s+', re.sub(r'\s+', ' ', content))
         term_lower = term.lower()
+        leading_patterns = [
+            rf'^\s*(?:un|una|el|la|los|las)?\s*{re.escape(term_lower)}\b',
+        ] if is_spanish else [
+            rf'^\s*(?:a|an|the)?\s*{re.escape(term_lower)}\b',
+        ]
         for sentence in sentences:
             lowered = sentence.lower()
             if term_lower in lowered and 30 <= len(sentence) <= 220:
@@ -1320,6 +1345,8 @@ def infer_definition_from_content(term: str, content: str, is_spanish: bool) -> 
                 else:
                     if not any(k in lowered for k in (' is ', ' are ', ' refers to ', ' consists ', ' enables ', ' defines ')):
                         continue
+                if not any(re.search(pattern, lowered) for pattern in leading_patterns):
+                    continue
                 cleaned = sentence.strip()
                 cleaned = re.sub(r'^[-*]\s*', '', cleaned)
                 if is_valid_glossary_definition(cleaned, is_spanish=is_spanish):

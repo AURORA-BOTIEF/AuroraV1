@@ -1,9 +1,9 @@
 import json
-import yaml
+from datetime import datetime, timezone
 import boto3
 import os
 import logging
-import re
+import time
 import urllib.parse
 from html_to_ppt_styled import convert_html_to_pptx
 
@@ -46,12 +46,23 @@ def lambda_handler(event, context):
         course_bucket = os.environ.get('COURSE_BUCKET', 'crewai-course-artifacts')
         filename = f"{project_folder}.pptx"
         ppt_key = f"{project_folder}/exports/{filename}"
+        source_last_modified = _get_export_source_last_modified(course_bucket, project_folder)
         
         # Check-only mode: return URL if file exists (fast retry after timeout)
         if check_only:
             logger.info(f"Check-only mode: looking for {ppt_key}")
             try:
-                head = s3_client.head_object(Bucket=course_bucket, Key=ppt_key)
+                try:
+                    head = _wait_for_fresh_export(course_bucket, ppt_key, source_last_modified)
+                except RuntimeError as e:
+                    return {
+                        'statusCode': 409,
+                        'headers': cors_headers(),
+                        'body': json.dumps({
+                            'error': str(e),
+                            'stale': True,
+                        })
+                    }
                 size_bytes = head['ContentLength']
                 
                 presigned_url = s3_client.generate_presigned_url(
@@ -99,7 +110,6 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Infographic HTML not found. Please generate it first.'})
             }
 
-        # Load supplementary data for enriching module/lesson title slides
         book_data = _load_supplementary_data(s3_client, course_bucket, project_folder)
 
         # Convert to PPT
@@ -118,7 +128,8 @@ def lambda_handler(event, context):
             Key=ppt_key,
             Body=pptx_bytes,
             ContentType='application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            ContentDisposition=f'attachment; filename="{filename}"'
+            ContentDisposition=f'attachment; filename="{filename}"',
+            CacheControl='no-cache'
         )
         
         # Generate presigned URL
@@ -153,13 +164,12 @@ def lambda_handler(event, context):
             'headers': cors_headers(),
             'body': json.dumps({'error': str(e)})
         }
-
-
 def _load_supplementary_data(s3_client, course_bucket, project_folder):
     """Load outline YAML and book JSON so the PPT converter can enrich
     module-title and lesson-title slides that were generated with older HTML."""
+    import yaml
+
     result = {'outline_modules': [], 'book_modules': []}
-    # --- Outline YAML ---
     try:
         prefix = f"{project_folder}/outline/"
         resp = s3_client.list_objects_v2(Bucket=course_bucket, Prefix=prefix)
@@ -171,7 +181,7 @@ def _load_supplementary_data(s3_client, course_bucket, project_folder):
             logger.info(f"Loaded outline with {len(result['outline_modules'])} modules")
     except Exception as e:
         logger.warning(f"Could not load outline YAML: {e}")
-    # --- Book data JSON ---
+
     try:
         book_key = f"{project_folder}/book/Generated_Course_Book_data.json"
         obj = s3_client.get_object(Bucket=course_bucket, Key=book_key)
@@ -183,6 +193,61 @@ def _load_supplementary_data(s3_client, course_bucket, project_folder):
     except Exception as e:
         logger.warning(f"Could not load book data JSON: {e}")
     return result
+
+
+def _get_export_source_last_modified(course_bucket, project_folder):
+    latest = None
+    for key in (
+        f"{project_folder}/infographics/infographic_final.html",
+        f"{project_folder}/infographics/infographic_structure.json",
+    ):
+        try:
+            head = s3_client.head_object(Bucket=course_bucket, Key=key)
+            last_modified = head.get('LastModified')
+            if last_modified and (latest is None or last_modified > latest):
+                latest = last_modified
+        except Exception as e:
+            logger.warning(f"Could not read source timestamp for {key}: {e}")
+    return latest
+
+
+def _is_stale_export(ppt_last_modified, source_last_modified):
+    if not ppt_last_modified or not source_last_modified:
+        return False
+    return ppt_last_modified < source_last_modified
+
+
+def _wait_for_fresh_export(course_bucket, ppt_key, source_last_modified, max_attempts=6, delay_seconds=5):
+    last_head = None
+    for attempt in range(1, max_attempts + 1):
+        head = s3_client.head_object(Bucket=course_bucket, Key=ppt_key)
+        last_head = head
+        ppt_last_modified = head.get('LastModified')
+        if not _is_stale_export(ppt_last_modified, source_last_modified):
+            return head
+        logger.info(
+            "Cached PPT is stale on attempt %s/%s (ppt=%s, source=%s)",
+            attempt,
+            max_attempts,
+            _isoformat_utc(ppt_last_modified),
+            _isoformat_utc(source_last_modified),
+        )
+        if attempt < max_attempts:
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(
+        f"PPT export is still stale after waiting (ppt={_isoformat_utc(last_head.get('LastModified') if last_head else None)}, "
+        f"source={_isoformat_utc(source_last_modified)})"
+    )
+
+
+def _isoformat_utc(value):
+    if not value:
+        return None
+    try:
+        return value.astimezone(timezone.utc).isoformat()
+    except Exception:
+        return str(value)
 
 
 def cors_headers():

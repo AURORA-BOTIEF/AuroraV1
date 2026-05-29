@@ -11,6 +11,7 @@ GENERATOR_DIR = (
 if str(GENERATOR_DIR) not in sys.path:
     sys.path.insert(0, str(GENERATOR_DIR))
 
+import html_first_generator as hfg
 from html_first_generator import HTMLFirstGenerator, _build_content_slide_budget
 from html_first_generator import create_fallback_lesson_content_slides
 
@@ -136,3 +137,55 @@ Se debe elegir entre at-most-once, at-least-once y exactly-once.
     assert slides
     assert all(slide["title"] != "Introducción" for slide in slides)
     assert any("Arquitectura orientada a eventos" in slide["title"] for slide in slides)
+
+
+def test_generate_complete_course_uses_fallback_when_ai_returns_no_slides(monkeypatch):
+    original_generate = HTMLFirstGenerator.generate_from_lesson
+
+    def empty_generate(self, lesson, lesson_idx, images, content_slide_budget=None, retry_reason=""):
+        return []
+
+    monkeypatch.setattr(HTMLFirstGenerator, "generate_from_lesson", empty_generate)
+
+    book_data = {
+        "metadata": {"title": "Curso de prueba"},
+        "course_metadata": {"title": "Curso de prueba", "language": "es"},
+        "outline_modules": [{"title": "Capítulo 1", "lessons": []}],
+        "lessons": [{
+            "title": "1.1: Parámetros de muestreo",
+            "content": """
+## Introducción
+Contexto inicial.
+
+## Temperature
+- Controla variabilidad
+- Ajusta creatividad
+
+## Top-p
+- Limita el núcleo probable
+- Reduce ruido extremo
+""",
+            "module_number": 1,
+            "module_title": "Capítulo 1",
+        }],
+    }
+
+    try:
+        structure = hfg.generate_complete_course(
+            book_data=book_data,
+            model=None,
+            slides_per_lesson=5,
+            style='professional',
+            is_first_batch=False,
+            lesson_batch_start=1,
+            lesson_batch_end=1,
+            total_lessons=1,
+            course_bucket=None,
+            project_folder=None,
+        )
+    finally:
+        monkeypatch.setattr(HTMLFirstGenerator, "generate_from_lesson", original_generate)
+
+    lesson_titles = [s for s in structure["slides"] if s.get("lesson_title") == "1.1: Parámetros de muestreo"]
+    assert lesson_titles
+    assert any(slide.get("layout") == "text-only" for slide in lesson_titles)
