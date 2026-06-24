@@ -4313,8 +4313,14 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
         return format_bullet_text(s)
 
     def _tx_bullet_block(block: Dict, item) -> str:
-        """Use clickable bibliography links when the slide requests autolink_urls."""
-        if block.get('autolink_urls'):
+        """Use clickable bibliography links when the slide requests autolink_urls or it's a bibliography slide."""
+        is_bib = False
+        try:
+            is_bib = bib_slide
+        except (NameError, UnboundLocalError):
+            pass
+
+        if is_bib or block.get('autolink_urls'):
             return format_reference_bullet_text(item)
         return format_bullet_text(item)
 
@@ -4559,6 +4565,7 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
 
         .bullets li a.slide-ref-link,
         .bullets li a.lab-intro-link {{
+            color: #4682B4;
             text-decoration: underline;
             cursor: pointer;
         }}
@@ -4856,9 +4863,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             max-height: 420px; /* Reduced from 460 */
         }}
         .image-layout.image-left .slide-image {{
-            max-height: 400px; /* Reduced from 460 */
+            max-height: 370px; /* Reduced to avoid overlap */
             width: auto;
             max-width: 100%;
+            margin-top: 15px; /* Push down to avoid header border overlap */
         }}
         .image-layout.image-left .bullets-column {{
             width: 520px;
@@ -4877,9 +4885,10 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             max-height: 420px; /* Reduced from 460 */
         }}
         .image-layout.image-right .slide-image {{
-            max-height: 400px; /* Reduced from 460 */
+            max-height: 370px; /* Reduced to avoid overlap */
             width: auto;
             max-width: 100%;
+            margin-top: 15px; /* Push down to avoid header border overlap */
         }}
 
         /* L4: Text + Code (Text: 1160x100, Code: 1160x340) */
@@ -5323,11 +5332,24 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             margin-top: 20px;
             margin-bottom: 10px;
         }}
+        .lab-intro-title-box.compact-box {{
+            padding: 20px 30px 15px;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }}
         .lab-intro-title {{
             font-size: 50pt;
             font-weight: 800;
             color: #111;
             line-height: 1.15;
+        }}
+        .lab-intro-title.long-title-sm {{
+            font-size: 32pt;
+            line-height: 1.2;
+        }}
+        .lab-intro-title.long-title-xs {{
+            font-size: 24pt;
+            line-height: 1.2;
         }}
         .lab-intro-accent {{
             width: 220px;
@@ -5796,6 +5818,12 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             margin: 8px 0;
         }}
 
+        .intro-list.compact-text li {{
+            font-size: 16pt;
+            line-height: 1.25;
+            margin: 6px 0;
+        }}
+
         .intro-list li::before {{
             content: '•';
             position: absolute;
@@ -6125,6 +6153,11 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             extra_class = ' group-style' if layout == 'intro-group-presentation' else ''
             list_class = 'intro-list red-bullets' if layout == 'intro-objectives' else 'intro-list'
 
+            # Auto-compact if text is long to prevent logo overlap
+            total_chars = sum(len(str(item)) for item in intro_items)
+            if total_chars > 300 or len(intro_items) > 4:
+                list_class += ' compact-text'
+
             html_parts.append(f'  <div class="intro-content-slide{extra_class}">')
             html_parts.append('    <div class="intro-global-accent"></div>')
             html_parts.append('    <div class="intro-main-col">')
@@ -6202,6 +6235,17 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             continue
 
         elif layout == 'lab-intro':
+            # Check if title is long to apply smaller font size and compact box style
+            title_len = len(str(title or ''))
+            title_class = 'lab-intro-title'
+            title_box_class = 'lab-intro-title-box'
+            if title_len > 120:
+                title_class += ' long-title-xs'
+                title_box_class += ' compact-box'
+            elif title_len > 60:
+                title_class += ' long-title-sm'
+                title_box_class += ' compact-box'
+
             # Lab intro: title box + objective + planteamiento/GitHub + duration (regions for PPT parity)
             lab_objective = ""
             lab_plant_lines: List[str] = []
@@ -6242,8 +6286,8 @@ def generate_html_output(slides: List[Dict], style: str = 'professional', image_
             reloj_img_url = _asset_url_from_s3('Reloj.png')
 
             html_parts.append('  <div class="lab-intro-slide">')
-            html_parts.append('    <div class="lab-intro-title-box">')
-            html_parts.append(f'      <div class="lab-intro-title">{_tx(title)}</div>')
+            html_parts.append(f'    <div class="{title_box_class}">')
+            html_parts.append(f'      <div class="{title_class}">{_tx(title)}</div>')
             html_parts.append('    </div>')
             html_parts.append('    <div class="lab-intro-accent"></div>')
             html_parts.append('    <div class="lab-intro-divider"></div>')
