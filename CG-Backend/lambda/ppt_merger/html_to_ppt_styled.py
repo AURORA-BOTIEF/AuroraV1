@@ -609,7 +609,8 @@ def _image_slide_layout(position: str, content_top_in: float) -> dict:
     margin_lr = 0.45
     logo_top = 6.58
     content_bottom = logo_top - 0.14
-    img_top = content_top_in + 0.06
+    # Shift image top down by 0.30 inches to prevent overlapping the header divider line
+    img_top = content_top_in + 0.30
     avail_h = max(3.5, content_bottom - img_top)
 
     img_w = 7.95
@@ -652,12 +653,14 @@ def add_content_image(slide, img_url: str, position: str, ctx: dict):
             height = Inches(layout['img_height'])
         elif position == 'left':
             left = CONTENT_LEFT
-            top = ctx.get('content_top', CONTENT_TOP)
+            # Add top margin of 0.30 inches if layout is not specified
+            top = ctx.get('content_top', CONTENT_TOP) + Inches(0.3)
             width = Inches(5)
             height = Inches(4)
         else:
             left = Inches(7)
-            top = ctx.get('content_top', CONTENT_TOP)
+            # Add top margin of 0.30 inches if layout is not specified
+            top = ctx.get('content_top', CONTENT_TOP) + Inches(0.3)
             width = Inches(5)
             height = Inches(4)
 
@@ -933,20 +936,33 @@ def create_intro_content_slide(prs, layout, slide_html, logo_bytes, ctx):
     tf = text_box.text_frame
     tf.word_wrap = True
     tf.clear()
+
+    # Dynamic scaling to prevent overlapping with the bottom logo
+    total_chars = sum(len(txt) for txt in list_items)
+    num_items = len(list_items)
+    font_size = 21
+    bullet_size = 22
+    if num_items > 4 or total_chars > 220:
+        font_size = 16
+        bullet_size = 17
+    elif num_items > 3 or total_chars > 150:
+        font_size = 18
+        bullet_size = 19
+
     for txt in list_items:
         para = tf.paragraphs[0] if not tf.paragraphs[0].text and len(tf.paragraphs) == 1 else tf.add_paragraph()
         para.level = 0
 
         bullet_run = para.add_run()
         bullet_run.text = "• "
-        bullet_run.font.size = Pt(22)
+        bullet_run.font.size = Pt(bullet_size)
         bullet_run.font.bold = True
         bullet_run.font.name = FONTS['body']
         bullet_run.font.color.rgb = COLORS['bullet_marker']
 
         text_run = para.add_run()
         text_run.text = txt
-        text_run.font.size = Pt(21)
+        text_run.font.size = Pt(font_size)
         text_run.font.bold = False
         text_run.font.name = FONTS['body']
         text_run.font.color.rgb = RGBColor(20, 20, 20)
@@ -1256,15 +1272,24 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     title_elem = slide_html.find(class_='lab-intro-title') or slide_html.find(class_='slide-title')
     title_text = title_elem.get_text(strip=True) if title_elem else "Lab Activity"
     lab_box_width = 11.7
+
+    # Scale down starting title font size if the title is long to save space
+    start_pt = PT_LAB_INTRO_TITLE
+    if len(title_text) > 50:
+        start_pt = 32
+    elif len(title_text) > 30:
+        start_pt = 40
+
     title_pt, title_lines = _fit_text_to_box(
-        title_text, PT_LAB_INTRO_TITLE, 22, lab_box_width, orphan_max=2, max_lines=3
+        title_text, start_pt, 22, lab_box_width, orphan_max=2, max_lines=3
     )
     num_title_lines = len(title_lines)
     title_text_h = _title_block_height_in(num_title_lines, title_pt, baseline_pt=50.0)
 
-    title_box_top = 0.5
-    title_pad_top = 0.35
-    title_box_h = title_text_h * 1.15 + 0.55
+    # Make the title box and padding more compact to prevent pushing content down
+    title_box_top = 0.35
+    title_pad_top = 0.20
+    title_box_h = title_text_h * 1.10 + 0.35
     title_text_top = title_box_top + title_pad_top
     title_box_bottom = title_box_top + title_box_h
 
@@ -1290,7 +1315,7 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
         font_name=FONTS['title'], alignment=PP_ALIGN.CENTER,
     )
 
-    accent_top = title_box_bottom + 0.12
+    accent_top = title_box_bottom + 0.10
     accent = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(accent_top), Inches(2.4), Inches(0.1)
     )
@@ -1298,7 +1323,7 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     accent.fill.fore_color.rgb = COLORS['bullet_marker']
     accent.line.fill.background()
 
-    divider_top = accent_top + 0.14
+    divider_top = accent_top + 0.12
     div = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(divider_top), Inches(12.1), Inches(0.02)
     )
@@ -1312,14 +1337,27 @@ def create_lab_intro_slide(prs, layout, slide_html, logo_bytes, ctx):
     stack_top_in = divider_top + 0.10
     clock_band_top = 6.38
     stack_max_bottom = clock_band_top - 0.42
-    stack_height_in = max(2.0, min(3.35, stack_max_bottom - stack_top_in))
+    
+    # Calculate stack height dynamically based on remaining space to avoid clock band overlap
     stack_top = Inches(stack_top_in)
-    stack_height = Inches(stack_height_in)
+    stack_height = Inches(stack_max_bottom - stack_top_in)
     stack_left = Inches(0.55)
     stack_width = Inches(12.05)
     lab_body_font = FONT_PPT_BODY_SAFE
+
+    # Check total body text characters and scale down fonts if content is very verbose or title is long
+    all_body_text = ""
+    if obj_reg:
+        all_body_text += obj_reg.get_text()
+    if ins_reg:
+        all_body_text += ins_reg.get_text()
+    total_body_chars = len(all_body_text.strip())
+
     lab_body_pt = Pt(15)
     lab_heading_pt = Pt(17)
+    if total_body_chars > 350 or len(title_text) > 40:
+        lab_body_pt = Pt(13)
+        lab_heading_pt = Pt(15)
 
     main_tb = slide.shapes.add_textbox(stack_left, stack_top, stack_width, stack_height)
     tf = main_tb.text_frame
@@ -2366,6 +2404,36 @@ def add_header_bar(slide, title_text, subtitle_text=""):
 
 
 
+URL_REGEX = re.compile(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)')
+
+def _add_text_with_links(paragraph, text, font_pt, font_name, default_color):
+    """Splits text by URL patterns and turns URLs into clickable hyperlink runs."""
+    parts = URL_REGEX.split(text)
+    for part in parts:
+        if not part:
+            continue
+        if URL_REGEX.match(part):
+            url = part.strip()
+            r = paragraph.add_run()
+            r.text = url
+            r.font.size = font_pt
+            r.font.name = font_name
+            r.font.color.rgb = COLORS['primary']
+            try:
+                if url.startswith(('http://', 'https://')):
+                    r.hyperlink.address = url
+                elif url.startswith('www.'):
+                    r.hyperlink.address = 'https://' + url
+            except Exception as e:
+                logger.warning(f"PPT could not set hyperlink: {e}")
+        else:
+            r = paragraph.add_run()
+            r.text = part
+            r.font.size = font_pt
+            r.font.name = font_name
+            r.font.color.rgb = default_color
+
+
 def _append_runs_from_html_inline(paragraph, element, *, font_pt, font_name, default_color):
     """Append text/hyperlink/code/bold/italic runs from a BeautifulSoup subtree onto paragraph."""
     if element is None:
@@ -2374,11 +2442,7 @@ def _append_runs_from_html_inline(paragraph, element, *, font_pt, font_name, def
         if isinstance(child, NavigableString):
             s = str(child)
             if s:
-                r = paragraph.add_run()
-                r.text = s
-                r.font.size = font_pt
-                r.font.name = font_name
-                r.font.color.rgb = default_color
+                _add_text_with_links(paragraph, s, font_pt, font_name, default_color)
         elif isinstance(child, Tag):
             if child.name in ('script', 'style'):
                 continue
@@ -2439,11 +2503,7 @@ def _add_li_content_runs(paragraph, li, *, font_pt, font_name, default_color):
         if isinstance(child, NavigableString):
             s = str(child)
             if s:
-                r = paragraph.add_run()
-                r.text = s
-                r.font.size = font_pt
-                r.font.name = font_name
-                r.font.color.rgb = default_color
+                _add_text_with_links(paragraph, s, font_pt, font_name, default_color)
         elif isinstance(child, Tag) and child.name == 'ul':
             continue
         elif isinstance(child, Tag):
