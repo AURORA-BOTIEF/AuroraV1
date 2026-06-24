@@ -135,6 +135,28 @@ def configure_openai_model(model_id: str = DEFAULT_OPENAI_MODEL) -> Any:
         raise
 
 
+def configure_gemini_model(model_id: str = "gemini-3.5-flash") -> Any:
+    """Configure Google Gemini model for Strands Agent."""
+    try:
+        from strands.models.gemini import GeminiModel
+        
+        secret_data = get_secret('aurora/google-api-key')
+        api_key = secret_data.get('api_key')
+        
+        if not api_key:
+            raise ValueError("Google API key not found in secrets")
+        
+        model = GeminiModel(
+            client_args={"api_key": api_key},
+            model_id=model_id,
+        )
+        logger.info(f"✅ Configured Google Gemini model: {model_id}")
+        return model
+    except Exception as e:
+        logger.error(f"Failed to configure Google Gemini model: {e}")
+        raise
+
+
 def load_book_from_s3(bucket: str, book_key: str) -> Dict:
     """Load book JSON from S3."""
     try:
@@ -1588,6 +1610,8 @@ def lambda_handler(event, context):
         # Configure AI model
         if model_provider == 'openai':
             model = configure_openai_model()
+        elif model_provider in ('google', 'gemini'):
+            model = configure_gemini_model()
         else:
             model = configure_bedrock_model()
         

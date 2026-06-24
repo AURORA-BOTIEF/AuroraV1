@@ -117,6 +117,7 @@ Resources:
       CodeUri: ./lambda/strands_content_gen/
       Layers:
         - !Ref StrandsAgentsLayer
+        - !Ref GeminiLayer
       Timeout: 900
       MemorySize: 512
       Architectures:
@@ -258,6 +259,7 @@ Resources:
       CodeUri: ./lambda/strands_visual_planner/
       Layers:
         - !Ref StrandsAgentsLayer
+        - !Ref GeminiLayer
       Timeout: 900
       MemorySize: 512
       Architectures:
@@ -378,6 +380,7 @@ Resources:
       Layers:
         - !Ref StrandsAgentsLayer
         - !Ref PPTLayer
+        - !Ref GeminiLayer
       Timeout: 900
       MemorySize: 1024
       Architectures:
@@ -501,6 +504,7 @@ Resources:
       CodeUri: ./lambda/strands_lab_planner/
       Layers:
         - !Ref StrandsAgentsLayer
+        - !Ref GeminiLayer
       Timeout: 600
       MemorySize: 512
       Architectures:
@@ -547,6 +551,7 @@ Resources:
       CodeUri: ./lambda/strands_lab_writer/
       Layers:
         - !Ref StrandsAgentsLayer
+        - !Ref GeminiLayer
       Timeout: 900
       MemorySize: 512
       Architectures:

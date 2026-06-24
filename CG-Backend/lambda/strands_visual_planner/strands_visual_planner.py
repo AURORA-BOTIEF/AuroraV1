@@ -103,6 +103,31 @@ def get_secret(secret_name: str) -> dict:
         return {}
 
 
+def get_google_api_key() -> str:
+    """Get Google API key from Secrets Manager or environment."""
+    try:
+        secret = get_secret("aurora/google-api-key")
+        api_key = secret.get('api_key')
+        if api_key:
+            return api_key
+    except Exception as e:
+        print(f"⚠️ Failed to retrieve Google key from Secrets Manager: {e}")
+    return os.getenv('GOOGLE_API_KEY')
+
+
+def call_gemini(prompt: str, api_key: str, model_id: str = "gemini-3.5-flash") -> str:
+    """Call Google Gemini API."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"❌ Gemini API error: {e}")
+        raise
+
+
 def create_unique_filename(description: str, prefix: str = "visual") -> str:
     """Create a unique, short, and sanitized filename using a hash."""
     hash_object = hashlib.sha1(description.encode())
@@ -360,6 +385,11 @@ If ANY text in enhanced_prompt is not in English, FIX IT before responding."""
             if not openai_key:
                 raise ValueError("OpenAI API key not found in Secrets Manager")
             response_text = call_openai(prompt, openai_key)
+        elif model_provider in ('google', 'gemini'):
+            google_key = get_google_api_key()
+            if not google_key:
+                raise ValueError("Google API key not found in Secrets Manager or environment")
+            response_text = call_gemini(prompt, google_key)
         else:
             raise ValueError(f"Unknown model provider: {model_provider}")
         

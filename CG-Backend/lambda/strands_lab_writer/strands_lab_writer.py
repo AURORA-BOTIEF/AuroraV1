@@ -112,6 +112,31 @@ def get_secret(secret_name: str) -> dict:
         return {}
 
 
+def get_google_api_key() -> str:
+    """Get Google API key from Secrets Manager or environment."""
+    try:
+        secret = get_secret("aurora/google-api-key")
+        api_key = secret.get('api_key')
+        if api_key:
+            return api_key
+    except Exception as e:
+        print(f"⚠️ Failed to retrieve Google key from Secrets Manager: {e}")
+    return os.getenv('GOOGLE_API_KEY')
+
+
+def call_gemini_agent(prompt: str, api_key: str, model_id: str = "gemini-3.5-flash") -> str:
+    """Call Google Gemini API."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"❌ Gemini API error: {e}")
+        raise
+
+
 
 def load_master_plan_from_s3(bucket: str, key: str) -> dict:
     """Load master plan JSON from S3."""
@@ -604,6 +629,14 @@ Return ONLY the Markdown content following this schema exactly, no additional co
             else:
                 lab_guide = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
         
+        elif model_provider in ("google", "gemini"):
+            google_key = get_google_api_key()
+            if not google_key:
+                print("    ⚠️  Google API key not found, falling back to Bedrock")
+                model_provider = "bedrock"
+            else:
+                lab_guide = call_gemini_agent(prompt, google_key)
+
         if model_provider == "bedrock":
             lab_guide = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
         
@@ -1112,6 +1145,14 @@ Generate ALL {len(lab_plans)} labs now:
             else:
                 response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
         
+        elif model_provider in ("google", "gemini"):
+            google_key = get_google_api_key()
+            if not google_key:
+                print("⚠️  Google API key not found, falling back to Bedrock")
+                model_provider = "bedrock"
+            else:
+                response_text = call_gemini_agent(prompt, google_key)
+
         if model_provider == "bedrock":
             response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
         
@@ -1254,16 +1295,19 @@ def lambda_handler(event, context):
         model_provider = event.get('model_provider', 'bedrock')
         
         # FORCE Bedrock for lab generation (more reliable format compliance)
-        # GPT-5 shows model drift: correct format initially, missing headers later
-        # Claude Sonnet 4.6 consistently generates proper lab headers
-        model_provider = 'bedrock'
+        # unless Google Gemini is selected.
+        original_provider = event.get('model_provider', 'bedrock').lower()
+        if original_provider in ('google', 'gemini'):
+            model_provider = original_provider
+        else:
+            model_provider = 'bedrock'
         
         lab_ids_to_process = event.get('lab_ids', [])  # NEW: For batch processing
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📋 Master Plan: {master_plan_key}")
         print(f"📁 Project: {project_folder}")
-        print(f"🤖 Model: {model_provider} (forced to Bedrock Sonnet 4.6 for lab reliability)")
+        print(f"🤖 Model: {model_provider}")
         if lab_ids_to_process:
             print(f"🎯 Batch Mode: Processing specific labs: {', '.join(lab_ids_to_process)}")
         else:

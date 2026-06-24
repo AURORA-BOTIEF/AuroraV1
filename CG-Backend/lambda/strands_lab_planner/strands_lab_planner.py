@@ -45,6 +45,31 @@ def get_secret(secret_name: str) -> dict:
         return {}
 
 
+def get_google_api_key() -> str:
+    """Get Google API key from Secrets Manager or environment."""
+    try:
+        secret = get_secret("aurora/google-api-key")
+        api_key = secret.get('api_key')
+        if api_key:
+            return api_key
+    except Exception as e:
+        print(f"⚠️ Failed to retrieve Google key from Secrets Manager: {e}")
+    return os.getenv('GOOGLE_API_KEY')
+
+
+def call_gemini_agent(prompt: str, api_key: str, model_id: str = "gemini-3.5-flash") -> str:
+    """Call Google Gemini API."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"❌ Gemini API error: {e}")
+        raise
+
+
 def outline_language_code(course_info: Optional[dict]) -> str:
     """Spanish by default; English only when outline explicitly sets English."""
     raw = (course_info or {}).get("language")
@@ -576,6 +601,14 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
                     else:
                         response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
 
+                elif effective_provider in ("google", "gemini"):
+                    google_key = get_google_api_key()
+                    if not google_key:
+                        print("⚠️  Google API key not found, falling back to Bedrock")
+                        effective_provider = "bedrock"
+                    else:
+                        response_text = call_gemini_agent(prompt, google_key)
+
                 if effective_provider == "bedrock":
                     response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
 
@@ -750,7 +783,12 @@ def lambda_handler(event, context):
         lab_requirements = event.get('lab_requirements')
 
         # FORCE Sonnet 4.6 on Bedrock for all lab planning (consistency and format reliability)
-        model_provider = 'bedrock'
+        # unless Google Gemini is selected.
+        original_provider = event.get('model_provider', 'bedrock').lower()
+        if original_provider in ('google', 'gemini'):
+            model_provider = original_provider
+        else:
+            model_provider = 'bedrock'
         
         # Support both old (modules) and new (lab_ids) parameters
         modules_to_generate = event.get('modules_to_generate')
@@ -770,7 +808,7 @@ def lambda_handler(event, context):
         print(f"📦 Bucket: {course_bucket}")
         print(f"📄 Outline: {outline_key}")
         print(f"📁 Project: {project_folder}")
-        print(f"🤖 Model: {model_provider} (forced to Bedrock Sonnet 4.6 for lab planning)")
+        print(f"🤖 Model: {model_provider}")
         print(f"🎯 Module Scope: {modules_to_generate}")
         if lab_ids_to_regenerate:
             print(f"🆔 Lab IDs to Regenerate: {lab_ids_to_regenerate}")
