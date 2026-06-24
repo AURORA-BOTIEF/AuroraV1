@@ -17,11 +17,12 @@ function InfographicViewer() {
     const [error, setError] = useState(null);
     const [viewMode, setViewMode] = useState('presentation'); // 'presentation' or 'grid'
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [fullscreenScale, setFullscreenScale] = useState(1);
+    const [scale, setScale] = useState(1);
     const [zoomedImage, setZoomedImage] = useState(null); // For image zoom feature
 
     const [htmlContent, setHtmlContent] = useState(null);
     const iframeRef = React.useRef(null);
+    const viewportContainerRef = React.useRef(null);
 
     useEffect(() => {
         loadInfographic();
@@ -356,35 +357,55 @@ function InfographicViewer() {
         const handleFullscreenChange = () => {
             const isNowFullscreen = !!document.fullscreenElement;
             setIsFullscreen(isNowFullscreen);
-
-            if (isNowFullscreen) {
-                // Small delay to ensure DOM is updated
-                setTimeout(() => {
-                    updateFullscreenScale();
-                }, 100);
-            }
-        };
-
-        const updateFullscreenScale = () => {
-            const scaleX = window.innerWidth / 1280;
-            const scaleY = window.innerHeight / 720;
-            const scale = Math.min(scaleX, scaleY); // 100% fill
-            setFullscreenScale(scale);
-            console.log('Fullscreen scale applied:', scale, 'Screen:', window.innerWidth, 'x', window.innerHeight);
         };
 
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
         document.addEventListener('msfullscreenchange', handleFullscreenChange);
-        window.addEventListener('resize', updateFullscreenScale);
 
         return () => {
             document.removeEventListener('fullscreenchange', handleFullscreenChange);
             document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
             document.removeEventListener('msfullscreenchange', handleFullscreenChange);
-            window.removeEventListener('resize', updateFullscreenScale);
         };
     }, []);
+
+    useEffect(() => {
+        const updateScale = () => {
+            if (viewportContainerRef.current) {
+                const containerWidth = viewportContainerRef.current.clientWidth;
+                const containerHeight = viewportContainerRef.current.clientHeight;
+
+                if (containerWidth > 0 && containerHeight > 0) {
+                    const scaleX = containerWidth / 1280;
+                    const scaleY = containerHeight / 720;
+                    const newScale = Math.min(scaleX, scaleY);
+                    setScale(newScale);
+                    console.log('Scale updated:', newScale, 'Container:', containerWidth, 'x', containerHeight);
+                }
+            }
+        };
+
+        updateScale();
+
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== 'undefined' && viewportContainerRef.current) {
+            resizeObserver = new ResizeObserver(() => {
+                updateScale();
+            });
+            resizeObserver.observe(viewportContainerRef.current);
+        } else {
+            window.addEventListener('resize', updateScale);
+        }
+
+        return () => {
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            } else {
+                window.removeEventListener('resize', updateScale);
+            }
+        };
+    }, [viewMode, isFullscreen, infographic]);
 
     // Handle keyboard navigation
     useEffect(() => {
@@ -793,32 +814,37 @@ function InfographicViewer() {
             {/* Presentation View (Used for both Presentation and Grid modes) */}
             <div className="presentation-view">
                 <div
-                    className="slide-viewport"
-                    style={
-                        viewMode === 'presentation'
-                            ? (isFullscreen ? { transform: `scale(${fullscreenScale})` } : {})
-                            : { width: '100%', maxWidth: '100%', height: '100%', background: '#1a1a1a', boxShadow: 'none' }
-                    }
+                    ref={viewportContainerRef}
+                    className={`slide-viewport-container ${viewMode === 'grid' ? 'grid-mode' : ''}`}
                 >
-                    {htmlContent ? (
-                        <iframe
-                            ref={iframeRef}
-                            srcDoc={htmlContent}
-                            className="slide-iframe"
-                            title="Presentación"
-                            allowFullScreen
-                            style={{
-                                background: viewMode === 'grid' ? '#1a1a1a' : 'white'
-                            }}
-                        />
-                    ) : (
-                        <div className="viewer-inline-loading">
-                            <p>Cargando contenido...</p>
-                            <div className="viewer-loading-bar-wrapper">
-                                <div className="viewer-loading-bar"></div>
+                    <div
+                        className={`slide-viewport ${viewMode === 'presentation' ? 'presentation-mode' : 'grid-mode'}`}
+                        style={
+                            viewMode === 'presentation'
+                                ? { transform: `scale(${scale})` }
+                                : {}
+                        }
+                    >
+                        {htmlContent ? (
+                            <iframe
+                                ref={iframeRef}
+                                srcDoc={htmlContent}
+                                className="slide-iframe"
+                                title="Presentación"
+                                allowFullScreen
+                                style={{
+                                    background: viewMode === 'grid' ? '#1a1a1a' : 'white'
+                                }}
+                            />
+                        ) : (
+                            <div className="viewer-inline-loading">
+                                <p>Cargando contenido...</p>
+                                <div className="viewer-loading-bar-wrapper">
+                                    <div className="viewer-loading-bar"></div>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
 
                 {/* Navigation Controls (Only in Presentation Mode) */}
