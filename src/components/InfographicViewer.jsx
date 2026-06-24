@@ -274,11 +274,46 @@ function InfographicViewer() {
                                     showSlide(currentSlide);
                                 }
                             } else if (event.data.type === 'UPDATE_IMAGE_SRC') {
-                                // Use iteration instead of CSS selector to handle special characters in presigned URLs
+                                const { originalSrc, newSrc } = event.data;
+                                
+                                // Helper to normalize URLs for comparison
+                                const normalize = (url) => {
+                                    if (!url) return '';
+                                    return decodeURIComponent(url)
+                                        .replace(/&amp;/g, '&')
+                                        .trim();
+                                };
+                                const normOriginal = normalize(originalSrc);
+                                const baseOriginal = normOriginal.split('?')[0];
+
+                                // Update img tags
                                 const images = document.querySelectorAll('img');
                                 images.forEach(img => {
-                                    if (img.src === event.data.originalSrc) {
-                                        img.src = event.data.newSrc;
+                                    const currentSrc = img.getAttribute('src') || '';
+                                    const resolvedSrc = img.src || '';
+                                    const normCurrent = normalize(currentSrc);
+                                    const normResolved = normalize(resolvedSrc);
+
+                                    if (normCurrent === normOriginal || 
+                                        normResolved === normOriginal ||
+                                        (baseOriginal && normResolved.split('?')[0] === baseOriginal)) {
+                                        img.src = newSrc;
+                                    }
+                                });
+
+                                // Update background images
+                                const allElements = document.querySelectorAll('*');
+                                allElements.forEach(el => {
+                                    const style = window.getComputedStyle(el);
+                                    const bgImage = style.backgroundImage;
+                                    if (bgImage && bgImage !== 'none') {
+                                        const matches = bgImage.match(/url\(['"]?([^'"]+)['"]?\)/i);
+                                        if (matches && matches[1]) {
+                                            const normBg = normalize(matches[1]);
+                                            if (normBg === normOriginal || (baseOriginal && normBg.split('?')[0] === baseOriginal)) {
+                                                el.style.backgroundImage = 'url(' + newSrc + ')';
+                                            }
+                                        }
                                     }
                                 });
                             } else if (event.data.type === 'SET_VIEW_MODE') {
