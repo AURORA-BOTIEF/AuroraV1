@@ -321,10 +321,10 @@ function GeneradorCursos() {
                                 Sube un archivo en formato YAML, PDF, Markdown o Texto, o escribe el temario directamente.
                             </p>
 
-                            <div className="input-method-tabs">
+                            <div className="syllabus-input-tabs">
                                 <button
                                     type="button"
-                                    className={`tab-btn ${inputMethod === 'file' ? 'active' : ''}`}
+                                    className={`syllabus-tab-btn ${inputMethod === 'file' ? 'active' : ''}`}
                                     onClick={() => setInputMethod('file')}
                                     disabled={isProcessing}
                                 >
@@ -332,7 +332,7 @@ function GeneradorCursos() {
                                 </button>
                                 <button
                                     type="button"
-                                    className={`tab-btn ${inputMethod === 'paste' ? 'active' : ''}`}
+                                    className={`syllabus-tab-btn ${inputMethod === 'paste' ? 'active' : ''}`}
                                     onClick={() => setInputMethod('paste')}
                                     disabled={isProcessing}
                                 >
