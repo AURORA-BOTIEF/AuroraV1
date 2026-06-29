@@ -4,7 +4,12 @@
 import os
 import json
 import boto3
+import re
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Max parallel S3 calls (avoid throttling)
+_DEFAULT_WORKERS = 16
 
 def lambda_handler(event, context):
     """
@@ -25,72 +30,20 @@ def lambda_handler(event, context):
         query_params = event.get('queryStringParameters') or {}
         page = int(query_params.get('page', 1))
         limit = int(query_params.get('limit', 20))
-        
-        # List all project folders (common prefixes)
-        response = s3_client.list_objects_v2(
-            Bucket=bucket_name,
-            Delimiter='/',
-            Prefix=''
+        max_workers = min(
+            int(os.getenv("LIST_INFOGRAPHICS_MAX_WORKERS", str(_DEFAULT_WORKERS))),
+            32,
         )
         
-        infographics = []
+        # List all project folders (common prefixes)
         excluded_folders = {'PPT_Templates', 'logo', 'uploads', 'images', 'book'}
+        all_folders = list_all_root_prefixes(s3_client, bucket_name, excluded_folders)
+        print(f"--- Found {len(all_folders)} folders in S3 ---")
         
-        if 'CommonPrefixes' in response:
-            for prefix_obj in response['CommonPrefixes']:
-                project_folder = prefix_obj['Prefix'].rstrip('/')
-                
-                # Filter excluded folders
-                if project_folder in excluded_folders or project_folder.startswith('.'):
-                    continue
-                
-                # Check if this project has an infographic
-                infographic_data = check_for_infographic(s3_client, bucket_name, project_folder)
-                
-                if infographic_data:
-                    # Extract creation date from folder name (YYMMDD-...)
-                    creation_date = extract_date_from_folder(project_folder)
-                    
-                    # Get course title from infographic structure (primary source)
-                    # If not available, try outline.yaml, then metadata, then folder name
-                    course_title = infographic_data.get('course_title', '')
-                    description = infographic_data.get('course_description', '')
-                    
-                    # Always load metadata for course_topic and model_provider
-                    outline_data = load_outline_data(s3_client, bucket_name, project_folder)
-                    metadata = load_project_metadata(s3_client, bucket_name, project_folder)
-                    
-                    if not course_title:
-                        course_title = (
-                            outline_data.get('course', {}).get('title') or 
-                            metadata.get('title') or 
-                            (project_folder.split('-', 1)[1] if '-' in project_folder else project_folder)
-                        )
-                    
-                    if not description:
-                        description = (
-                            outline_data.get('course', {}).get('description') or 
-                            metadata.get('description', '')
-                        )
-                    
-                    if not creation_date:
-                        creation_date = metadata.get('created', '')
-                    
-                    infographics.append({
-                        'folder': project_folder,
-                        'title': course_title,
-                        'description': description,
-                        'created': creation_date,
-                        'html_url': infographic_data['html_url'],
-                        'html_key': infographic_data['html_key'],
-                        'structure_key': infographic_data['structure_key'],
-                        'total_slides': infographic_data.get('total_slides', 0),
-                        'last_modified': infographic_data.get('last_modified', ''),
-                        'course_topic': metadata.get('course_topic', ''),
-                        'model_provider': metadata.get('model_provider', 'bedrock')
-                    })
+        # Process and enrich folders in parallel
+        infographics = enrich_folders_parallel(s3_client, bucket_name, all_folders, max_workers)
         
-        # Sort infographics by creation date (newest first)
+        # Sort infographics by creation date or last modified (newest first)
         infographics.sort(key=lambda x: x.get('last_modified') or x.get('created') or '', reverse=True)
         
         # Calculate pagination
@@ -137,6 +90,101 @@ def lambda_handler(event, context):
                 "request_id": context.aws_request_id if context else "unknown"
             })
         }
+
+def list_all_root_prefixes(s3_client, bucket_name, excluded_folders):
+    """All top-level folder names under the bucket (follows continuation token)."""
+    prefixes = []
+    token = None
+    while True:
+        kwargs = {
+            "Bucket": bucket_name,
+            "Delimiter": "/",
+            "Prefix": "",
+        }
+        if token:
+            kwargs["ContinuationToken"] = token
+        
+        resp = s3_client.list_objects_v2(**kwargs)
+        for prefix_obj in resp.get("CommonPrefixes", []):
+            project_folder = prefix_obj["Prefix"].rstrip("/")
+            if project_folder in excluded_folders or project_folder.startswith("."):
+                continue
+            prefixes.append(project_folder)
+        if not resp.get("IsTruncated"):
+            break
+        token = resp.get("NextContinuationToken")
+    return prefixes
+
+def enrich_folders_parallel(s3_client, bucket_name, folders, max_workers):
+    if not folders:
+        return []
+    workers = min(max_workers, len(folders))
+    results = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_folder = {
+            executor.submit(process_single_folder, s3_client, bucket_name, folder): folder
+            for folder in folders
+        }
+        for future in as_completed(future_to_folder):
+            folder = future_to_folder[future]
+            try:
+                res = future.result()
+                if res:
+                    results.append(res)
+            except Exception as e:
+                print(f"Error enriching folder {folder}: {e}")
+    return results
+
+def process_single_folder(s3_client, bucket_name, project_folder):
+    # Check if this project has an infographic
+    infographic_data = check_for_infographic(s3_client, bucket_name, project_folder)
+    if not infographic_data:
+        return None
+
+    # Extract creation date from folder name (YYMMDD-...)
+    creation_date = extract_date_from_folder(project_folder)
+    
+    # Get course title and description from infographic structure (primary source)
+    course_title = infographic_data.get('course_title', '')
+    description = infographic_data.get('course_description', '')
+    
+    # Always load metadata for course_topic and model_provider
+    metadata = load_project_metadata(s3_client, bucket_name, project_folder)
+    
+    # Try outline data ONLY if we still lack title/description
+    outline_data = {}
+    if not course_title or not description:
+        outline_data = load_outline_data(s3_client, bucket_name, project_folder)
+        
+    if not course_title:
+        course_title = (
+            outline_data.get('course', {}).get('title') or 
+            metadata.get('title') or 
+            (project_folder.split('-', 1)[1] if '-' in project_folder else project_folder)
+        )
+    
+    if not description:
+        description = (
+            outline_data.get('course', {}).get('description') or 
+            metadata.get('description', '')
+        )
+    
+    if not creation_date:
+        creation_date = metadata.get('created', '')
+    
+    return {
+        'folder': project_folder,
+        'title': course_title,
+        'description': description,
+        'created': creation_date,
+        'html_url': infographic_data['html_url'],
+        'html_key': infographic_data['html_key'],
+        'structure_key': infographic_data['structure_key'],
+        'total_slides': infographic_data.get('total_slides', 0),
+        'last_modified': infographic_data.get('last_modified', ''),
+        'course_topic': metadata.get('course_topic', ''),
+        'model_provider': metadata.get('model_provider', 'bedrock')
+    }
 
 def check_for_infographic(s3_client, bucket_name, project_folder):
     """Check if the project has an infographic and return its metadata."""
@@ -197,7 +245,6 @@ def check_for_infographic(s3_client, bucket_name, project_folder):
 
 def extract_date_from_folder(folder_name):
     """Extract date from folder name if it starts with YYMMDD."""
-    import re
     # Match YYMMDD at start of string
     match = re.match(r'^(\d{2})(\d{2})(\d{2})', folder_name)
     if match:

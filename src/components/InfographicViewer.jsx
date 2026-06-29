@@ -93,27 +93,30 @@ function InfographicViewer() {
             (async () => {
                 let successCount = 0;
                 let failCount = 0;
+                const CONCURRENCY_LIMIT = 8;
 
-                for (const s3Url of s3Urls) {
-                    try {
-                        // Fetch blob URL
-                        const blobUrl = await getBlobUrlForS3Object(s3Url);
-
-                        // Send to iframe to update image
-                        if (iframeRef.current && iframeRef.current.contentWindow) {
-                            iframeRef.current.contentWindow.postMessage({
-                                type: 'UPDATE_IMAGE_SRC',
-                                originalSrc: s3Url,
-                                newSrc: blobUrl
-                            }, '*');
+                const queue = [...s3Urls];
+                const workers = Array(Math.min(CONCURRENCY_LIMIT, queue.length)).fill(null).map(async () => {
+                    while (queue.length > 0) {
+                        const s3Url = queue.shift();
+                        try {
+                            const blobUrl = await getBlobUrlForS3Object(s3Url);
+                            if (iframeRef.current && iframeRef.current.contentWindow) {
+                                iframeRef.current.contentWindow.postMessage({
+                                    type: 'UPDATE_IMAGE_SRC',
+                                    originalSrc: s3Url,
+                                    newSrc: blobUrl
+                                }, '*');
+                            }
+                            successCount++;
+                        } catch (error) {
+                            failCount++;
+                            console.error(`Failed to load background image: ${s3Url}`, error);
                         }
-
-                        successCount++;
-                    } catch (error) {
-                        failCount++;
-                        console.error(`Failed to load background image: ${s3Url}`, error);
                     }
-                }
+                });
+
+                await Promise.all(workers);
                 console.log(`Background image loading complete: ${successCount} success, ${failCount} failed`);
             })();
 
