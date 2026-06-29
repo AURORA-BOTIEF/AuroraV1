@@ -17,6 +17,7 @@ import boto3
 import logging
 import os
 import re
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -172,7 +173,8 @@ def create_ppt_batch_tasks(
     model_provider: str = 'bedrock',
     html_first: bool = True,
     book_version_key: str = None,
-    book_type: str = 'theory'
+    book_type: str = 'theory',
+    execution_id: str = None,
 ) -> list:
     """Create Lambda invocation tasks for each batch."""
     tasks = []
@@ -190,11 +192,31 @@ def create_ppt_batch_tasks(
             'html_first': html_first,  # NEW: Enable HTML-first architecture
             'timeout_seconds': 840,  # 14 minutes, leaves 1 min buffer before 900s hard limit
             'book_version_key': book_version_key,  # Pass specific version to use
-            'book_type': book_type  # 'theory' or 'lab'
+            'book_type': book_type,  # 'theory' or 'lab'
+            'execution_id': execution_id,
         }
         tasks.append(task)
     
     return tasks
+
+
+def reset_html_first_infographic_artifacts(course_bucket: str, project_folder: str) -> None:
+    """
+    Remove prior HTML-first slide artifacts so a new orchestration starts clean.
+
+    Prevents incremental merge from inheriting a completed/partial structure and
+    dropping introduction slides when batches are re-run.
+    """
+    keys = [
+        f"{project_folder}/infographics/infographic_structure.json",
+        f"{project_folder}/infographics/infographic_final.html",
+    ]
+    for key in keys:
+        try:
+            s3_client.delete_object(Bucket=course_bucket, Key=key)
+            logger.info(f"🗑️ Cleared prior slide artifact: s3://{course_bucket}/{key}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not delete {key}: {e}")
 
 
 def lambda_handler(event, context):
@@ -322,6 +344,11 @@ def lambda_handler(event, context):
         logger.info(f"📦 Batch configuration:")
         for batch in batches:
             logger.info(f"   Batch {batch['batch_index']}: Lessons {batch['lesson_start']}-{batch['lesson_end']} ({batch['batch_size']} lessons)")
+
+        orchestration_execution_id = str(uuid.uuid4())[:8]
+        if html_first:
+            reset_html_first_infographic_artifacts(course_bucket, project_folder)
+            logger.info(f"🆔 HTML-first orchestration execution_id: {orchestration_execution_id}")
         
         # Create batch tasks
         ppt_batch_tasks = create_ppt_batch_tasks(
@@ -331,7 +358,8 @@ def lambda_handler(event, context):
             model_provider=model_provider,
             html_first=html_first,  # Pass html_first to all batches
             book_version_key=book_version_key,  # Pass specific book version
-            book_type=book_type  # 'theory' or 'lab'
+            book_type=book_type,  # 'theory' or 'lab'
+            execution_id=orchestration_execution_id,
         )
         
         # Prepare Step Functions execution input
@@ -345,7 +373,8 @@ def lambda_handler(event, context):
             'total_lessons': total_lessons,
             'max_concurrent_batches': MAX_CONCURRENT_BATCHES,
             'book_version_key': book_version_key,  # Pass through for each batch
-            'book_type': book_type  # 'theory' or 'lab'
+            'book_type': book_type,  # 'theory' or 'lab'
+            'execution_id': orchestration_execution_id,
         }
         
         # Add user_email if provided (for notifications)

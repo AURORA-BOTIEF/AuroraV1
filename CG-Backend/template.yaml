@@ -720,11 +720,12 @@ Resources:
       Handler: list_infographics.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
-      MemorySize: 256
+      MemorySize: 1024
       Timeout: 30
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
+          LIST_INFOGRAPHICS_MAX_WORKERS: 32
       Policies:
       - Version: '2012-10-17'
         Statement:

@@ -1316,6 +1316,16 @@ def _ensure_batch_slide_spans(existing_structure: Dict[str, Any]) -> None:
     }]
 
 
+class IncrementalMergeError(Exception):
+    """Raised when an incremental batch cannot be merged without corrupting the deck."""
+
+
+def _orch_execution_id(body_execution_id: Optional[str]) -> str:
+    import uuid
+    eid = (body_execution_id or '').strip()
+    return eid if eid else str(uuid.uuid4())[:8]
+
+
 def _remove_batch_slide_span(existing_structure: Dict[str, Any], batch_index: int) -> bool:
     """Remove slides belonging to a prior merge of the same batch_index; fix following span indices."""
     spans = list(existing_structure.get('batch_slide_spans') or [])
@@ -1371,15 +1381,13 @@ def merge_html_first_incremental_structure(
     """
     Merge one HTML-first batch into the shared structure used for infographic_structure.json.
 
-    - **Stale reset** only when the previous run finished (`completion_status == complete`),
-      Step Functions `execution_id` disagrees with the file, or `last_batch_index` moved
-      past this batch (out-of-order).
+    - **Stale reset** only on **batch 0** when the previous run finished, execution_id
+      disagrees, or batches are out-of-order. Mid-run stale merges (batch_index > 0) raise
+      ``IncrementalMergeError`` instead of replacing intro + early batches.
     - **Same-batch retry** (`last_batch_index == batch_index`, same execution): drops the
       prior slide span for that batch before extending, avoiding duplicate chapter-end /
       references slides.
     """
-    import uuid
-
     existing_exec_id = existing_structure.get('execution_id') or ''
     incoming_exec = (body_execution_id or '').strip()
     existing_last = int(existing_structure.get('last_batch_index', -1))
@@ -1394,14 +1402,22 @@ def merge_html_first_incremental_structure(
         or existing_last > batch_index
     )
     if is_stale:
+        if batch_index > 0:
+            raise IncrementalMergeError(
+                f"Batch {batch_index} cannot merge into stale structure "
+                f"(status={existing_structure.get('completion_status')!r}, "
+                f"last_batch={existing_last}, file_exec={existing_exec_id!r}, "
+                f"incoming_exec={incoming_exec!r}). "
+                f"Start a new slide orchestration so batch 0 runs first."
+            )
         logger.warning(
-            f"⚠️ Incremental merge reset (stale): completion_status="
+            f"⚠️ Incremental merge reset (stale, batch 0): completion_status="
             f"{existing_structure.get('completion_status')}, "
             f"existing_last_batch={existing_last}, batch_index={batch_index}, "
             f"incoming_exec={incoming_exec!r}, file_exec={existing_exec_id!r}"
         )
         fresh = dict(incoming_structure)
-        fresh['execution_id'] = str(uuid.uuid4())[:8]
+        fresh['execution_id'] = _orch_execution_id(body_execution_id)
         fresh['last_batch_index'] = batch_index
         inc_slides = fresh.get('slides') or []
         fresh['batch_slide_spans'] = [{
@@ -1459,6 +1475,58 @@ def merge_html_first_incremental_structure(
         f"(+{new_len - prev_len}), lessons_processed={existing_structure['lessons_processed']}"
     )
     return existing_structure
+
+
+def _init_batch_zero_structure(
+    structure: Dict[str, Any],
+    batch_index: int,
+    body_execution_id: Optional[str],
+) -> None:
+    """Tag structure metadata for a fresh batch-0 write."""
+    structure['execution_id'] = _orch_execution_id(body_execution_id)
+    structure['last_batch_index'] = batch_index
+    zs = structure.get('slides') or []
+    structure['batch_slide_spans'] = [{
+        'batch_index': batch_index,
+        'start_idx': 0,
+        'end_idx': max(0, len(zs) - 1),
+        'lessons_processed': int(structure.get('lessons_processed', 0)),
+    }]
+    logger.info(f"🆔 New execution started: {structure['execution_id']}")
+
+
+def _merge_with_existing_structure(
+    course_bucket: str,
+    shared_structure_key: str,
+    structure: Dict[str, Any],
+    *,
+    batch_index: int,
+    body_execution_id: Optional[str],
+) -> Dict[str, Any]:
+    """Merge incremental batch output, or initialize batch 0. Never silently drops intro slides."""
+    if batch_index == 0:
+        _init_batch_zero_structure(structure, batch_index, body_execution_id)
+        return structure
+
+    from botocore.exceptions import ClientError
+
+    try:
+        existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == 'NoSuchKey':
+            raise IncrementalMergeError(
+                f"Batch {batch_index} cannot merge: missing {shared_structure_key}. "
+                f"Batch 0 must complete before later batches."
+            ) from e
+        raise
+
+    existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
+    return merge_html_first_incremental_structure(
+        existing_structure,
+        structure,
+        batch_index=batch_index,
+        body_execution_id=body_execution_id,
+    )
 
 
 def lambda_handler(event, context):
@@ -1682,42 +1750,13 @@ def lambda_handler(event, context):
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
                 
                 # Try to load and merge with existing structure
-                if batch_index > 0:
-                    try:
-                        existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
-                        existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
-
-                        structure = merge_html_first_incremental_structure(
-                            existing_structure,
-                            structure,
-                            batch_index=batch_index,
-                            body_execution_id=body_execution_id,
-                        )
-                    except Exception as e:
-                        logger.warning(f"⚠️ Could not merge with existing structure: {e}")
-                        import uuid
-                        structure['execution_id'] = str(uuid.uuid4())[:8]
-                        structure['last_batch_index'] = batch_index
-                        inc_slides = structure.get('slides') or []
-                        structure['batch_slide_spans'] = [{
-                            'batch_index': batch_index,
-                            'start_idx': 0,
-                            'end_idx': max(0, len(inc_slides) - 1),
-                            'lessons_processed': int(structure.get('lessons_processed', 0)),
-                        }]
-                else:
-                    # Batch 0 - initialize fresh structure with new execution_id
-                    import uuid
-                    structure['execution_id'] = str(uuid.uuid4())[:8]
-                    structure['last_batch_index'] = batch_index
-                    zs = structure.get('slides') or []
-                    structure['batch_slide_spans'] = [{
-                        'batch_index': batch_index,
-                        'start_idx': 0,
-                        'end_idx': max(0, len(zs) - 1),
-                        'lessons_processed': int(structure.get('lessons_processed', 0)),
-                    }]
-                    logger.info(f"🆔 New execution started: {structure['execution_id']}")
+                structure = _merge_with_existing_structure(
+                    course_bucket,
+                    shared_structure_key,
+                    structure,
+                    batch_index=batch_index,
+                    body_execution_id=body_execution_id,
+                )
                 
                 # Save updated structure
                 s3_client.put_object(
@@ -1752,33 +1791,18 @@ def lambda_handler(event, context):
                 # Incremental batch: merge with existing structure
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
                 
-                try:
-                    existing_response = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
-                    existing_structure = json.loads(existing_response['Body'].read().decode('utf-8'))
+                structure = _merge_with_existing_structure(
+                    course_bucket,
+                    shared_structure_key,
+                    structure,
+                    batch_index=batch_index,
+                    body_execution_id=body_execution_id,
+                )
 
-                    structure = merge_html_first_incremental_structure(
-                        existing_structure,
-                        structure,
-                        batch_index=batch_index,
-                        body_execution_id=body_execution_id,
-                    )
-
-                    logger.info(
-                        f"✅ Saved merged structure after batch {batch_index}: "
-                        f"{structure.get('total_slides', len(structure.get('slides') or []))} slides"
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not merge with existing structure: {e}")
-                    import uuid
-                    structure['execution_id'] = str(uuid.uuid4())[:8]
-                    structure['last_batch_index'] = batch_index
-                    zs = structure.get('slides') or []
-                    structure['batch_slide_spans'] = [{
-                        'batch_index': batch_index,
-                        'start_idx': 0,
-                        'end_idx': max(0, len(zs) - 1),
-                        'lessons_processed': int(structure.get('lessons_processed', 0)),
-                    }]
+                logger.info(
+                    f"✅ Saved merged structure after batch {batch_index}: "
+                    f"{structure.get('total_slides', len(structure.get('slides') or []))} slides"
+                )
                 
                 # Save updated structure
                 s3_client.put_object(
@@ -1816,21 +1840,10 @@ def lambda_handler(event, context):
                     html_key = None
                     html_url = None
             else:
-                # First batch - initialize structure with new execution_id
-                import uuid
-                execution_id = body.get('execution_id') or str(uuid.uuid4())[:8]
-                
+                # First batch - initialize structure with orchestration execution_id
                 shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
-                structure['last_batch_index'] = 0
-                structure['execution_id'] = execution_id
-                zs = structure.get('slides') or []
-                structure['batch_slide_spans'] = [{
-                    'batch_index': 0,
-                    'start_idx': 0,
-                    'end_idx': max(0, len(zs) - 1),
-                    'lessons_processed': int(structure.get('lessons_processed', 0)),
-                }]
-                logger.info(f"🆔 New execution started (complete batch 0): {execution_id}")
+                _init_batch_zero_structure(structure, 0, body_execution_id)
+                logger.info(f"🆔 New execution started (complete batch 0): {structure['execution_id']}")
                 
                 s3_client.put_object(
                     Bucket=course_bucket,
@@ -2252,6 +2265,19 @@ def lambda_handler(event, context):
         # ========================================================================
         """
     
+    except IncrementalMergeError as e:
+        logger.error(f"❌ Incremental merge rejected: {e}")
+        return {
+            'statusCode': 409,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({
+                'error': str(e),
+                'error_type': 'incremental_merge_conflict',
+            })
+        }
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         import traceback

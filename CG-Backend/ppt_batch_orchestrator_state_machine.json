@@ -36,7 +36,8 @@
                                 "model_provider.$": "$.model_provider",
                                 "batch_index.$": "$.batch_index",
                                 "book_type.$": "$.book_type",
-                                "total_lessons.$": "$.total_lessons"
+                                "total_lessons.$": "$.total_lessons",
+                                "execution_id.$": "$.execution_id"
                             }
                         },
                         "ResultPath": "$.ppt_generation_result",

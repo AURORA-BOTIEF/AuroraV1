@@ -23,9 +23,6 @@ def lambda_handler(event, context):
         # Get bucket name from environment or default
         bucket_name = os.getenv('COURSE_BUCKET', 'crewai-course-artifacts')
         
-        # Initialize S3 client
-        s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
-        
         # Parse query parameters for pagination
         query_params = event.get('queryStringParameters') or {}
         page = int(query_params.get('page', 1))
@@ -34,6 +31,11 @@ def lambda_handler(event, context):
             int(os.getenv("LIST_INFOGRAPHICS_MAX_WORKERS", str(_DEFAULT_WORKERS))),
             32,
         )
+
+        # Initialize S3 client with customized connection pool size
+        from botocore.config import Config
+        s3_config = Config(max_pool_connections=max_workers + 5)
+        s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'), config=s3_config)
         
         # List all project folders (common prefixes)
         excluded_folders = {'PPT_Templates', 'logo', 'uploads', 'images', 'book'}
