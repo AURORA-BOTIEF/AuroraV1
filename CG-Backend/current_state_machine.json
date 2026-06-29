@@ -32,7 +32,7 @@
         }
       ],
       "Comment": "Check if we need to generate labs (both mode)",
-      "Default": "NotifyCompletion",
+      "Default": "CheckContentTypeForSlides",
       "Type": "Choice"
     },
     "ValidateLabPlanExists": {
@@ -55,7 +55,7 @@
               "NumericEquals": 0
             }
           ],
-          "Next": "NotifyCompletion"
+          "Next": "CheckContentTypeForSlides"
         },
         {
           "Comment": "Labs exist and master plan was generated - proceed with lab generation",
@@ -642,7 +642,7 @@
     },
     "InvokeLabGuideBuilder": {
       "Comment": "Build lab guide book with all lab exercises",
-      "Next": "NotifyCompletion",
+      "Next": "CheckContentTypeForSlides",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:crewai-course-generator-stack-LabGuideBuilder-3G4pm9YpQeCp",
         "Payload": {
@@ -1208,6 +1208,93 @@
         }
       ],
       "Type": "Map"
+    },
+    "CheckContentTypeForSlides": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.content_type",
+          "StringEquals": "labs",
+          "Next": "TriggerPptOrchestratorLab"
+        }
+      ],
+      "Default": "TriggerPptOrchestratorTheory"
+    },
+    "TriggerPptOrchestratorLab": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${PptBatchOrchestratorArn}",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "model_provider.$": "$.model_provider",
+          "user_email.$": "$.user_email",
+          "html_first": true,
+          "book_type": "lab"
+        }
+      },
+      "ResultPath": "$.ppt_orchestrator_result",
+      "Next": "NotifyCompletion",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyCompletion",
+          "ResultPath": "$.ppt_orchestrator_error"
+        }
+      ]
+    },
+    "TriggerPptOrchestratorTheory": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${PptBatchOrchestratorArn}",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "model_provider.$": "$.model_provider",
+          "user_email.$": "$.user_email",
+          "html_first": true,
+          "book_type": "theory"
+        }
+      },
+      "ResultPath": "$.ppt_orchestrator_result",
+      "Next": "NotifyCompletion",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyCompletion",
+          "ResultPath": "$.ppt_orchestrator_error"
+        }
+      ]
     },
     "NotifyCompletion": {
       "Comment": "Send completion notification to user and admin",

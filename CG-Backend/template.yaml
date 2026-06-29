@@ -1240,6 +1240,7 @@ Resources:
         StrandsLabPlannerArn: !GetAtt StrandsLabPlanner.Arn
         StrandsLabWriterArn: !GetAtt StrandsLabWriter.Arn
         StrandsNotificationArn: !GetAtt StrandsNotification.Arn
+        PptBatchOrchestratorArn: !GetAtt PptBatchOrchestrator.Arn
       Type: STANDARD
       Policies:
         - Version: '2012-10-17'
@@ -1259,6 +1260,7 @@ Resources:
                 - !GetAtt StrandsLabWriter.Arn
                 - !GetAtt StrandsNotification.Arn
                 - !GetAtt ContentValidator.Arn
+                - !GetAtt PptBatchOrchestrator.Arn
 
   # Course generator reliability: failed / timed-out executions (subscribe actions in console or add SNS)
   CourseGeneratorExecutionsFailedAlarm:
