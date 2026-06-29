@@ -705,6 +705,53 @@ def lambda_handler(event, context):
                 })
             }
 
+        # Check if this is an async background execution
+        is_async = body.get('async_processing', False)
+        outline_s3_key = body.get('outline_s3_key')
+        
+        # Determine if we should handle this request asynchronously.
+        # We run it asynchronously if it is a non-YAML outline upload and NOT already running in the background.
+        if outline_s3_key and not is_async and context and getattr(context, 'function_name', None):
+            lower_key = str(outline_s3_key).lower()
+            is_non_yaml = not (lower_key.endswith('.yaml') or lower_key.endswith('.yml'))
+            if is_non_yaml:
+                print(f"⚡ Non-YAML format detected. Triggering asynchronous execution in background to avoid API timeouts...")
+                # Construct the payload to trigger the lambda asynchronously
+                # Add 'async_processing: True' inside request body
+                body['async_processing'] = True
+                
+                # Re-serialize event body
+                async_event = dict(event)
+                async_event['body'] = json.dumps(body)
+                async_event['isBase64Encoded'] = False
+                
+                # Invoke ourselves asynchronously
+                try:
+                    lambda_client = boto3.client('lambda')
+                    lambda_client.invoke(
+                        FunctionName=context.function_name,
+                        InvocationType='Event',
+                        Payload=json.dumps(async_event)
+                    )
+                    print("✅ Successfully triggered background Lambda execution. Returning 200 OK to client.")
+                    return {
+                        "statusCode": 200,
+                        "headers": {
+                            "Content-Type": "application/json",
+                            "Access-Control-Allow-Origin": "*",
+                            "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                            "Access-Control-Allow-Methods": "OPTIONS,POST"
+                        },
+                        "body": json.dumps({
+                            "message": "Syllabus conversion and generation started asynchronously in the background.",
+                            "project_folder": body.get('project_folder')
+                        })
+                    }
+                except Exception as invoke_err:
+                    print(f"⚠️ Failed to invoke background Lambda: {invoke_err}. Falling back to synchronous processing.")
+                    # If invocation fails, we fall back to normal synchronous execution
+                    pass
+
         print(f"Request body: {json.dumps(body, indent=2)}")
 
         # Prefer explicit user_email from JSON body for SES notifications (overrides auth fallback)
