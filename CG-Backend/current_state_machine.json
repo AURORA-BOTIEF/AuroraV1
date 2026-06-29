@@ -177,7 +177,9 @@
       "Next": "ValidateLabContent",
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
+        "content_type.$": "$.content_type",
         "course_bucket.$": "$.course_bucket",
+        "model_provider.$": "$.model_provider",
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email"
       },
@@ -228,8 +230,10 @@
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
         "book_result.$": "$.book_result",
+        "content_type.$": "$.content_type",
         "course_bucket.$": "$.course_bucket",
         "lesson_count.$": "$.book_result.Payload.lesson_count",
+        "model_provider.$": "$.model_provider",
         "project_folder.$": "$.project_folder",
         "theory_book_json_key.$": "$.book_result.Payload.book_json_key",
         "theory_book_key.$": "$.book_result.Payload.book_s3_key",
@@ -1213,8 +1217,16 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.content_type",
-          "StringEquals": "labs",
+          "And": [
+            {
+              "Variable": "$.content_type",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.content_type",
+              "StringEquals": "labs"
+            }
+          ],
           "Next": "TriggerPptOrchestratorLab"
         }
       ],
