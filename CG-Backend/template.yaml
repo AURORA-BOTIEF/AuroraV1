@@ -1137,12 +1137,14 @@ Resources:
       CodeUri: lambda/
       Layers:
         - !Ref StrandsAgentsLayer
+        - !Ref PdfLayer
       MemorySize: 256
       Timeout: 30
       Environment:
         Variables:
           STATE_MACHINE_ARN: !Ref CourseGeneratorStateMachine
           SKIP_S3_HEAD_CHECK: 'true'
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -1157,6 +1159,12 @@ Resources:
                 - s3:PutObject
               Resource:
                 - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+
       Events:
         StartJobApi:
           Type: Api

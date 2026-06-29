@@ -7,6 +7,7 @@ This replaces the presigned URL approach with direct IAM-authorized API calls.
 """
 
 import json
+import io
 import boto3
 import os
 import re
@@ -244,6 +245,199 @@ def normalize_outline_yaml(s3_client, bucket: str, s3_key: str) -> bool:
         import traceback
         traceback.print_exc()
         return False
+
+
+def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+    """Extract all text pages from a raw PDF byte stream using pypdf."""
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        text_parts = []
+        for idx, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+        return "\n".join(text_parts)
+    except Exception as e:
+        print(f"❌ Error extracting PDF text: {e}")
+        import traceback
+        traceback.print_exc()
+        raise ValueError(f"Could not parse PDF content: {e}")
+
+
+def call_bedrock_ai(prompt: str) -> str:
+    """Call AWS Bedrock Claude 3.5 Sonnet to process outline metadata."""
+    bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+    model_id = os.environ.get("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
+    request_body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 8000,
+        "temperature": 0.2,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    }
+    try:
+        response = bedrock_client.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType='application/json',
+            accept='application/json'
+        )
+        response_body = json.loads(response['body'].read())
+        if 'content' in response_body and len(response_body['content']) > 0:
+            return response_body['content'][0]['text']
+        raise ValueError("No content returned in Bedrock response")
+    except Exception as e:
+        print(f"❌ Bedrock AI call error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise ValueError(f"AI Service unavailable: {e}")
+
+
+def convert_non_yaml_to_yaml(content: str, filename: str) -> str:
+    """Use AI to align/convert text into a standard syllabus YAML string."""
+    prompt = f"""You are an expert curriculum designer and syllabus alignment assistant.
+Your task is to take the following course description, topics, or outline (uploaded as {filename}) and convert/align it into a standardized YAML format that matches our system's expected schema exactly.
+
+Expected YAML Schema:
+```yaml
+course:
+  title: "Course Title"
+  description: "Detailed description of the course"
+  language: "es" or "en" (Detect from content, default to "es" if not clear)
+  level: "beginner" or "intermediate" or "advanced"
+  audience:
+    - "Target audience profile 1"
+    - "Target audience profile 2"
+  prerequisites:
+    - "Prerequisite 1"
+    - "Prerequisite 2"
+  total_duration_minutes: integer (Sum of all module durations)
+  learning_outcomes:
+    - "Learning outcome 1"
+    - "Learning outcome 2"
+  modules:
+    - title: "Module Title"
+      summary: "Short summary of the module goals"
+      duration_minutes: integer (Sum of all lessons and labs in this module)
+      percent_theory: integer (Percentage of theory vs practice, e.g. 50)
+      percent_practice: integer (Percentage of practice, e.g. 50)
+      bloom_level: "Understand" or "Apply" or "Analyze" or "Remember"
+      lessons:
+        - title: "Lesson Title"
+          duration_minutes: integer (Usually between 15 and 90 minutes)
+          bloom_level: "Understand" or "Apply" or "Analyze" etc.
+          topics:
+            - title: "Topic 1 details"
+              duration_minutes: integer
+              bloom_level: "Understand"
+            - title: "Topic 2 details"
+              duration_minutes: integer
+              bloom_level: "Apply"
+          lab_activities:
+            - title: "Hands-on activity details"
+              duration_minutes: integer
+              bloom_level: "Apply"
+```
+
+Important Alignment & Content Rules:
+1. **100% Structural Alignment:** The output must match this exact schema. If any key details like audience, prerequisites, durations, or learning outcomes are missing from the input, you MUST generate sensible, professional defaults to ensure a complete, high-quality course syllabus.
+2. **Durations & Calculations:** Ensure all durations are populated. Total duration must be the sum of all module durations, and each module duration must be the sum of its lessons and labs. Topics and lab activities should also have sub-durations.
+3. **Module & Lesson Creation:**
+   - If the user's input is a full detailed outline, map it cleanly to this structure.
+   - If the user's input is just a short topic description (e.g. "A brief 2-day course on Docker basics"), you MUST act as an AI Curriculum Agent and expand/design a complete course with at least 3 distinct modules, logical lessons (each with specific topics), and practical hands-on labs (`lab_activities`).
+4. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
+5. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
+
+Input Content:
+---
+{content}
+---
+"""
+    ai_output = call_bedrock_ai(prompt)
+    
+    # Extract YAML content from markdown code block if present
+    match = re.search(r'```(?:yaml)?\s*(.*?)\s*```', ai_output, re.DOTALL | re.IGNORECASE)
+    if match:
+        yaml_content = match.group(1)
+    else:
+        yaml_content = ai_output.strip()
+        
+    return yaml_content
+
+
+def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str) -> str:
+    """
+    Checks the extension of the outline file. If it is non-YAML, extracts text,
+    converts it to normalized YAML using AI, saves it back to S3 under a .yaml extension,
+    and returns the new key.
+    """
+    lower_key = s3_key.lower()
+    is_yaml = lower_key.endswith('.yaml') or lower_key.endswith('.yml')
+    
+    if is_yaml:
+        print(f"📄 File is already YAML: {s3_key}. Normalizing structure directly.")
+        normalize_outline_yaml(s3_client, bucket, s3_key)
+        return s3_key
+
+    # For PDF, Markdown, or raw text, we convert.
+    print(f"🔄 Detected non-YAML format for outline key: {s3_key}")
+    
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+        raw_bytes = response['Body'].read()
+    except Exception as e:
+        print(f"❌ Error reading file from S3: {e}")
+        raise ValueError(f"Could not read outline from S3: {e}")
+
+    # Extract text content
+    if lower_key.endswith('.pdf'):
+        print(f"📂 Extracting text from PDF file: {s3_key}")
+        text_content = extract_text_from_pdf(raw_bytes)
+    else:
+        # Markdown, TXT, or unspecified
+        print(f"📂 Decoding text file: {s3_key}")
+        text_content = raw_bytes.decode('utf-8', errors='ignore')
+
+    # Convert to YAML using AI
+    print(f"🤖 Invoking AI syllabus agent to align content to YAML standard...")
+    converted_yaml = convert_non_yaml_to_yaml(text_content, os.path.basename(s3_key))
+    
+    # Validate the generated YAML structure
+    try:
+        parsed_yaml = yaml.safe_load(converted_yaml)
+        if not parsed_yaml:
+            raise ValueError("Parsed YAML is empty")
+    except Exception as parse_err:
+        print(f"❌ Generated YAML is invalid: {parse_err}")
+        print("Generated content was:")
+        print(converted_yaml)
+        raise ValueError(f"AI failed to generate a parseable YAML: {parse_err}")
+
+    # Save the YAML content back to S3 with .yaml extension
+    base_path, _ = os.path.splitext(s3_key)
+    new_s3_key = f"{base_path}.yaml"
+    
+    try:
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=new_s3_key,
+            Body=converted_yaml.encode('utf-8'),
+            ContentType='application/x-yaml'
+        )
+        print(f"💾 Converted YAML saved to S3: {new_s3_key}")
+    except Exception as s3_err:
+        print(f"❌ Failed to save converted YAML to S3: {s3_err}")
+        raise ValueError(f"Failed to upload converted outline: {s3_err}")
+
+    # Run the standard normalization on the generated YAML to ensure absolute schema compliance
+    normalize_outline_yaml(s3_client, bucket, new_s3_key)
+    
+    return new_s3_key
 
 
 def normalize_course_language_code(lang) -> str:
@@ -561,7 +755,7 @@ def lambda_handler(event, context):
         s3_client = None
         if outline_s3_key:
             s3_client = boto3.client('s3')
-            normalize_outline_yaml(s3_client, course_bucket, outline_s3_key)
+            outline_s3_key = process_and_normalize_outline_s3(s3_client, course_bucket, outline_s3_key)
         
         # Get lab_ids_to_regenerate first - if present, extract modules from lab IDs
         lab_ids_to_regenerate = body.get('lab_ids_to_regenerate')

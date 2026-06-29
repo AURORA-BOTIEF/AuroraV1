@@ -12,6 +12,8 @@ const API_NAME = 'CourseGeneratorAPI';
 function GeneradorCursos() {
     const [outlineFile, setOutlineFile] = useState(null);
     const [projectFolder, setProjectFolder] = useState('');
+    const [inputMethod, setInputMethod] = useState('file'); // 'file' or 'paste'
+    const [pastedText, setPastedText] = useState('');
     const [moduleInput, setModuleInput] = useState('1');
     const [generateFullCourse, setGenerateFullCourse] = useState(true); // Always full course
     const [modelProvider, setModelProvider] = useState('bedrock');
@@ -24,6 +26,7 @@ function GeneradorCursos() {
     const [statusMessage, setStatusMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
+
 
     const COURSE_BUCKET = 'crewai-course-artifacts';
 
@@ -48,8 +51,10 @@ function GeneradorCursos() {
         const file = e.target.files[0];
         if (file) {
             // Validate file type
-            if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
-                setErrorMessage('Por favor selecciona un archivo YAML válido (.yaml o .yml)');
+            const allowedExtensions = ['.yaml', '.yml', '.pdf', '.md', '.markdown', '.txt'];
+            const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+            if (!allowedExtensions.includes(fileExtension)) {
+                setErrorMessage('Por favor selecciona un archivo válido (.yaml, .yml, .pdf, .md, .markdown, .txt)');
                 setOutlineFile(null);
                 return;
             }
@@ -65,15 +70,20 @@ function GeneradorCursos() {
                 const day = date.getDate().toString().padStart(2, '0');
                 const timestamp = `${year}${month}${day}`;
 
-                const baseName = file.name.replace(/\.(yaml|yml)$/, '').replace(/[^a-zA-Z0-9-]/g, '-');
+                const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9-]/g, '-');
                 setProjectFolder(`${timestamp}-${baseName}`);
             }
         }
     };
 
     const validateInputs = () => {
-        if (!outlineFile) {
+        if (inputMethod === 'file' && !outlineFile) {
             setErrorMessage('Debes seleccionar un archivo de outline');
+            return false;
+        }
+
+        if (inputMethod === 'paste' && !pastedText.trim()) {
+            setErrorMessage('Debes pegar o escribir el contenido del temario');
             return false;
         }
 
@@ -107,13 +117,23 @@ function GeneradorCursos() {
             const fileSize = file.size || 0;
             const MAX_SINGLE_PUT = 64 * 1024 * 1024;
 
+            let s3ContentType = 'text/plain';
+            const lowerName = file.name.toLowerCase();
+            if (lowerName.endsWith('.yaml') || lowerName.endsWith('.yml')) {
+                s3ContentType = 'application/x-yaml';
+            } else if (lowerName.endsWith('.pdf')) {
+                s3ContentType = 'application/pdf';
+            } else if (lowerName.endsWith('.md') || lowerName.endsWith('.markdown')) {
+                s3ContentType = 'text/markdown';
+            }
+
             const upload = new Upload({
                 client: s3Client,
                 params: {
                     Bucket: COURSE_BUCKET,
                     Key: key,
                     Body: file,
-                    ContentType: 'application/x-yaml',
+                    ContentType: s3ContentType,
                 },
                 queueSize: 3,
                 partSize: Math.min(MAX_SINGLE_PUT, Math.max(5 * 1024 * 1024, fileSize + 1)),
@@ -128,7 +148,7 @@ function GeneradorCursos() {
                         Bucket: COURSE_BUCKET,
                         Key: key,
                         Body: file,
-                        ContentType: 'application/x-yaml',
+                        ContentType: s3ContentType,
                     }));
                 } else {
                     throw err;
@@ -235,8 +255,14 @@ function GeneradorCursos() {
         try {
             // Step 1: Upload file to S3
             setStatusMessage('📤 Subiendo archivo de outline...');
+            
+            let fileToUpload = outlineFile;
+            if (inputMethod === 'paste') {
+                fileToUpload = new File([pastedText], 'temario_pasted.txt', { type: 'text/plain' });
+            }
+
             // Change: Pass projectFolder to upload function
-            const uploadedKey = await uploadToS3(outlineFile, projectFolder);
+            const uploadedKey = await uploadToS3(fileToUpload, projectFolder);
             console.log('Archivo subido:', uploadedKey);
 
             // Step 2: Start generation - always full course with theory + labs
@@ -250,8 +276,10 @@ function GeneradorCursos() {
             // Reset form after a delay
             setTimeout(() => {
                 setOutlineFile(null);
+                setPastedText('');
                 setLabRequirements('');
-                document.getElementById('fileInput').value = '';
+                const fileInput = document.getElementById('fileInput');
+                if (fileInput) fileInput.value = '';
             }, 3000);
 
         } catch (error) {
@@ -290,33 +318,79 @@ function GeneradorCursos() {
                         <div className="form-section">
                             <h3>📁 Temario del Curso</h3>
                             <p className="section-description">
-                                Selecciona el archivo YAML que contiene la estructura del curso
+                                Sube un archivo en formato YAML, PDF, Markdown o Texto, o escribe el temario directamente.
                             </p>
 
-                            <div className="file-upload-area">
-                                <input
-                                    id="fileInput"
-                                    type="file"
-                                    accept=".yaml,.yml"
-                                    onChange={handleFileSelect}
+                            <div className="input-method-tabs">
+                                <button
+                                    type="button"
+                                    className={`tab-btn ${inputMethod === 'file' ? 'active' : ''}`}
+                                    onClick={() => setInputMethod('file')}
                                     disabled={isProcessing}
-                                    className="file-input"
-                                />
-                                <label htmlFor="fileInput" className="file-label">
-                                    {outlineFile ? (
-                                        <>
-                                            <span className="file-icon">📄</span>
-                                            <span className="file-name">{outlineFile.name}</span>
-                                            <span className="file-size">({(outlineFile.size / 1024).toFixed(1)} KB)</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span className="file-icon">📤</span>
-                                            <span>Haz clic o arrastra el archivo aquí</span>
-                                        </>
-                                    )}
-                                </label>
+                                >
+                                    📁 Cargar Archivo
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`tab-btn ${inputMethod === 'paste' ? 'active' : ''}`}
+                                    onClick={() => setInputMethod('paste')}
+                                    disabled={isProcessing}
+                                >
+                                    ✍️ Pegar Temario
+                                </button>
                             </div>
+
+                            {inputMethod === 'file' ? (
+                                <div className="file-upload-area">
+                                    <input
+                                        id="fileInput"
+                                        type="file"
+                                        accept=".yaml,.yml,.pdf,.md,.markdown,.txt"
+                                        onChange={handleFileSelect}
+                                        disabled={isProcessing}
+                                        className="file-input"
+                                    />
+                                    <label htmlFor="fileInput" className="file-label">
+                                        {outlineFile ? (
+                                            <>
+                                                <span className="file-icon">
+                                                    {outlineFile.name.endsWith('.pdf') ? '📕' : 
+                                                     (outlineFile.name.endsWith('.md') || outlineFile.name.endsWith('.markdown')) ? '📝' : '📄'}
+                                                </span>
+                                                <span className="file-name">{outlineFile.name}</span>
+                                                <span className="file-size">({(outlineFile.size / 1024).toFixed(1)} KB)</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="file-icon">📤</span>
+                                                <span>Haz clic o arrastra el archivo aquí</span>
+                                            </>
+                                        )}
+                                    </label>
+                                </div>
+                            ) : (
+                                <div className="text-paste-area">
+                                    <textarea
+                                        className="paste-textarea"
+                                        value={pastedText}
+                                        onChange={(e) => {
+                                            setPastedText(e.target.value);
+                                            // Auto-generate project folder
+                                            if (e.target.value.trim() && !projectFolder) {
+                                                const date = new Date();
+                                                const year = date.getFullYear().toString().slice(-2);
+                                                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                                                const day = date.getDate().toString().padStart(2, '0');
+                                                const timestamp = `${year}${month}${day}`;
+                                                setProjectFolder(`${timestamp}-temario-pegado`);
+                                            }
+                                        }}
+                                        placeholder="Pega aquí el temario, lista de temas, o una descripción detallada del curso..."
+                                        disabled={isProcessing}
+                                        rows="10"
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         {/* Project Settings */}
@@ -408,7 +482,7 @@ function GeneradorCursos() {
                             <button
                                 className="btn-generate"
                                 onClick={handleGenerate}
-                                disabled={!outlineFile || isProcessing || !isAuthenticated}
+                                disabled={(inputMethod === 'file' ? !outlineFile : !pastedText.trim()) || isProcessing || !isAuthenticated}
                             >
                                 {isProcessing ? (
                                     <>
