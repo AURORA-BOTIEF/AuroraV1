@@ -28,7 +28,6 @@ def lambda_handler(event, context):
 
         bucket_name = os.getenv("COURSE_BUCKET", "crewai-course-artifacts")
         region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-        s3_client = boto3.client("s3", region_name=region)
 
         query_params = event.get("queryStringParameters") or {}
         page = max(int(query_params.get("page", 1)), 1)
@@ -38,6 +37,11 @@ def lambda_handler(event, context):
             int(os.getenv("LIST_PROJECTS_MAX_WORKERS", str(_DEFAULT_WORKERS))),
             32,
         )
+
+        # Initialize S3 client with configured connection pool size
+        from botocore.config import Config
+        s3_config = Config(max_pool_connections=max_workers + 5)
+        s3_client = boto3.client("s3", region_name=region, config=s3_config)
 
         excluded_folders = {"PPT_Templates", "logo", "uploads", "images", "book"}
         all_folders = list_all_root_prefixes(s3_client, bucket_name, excluded_folders)
@@ -204,12 +208,13 @@ def build_project_row(s3_client, bucket_name, project_folder):
     metadata = load_project_metadata(s3_client, bucket_name, project_folder)
     has_book, has_lab_guide = check_for_book(s3_client, bucket_name, project_folder)
 
-    course_title = get_course_title_from_outline(s3_client, bucket_name, project_folder)
+    course_title = metadata.get("title")
     if not course_title or course_title == "Generated Course Book":
-        course_title = metadata.get(
-            "title",
-            project_folder.split("-", 1)[1] if "-" in project_folder else project_folder,
-        )
+        outline_title = get_course_title_from_outline(s3_client, bucket_name, project_folder)
+        if outline_title:
+            course_title = outline_title
+        elif not course_title:
+            course_title = project_folder.split("-", 1)[1] if "-" in project_folder else project_folder
 
     creation_date = extract_date_from_folder(project_folder) or metadata.get("created", "")
 
@@ -291,12 +296,21 @@ def check_for_book(s3_client, bucket_name, project_folder):
     except Exception:
         pass
 
-    lab_key = f"{project_folder}/book/Generated_Lab_Guide_data.json"
+    # Lab guide files are named dynamically (e.g. {title}_LabGuide_data.json)
     try:
-        s3_client.head_object(Bucket=bucket_name, Key=lab_key)
-        has_lab_guide = True
-    except Exception:
-        pass
+        response = s3_client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix=f"{project_folder}/book/",
+            Delimiter="/"
+        )
+        for obj in response.get("Contents", []):
+            key = obj["Key"]
+            filename = key.split("/")[-1].lower()
+            if filename.endswith(".json") and ("lab_guide" in filename or "labguide" in filename):
+                has_lab_guide = True
+                break
+    except Exception as e:
+        print(f"Error checking lab guide for {project_folder}: {e}")
 
     return has_book, has_lab_guide
 

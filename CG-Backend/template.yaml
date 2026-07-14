@@ -687,11 +687,12 @@ Resources:
       Handler: list_projects.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
-      MemorySize: 512
+      MemorySize: 1024
       Timeout: 60
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
+          LIST_PROJECTS_MAX_WORKERS: 32
       Policies:
       - Version: '2012-10-17'
         Statement:

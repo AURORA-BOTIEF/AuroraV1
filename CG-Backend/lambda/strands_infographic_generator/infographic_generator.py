@@ -1629,18 +1629,24 @@ def lambda_handler(event, context):
                         Delimiter='/'
                     )
                     
-                    # Find book files (various naming patterns)
-                    # Store both Key and LastModified for sorting
-                    folder_files = [
-                        {'Key': obj['Key'], 'LastModified': obj.get('LastModified'), 'Folder': book_folder}
-                        for obj in response.get('Contents', [])
-                        if obj['Key'].endswith('.json') and (
-                            'book_version' in obj['Key'] or 
-                            'course_book_data' in obj['Key'] or  # Versioned books
-                            'Generated_Course_Book_data' in obj['Key'] or
-                            'Book_data' in obj['Key']
-                        )
-                    ]
+                    folder_files = []
+                    for obj in response.get('Contents', []):
+                        key = obj['Key']
+                        if key.endswith('.json'):
+                            filename = key.split('/')[-1].lower()
+                            if book_type == 'lab':
+                                # For lab books, filename must contain 'lab' (e.g. Lab_Guide_LabGuide_data.json)
+                                is_match = 'lab' in filename
+                            else:
+                                # For theory books, filename must contain 'book' or 'course' and NOT contain 'lab'
+                                is_match = ('book' in filename or 'course' in filename) and 'lab' not in filename
+                            
+                            if is_match:
+                                folder_files.append({
+                                    'Key': key,
+                                    'LastModified': obj.get('LastModified'),
+                                    'Folder': book_folder
+                                })
                     
                     if folder_files:
                         all_book_files.extend(folder_files)

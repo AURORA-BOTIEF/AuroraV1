@@ -78,7 +78,7 @@ def resolve_batch_size(requested_batch_size: Optional[int]) -> int:
     return size
 
 
-def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key: str = None, book_type: str = 'theory') -> dict:
+def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key: str = None, book_type: str = 'theory') -> tuple:
     """Load the course book from S3.
     
     Args:
@@ -86,6 +86,9 @@ def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key:
         project_folder: Project folder path
         book_version_key: Optional specific book version key (full S3 path)
         book_type: 'theory' or 'lab'
+        
+    Returns:
+        tuple: (book_data (dict), book_key (str))
     """
     try:
         if book_version_key:
@@ -108,16 +111,22 @@ def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key:
                     response = s3_client.list_objects_v2(Bucket=course_bucket, Prefix=folder, Delimiter='/')
                     for obj in response.get('Contents', []):
                         key = obj['Key']
-                        if key.endswith('.json') and (
-                            'book' in key.lower() or 
-                            'course' in key.lower()
-                        ) and 'lab' not in key.lower():  # Exclude lab books for theory
-                            all_book_files.append({
-                                'Key': key,
-                                'LastModified': obj.get('LastModified'),
-                                'Size': obj.get('Size', 0)
-                            })
-                            logger.info(f"   Found: {key} (modified: {obj.get('LastModified')}, size: {obj.get('Size', 0)})")
+                        filename = key.split('/')[-1].lower()
+                        if key.endswith('.json'):
+                            if book_type == 'lab':
+                                # For lab books, filename must contain 'lab'
+                                is_match = 'lab' in filename
+                            else:
+                                # For theory books, filename must contain 'book' or 'course' and NOT contain 'lab'
+                                is_match = ('book' in filename or 'course' in filename) and 'lab' not in filename
+                            
+                            if is_match:
+                                all_book_files.append({
+                                    'Key': key,
+                                    'LastModified': obj.get('LastModified'),
+                                    'Size': obj.get('Size', 0)
+                                })
+                                logger.info(f"   Found: {key} (modified: {obj.get('LastModified')}, size: {obj.get('Size', 0)})")
                 except Exception as e:
                     logger.debug(f"Could not search {folder}: {e}")
                     continue
@@ -137,7 +146,7 @@ def load_book_from_s3(course_bucket: str, project_folder: str, book_version_key:
         
         response = s3_client.get_object(Bucket=course_bucket, Key=book_key)
         book_data = json.loads(response['Body'].read().decode('utf-8'))
-        return book_data
+        return book_data, book_key
     except Exception as e:
         logger.error(f"❌ Error loading book: {str(e)}")
         raise
@@ -292,7 +301,7 @@ def lambda_handler(event, context):
             logger.info(f"📖 Using auto-discovered book ({book_type})")
         
         # Load book to determine lesson count
-        book_data = load_book_from_s3(course_bucket, project_folder, book_version_key, book_type)
+        book_data, book_version_key = load_book_from_s3(course_bucket, project_folder, book_version_key, book_type)
         
         # Count total lessons - prefer top-level 'lessons' array (newer/more reliable format)
         # Fall back to counting from 'modules' for older books

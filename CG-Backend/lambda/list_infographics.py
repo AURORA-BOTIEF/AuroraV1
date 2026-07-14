@@ -18,7 +18,7 @@ def lambda_handler(event, context):
     Returns a list of projects that have infographics with metadata.
     """
     try:
-        print("--- Listing Infographic Presentations ---")
+        print("--- Listing Infographic Presentations (Two-Phase Optimization) ---")
         
         # Get bucket name from environment or default
         bucket_name = os.getenv('COURSE_BUCKET', 'crewai-course-artifacts')
@@ -31,7 +31,7 @@ def lambda_handler(event, context):
             int(os.getenv("LIST_INFOGRAPHICS_MAX_WORKERS", str(_DEFAULT_WORKERS))),
             32,
         )
-
+        
         # Initialize S3 client with customized connection pool size
         from botocore.config import Config
         s3_config = Config(max_pool_connections=max_workers + 5)
@@ -42,19 +42,24 @@ def lambda_handler(event, context):
         all_folders = list_all_root_prefixes(s3_client, bucket_name, excluded_folders)
         print(f"--- Found {len(all_folders)} folders in S3 ---")
         
-        # Process and enrich folders in parallel
-        infographics = enrich_folders_parallel(s3_client, bucket_name, all_folders, max_workers)
+        # Phase 1: Filter out folders that have infographics using lightweight HEAD checks
+        infographics_found = filter_folders_with_infographics(s3_client, bucket_name, all_folders, max_workers)
+        print(f"--- Found {len(infographics_found)} valid infographics ---")
         
         # Sort infographics by creation date or last modified (newest first)
-        infographics.sort(key=lambda x: x.get('last_modified') or x.get('created') or '', reverse=True)
+        infographics_found.sort(key=lambda x: x.get('last_modified') or x.get('created') or '', reverse=True)
         
         # Calculate pagination
-        total_count = len(infographics)
+        total_count = len(infographics_found)
         total_pages = (total_count + limit - 1) // limit
         start_idx = (page - 1) * limit
         end_idx = start_idx + limit
         
-        paginated_infographics = infographics[start_idx:end_idx]
+        page_items = infographics_found[start_idx:end_idx]
+        print(f"--- Paginating: page {page} with {len(page_items)} folders ---")
+        
+        # Phase 2: Enrich ONLY the items on the current page
+        enriched_infographics = enrich_page_items(s3_client, bucket_name, page_items, max_workers)
         
         response = {
             "statusCode": 200,
@@ -65,7 +70,7 @@ def lambda_handler(event, context):
                 "Access-Control-Allow-Methods": "OPTIONS,GET"
             },
             "body": json.dumps({
-                "infographics": paginated_infographics,
+                "infographics": enriched_infographics,
                 "total_count": total_count,
                 "page": page,
                 "limit": limit,
@@ -73,7 +78,7 @@ def lambda_handler(event, context):
             })
         }
         
-        print(f"--- Found {total_count} infographics, returning page {page} with {len(paginated_infographics)} items ---")
+        print(f"--- Completed: returning {len(enriched_infographics)} items ---")
         return response
         
     except Exception as e:
@@ -117,40 +122,103 @@ def list_all_root_prefixes(s3_client, bucket_name, excluded_folders):
         token = resp.get("NextContinuationToken")
     return prefixes
 
-def enrich_folders_parallel(s3_client, bucket_name, folders, max_workers):
+def filter_folders_with_infographics(s3_client, bucket_name, folders, max_workers):
+    """Phase 1: Filter folders to find which ones contain the infographic final HTML."""
     if not folders:
         return []
     workers = min(max_workers, len(folders))
     results = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_to_folder = {
-            executor.submit(process_single_folder, s3_client, bucket_name, folder): folder
+        futures = {
+            executor.submit(check_infographic_exists, s3_client, bucket_name, folder): folder
             for folder in folders
         }
-        for future in as_completed(future_to_folder):
-            folder = future_to_folder[future]
+        for future in as_completed(futures):
+            folder = futures[future]
             try:
                 res = future.result()
                 if res:
                     results.append(res)
             except Exception as e:
-                print(f"Error enriching folder {folder}: {e}")
+                print(f"Error checking infographic existence for folder {folder}: {e}")
     return results
 
-def process_single_folder(s3_client, bucket_name, project_folder):
-    # Check if this project has an infographic
-    infographic_data = check_for_infographic(s3_client, bucket_name, project_folder)
-    if not infographic_data:
+def check_infographic_exists(s3_client, bucket_name, project_folder):
+    """Check if the project has an infographic using lightweight head_object."""
+    try:
+        html_key = f"{project_folder}/infographics/infographic_final.html"
+        try:
+            html_response = s3_client.head_object(Bucket=bucket_name, Key=html_key)
+            last_modified = html_response['LastModified'].isoformat()
+            return {
+                'folder': project_folder,
+                'last_modified': last_modified,
+                'created': extract_date_from_folder(project_folder) or last_modified.split('T')[0]
+            }
+        except:
+            return None
+    except Exception as e:
+        print(f"Error head-checking infographic for {project_folder}: {e}")
         return None
 
-    # Extract creation date from folder name (YYMMDD-...)
-    creation_date = extract_date_from_folder(project_folder)
+def enrich_page_items(s3_client, bucket_name, page_items, max_workers):
+    """Phase 2: Enrich only the current page items."""
+    if not page_items:
+        return []
+    workers = min(max_workers, len(page_items))
+    results = [None] * len(page_items)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_idx = {
+            executor.submit(enrich_single_infographic, s3_client, bucket_name, item): i
+            for i, item in enumerate(page_items)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            item = page_items[idx]
+            try:
+                results[idx] = future.result()
+            except Exception as e:
+                print(f"Error enriching folder {item['folder']}: {e}")
+                
+    return [r for r in results if r is not None]
+
+def enrich_single_infographic(s3_client, bucket_name, item):
+    """Download structure/metadata details for a single presentation."""
+    project_folder = item['folder']
+    last_modified = item['last_modified']
+    created = item['created']
     
-    # Get course title and description from infographic structure (primary source)
-    course_title = infographic_data.get('course_title', '')
-    description = infographic_data.get('course_description', '')
+    html_key = f"{project_folder}/infographics/infographic_final.html"
+    structure_key = f"{project_folder}/infographics/infographic_structure.json"
     
-    # Always load metadata for course_topic and model_provider
+    # Try to get structure metadata including course title and description
+    total_slides = 0
+    course_title = ''
+    description = ''
+    try:
+        structure_response = s3_client.get_object(Bucket=bucket_name, Key=structure_key)
+        structure_data = json.loads(structure_response['Body'].read().decode('utf-8'))
+        total_slides = structure_data.get('total_slides', len(structure_data.get('slides', [])))
+        course_title = structure_data.get('course_title', '')
+        
+        # Get description from course_metadata if available
+        course_metadata = structure_data.get('course_metadata', {})
+        description = course_metadata.get('description', '')
+    except Exception as e:
+        print(f"Error loading structure details for {project_folder}: {e}")
+        
+    # Generate presigned URL for HTML (valid for 1 hour)
+    try:
+        html_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': html_key},
+            ExpiresIn=3600
+        )
+    except Exception as e:
+        print(f"Error generating presigned URL for {project_folder}: {e}")
+        html_url = ''
+        
+    # Load metadata for course_topic and model_provider
     metadata = load_project_metadata(s3_client, bucket_name, project_folder)
     
     # Try outline data ONLY if we still lack title/description
@@ -170,80 +238,20 @@ def process_single_folder(s3_client, bucket_name, project_folder):
             outline_data.get('course', {}).get('description') or 
             metadata.get('description', '')
         )
-    
-    if not creation_date:
-        creation_date = metadata.get('created', '')
-    
+        
     return {
         'folder': project_folder,
         'title': course_title,
         'description': description,
-        'created': creation_date,
-        'html_url': infographic_data['html_url'],
-        'html_key': infographic_data['html_key'],
-        'structure_key': infographic_data['structure_key'],
-        'total_slides': infographic_data.get('total_slides', 0),
-        'last_modified': infographic_data.get('last_modified', ''),
+        'created': created or metadata.get('created', ''),
+        'html_url': html_url,
+        'html_key': html_key,
+        'structure_key': structure_key,
+        'total_slides': total_slides,
+        'last_modified': last_modified,
         'course_topic': metadata.get('course_topic', ''),
         'model_provider': metadata.get('model_provider', 'bedrock')
     }
-
-def check_for_infographic(s3_client, bucket_name, project_folder):
-    """Check if the project has an infographic and return its metadata."""
-    try:
-        # Check for HTML file
-        html_key = f"{project_folder}/infographics/infographic_final.html"
-        structure_key = f"{project_folder}/infographics/infographic_structure.json"
-        
-        # Check if HTML exists
-        try:
-            html_response = s3_client.head_object(Bucket=bucket_name, Key=html_key)
-            html_exists = True
-            last_modified = html_response['LastModified'].isoformat()
-        except:
-            html_exists = False
-            last_modified = ''
-        
-        if not html_exists:
-            return None
-        
-        # Try to get structure metadata including course title
-        total_slides = 0
-        course_title = ''
-        course_description = ''
-        try:
-            structure_response = s3_client.get_object(Bucket=bucket_name, Key=structure_key)
-            structure_data = json.loads(structure_response['Body'].read().decode('utf-8'))
-            total_slides = structure_data.get('total_slides', len(structure_data.get('slides', [])))
-            course_title = structure_data.get('course_title', '')
-            
-            # Get description from course_metadata if available
-            course_metadata = structure_data.get('course_metadata', {})
-            course_description = course_metadata.get('description', '')
-        except:
-            # Structure file doesn't exist, that's okay
-            pass
-        
-        # Generate presigned URL for HTML (valid for 1 hour)
-        html_url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': bucket_name, 'Key': html_key},
-            ExpiresIn=3600
-        )
-        
-        return {
-            'html_url': html_url,
-            'html_key': html_key,
-            'structure_key': structure_key,
-            'total_slides': total_slides,
-            'last_modified': last_modified,
-            'course_title': course_title,
-            'course_description': course_description
-        }
-        
-    except Exception as e:
-        print(f"Error checking infographic for {project_folder}: {e}")
-        return None
 
 def extract_date_from_folder(folder_name):
     """Extract date from folder name if it starts with YYMMDD."""

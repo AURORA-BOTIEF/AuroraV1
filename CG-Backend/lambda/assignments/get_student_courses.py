@@ -98,13 +98,19 @@ def get_course_info(project_folder):
         except:
             pass
         
-        # Check for lab guide
+        # Check for lab guide (files are named dynamically like {title}_LabGuide_data.json)
         try:
-            s3_client.head_object(
+            response = s3_client.list_objects_v2(
                 Bucket=BUCKET_NAME,
-                Key=f"{project_folder}/book/Generated_Lab_Guide_data.json"
+                Prefix=f"{project_folder}/book/",
+                Delimiter="/"
             )
-            has_lab_guide = True
+            for obj in response.get("Contents", []):
+                key = obj["Key"]
+                filename = key.split("/")[-1].lower()
+                if filename.endswith(".json") and ("lab_guide" in filename or "labguide" in filename):
+                    has_lab_guide = True
+                    break
         except:
             pass
         
