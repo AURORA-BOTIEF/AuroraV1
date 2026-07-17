@@ -368,6 +368,8 @@ function App() {
         } else {
           console.warn('checkAuthSession error:', err);
           try { sessionStorage.clear(); } catch (e) { }
+          // Limpiar el estado de Amplify si el token es inválido/expirado
+          signOut().catch((soErr) => console.error("SignOut error during session check failure:", soErr));
         }
 
         if (err?.message?.includes('UserNotConfirmedException')) {
@@ -476,6 +478,17 @@ function App() {
                     await signInWithRedirect(); // Hosted UI + PKCE correcto
                   } catch (err) {
                     console.error("Error al iniciar sesión:", err);
+                    // Si ya existe un usuario firmado pero el token es inválido/expirado,
+                    // limpiar el estado local y reintentar el redireccionamiento.
+                    if (err.name === 'UserAlreadyAuthenticatedException' || err.message?.includes('UserAlreadyAuthenticatedException')) {
+                      try {
+                        await signOut();
+                        await signInWithRedirect();
+                        return;
+                      } catch (soErr) {
+                        console.error("Retry login after signOut failed:", soErr);
+                      }
+                    }
                     setSigningIn(false);
                     setLoginError("No se pudo iniciar sesión. Intenta nuevamente.");
                   }
