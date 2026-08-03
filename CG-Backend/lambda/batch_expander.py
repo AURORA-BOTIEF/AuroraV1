@@ -79,6 +79,8 @@ def lambda_handler(event, context):
         image_model = event.get('image_model')
         lesson_requirements = event.get('lesson_requirements', '')  # Optional additional requirements for lessons
         lesson_to_generate = event.get('lesson_to_generate')  # Specific lesson to regenerate (e.g., "01-02")
+        manual_s3_keys = event.get('manual_s3_keys')
+        manual_text_s3_key = event.get('manual_text_s3_key')
         
         if not all([course_bucket, outline_s3_key, project_folder]):
             raise ValueError("Missing required parameters: course_bucket, outline_s3_key, project_folder")
@@ -162,6 +164,8 @@ def lambda_handler(event, context):
                     'image_model': image_model,
                     'course_language': course_language,
                     'lesson_requirements': lesson_requirements,
+                    'manual_s3_keys': manual_s3_keys,
+                    'manual_text_s3_key': manual_text_s3_key,
                     'force_regenerate': True  # Always true for specific regeneration
                 }
                 
@@ -194,6 +198,8 @@ def lambda_handler(event, context):
                     'image_model': image_model,
                     'course_language': course_language,
                     'lesson_requirements': lesson_requirements,  # Pass additional requirements to content generator
+                    'manual_s3_keys': manual_s3_keys,
+                    'manual_text_s3_key': manual_text_s3_key,
                     # Safeguard: Force regeneration ONLY if a specific lesson was requested
                     'force_regenerate': bool(lesson_to_generate)
                 }

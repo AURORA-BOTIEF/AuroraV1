@@ -558,8 +558,10 @@ LABS IN THIS BATCH ({len(batch_labs)} labs):
 
 REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
 
-THOR ALIGNMENT: Each lab plan MUST reinforce the corresponding module's YAML topics and lesson themes.
-Lab scenarios must not drift into unrelated technologies unless justified in the outline.
+THOR ALIGNMENT & DEEP TECH SPEC:
+- Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
+- Environmental Constants: Explicitly predefine global environment defaults in special_considerations (e.g., default database name, container names, default ports, working directories).
+- Continuity: Ensure each lab's scope builds logically on the outputs and state created by the previous lab.
 
 {prompt_prefix}
 
@@ -567,13 +569,13 @@ Return JSON with:
 {{
   "overall_objectives": ["objective 1", "objective 2"],
   "hardware_requirements": ["requirement 1", "requirement 2"],
-  "software_requirements": [{{"name": "Software", "version": "1.0", "purpose": "Why needed", "installation_notes": "Brief notes"}}],
+  "software_requirements": [{{"name": "Software", "version": "Exact Version (e.g. 16.2)", "purpose": "Why needed", "installation_notes": "Brief notes"}}],
   "lab_plans": [
     {{
       "lab_id": "01-01-01",
       "lab_title": "Title",
       "objectives": ["objective 1", "objective 2"],
-      "scope": "Detailed description",
+      "scope": "Detailed description and sequential dependency description",
       "estimated_duration": 30,
       "bloom_level": "Apply",
       "prerequisites": ["prereq 1"],
@@ -582,7 +584,7 @@ Return JSON with:
       "complexity": "easy|medium|hard"
     }}
   ],
-  "special_considerations": ["consideration 1"]
+  "special_considerations": ["Environment constants (ports, credentials, container names, DB names, directory paths)", "consideration 2"]
 }}
 
 BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
@@ -781,6 +783,17 @@ def lambda_handler(event, context):
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
         lab_requirements = event.get('lab_requirements')
+        manual_text_s3_key = event.get('manual_text_s3_key')
+        if manual_text_s3_key:
+            try:
+                s3_client = boto3.client('s3')
+                man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
+                man_text = man_obj['Body'].read().decode('utf-8')
+                manual_rule = f"\n\n[REGLA DE ALINEACIÓN ESTRICTA AL MANUAL: Todas las actividades de laboratorio, comandos y escenarios DEBEN basarse 100% exclusivamente en el siguiente texto del manual de referencia]:\n{man_text[:10000]}"
+                lab_requirements = (lab_requirements or '') + manual_rule
+                print(f"📚 Manual reference text loaded in Lab Planner ({len(man_text):,} chars)")
+            except Exception as man_err:
+                print(f"⚠️ Could not load manual reference text in lab planner: {man_err}")
 
         # FORCE Sonnet 4.6 on Bedrock for all lab planning (consistency and format reliability)
         # unless Google Gemini is selected.

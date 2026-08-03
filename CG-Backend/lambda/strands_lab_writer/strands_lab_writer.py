@@ -12,6 +12,7 @@ Features:
 
 import os
 import json
+import re
 import random
 import time
 import boto3
@@ -39,7 +40,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-opus-4-6-v1")
 DEFAULT_OPENAI_MODEL = "gpt-5"
 
 # Retries per lab before failing the batch (Step Functions should not succeed with partial labs)
@@ -283,9 +284,24 @@ def generate_lab_guide(
         else:
             sw_list.append(f"- {sw}")
     
+    manual_ref_text = master_context.get('manual_reference_text', '')
+    manual_directive = (
+        f"""
+MANUAL ALIGNMENT REQUIREMENT:
+CRITICAL: Base all instructions, commands, verification steps, and expected outputs 100% strictly on the provided reference manual content below:
+=== REFERENCE MANUAL CONTENT ===
+{manual_ref_text[:12000]}
+=== END REFERENCE MANUAL ===
+"""
+        if manual_ref_text and manual_ref_text.strip()
+        else ""
+    )
+
     # Build prompt with standardized schema
     prompt = f"""
 You are creating a professional, detailed laboratory guide for technical training.
+
+{manual_directive}
 
 LANGUAGE REQUIREMENT:
 **ALL CONTENT MUST BE WRITTEN IN: {target_language}**
@@ -769,11 +785,100 @@ Use specific commands, configurations, and concepts from this lesson where appli
 """
 
 
+def _get_previous_lab_context(bucket: str, project_folder: str, prev_lab_id: str) -> str:
+    """Fetch previous lab markdown from S3 and extract code blocks/context for sequential continuity."""
+    if not prev_lab_id:
+        return ""
+    key = _find_existing_lab_guide_key(bucket, project_folder, prev_lab_id)
+    if not key:
+        return ""
+    try:
+        obj = s3_client.get_object(Bucket=bucket, Key=key)
+        content = obj['Body'].read().decode('utf-8')
+        code_blocks = re.findall(r'```(?:bash|sh|python|sql|yaml|json)?\n(.*?)```', content, re.DOTALL)
+        code_summary = "\n".join(cb.strip() for cb in code_blocks if cb.strip())[:3000]
+        if not code_summary.strip():
+            code_summary = content[:2000]
+        return f"""
+═══════════════════════════════════════════════════════════════════════════════
+CONTEXT FROM PREVIOUS LAB (Lab {prev_lab_id}):
+═══════════════════════════════════════════════════════════════════════════════
+The student previously completed Lab {prev_lab_id} using the following commands and code:
+
+{code_summary}
+
+IMPORTANT CONTINUITY RULES:
+- Reuse the EXACT same database names, container names, usernames, ports, and directory structures established in Lab {prev_lab_id}.
+- Do NOT re-create entities that already exist unless explicitly modifying or extending them.
+═══════════════════════════════════════════════════════════════════════════════
+"""
+    except Exception as e:
+        print(f"⚠️ Could not load previous lab context for {prev_lab_id}: {e}")
+        return ""
+
+
+def _verify_and_refine_lab_guide(
+    lab_guide: str,
+    lab_plan: dict,
+    master_context: dict,
+    model_provider: str = "bedrock"
+) -> str:
+    """
+    Automated verification pass: checks for unresolved placeholders or critical structural issues.
+    Performs a single targeted refinement pass if needed.
+    """
+    lab_id = lab_plan.get('lab_id', 'Unknown')
+    issues = []
+    
+    # Check for unresolved generic placeholders
+    placeholders = re.findall(r'<[A-Z0-9_\-\s]{3,30}>|\[INSERT\s+[^\]]+\]|YOUR_PASSWORD_HERE|YOUR_API_KEY_HERE', lab_guide)
+    if placeholders:
+        issues.append(f"Unresolved placeholders found: {set(placeholders)}")
+
+    # Check for minimum reasonable length
+    if len(lab_guide.strip()) < 800:
+        issues.append("Lab guide is incomplete or too short.")
+
+    if not issues:
+        return lab_guide
+
+    print(f"  🔍 Verification found issues in Lab {lab_id}: {issues}")
+    print(f"  ✨ Running automated refinement pass with Opus 4.6...")
+    
+    refinement_prompt = f"""You are an expert technical instructor refining a lab guide for Lab {lab_id}.
+
+ISSUES DETECTED:
+{chr(10).join('- ' + i for i in issues)}
+
+LAB GUIDE CONTENT TO FIX:
+{lab_guide[:12000]}
+
+REQUIREMENTS:
+- Replace all generic placeholders (like <YOUR_PASSWORD> or [INSERT HERE]) with real, explicit, production-ready values (e.g. `pg_password_123`, `/var/lib/app`).
+- Ensure all command syntax is valid and executable.
+- Return the COMPLETE corrected Markdown lab guide. Use the same ASCII delimiters (---LAB_START--- / ---MARKDOWN--- / ---LAB_END---).
+"""
+    try:
+        if model_provider == "bedrock":
+            refined = call_bedrock_agent(refinement_prompt, DEFAULT_BEDROCK_MODEL)
+            if "---MARKDOWN---" in refined:
+                header_part, rest = refined.split("---MARKDOWN---", 1)
+                refined = rest.split("---LAB_END---")[0].strip()
+            if len(refined.strip()) > 800:
+                print(f"  ✅ Verification refinement pass completed ({len(refined)} chars)")
+                return refined.strip()
+    except Exception as ex:
+        print(f"  ⚠️ Verification refinement pass skipped due to error: {ex}")
+
+    return lab_guide
+
+
 def _compact_single_lab_prompt(
     lab_plan: dict,
     master_context: dict,
     lesson_context_section: str,
     labs_summary_text: str,
+    previous_lab_context_section: str = "",
 ) -> str:
     """
     Short prompt for the common case (one lab per Lambda).
@@ -811,6 +916,7 @@ COURSE CONTEXT (brief):
 
 LAB SPECIFICATION:
 {labs_summary_text}
+{previous_lab_context_section}
 {lesson_context_section}
 
 STRUCTURE (single H1 for lab title; then ## / ###):
@@ -843,7 +949,8 @@ def generate_all_labs_batch(
     lab_plans: List[Dict[str, Any]],
     master_context: dict,
     model_provider: str = "bedrock",
-    lesson_content: str = ""
+    lesson_content: str = "",
+    previous_lab_context: str = ""
 ) -> Dict[str, str]:
     """
     Generate ALL lab guides in a SINGLE API call for efficiency.
@@ -871,7 +978,7 @@ def generate_all_labs_batch(
     if len(lab_plans) == 1:
         print("📎 Using compact single-lab prompt (smaller input, faster generation).")
         prompt = _compact_single_lab_prompt(
-            lab_plans[0], master_context, lesson_context_section, labs_summary_text
+            lab_plans[0], master_context, lesson_context_section, labs_summary_text, previous_lab_context_section=previous_lab_context
         )
     else:
         prompt = f"""
@@ -1154,7 +1261,15 @@ Generate ALL {len(lab_plans)} labs now:
                 response_text = call_gemini_agent(prompt, google_key)
 
         if model_provider == "bedrock":
-            response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+            try:
+                response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+            except Exception as e:
+                if "AccessDenied" in str(e) and DEFAULT_BEDROCK_MODEL != "us.anthropic.claude-sonnet-4-6":
+                    print(f"⚠️ Primary model {DEFAULT_BEDROCK_MODEL} AccessDenied: {e}")
+                    print("🔄 Retrying with fallback model us.anthropic.claude-sonnet-4-6...")
+                    response_text = call_bedrock_agent(prompt, "us.anthropic.claude-sonnet-4-6")
+                else:
+                    raise
         
         print("✅ AI response received, parsing with delimiters...")
         # Keep full model output for fallbacks (JSON branch mutates working copies)
@@ -1342,13 +1457,25 @@ def lambda_handler(event, context):
         print(f"\n🌐 Target Language: {target_language} ({course_language})")
         print(f"📊 Total labs to generate: {len(lab_plans)}\n")
         
+        manual_text_s3_key = event.get('manual_text_s3_key')
+        manual_reference_text = ''
+        if manual_text_s3_key:
+            try:
+                s3_client = boto3.client('s3')
+                man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
+                manual_reference_text = man_obj['Body'].read().decode('utf-8')
+                print(f"📚 Loaded manual reference text in Lab Writer ({len(manual_reference_text):,} chars)")
+            except Exception as man_err:
+                print(f"⚠️ Could not load manual reference text in lab writer: {man_err}")
+
         # Build master context for all labs (including language)
         master_context = {
             'hardware_requirements': master_plan.get('hardware_requirements', []),
             'software_requirements': master_plan.get('software_requirements', []),
             'special_considerations': master_plan.get('special_considerations', []),
             'overall_objectives': master_plan.get('overall_objectives', []),
-            'target_language': target_language  # NEW: Pass language to prompt
+            'target_language': target_language,  # NEW: Pass language to prompt
+            'manual_reference_text': manual_reference_text
         }
         
         # Step 2: Generate lab guides ONE AT A TIME for reliability
@@ -1387,6 +1514,16 @@ def lambda_handler(event, context):
                 lesson_key = lab_lesson_keys[lab_id]
                 lesson_content = load_lesson_content(course_bucket, lesson_key)
 
+            # Load previous lab context for sequential continuity
+            previous_lab_context = ""
+            if idx > 1:
+                all_plans = master_plan.get('lab_plans', [])
+                # Find lab plan before current lab_id
+                current_pos = next((i for i, p in enumerate(all_plans) if p.get('lab_id') == lab_id), None)
+                if current_pos is not None and current_pos > 0:
+                    prev_id = all_plans[current_pos - 1].get('lab_id')
+                    previous_lab_context = _get_previous_lab_context(course_bucket, project_folder, prev_id)
+
             last_error: Optional[Exception] = None
             for attempt in range(1, MAX_LAB_GENERATION_ATTEMPTS + 1):
                 try:
@@ -1395,10 +1532,19 @@ def lambda_handler(event, context):
                         master_context=master_context,
                         model_provider=model_provider,
                         lesson_content=lesson_content,
+                        previous_lab_context=previous_lab_context
                     )
                     if lab_id in batch_results and (batch_results[lab_id] or "").strip():
-                        labs_markdown[lab_id] = batch_results[lab_id]
-                        print(f"  ✅ Lab {lab_id} generated (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
+                        raw_guide = batch_results[lab_id]
+                        # Run automated verification & refinement pass
+                        verified_guide = _verify_and_refine_lab_guide(
+                            raw_guide,
+                            lab_plan,
+                            master_context,
+                            model_provider=model_provider
+                        )
+                        labs_markdown[lab_id] = verified_guide
+                        print(f"  ✅ Lab {lab_id} generated & verified (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
                         break
                     last_error = ValueError(f"Model returned no content for {lab_id}")
                     print(f"  ⚠️ Empty content for {lab_id} on attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS}")

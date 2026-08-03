@@ -11,6 +11,7 @@ const API_NAME = 'CourseGeneratorAPI';
 
 function GeneradorCursos() {
     const [outlineFile, setOutlineFile] = useState(null);
+    const [manualFiles, setManualFiles] = useState([]); // Reference manual PDFs
     const [projectFolder, setProjectFolder] = useState('');
     const [inputMethod, setInputMethod] = useState('file'); // 'file' or 'paste'
     const [pastedText, setPastedText] = useState('');
@@ -76,14 +77,42 @@ function GeneradorCursos() {
         }
     };
 
+    const handleManualFilesSelect = (e) => {
+        const selectedFiles = Array.from(e.target.files);
+        if (selectedFiles.length > 0) {
+            const validPdfFiles = selectedFiles.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+            if (validPdfFiles.length < selectedFiles.length) {
+                setErrorMessage('Solo se permiten archivos en formato PDF para los manuales de referencia.');
+            } else {
+                setErrorMessage('');
+            }
+            setManualFiles(prev => [...prev, ...validPdfFiles]);
+
+            // Auto-generate project folder if empty and no outline file set yet
+            if (!projectFolder && validPdfFiles.length > 0 && !outlineFile) {
+                const date = new Date();
+                const year = date.getFullYear().toString().slice(-2);
+                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                const day = date.getDate().toString().padStart(2, '0');
+                const timestamp = `${year}${month}${day}`;
+                const baseName = validPdfFiles[0].name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9-]/g, '-');
+                setProjectFolder(`${timestamp}-${baseName}`);
+            }
+        }
+    };
+
+    const handleRemoveManualFile = (indexToRemove) => {
+        setManualFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    };
+
     const validateInputs = () => {
-        if (inputMethod === 'file' && !outlineFile) {
-            setErrorMessage('Debes seleccionar un archivo de outline');
+        if (inputMethod === 'file' && !outlineFile && manualFiles.length === 0) {
+            setErrorMessage('Debes seleccionar un archivo de outline o al menos un manual PDF de referencia');
             return false;
         }
 
-        if (inputMethod === 'paste' && !pastedText.trim()) {
-            setErrorMessage('Debes pegar o escribir el contenido del temario');
+        if (inputMethod === 'paste' && !pastedText.trim() && manualFiles.length === 0) {
+            setErrorMessage('Debes pegar o escribir el contenido del temario o adjuntar un manual PDF de referencia');
             return false;
         }
 
@@ -162,7 +191,58 @@ function GeneradorCursos() {
         }
     };
 
-    const startGeneration = async (uploadedKey, modules) => {
+    const uploadManualsToS3 = async (files, currentProjectFolder) => {
+        if (!files || files.length === 0) return [];
+        try {
+            const session = await fetchAuthSession();
+            const s3Client = new S3Client({
+                region: 'us-east-1',
+                credentials: session.credentials,
+            });
+
+            const uploadedKeys = [];
+            const MAX_SINGLE_PUT = 64 * 1024 * 1024;
+
+            for (const file of files) {
+                const key = `${currentProjectFolder}/manuals/${file.name}`;
+                const fileSize = file.size || 0;
+                const upload = new Upload({
+                    client: s3Client,
+                    params: {
+                        Bucket: COURSE_BUCKET,
+                        Key: key,
+                        Body: file,
+                        ContentType: 'application/pdf',
+                    },
+                    queueSize: 3,
+                    partSize: Math.min(MAX_SINGLE_PUT, Math.max(5 * 1024 * 1024, fileSize + 1)),
+                });
+
+                try {
+                    await upload.done();
+                } catch (err) {
+                    const msg = String(err?.message || '').toLowerCase();
+                    if (msg.includes('crc32') || msg.includes('checksum')) {
+                        await s3Client.send(new PutObjectCommand({
+                            Bucket: COURSE_BUCKET,
+                            Key: key,
+                            Body: file,
+                            ContentType: 'application/pdf',
+                        }));
+                    } else {
+                        throw err;
+                    }
+                }
+                uploadedKeys.push(key);
+            }
+            return uploadedKeys;
+        } catch (error) {
+            console.error('Error subiendo manuales a S3:', error);
+            throw new Error(`Error al subir los manuales PDF: ${error.message}`);
+        }
+    };
+
+    const startGeneration = async (uploadedKey, modules, manualKeys = []) => {
         try {
             let emailForJob = userEmail;
             try {
@@ -176,6 +256,7 @@ function GeneradorCursos() {
             const body = {
                 course_bucket: COURSE_BUCKET,
                 outline_s3_key: uploadedKey,
+                manual_s3_keys: manualKeys.length > 0 ? manualKeys : undefined,
                 project_folder: projectFolder,
                 module_number: modules, // For single module or first module
                 model_provider: modelProvider,
@@ -183,7 +264,6 @@ function GeneradorCursos() {
                 content_type: contentType, // 'theory', 'labs', or 'both'
                 lab_requirements: labRequirements.trim() || undefined, // Optional
                 user_email: emailForJob || undefined, // SES + Step Functions naming (backend)
-                // Note: NOT sending lesson_number = MODULE mode
             };
 
             console.log('Iniciando generación:', body);
@@ -253,22 +333,34 @@ function GeneradorCursos() {
         setIsProcessing(true);
 
         try {
-            // Step 1: Upload file to S3
-            setStatusMessage('📤 Subiendo archivo de outline...');
-            
-            let fileToUpload = outlineFile;
-            if (inputMethod === 'paste') {
-                fileToUpload = new File([pastedText], 'temario_pasted.txt', { type: 'text/plain' });
+            // Step 1: Upload outline file to S3 (if provided)
+            let uploadedKey = undefined;
+            if (outlineFile || (inputMethod === 'paste' && pastedText.trim())) {
+                setStatusMessage('📤 Subiendo archivo de outline...');
+                let fileToUpload = outlineFile;
+                if (inputMethod === 'paste') {
+                    fileToUpload = new File([pastedText], 'temario_pasted.txt', { type: 'text/plain' });
+                }
+                uploadedKey = await uploadToS3(fileToUpload, projectFolder);
+                console.log('Outline subido:', uploadedKey);
             }
 
-            // Change: Pass projectFolder to upload function
-            const uploadedKey = await uploadToS3(fileToUpload, projectFolder);
-            console.log('Archivo subido:', uploadedKey);
+            // Step 2: Upload manual PDF files to S3 (if provided)
+            let uploadedManualKeys = [];
+            if (manualFiles.length > 0) {
+                setStatusMessage(`📚 Subiendo ${manualFiles.length} manual(es) PDF de referencia...`);
+                uploadedManualKeys = await uploadManualsToS3(manualFiles, projectFolder);
+                console.log('Manuales subidos:', uploadedManualKeys);
+            }
 
-            // Step 2: Start generation - always full course with theory + labs
+            // Step 3: Start generation
             setStatusMessage('🚀 Iniciando generación de curso completo...');
-            await startGeneration(uploadedKey, 'all');
-            setSuccessMessage('✅ Generación de contenido teórico y guía de laboratorios del curso completo iniciada exitosamente');
+            await startGeneration(uploadedKey, 'all', uploadedManualKeys);
+            setSuccessMessage(
+                uploadedManualKeys.length > 0
+                    ? '✅ Generación iniciada exitosamente con alineación 100% a los manuales PDF cargados.'
+                    : '✅ Generación de contenido teórico y guía de laboratorios del curso completo iniciada exitosamente'
+            );
 
             // Show success message
             setStatusMessage('');
@@ -276,10 +368,13 @@ function GeneradorCursos() {
             // Reset form after a delay
             setTimeout(() => {
                 setOutlineFile(null);
+                setManualFiles([]);
                 setPastedText('');
                 setLabRequirements('');
                 const fileInput = document.getElementById('fileInput');
                 if (fileInput) fileInput.value = '';
+                const manualInput = document.getElementById('manualInput');
+                if (manualInput) manualInput.value = '';
             }, 3000);
 
         } catch (error) {
@@ -393,6 +488,59 @@ function GeneradorCursos() {
                             )}
                         </div>
 
+                        {/* Reference Manual PDFs Section (Optional) */}
+                        <div className="form-section manual-upload-section">
+                            <div className="section-header-with-badge">
+                                <h3>📚 Manuales / Documentos PDF de Referencia (Opcional)</h3>
+                                {manualFiles.length > 0 && (
+                                    <span className="manual-alignment-badge">
+                                        📌 Modo Alineado 100% al Manual Activo
+                                    </span>
+                                )}
+                            </div>
+                            <p className="section-description">
+                                Sube uno o varios archivos PDF de manuales o guías de referencia. Si los adjuntas, el contenido teórico, laboratorios y diapositivas se generarán 100% basados en estos documentos.
+                            </p>
+
+                            <div className="file-upload-area manual-upload-area">
+                                <input
+                                    id="manualInput"
+                                    type="file"
+                                    accept=".pdf"
+                                    multiple
+                                    onChange={handleManualFilesSelect}
+                                    disabled={isProcessing}
+                                    className="file-input"
+                                />
+                                <label htmlFor="manualInput" className="file-label">
+                                    <span className="file-icon">📚</span>
+                                    <span>Haz clic o arrastra manuales en PDF aquí (selección múltiple)</span>
+                                </label>
+                            </div>
+
+                            {manualFiles.length > 0 && (
+                                <div className="manual-files-list">
+                                    <h4>Archivos seleccionados ({manualFiles.length}):</h4>
+                                    {manualFiles.map((file, index) => (
+                                        <div key={index} className="manual-file-item">
+                                            <span className="file-icon">📕</span>
+                                            <span className="file-name">{file.name}</span>
+                                            <span className="file-size">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                                            <button
+                                                type="button"
+                                                className="btn-remove-file"
+                                                onClick={() => handleRemoveManualFile(index)}
+                                                disabled={isProcessing}
+                                                title="Eliminar este manual"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Project Settings */}
                         <div className="form-section">
                             <h3>⚙️ Configuración del Proyecto</h3>
@@ -482,7 +630,7 @@ function GeneradorCursos() {
                             <button
                                 className="btn-generate"
                                 onClick={handleGenerate}
-                                disabled={(inputMethod === 'file' ? !outlineFile : !pastedText.trim()) || isProcessing || !isAuthenticated}
+                                disabled={(!outlineFile && !pastedText.trim() && manualFiles.length === 0) || isProcessing || !isAuthenticated}
                             >
                                 {isProcessing ? (
                                     <>

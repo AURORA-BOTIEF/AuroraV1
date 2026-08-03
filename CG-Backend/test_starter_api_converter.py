@@ -79,3 +79,22 @@ def test_process_and_normalize_outline_s3_yaml_direct(mock_normalize):
     assert new_key == "folder/course.yaml"
     mock_normalize.assert_called_once_with(mock_s3, "my-bucket", "folder/course.yaml")
     mock_s3.get_object.assert_not_called()
+
+
+@patch('starter_api.extract_text_from_pdf')
+def test_process_manual_pdfs(mock_extract_pdf):
+    mock_s3 = MagicMock()
+    mock_s3.get_object.return_value = {
+        'Body': MagicMock(read=MagicMock(return_value=b"fake manual pdf content"))
+    }
+    mock_extract_pdf.return_value = "Manual PDF Text Content"
+    
+    manual_text_key, combined_text = starter_api.process_manual_pdfs(
+        mock_s3, "my-bucket", ["folder/manuals/manual1.pdf"], "test-project"
+    )
+    
+    assert manual_text_key == "test-project/manuals/extracted_manual_text.txt"
+    assert "=== MANUAL: manual1.pdf ===" in combined_text
+    assert "Manual PDF Text Content" in combined_text
+    mock_s3.put_object.assert_called_once()
+

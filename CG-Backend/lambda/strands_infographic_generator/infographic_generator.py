@@ -1558,12 +1558,10 @@ def lambda_handler(event, context):
                 ch = float(_cdh)
                 if ch > 0:
                     orig = slides_per_lesson
-                    if ch <= 8:
-                        slides_per_lesson = min(slides_per_lesson, 4)
-                    elif ch <= 16:
-                        slides_per_lesson = min(slides_per_lesson, 5)
-                    elif ch <= 40:
-                        slides_per_lesson = min(slides_per_lesson, 6)
+                    # If slides_per_lesson wasn't explicitly overridden by user,
+                    # scale default slide count based on total course hours (target ~15-20 slides/hour overall)
+                    if 'slides_per_lesson' not in body:
+                        slides_per_lesson = max(5, min(25, int(ch * 0.8)))
                     logger.info(
                         f"📊 course_duration_hours={ch}: slides_per_lesson {orig} → {slides_per_lesson}"
                     )

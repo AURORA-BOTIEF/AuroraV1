@@ -271,7 +271,7 @@ def call_bedrock_ai(prompt: str) -> str:
     model_id = os.environ.get("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
     request_body = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 8000,
+        "max_tokens": 16000,
         "temperature": 0.2,
         "messages": [
             {
@@ -298,7 +298,7 @@ def call_bedrock_ai(prompt: str) -> str:
         raise ValueError(f"AI Service unavailable: {e}")
 
 
-def convert_non_yaml_to_yaml(content: str, filename: str) -> str:
+def convert_non_yaml_to_yaml(content: str, filename: str, course_duration_hours: int = 40) -> str:
     """Use AI to align/convert text into a standard syllabus YAML string."""
     prompt = f"""You are an expert curriculum designer and syllabus alignment assistant.
 Your task is to take the following course description, topics, or outline (uploaded as {filename}) and convert/align it into a standardized YAML format that matches our system's expected schema exactly.
@@ -347,9 +347,11 @@ course:
 Important Alignment & Content Rules:
 1. **100% Structural Alignment:** The output must match this exact schema. If any key details like audience, prerequisites, durations, or learning outcomes are missing from the input, you MUST generate sensible, professional defaults to ensure a complete, high-quality course syllabus.
 2. **Durations & Calculations:** Ensure all durations are populated. Total duration must be the sum of all module durations, and each module duration must be the sum of its lessons and labs. Topics and lab activities should also have sub-durations.
-3. **Module & Lesson Creation:**
-   - If the user's input is a full detailed outline, map it cleanly to this structure.
-   - If the user's input is just a short topic description (e.g. "A brief 2-day course on Docker basics"), you MUST act as an AI Curriculum Agent and expand/design a complete course with at least 3 distinct modules, logical lessons (each with specific topics), and practical hands-on labs (`lab_activities`).
+3. **Target Course Hours ({course_duration_hours} Hours / {course_duration_hours * 60} Minutes):**
+   - The user specified a course duration of {course_duration_hours} hours.
+   - You MUST ensure the syllabus total_duration_minutes is approximately {course_duration_hours * 60} minutes.
+   - Include ALL modules, chapters, lessons, and subtopics from the source document. DO NOT drop, omit, or truncate any chapters!
+   - Create enough modules (e.g., 5-8 modules for 20+ hour courses) and 2-4 detailed lessons per module so that the full {course_duration_hours}-hour depth is provided.
 4. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
 5. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
 
@@ -370,7 +372,54 @@ Input Content:
     return yaml_content
 
 
-def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str) -> str:
+def process_manual_pdfs(s3_client, bucket: str, manual_s3_keys: list, project_folder: str) -> tuple[str, str]:
+    """
+    Extracts text from all specified PDF manuals, concatenates them, and saves
+    the text into S3 under {project_folder}/manuals/extracted_manual_text.txt.
+    Returns tuple of (manual_text_s3_key, combined_text).
+    """
+    if isinstance(manual_s3_keys, str):
+        manual_s3_keys = [manual_s3_keys]
+        
+    extracted_texts = []
+    print(f"📚 Extracting text from {len(manual_s3_keys)} reference PDF manual(s)...")
+    
+    for key in manual_s3_keys:
+        try:
+            print(f"  📥 Fetching manual PDF from S3: s3://{bucket}/{key}")
+            response = s3_client.get_object(Bucket=bucket, Key=key)
+            raw_bytes = response['Body'].read()
+            text = extract_text_from_pdf(raw_bytes)
+            if text and text.strip():
+                filename = os.path.basename(key)
+                extracted_texts.append(f"=== MANUAL: {filename} ===\n{text.strip()}\n")
+                print(f"  ✅ Extracted {len(text)} characters from {filename}")
+        except Exception as e:
+            print(f"⚠️ Error extracting text from manual PDF {key}: {e}")
+            
+    combined_text = "\n\n".join(extracted_texts)
+    if not combined_text.strip():
+        combined_text = "No text could be extracted from the reference manuals."
+
+    # Save to S3
+    if not project_folder:
+        project_folder = "default-project"
+    manual_text_s3_key = f"{project_folder}/manuals/extracted_manual_text.txt"
+    try:
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=manual_text_s3_key,
+            Body=combined_text.encode('utf-8'),
+            ContentType='text/plain'
+        )
+        print(f"💾 Saved extracted manual text to S3: s3://{bucket}/{manual_text_s3_key}")
+    except Exception as s3_err:
+        print(f"⚠️ Error saving extracted manual text to S3: {s3_err}")
+        
+    return manual_text_s3_key, combined_text
+
+
+def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str, course_duration_hours: int = 40) -> str:
     """
     Checks the extension of the outline file. If it is non-YAML, extracts text,
     converts it to normalized YAML using AI, saves it back to S3 under a .yaml extension,
@@ -405,7 +454,7 @@ def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str) -> str
 
     # Convert to YAML using AI
     print(f"🤖 Invoking AI syllabus agent to align content to YAML standard...")
-    converted_yaml = convert_non_yaml_to_yaml(text_content, os.path.basename(s3_key))
+    converted_yaml = convert_non_yaml_to_yaml(text_content, os.path.basename(s3_key), course_duration_hours=course_duration_hours)
     
     # Validate the generated YAML structure
     try:
@@ -766,11 +815,14 @@ def lambda_handler(event, context):
         print(f"   - body.get('module_to_generate'): {body.get('module_to_generate')}")
         print(f"   - Final value: {module_from_body}")
 
-        # Validate required parameters - accept either course_topic or outline_s3_key
+        # Validate required parameters - accept course_topic, outline_s3_key, or manual_s3_keys
         course_topic = body.get('course_topic')
         outline_s3_key = body.get('outline_s3_key')
+        manual_s3_keys = body.get('manual_s3_keys')
+        if isinstance(manual_s3_keys, str):
+            manual_s3_keys = [manual_s3_keys]
         
-        if not course_topic and not outline_s3_key:
+        if not course_topic and not outline_s3_key and not manual_s3_keys:
             return {
                 "statusCode": 400,
                 "headers": {
@@ -780,29 +832,43 @@ def lambda_handler(event, context):
                     "Access-Control-Allow-Methods": "OPTIONS,POST"
                 },
                 "body": json.dumps({
-                    "error": "Either course_topic or outline_s3_key is required"
+                    "error": "Either course_topic, outline_s3_key, or manual_s3_keys is required"
                 })
             }
 
         # Set defaults and extract parameters
         course_duration_hours = body.get('course_duration_hours', 40)
         course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket - must be defined early
+        project_folder = body.get('project_folder') or f"course-{user_id}-{int(datetime.now().timestamp())}"
         
+        s3_client = boto3.client('s3')
+
+        # ========================================================================
+        # PROCESS REFERENCE MANUAL PDFS (IF UPLOADED)
+        # ========================================================================
+        manual_text_s3_key = None
+        if manual_s3_keys and len(manual_s3_keys) > 0:
+            manual_text_s3_key, manual_text = process_manual_pdfs(s3_client, course_bucket, manual_s3_keys, project_folder)
+            
+            # If no outline_s3_key was provided, convert the reference manual text directly to a syllabus YAML
+            if not outline_s3_key:
+                print("🤖 No outline_s3_key provided. Generating outline YAML directly from reference manual(s)...")
+                converted_yaml = convert_non_yaml_to_yaml(manual_text, "manual_pdf", course_duration_hours=course_duration_hours)
+                syllabus_key = f"{project_folder}/outline/syllabus_from_manual.yaml"
+                s3_client.put_object(
+                    Bucket=course_bucket,
+                    Key=syllabus_key,
+                    Body=converted_yaml.encode('utf-8'),
+                    ContentType='application/x-yaml'
+                )
+                outline_s3_key = syllabus_key
+                normalize_outline_yaml(s3_client, course_bucket, outline_s3_key)
+
         # ========================================================================
         # NORMALIZE OUTLINE YAML TO STANDARD FORMAT
         # ========================================================================
-        # This ensures all downstream functions receive a consistent format:
-        #   course:
-        #     title: "..."
-        #     modules:
-        #       - title: "Module 1"
-        #         lessons: [...]
-        #         lab_activities: [...]
-        # ========================================================================
-        s3_client = None
         if outline_s3_key:
-            s3_client = boto3.client('s3')
-            outline_s3_key = process_and_normalize_outline_s3(s3_client, course_bucket, outline_s3_key)
+            outline_s3_key = process_and_normalize_outline_s3(s3_client, course_bucket, outline_s3_key, course_duration_hours=course_duration_hours)
         
         # Get lab_ids_to_regenerate first - if present, extract modules from lab IDs
         lab_ids_to_regenerate = body.get('lab_ids_to_regenerate')
@@ -839,7 +905,6 @@ def lambda_handler(event, context):
         model_provider = body.get('model_provider', 'bedrock')
         image_model = (body.get('image_model') or DEFAULT_IMAGE_MODEL).strip()
         max_images = body.get('max_images')  # Optional: will be determined by number of prompts
-        project_folder = body.get('project_folder')
         # For OpenAI, disable fallback by default to ensure GPT-5 works or fails cleanly
         allow_openai_fallback = body.get('allow_openai_fallback', model_provider != 'openai')
         # Lab generation parameters - default to 'both' (theory + labs)
@@ -896,6 +961,8 @@ def lambda_handler(event, context):
             "request_timestamp": datetime.now().isoformat(),
             "content_source": "s3" if outline_s3_key else "local",
             "outline_s3_key": outline_s3_key,
+            "manual_s3_keys": manual_s3_keys,
+            "manual_text_s3_key": manual_text_s3_key,
             "course_bucket": course_bucket,
             "project_folder": project_folder,
             "allow_openai_fallback": allow_openai_fallback,

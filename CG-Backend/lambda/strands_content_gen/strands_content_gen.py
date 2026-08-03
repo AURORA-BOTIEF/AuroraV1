@@ -258,7 +258,8 @@ def generate_batch_single_call(
     model_provider: str = 'bedrock',
     openai_api_key: Optional[str] = None,
     starting_visual_number: int = 1,
-    lesson_requirements: str = ''
+    lesson_requirements: str = '',
+    manual_reference_text: str = ''
 ) -> List[Dict[str, Any]]:
     """
     Generate a single batch of lessons (3 lessons max) in ONE LLM call.
@@ -660,9 +661,28 @@ Begin generating now:
         else "Each lesson MUST follow this exact heading hierarchy."
     )
 
+    manual_alignment_directive = (
+        f"""═══════════════════════════════════════════════════════════════════════════════
+REGLA MANDATORIA DE ALINEACIÓN 100% AL MANUAL DE REFERENCIA
+═══════════════════════════════════════════════════════════════════════════════
+CRÍTICO: El contenido de todas las lecciones DEBE estar 100% estrictamente alineado con el manual de referencia proporcionado a continuación.
+- Utiliza ÚNICAMENTE la terminología, conceptos, comandos, explicaciones y ejemplos del manual de referencia.
+- NO agregues tecnologías, comandos ni procedimientos externos que no estén respaldados por el manual de referencia.
+- Si hay discrepancias con el conocimiento general de la IA, el MANUAL DE REFERENCIA TIENE PRIORIDAD ABSOLUTA.
+
+=== CONTENIDO DEL MANUAL DE REFERENCIA ===
+{manual_reference_text[:14000]}
+=== FIN DEL MANUAL DE REFERENCIA ===
+"""
+        if manual_reference_text and manual_reference_text.strip()
+        else ""
+    )
+
     prompt = f"""{role_line}
 
 {language_directive}
+
+{manual_alignment_directive}
 
 {course_context}
 
@@ -963,6 +983,18 @@ def lambda_handler(event, context):
         lesson_requirements = event.get('lesson_requirements', '')
         if lesson_requirements:
             print(f"📝 Additional lesson requirements: {lesson_requirements[:100]}...")
+
+        # Load manual reference text if manual_text_s3_key is present
+        manual_text_s3_key = event.get('manual_text_s3_key')
+        manual_reference_text = ''
+        if manual_text_s3_key:
+            try:
+                print(f"📥 Loading manual reference text: s3://{course_bucket}/{manual_text_s3_key}")
+                man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
+                manual_reference_text = man_obj['Body'].read().decode('utf-8')
+                print(f"✅ Loaded {len(manual_reference_text):,} characters of manual reference text.")
+            except Exception as man_err:
+                print(f"⚠️ Could not load manual reference text from S3: {man_err}")
             
         # ------------------------------------------------------------------
         # IDEMPOTENCY CHECK: Skip generation if lessons already exist
@@ -1045,7 +1077,8 @@ def lambda_handler(event, context):
             model_provider=model_provider,
             openai_api_key=openai_api_key,
             starting_visual_number=starting_visual_number,
-            lesson_requirements=lesson_requirements
+            lesson_requirements=lesson_requirements,
+            manual_reference_text=manual_reference_text
         )
         
         # Save lessons to S3
