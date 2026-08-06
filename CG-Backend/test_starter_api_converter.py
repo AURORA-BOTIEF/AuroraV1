@@ -2,6 +2,7 @@ import sys
 import os
 import pytest
 from unittest.mock import MagicMock, patch
+from botocore.exceptions import ClientError
 
 # Ensure the lambda directory is in path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'lambda'))
@@ -84,9 +85,16 @@ def test_process_and_normalize_outline_s3_yaml_direct(mock_normalize):
 @patch('starter_api.extract_text_from_pdf')
 def test_process_manual_pdfs(mock_extract_pdf):
     mock_s3 = MagicMock()
-    mock_s3.get_object.return_value = {
-        'Body': MagicMock(read=MagicMock(return_value=b"fake manual pdf content"))
-    }
+    error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not Found'}}
+
+    def get_object_side_effect(Bucket, Key):
+        if Key.endswith('extracted_manual_text.txt'):
+            raise ClientError(error_response, 'GetObject')
+        return {
+            'Body': MagicMock(read=MagicMock(return_value=b"fake manual pdf content"))
+        }
+
+    mock_s3.get_object.side_effect = get_object_side_effect
     mock_extract_pdf.return_value = "Manual PDF Text Content"
     
     manual_text_key, combined_text = starter_api.process_manual_pdfs(
@@ -97,4 +105,38 @@ def test_process_manual_pdfs(mock_extract_pdf):
     assert "=== MANUAL: manual1.pdf ===" in combined_text
     assert "Manual PDF Text Content" in combined_text
     mock_s3.put_object.assert_called_once()
+
+
+def test_process_manual_pdfs_uses_cache():
+    mock_s3 = MagicMock()
+    mock_s3.get_object.return_value = {
+        'Body': MagicMock(read=MagicMock(return_value=b"cached manual text"))
+    }
+
+    manual_text_key, combined_text = starter_api.process_manual_pdfs(
+        mock_s3, "my-bucket", ["folder/manuals/manual1.pdf"], "test-project"
+    )
+
+    assert manual_text_key == "test-project/manuals/extracted_manual_text.txt"
+    assert combined_text == "cached manual text"
+    mock_s3.get_object.assert_called_once()
+    mock_s3.put_object.assert_not_called()
+
+
+def test_should_defer_start_job_for_manual_pdfs():
+    should_async, reason = starter_api.should_defer_start_job_to_background({
+        'manual_s3_keys': ['project/manuals/guide.pdf'],
+        'outline_s3_key': 'project/outline/course.yaml',
+    })
+    assert should_async is True
+    assert reason == "reference manual PDF extraction"
+
+
+def test_should_not_defer_when_already_async():
+    should_async, reason = starter_api.should_defer_start_job_to_background({
+        'async_processing': True,
+        'manual_s3_keys': ['project/manuals/guide.pdf'],
+    })
+    assert should_async is False
+    assert reason is None
 

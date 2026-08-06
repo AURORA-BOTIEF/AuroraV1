@@ -288,6 +288,10 @@ function GeneradorCursos() {
                 throw new Error(`Error al iniciar la generación: ${response.statusCode}`);
             }
 
+            if (data.async_started) {
+                return { ...data, async_started: true };
+            }
+
             return data;
         } catch (error) {
             console.error('Error iniciando generación:', error);
@@ -355,12 +359,18 @@ function GeneradorCursos() {
 
             // Step 3: Start generation
             setStatusMessage('🚀 Iniciando generación de curso completo...');
-            await startGeneration(uploadedKey, 'all', uploadedManualKeys);
-            setSuccessMessage(
-                uploadedManualKeys.length > 0
-                    ? '✅ Generación iniciada exitosamente con alineación 100% a los manuales PDF cargados.'
-                    : '✅ Generación de contenido teórico y guía de laboratorios del curso completo iniciada exitosamente'
-            );
+            const generationResult = await startGeneration(uploadedKey, 'all', uploadedManualKeys);
+            if (generationResult?.async_started) {
+                setSuccessMessage(
+                    '✅ Generación iniciada en segundo plano. Recibirás un correo cuando el proceso termine.'
+                );
+            } else {
+                setSuccessMessage(
+                    uploadedManualKeys.length > 0
+                        ? '✅ Generación iniciada exitosamente con alineación 100% a los manuales PDF cargados.'
+                        : '✅ Generación de contenido teórico y guía de laboratorios del curso completo iniciada exitosamente'
+                );
+            }
 
             // Show success message
             setStatusMessage('');

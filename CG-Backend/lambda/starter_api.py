@@ -372,6 +372,61 @@ Input Content:
     return yaml_content
 
 
+def should_defer_start_job_to_background(body: dict) -> tuple[bool, str | None]:
+    """
+    Return True when /start-job should respond immediately and finish work in a
+    background Lambda invocation (avoids API Gateway's ~29s timeout).
+    """
+    if body.get('async_processing'):
+        return False, None
+
+    manual_s3_keys = body.get('manual_s3_keys')
+    if isinstance(manual_s3_keys, str):
+        manual_s3_keys = [manual_s3_keys]
+    if manual_s3_keys:
+        return True, "reference manual PDF extraction"
+
+    outline_s3_key = body.get('outline_s3_key')
+    if outline_s3_key:
+        lower_key = str(outline_s3_key).lower()
+        if not (lower_key.endswith('.yaml') or lower_key.endswith('.yml')):
+            return True, "syllabus conversion"
+
+    return False, None
+
+
+def trigger_async_start_job(event: dict, body: dict, context, reason: str) -> dict:
+    """Invoke this Lambda asynchronously and return an immediate API response."""
+    print(f"⚡ {reason} detected. Triggering asynchronous execution in background to avoid API timeouts...")
+    body['async_processing'] = True
+
+    async_event = dict(event)
+    async_event['body'] = json.dumps(body)
+    async_event['isBase64Encoded'] = False
+
+    lambda_client = boto3.client('lambda')
+    lambda_client.invoke(
+        FunctionName=context.function_name,
+        InvocationType='Event',
+        Payload=json.dumps(async_event),
+    )
+    print("✅ Successfully triggered background Lambda execution. Returning 200 OK to client.")
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+            "Access-Control-Allow-Methods": "OPTIONS,POST",
+        },
+        "body": json.dumps({
+            "message": "Course generation started asynchronously in the background. You will receive an email when it completes.",
+            "project_folder": body.get('project_folder'),
+            "async_started": True,
+        }),
+    }
+
+
 def process_manual_pdfs(s3_client, bucket: str, manual_s3_keys: list, project_folder: str) -> tuple[str, str]:
     """
     Extracts text from all specified PDF manuals, concatenates them, and saves
@@ -380,7 +435,22 @@ def process_manual_pdfs(s3_client, bucket: str, manual_s3_keys: list, project_fo
     """
     if isinstance(manual_s3_keys, str):
         manual_s3_keys = [manual_s3_keys]
-        
+
+    if not project_folder:
+        project_folder = "default-project"
+    manual_text_s3_key = f"{project_folder}/manuals/extracted_manual_text.txt"
+
+    try:
+        cached = s3_client.get_object(Bucket=bucket, Key=manual_text_s3_key)
+        cached_text = cached['Body'].read().decode('utf-8')
+        if cached_text.strip() and not cached_text.strip().startswith("No text could be extracted"):
+            print(f"♻️ Reusing cached manual text from S3: s3://{bucket}/{manual_text_s3_key}")
+            return manual_text_s3_key, cached_text
+    except ClientError as e:
+        code = e.response.get('Error', {}).get('Code', '')
+        if code not in ('NoSuchKey', '404'):
+            print(f"⚠️ Error checking cached manual text: {e}")
+
     extracted_texts = []
     print(f"📚 Extracting text from {len(manual_s3_keys)} reference PDF manual(s)...")
     
@@ -402,9 +472,6 @@ def process_manual_pdfs(s3_client, bucket: str, manual_s3_keys: list, project_fo
         combined_text = "No text could be extracted from the reference manuals."
 
     # Save to S3
-    if not project_folder:
-        project_folder = "default-project"
-    manual_text_s3_key = f"{project_folder}/manuals/extracted_manual_text.txt"
     try:
         s3_client.put_object(
             Bucket=bucket,
@@ -756,50 +823,15 @@ def lambda_handler(event, context):
 
         # Check if this is an async background execution
         is_async = body.get('async_processing', False)
-        outline_s3_key = body.get('outline_s3_key')
-        
-        # Determine if we should handle this request asynchronously.
-        # We run it asynchronously if it is a non-YAML outline upload and NOT already running in the background.
-        if outline_s3_key and not is_async and context and getattr(context, 'function_name', None):
-            lower_key = str(outline_s3_key).lower()
-            is_non_yaml = not (lower_key.endswith('.yaml') or lower_key.endswith('.yml'))
-            if is_non_yaml:
-                print(f"⚡ Non-YAML format detected. Triggering asynchronous execution in background to avoid API timeouts...")
-                # Construct the payload to trigger the lambda asynchronously
-                # Add 'async_processing: True' inside request body
-                body['async_processing'] = True
-                
-                # Re-serialize event body
-                async_event = dict(event)
-                async_event['body'] = json.dumps(body)
-                async_event['isBase64Encoded'] = False
-                
-                # Invoke ourselves asynchronously
-                try:
-                    lambda_client = boto3.client('lambda')
-                    lambda_client.invoke(
-                        FunctionName=context.function_name,
-                        InvocationType='Event',
-                        Payload=json.dumps(async_event)
-                    )
-                    print("✅ Successfully triggered background Lambda execution. Returning 200 OK to client.")
-                    return {
-                        "statusCode": 200,
-                        "headers": {
-                            "Content-Type": "application/json",
-                            "Access-Control-Allow-Origin": "*",
-                            "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-                            "Access-Control-Allow-Methods": "OPTIONS,POST"
-                        },
-                        "body": json.dumps({
-                            "message": "Syllabus conversion and generation started asynchronously in the background.",
-                            "project_folder": body.get('project_folder')
-                        })
-                    }
-                except Exception as invoke_err:
-                    print(f"⚠️ Failed to invoke background Lambda: {invoke_err}. Falling back to synchronous processing.")
-                    # If invocation fails, we fall back to normal synchronous execution
-                    pass
+
+        # Heavy work (PDF manual extraction, non-YAML syllabus conversion) can exceed
+        # API Gateway's ~29s limit. Defer to a background Lambda when needed.
+        should_async, async_reason = should_defer_start_job_to_background(body)
+        if should_async and not is_async and context and getattr(context, 'function_name', None):
+            try:
+                return trigger_async_start_job(event, body, context, async_reason)
+            except Exception as invoke_err:
+                print(f"⚠️ Failed to invoke background Lambda: {invoke_err}. Falling back to synchronous processing.")
 
         print(f"Request body: {json.dumps(body, indent=2)}")
 
