@@ -505,7 +505,7 @@ Resources:
       Layers:
         - !Ref StrandsAgentsLayer
         - !Ref GeminiLayer
-      Timeout: 600
+      Timeout: 900
       MemorySize: 512
       Architectures:
         - arm64

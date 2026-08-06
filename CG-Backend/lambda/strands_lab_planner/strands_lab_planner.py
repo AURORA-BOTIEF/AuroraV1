@@ -469,7 +469,7 @@ def generate_lab_master_plan(
     course_info: dict,
     additional_requirements: Optional[str],
     model_provider: str = "bedrock",
-    batch_size: int = 10
+    batch_size: int = 5
 ) -> dict:
     """
     Generate comprehensive master plan for all labs using AI with batching for large courses.
@@ -485,7 +485,7 @@ def generate_lab_master_plan(
         course_info: Course metadata
         additional_requirements: User-specified requirements
         model_provider: "bedrock" or "openai"
-        batch_size: Number of labs to process per AI call (default 10)
+        batch_size: Number of labs to process per AI call (default 5)
     """
     
     print(f"\n{'='*70}")
