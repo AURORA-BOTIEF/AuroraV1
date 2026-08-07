@@ -372,6 +372,35 @@ Input Content:
     return yaml_content
 
 
+def load_master_lab_plan_result(s3_client, bucket: str, project_folder: str, model_provider: str = "bedrock") -> dict | None:
+    """Build a Step Functions-compatible master_lab_plan_result from S3, if present."""
+    master_plan_key = f"{project_folder}/labguide/lab-master-plan.json"
+    try:
+        obj = s3_client.get_object(Bucket=bucket, Key=master_plan_key)
+        plan = json.loads(obj['Body'].read().decode('utf-8'))
+        total_labs = plan.get('total_labs')
+        if total_labs is None:
+            lab_plans = plan.get('lab_plans', [])
+            total_labs = len(lab_plans) if isinstance(lab_plans, list) else 0
+        return {
+            "ExecutedVersion": "$LATEST",
+            "Payload": {
+                "statusCode": 200,
+                "master_plan_key": master_plan_key,
+                "total_labs": total_labs,
+                "project_folder": project_folder,
+                "bucket": bucket,
+                "model_provider": model_provider,
+                "lab_plans_source": "s3",
+            },
+        }
+    except ClientError as e:
+        code = e.response.get('Error', {}).get('Code', '')
+        if code not in ('NoSuchKey', '404'):
+            print(f"⚠️ Error loading master lab plan from S3: {e}")
+        return None
+
+
 def should_defer_start_job_to_background(body: dict) -> tuple[bool, str | None]:
     """
     Return True when /start-job should respond immediately and finish work in a
@@ -823,6 +852,62 @@ def lambda_handler(event, context):
 
         # Check if this is an async background execution
         is_async = body.get('async_processing', False)
+        resume_from = body.get('resume_from')
+
+        # Resume a failed execution from its last failed step (no lesson/image regeneration).
+        redrive_execution_arn = body.get('redrive_execution_arn')
+        if redrive_execution_arn and not is_async:
+            state_machine_arn = os.environ.get('STATE_MACHINE_ARN')
+            if not state_machine_arn:
+                return {
+                    "statusCode": 500,
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                        "Access-Control-Allow-Methods": "OPTIONS,POST"
+                    },
+                    "body": json.dumps({
+                        "error": "STATE_MACHINE_ARN environment variable not set"
+                    })
+                }
+            sf_client = boto3.client('stepfunctions')
+            try:
+                print(f"♻️ Redriving failed execution: {redrive_execution_arn}")
+                response = sf_client.redrive_execution(executionArn=redrive_execution_arn)
+                return {
+                    "statusCode": 200,
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                        "Access-Control-Allow-Methods": "OPTIONS,POST"
+                    },
+                    "body": json.dumps({
+                        "message": "Course generation resumed from the last failed step without regenerating completed work.",
+                        "execution_arn": redrive_execution_arn,
+                        "redrive_date": response.get('redriveDate'),
+                        "resumed": True,
+                        "status": "running",
+                    })
+                }
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                error_message = e.response['Error']['Message']
+                print(f"❌ Redrive failed: {error_code} - {error_message}")
+                return {
+                    "statusCode": 400,
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                        "Access-Control-Allow-Methods": "OPTIONS,POST"
+                    },
+                    "body": json.dumps({
+                        "error": f"Could not resume execution: {error_message}",
+                        "error_code": error_code,
+                    })
+                }
 
         # Heavy work (PDF manual extraction, non-YAML syllabus conversion) can exceed
         # API Gateway's ~29s limit. Defer to a background Lambda when needed.
@@ -874,12 +959,18 @@ def lambda_handler(event, context):
         project_folder = body.get('project_folder') or f"course-{user_id}-{int(datetime.now().timestamp())}"
         
         s3_client = boto3.client('s3')
+        skip_theory_generation = resume_from == 'post_theory'
 
         # ========================================================================
         # PROCESS REFERENCE MANUAL PDFS (IF UPLOADED)
         # ========================================================================
         manual_text_s3_key = None
-        if manual_s3_keys and len(manual_s3_keys) > 0:
+        if skip_theory_generation:
+            manual_text_s3_key = body.get('manual_text_s3_key') or (
+                f"{project_folder}/manuals/extracted_manual_text.txt" if project_folder else None
+            )
+            print(f"♻️ resume_from=post_theory: skipping manual PDF extraction")
+        elif manual_s3_keys and len(manual_s3_keys) > 0:
             manual_text_s3_key, manual_text = process_manual_pdfs(s3_client, course_bucket, manual_s3_keys, project_folder)
             
             # If no outline_s3_key was provided, convert the reference manual text directly to a syllabus YAML
@@ -899,7 +990,7 @@ def lambda_handler(event, context):
         # ========================================================================
         # NORMALIZE OUTLINE YAML TO STANDARD FORMAT
         # ========================================================================
-        if outline_s3_key:
+        if outline_s3_key and not skip_theory_generation:
             outline_s3_key = process_and_normalize_outline_s3(s3_client, course_bucket, outline_s3_key, course_duration_hours=course_duration_hours)
         
         # Get lab_ids_to_regenerate first - if present, extract modules from lab IDs
@@ -926,11 +1017,15 @@ def lambda_handler(event, context):
                 module_input = 'all'
         
         # Default to full-course generation if no module is specified by the UI
-        if not module_input:
+        if not module_input and not skip_theory_generation:
             module_input = 'all'
         
         # Parse module input into list of module numbers
-        modules_to_generate = parse_module_input(module_input, outline_s3_key, course_bucket)
+        if skip_theory_generation:
+            modules_to_generate = []
+            print("♻️ resume_from=post_theory: skipping module batch expansion for theory")
+        else:
+            modules_to_generate = parse_module_input(module_input, outline_s3_key, course_bucket)
         
         lesson_to_generate = body.get('lesson_to_generate')  # Optional: generate specific lesson
         performance_mode = body.get('performance_mode', 'balanced')
@@ -1005,6 +1100,15 @@ def lambda_handler(event, context):
             "course_language": course_language,
             "image_model": image_model,
         }
+
+        if skip_theory_generation:
+            execution_input["resume_from"] = "post_theory"
+            master_lab_plan_result = load_master_lab_plan_result(
+                s3_client, course_bucket, project_folder, model_provider
+            )
+            if master_lab_plan_result:
+                execution_input["master_lab_plan_result"] = master_lab_plan_result
+            print("♻️ Starting post-theory resume execution (book + labs from existing S3 artifacts)")
         
         # Only include optional parameters if they were provided
         if max_images is not None:
@@ -1040,7 +1144,9 @@ def lambda_handler(event, context):
                 "course_topic": course_topic,
                 "modules_to_generate": modules_to_generate,  # List of modules
                 "user_email": user_email,
-                "status": "running"
+                "status": "running",
+                "resumed": bool(skip_theory_generation),
+                "resume_from": resume_from if skip_theory_generation else None,
             })
         }
 

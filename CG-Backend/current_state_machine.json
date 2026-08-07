@@ -1,7 +1,38 @@
 {
   "Comment": "Orchestrate Theory and/or Lab Guide generation with content_type selector",
-  "StartAt": "DetermineContentType",
+  "StartAt": "CheckResumeMode",
   "States": {
+    "CheckResumeMode": {
+      "Comment": "Resume failed runs from BookBuilder onward without regenerating lessons/images",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.resume_from",
+          "StringEquals": "post_theory",
+          "Next": "ResumePostTheoryBranch"
+        }
+      ],
+      "Default": "DetermineContentType"
+    },
+    "ResumePostTheoryBranch": {
+      "Comment": "Use lessons/images already in S3; continue at BookBuilder then labs/slides",
+      "Type": "Pass",
+      "Parameters": {
+        "resume_from.$": "$.resume_from",
+        "content_type.$": "$.content_type",
+        "content_source.$": "$.content_source",
+        "course_bucket.$": "$.course_bucket",
+        "project_folder.$": "$.project_folder",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "user_email.$": "$.user_email",
+        "model_provider.$": "$.model_provider",
+        "course_language.$": "$.course_language",
+        "master_lab_plan_result.$": "$.master_lab_plan_result",
+        "lab_ids_to_regenerate": null,
+        "all_image_mappings": []
+      },
+      "Next": "InvokeBookBuilder"
+    },
     "BothTheoryAndLabsBranch": {
       "Comment": "Generate theory first, then labs (both use parallel batch processing)",
       "Next": "ExpandModulesToBatches",

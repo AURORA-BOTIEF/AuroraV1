@@ -564,6 +564,7 @@ Resources:
           LESSON_CONTEXT_MAX_CHARS: '14000'
           LAB_BEDROCK_MAX_OUTPUT_TOKENS: '20000'
           BEDROCK_READ_TIMEOUT: '860'
+          LAB_SKIP_IF_EXISTS: 'true'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -621,6 +622,8 @@ Resources:
       Handler: book_builder.lambda_handler
       Runtime: python3.12
       CodeUri: lambda/
+      Layers:
+        - !Ref StrandsAgentsLayer
       MemorySize: 512
       Timeout: 300
       Policies:
@@ -1152,6 +1155,7 @@ Resources:
             - Effect: Allow
               Action:
                 - states:StartExecution
+                - states:RedriveExecution
               Resource: !Ref CourseGeneratorStateMachine
             - Effect: Allow
               Action:
