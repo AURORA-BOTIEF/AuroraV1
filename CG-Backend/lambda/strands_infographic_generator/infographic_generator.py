@@ -1553,20 +1553,6 @@ def lambda_handler(event, context):
         model_provider = body.get('model_provider', 'bedrock').lower()
         slides_per_lesson = int(body.get('slides_per_lesson', 5))
         _cdh = body.get('course_duration_hours')
-        if _cdh is not None:
-            try:
-                ch = float(_cdh)
-                if ch > 0:
-                    orig = slides_per_lesson
-                    # If slides_per_lesson wasn't explicitly overridden by user,
-                    # scale default slide count based on total course hours (target ~15-20 slides/hour overall)
-                    if 'slides_per_lesson' not in body:
-                        slides_per_lesson = max(5, min(25, int(ch * 0.8)))
-                    logger.info(
-                        f"📊 course_duration_hours={ch}: slides_per_lesson {orig} → {slides_per_lesson}"
-                    )
-            except (TypeError, ValueError):
-                pass
         style = body.get('style', 'professional')
         
         # HTML-FIRST ONLY (Legacy removed Nov 21, 2025)
@@ -1756,7 +1742,7 @@ def lambda_handler(event, context):
                 lesson_batch_start=lesson_start,
                 lesson_batch_end=lesson_end,
                 total_lessons=total_lessons,  # Pass total lessons for completion detection
-                max_processing_time=840,  # 14 minutes
+                max_processing_time=720,  # 12 minutes (leaves 3-minute safety buffer before 15-min Lambda limit)
                 course_bucket=course_bucket,
                 project_folder=project_folder
             )

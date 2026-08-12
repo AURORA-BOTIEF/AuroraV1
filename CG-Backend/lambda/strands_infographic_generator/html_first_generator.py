@@ -3913,9 +3913,9 @@ def generate_complete_course(
     
     # Process each lesson with timeout guard
     for lesson_idx, lesson in enumerate(batch_lessons, lesson_batch_start):
-        # Check timeout
+        # Check timeout guard (stop if max_processing_time exceeded OR if less than 150s remain for next lesson)
         elapsed_time = time.time() - start_time
-        if elapsed_time > max_processing_time:
+        if elapsed_time > max_processing_time or (lessons_processed > 0 and (900 - elapsed_time) < 150):
             logger.warning(f"⚠️ Approaching timeout - processed {lessons_processed}/{len(batch_lessons)} lessons")
             logger.warning(f"⏰ Elapsed time: {elapsed_time:.1f}s, limit: {max_processing_time}s")
             

@@ -225,37 +225,66 @@ def extract_all_labs(
             # Extract lab activities from lesson
             lab_activities = lesson.get('lab_activities', [])
             
-            for lab_idx, lab in enumerate(lab_activities, 1):
-                if isinstance(lab, dict):
-                    lab_title = lab.get('title', f'Lab {lab_idx}')
-                    lab_duration = lab.get('duration_minutes', 30)
-                    lab_bloom = lab.get('bloom_level', lesson_bloom)
-                    lab_objectives = lab.get('objectives', [])
-                    lab_activities_list = lab.get('activities', [])
-                else:
-                    lab_title = str(lab)
-                    lab_duration = 30
-                    lab_bloom = lesson_bloom
-                    lab_objectives = []
-                    lab_activities_list = []
-                
-                lab_info = {
-                    'module_number': mod_idx,
-                    'module_title': module_title,
-                    'lesson_number': les_idx,
-                    'lesson_title': lesson_title,
-                    'lab_index': lab_idx,
-                    'lab_title': lab_title,
-                    'duration_minutes': lab_duration,
-                    'bloom_level': lab_bloom,
-                    'context_topics': context_topics,
-                    'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}",
-                    'objectives': lab_objectives,
-                    'activities': lab_activities_list
-                }
-                
-                labs.append(lab_info)
-                print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
+            if not lab_activities:
+                lesson_type = str(lesson.get('type', '')).lower().strip()
+                l_title_lower = lesson_title.lower().strip()
+                is_lab_lesson_entry = (
+                    lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica'] or
+                    l_title_lower.startswith('laboratorio') or
+                    l_title_lower.startswith('lab:') or
+                    l_title_lower.startswith('lab ') or
+                    l_title_lower.startswith('práctica') or
+                    l_title_lower.startswith('practica')
+                )
+                if is_lab_lesson_entry:
+                    lab_info = {
+                        'module_number': mod_idx,
+                        'module_title': module_title,
+                        'lesson_number': les_idx,
+                        'lesson_title': lesson_title,
+                        'lab_index': 1,
+                        'lab_title': lesson_title,
+                        'duration_minutes': lesson.get('duration_minutes', 30),
+                        'bloom_level': lesson_bloom,
+                        'context_topics': context_topics,
+                        'lab_id': f"{mod_idx:02d}-{les_idx:02d}-01",
+                        'objectives': lesson.get('objectives', []),
+                        'activities': []
+                    }
+                    labs.append(lab_info)
+                    print(f"  ✓ Lab Lesson {lab_info['lab_id']}: {lesson_title} ({lesson.get('duration_minutes', 30)} min)")
+            else:
+                for lab_idx, lab in enumerate(lab_activities, 1):
+                    if isinstance(lab, dict):
+                        lab_title = lab.get('title', f'Lab {lab_idx}')
+                        lab_duration = lab.get('duration_minutes', 30)
+                        lab_bloom = lab.get('bloom_level', lesson_bloom)
+                        lab_objectives = lab.get('objectives', [])
+                        lab_activities_list = lab.get('activities', [])
+                    else:
+                        lab_title = str(lab)
+                        lab_duration = 30
+                        lab_bloom = lesson_bloom
+                        lab_objectives = []
+                        lab_activities_list = []
+                    
+                    lab_info = {
+                        'module_number': mod_idx,
+                        'module_title': module_title,
+                        'lesson_number': les_idx,
+                        'lesson_title': lesson_title,
+                        'lab_index': lab_idx,
+                        'lab_title': lab_title,
+                        'duration_minutes': lab_duration,
+                        'bloom_level': lab_bloom,
+                        'context_topics': context_topics,
+                        'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}",
+                        'objectives': lab_objectives,
+                        'activities': lab_activities_list
+                    }
+                    
+                    labs.append(lab_info)
+                    print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
         
         # OPTION 2: Extract labs from module level (supports both 'labs' and 'lab_activities' keys)
         module_labs = module.get('labs', []) or module.get('lab_activities', [])

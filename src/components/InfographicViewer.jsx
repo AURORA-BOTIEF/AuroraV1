@@ -48,7 +48,14 @@ function InfographicViewer() {
                 console.log('HTML content length:', infographic.html_content.length);
                 fetchHtmlContent(infographic.html_content);
             } else if (infographic.html_url) {
-                console.warn('⚠️ Received html_url instead of html_content! URL:', infographic.html_url);
+                console.log('🌐 Fetching HTML content from html_url:', infographic.html_url);
+                fetch(infographic.html_url)
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return res.text();
+                    })
+                    .then(htmlText => fetchHtmlContent(htmlText))
+                    .catch(err => console.error('Error fetching html_url:', err));
             } else {
                 console.error('✗ No HTML content or URL found in response!');
             }

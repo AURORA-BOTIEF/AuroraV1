@@ -94,12 +94,25 @@ def lambda_handler(event, context):
             print(f"✗ HTML file not found: {html_key}")
             html_content = "<html><body><h1>HTML file not found</h1></body></html>"
         
-        # Return HTML as-is with direct S3 URLs for Cognito IAM access
-        structure_data['html_content'] = html_content
+        # Check payload size safety to avoid Lambda 6MB response limit (RequestEntityTooLarge 413)
+        # If payload would exceed 5MB, return presigned html_url instead of inline html_content
+        test_payload = json.dumps({**structure_data, 'html_content': html_content})
+        payload_bytes = len(test_payload.encode('utf-8'))
         
-        # Remove html_url since we're returning content directly
-        if 'html_url' in structure_data:
-            del structure_data['html_url']
+        if payload_bytes > 5_000_000:
+            print(f"⚠️ Payload size ({payload_bytes} bytes) exceeds 5MB Lambda limit! Generating presigned html_url.")
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': bucket_name, 'Key': html_key},
+                ExpiresIn=3600
+            )
+            structure_data['html_url'] = presigned_url
+            if 'html_content' in structure_data:
+                del structure_data['html_content']
+        else:
+            structure_data['html_content'] = html_content
+            if 'html_url' in structure_data:
+                del structure_data['html_url']
         
         print(f"Response contains keys: {list(structure_data.keys())}")
         print(f"Returning HTML with direct S3 URLs for Cognito IAM access")

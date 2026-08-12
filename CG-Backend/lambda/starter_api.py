@@ -357,7 +357,7 @@ Important Alignment & Content Rules:
    - Preserve ALL modules, chapters, sections, and numbered subtopics from the source document EXACTLY as written.
    - EVERY numbered sub-item in the source document (e.g., 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, etc.) MUST be created as an individual `lesson` entry in the YAML under its respective module.
    - DO NOT group, merge, consolidate, or collapse subtopics into fewer lessons than listed in the source document.
-   - If a sub-item represents a hands-on exercise or laboratory (e.g. "1.7 Laboratorio: ..."), place it in `lab_activities` or as a dedicated practical lesson.
+   - If a sub-item represents a hands-on exercise or laboratory (e.g. "1.7 Laboratorio: ..."), place it in `lab_activities` or as a dedicated lesson entry with `type: "lab"`.
 4. **Target Course Hours ({course_duration_hours} Hours / {course_duration_hours * 60} Minutes):**
    - Ensure the sum of all module durations (`total_duration_minutes`) is approximately {course_duration_hours * 60} minutes.
    - Distribute the duration across all individual lessons and lab activities.

@@ -191,6 +191,28 @@ def is_spanish_course(course_data: dict) -> bool:
     return True
 
 
+def is_lab_lesson(lesson: dict) -> bool:
+    """Detect if a lesson is a lab / hands-on activity lesson."""
+    if not isinstance(lesson, dict):
+        return False
+    lesson_type = str(lesson.get('type', '')).strip().lower()
+    lesson_title = str(lesson.get('title', '')).strip()
+    lesson_title_lower = lesson_title.lower()
+
+    if lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica']:
+        return True
+
+    prefixes = ['laboratorio', 'lab:', 'lab ', 'práctica', 'practica', 'actividad práctica', 'actividad practica']
+    for p in prefixes:
+        if lesson_title_lower.startswith(p):
+            return True
+
+    if 'laboratorio:' in lesson_title_lower or 'laboratorio -' in lesson_title_lower:
+        return True
+
+    return False
+
+
 def extract_outline_language(outline_data: dict) -> str:
     """
     Read course language from common outline shapes (course.language, root language, metadata).
@@ -331,7 +353,23 @@ def generate_batch_single_call(
                 labs_formatted.append(f"      - {str(l)}")
         labs_str = "\n".join(labs_formatted)
 
-        spec = f"""
+        l_is_lab = is_lab_lesson(lesson)
+        if l_is_lab:
+            l_title = lesson.get('title', 'Untitled')
+            spec = f"""
+    {lesson_term} {i + 1}: {l_title} (TIPO: LABORATORIO / ACTIVIDAD PRÁCTICA)
+    {dur_label}: {lesson.get('duration_minutes', module_duration)} {min_label}
+    *** INSTRUCCIÓN CRÍTICA DE NO DUPLICIDAD DE LABORATORIO ***
+    Esta lección representa una actividad de laboratorio. La guía práctica detallada, código y comandos se generan en su GUÍA DE LABORATORIO DEDICADA.
+    En el Libro de Teoría, esta lección debe ser ÚNICAMENTE UNA LECCIÓN DE REFERENCIA corta (~300-500 palabras) con la siguiente estructura exactas:
+    1. # {module_number}.{i + 1}: {l_title}
+    2. ## Objetivos de Aprendizaje
+    3. ## Referencia a la Guía de Laboratorio (un bloque destacado indicando que los pasos guiados, comandos y solución de esta práctica se encuentran en la Guía de Laboratorio dedicada del Capítulo {module_number})
+    4. ## Resumen de la Actividad Práctica (Contexto, requisitos previos y duración estimada)
+    5. ## Referencias Bibliográficas (enlaces https válidos)
+"""
+        else:
+            spec = f"""
     {lesson_term} {i + 1}: {lesson.get('title', 'Untitled')}
     {dur_label}: {lesson.get('duration_minutes', module_duration)} {min_label}
     {bloom_label}: {lesson.get('bloom_level', module_bloom)}
