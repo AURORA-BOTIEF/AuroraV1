@@ -4185,14 +4185,15 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 console.warn('Could not extract user email:', error);
             }
 
+            const courseHours = bookData?.course_metadata?.course_duration_hours || bookData?.course_duration_hours || bookData?.total_duration_hours || null;
+
             const requestBody = {
                 course_bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',
                 project_folder: projectFolder,
                 book_version_key: bookVersionKey, // null means auto-discover
                 book_type: bookType, // 'theory' or 'lab' - tells Lambda which book to use
                 model_provider: pptModelProvider,
-                slides_per_lesson: 999, // High number to ensure all content is included
-                use_all_content: true, // Flag to generate slides for ALL content
+                course_duration_hours: courseHours,
                 presentation_style: pptStyle,
                 user_email: userEmail // For end-user notifications
             };
