@@ -1713,6 +1713,21 @@ def lambda_handler(event, context):
         book_data['lessons_full'] = list(original_lessons)
         book_data['lessons'] = original_lessons[lesson_start-1:lesson_end]
         
+        # DYNAMIC SLIDE BUDGET RECALCULATION:
+        # Scale slides_per_lesson based on total course hours AND total lessons in the course
+        # Target: ~14 slides per hour of course (e.g., 35h -> ~490-500 slides, 28h -> ~390-400 slides)
+        if 'slides_per_lesson' not in body and _cdh is not None:
+            try:
+                ch = float(_cdh)
+                if ch > 0 and total_lessons > 0:
+                    target_total_slides = ch * 14.0
+                    slides_per_lesson = max(4, min(15, round(target_total_slides / total_lessons)))
+                    logger.info(
+                        f"🎯 DYNAMIC SLIDE BUDGET: course_hours={ch}h, total_lessons={total_lessons} => slides_per_lesson={slides_per_lesson} (target total: ~{int(slides_per_lesson * total_lessons)} slides)"
+                    )
+            except (TypeError, ValueError):
+                pass
+        
         logger.info(f"📖 Processing lessons {lesson_start}-{lesson_end} of {total_lessons}")
         
         # Determine if this is the first batch (batch_index == 0 or lesson_start == 1)

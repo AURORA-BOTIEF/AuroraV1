@@ -266,8 +266,14 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
 
 
 def call_bedrock_ai(prompt: str) -> str:
-    """Call AWS Bedrock Claude 3.5 Sonnet to process outline metadata."""
-    bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+    """Call Bedrock Claude Sonnet model."""
+    from botocore.config import Config
+    bedrock_config = Config(
+        read_timeout=900,
+        connect_timeout=60,
+        retries={'max_attempts': 3}
+    )
+    bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=bedrock_config)
     model_id = os.environ.get("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
     request_body = {
         "anthropic_version": "bedrock-2023-05-31",
@@ -347,13 +353,16 @@ course:
 Important Alignment & Content Rules:
 1. **100% Structural Alignment:** The output must match this exact schema. If any key details like audience, prerequisites, durations, or learning outcomes are missing from the input, you MUST generate sensible, professional defaults to ensure a complete, high-quality course syllabus.
 2. **Durations & Calculations:** Ensure all durations are populated. Total duration must be the sum of all module durations, and each module duration must be the sum of its lessons and labs. Topics and lab activities should also have sub-durations.
-3. **Target Course Hours ({course_duration_hours} Hours / {course_duration_hours * 60} Minutes):**
-   - The user specified a course duration of {course_duration_hours} hours.
-   - You MUST ensure the syllabus total_duration_minutes is approximately {course_duration_hours * 60} minutes.
-   - Include ALL modules, chapters, lessons, and subtopics from the source document. DO NOT drop, omit, or truncate any chapters!
-   - Create enough modules (e.g., 5-8 modules for 20+ hour courses) and 2-4 detailed lessons per module so that the full {course_duration_hours}-hour depth is provided.
-4. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
-5. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
+3. **Strict 1-to-1 Structural Fidelity:**
+   - Preserve ALL modules, chapters, sections, and numbered subtopics from the source document EXACTLY as written.
+   - EVERY numbered sub-item in the source document (e.g., 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, etc.) MUST be created as an individual `lesson` entry in the YAML under its respective module.
+   - DO NOT group, merge, consolidate, or collapse subtopics into fewer lessons than listed in the source document.
+   - If a sub-item represents a hands-on exercise or laboratory (e.g. "1.7 Laboratorio: ..."), place it in `lab_activities` or as a dedicated practical lesson.
+4. **Target Course Hours ({course_duration_hours} Hours / {course_duration_hours * 60} Minutes):**
+   - Ensure the sum of all module durations (`total_duration_minutes`) is approximately {course_duration_hours * 60} minutes.
+   - Distribute the duration across all individual lessons and lab activities.
+5. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
+6. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
 
 Input Content:
 ---

@@ -1143,7 +1143,7 @@ Resources:
         - !Ref StrandsAgentsLayer
         - !Ref PdfLayer
       MemorySize: 256
-      Timeout: 300
+      Timeout: 900
       Environment:
         Variables:
           STATE_MACHINE_ARN: !Ref CourseGeneratorStateMachine

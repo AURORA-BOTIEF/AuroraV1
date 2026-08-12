@@ -7,8 +7,16 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.resume_from",
-          "StringEquals": "post_theory",
+          "And": [
+            {
+              "Variable": "$.resume_from",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.resume_from",
+              "StringEquals": "post_theory"
+            }
+          ],
           "Next": "ResumePostTheoryBranch"
         }
       ],

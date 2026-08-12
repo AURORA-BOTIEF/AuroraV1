@@ -184,6 +184,7 @@ def create_ppt_batch_tasks(
     book_version_key: str = None,
     book_type: str = 'theory',
     execution_id: str = None,
+    course_duration_hours: float = None,
 ) -> list:
     """Create Lambda invocation tasks for each batch."""
     tasks = []
@@ -203,6 +204,7 @@ def create_ppt_batch_tasks(
             'book_version_key': book_version_key,  # Pass specific version to use
             'book_type': book_type,  # 'theory' or 'lab'
             'execution_id': execution_id,
+            'course_duration_hours': course_duration_hours,
         }
         tasks.append(task)
     
@@ -274,6 +276,7 @@ def lambda_handler(event, context):
         user_email = body.get('user_email')  # Optional: for end-user notifications
         book_version_key = body.get('book_version_key')  # Specific book version to use
         book_type = body.get('book_type', 'theory')  # 'theory' or 'lab'
+        course_duration_hours = body.get('course_duration_hours')
         
         # HTML-first architecture: Skip PPT merging and conversion (HTML is final output)
         # Legacy architecture: Merge batches and convert to PPT
@@ -369,6 +372,7 @@ def lambda_handler(event, context):
             book_version_key=book_version_key,  # Pass specific book version
             book_type=book_type,  # 'theory' or 'lab'
             execution_id=orchestration_execution_id,
+            course_duration_hours=course_duration_hours,
         )
         
         # Prepare Step Functions execution input

@@ -127,6 +127,8 @@ def lambda_handler(event, context):
         print(f"\n📋 Course has {len(modules)} modules")
         print(f"📋 Generating modules: {modules_to_generate}")
         
+        course_duration_hours = event.get('course_duration_hours') or course_data.get('course_duration_hours') or course_data.get('duration_hours')
+        
         # Expand each module into batches
         all_batches = []
         
@@ -166,6 +168,7 @@ def lambda_handler(event, context):
                     'lesson_requirements': lesson_requirements,
                     'manual_s3_keys': manual_s3_keys,
                     'manual_text_s3_key': manual_text_s3_key,
+                    'course_duration_hours': course_duration_hours,
                     'force_regenerate': True  # Always true for specific regeneration
                 }
                 
@@ -200,6 +203,7 @@ def lambda_handler(event, context):
                     'lesson_requirements': lesson_requirements,  # Pass additional requirements to content generator
                     'manual_s3_keys': manual_s3_keys,
                     'manual_text_s3_key': manual_text_s3_key,
+                    'course_duration_hours': course_duration_hours,
                     # Safeguard: Force regeneration ONLY if a specific lesson was requested
                     'force_regenerate': bool(lesson_to_generate)
                 }
