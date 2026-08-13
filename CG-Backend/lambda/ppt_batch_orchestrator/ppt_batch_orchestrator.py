@@ -357,10 +357,33 @@ def lambda_handler(event, context):
         for batch in batches:
             logger.info(f"   Batch {batch['batch_index']}: Lessons {batch['lesson_start']}-{batch['lesson_end']} ({batch['batch_size']} lessons)")
 
-        orchestration_execution_id = str(uuid.uuid4())[:8]
-        if html_first:
-            reset_html_first_infographic_artifacts(course_bucket, project_folder)
-            logger.info(f"🆔 HTML-first orchestration execution_id: {orchestration_execution_id}")
+        # Check if existing partial structure is present in S3 and resume requested/possible
+        resume_mode = body.get('resume', False)
+        force_reset = body.get('force_reset', False)
+        
+        shared_structure_key = f"{project_folder}/infographics/infographic_structure.json"
+        existing_structure = None
+        
+        if html_first and not force_reset:
+            try:
+                resp = s3_client.get_object(Bucket=course_bucket, Key=shared_structure_key)
+                existing_structure = json.loads(resp['Body'].read().decode('utf-8'))
+                logger.info(f"🔍 Found existing slide structure in S3: {len(existing_structure.get('slides', []))} slides, last_batch = {existing_structure.get('last_batch_index')}")
+            except Exception:
+                existing_structure = None
+        
+        if existing_structure and (resume_mode or existing_structure.get('completion_status') == 'partial'):
+            logger.info("🔄 Resuming existing presentation generation without resetting S3 artifacts!")
+            orchestration_execution_id = existing_structure.get('execution_id') or str(uuid.uuid4())[:8]
+            last_batch_index = existing_structure.get('last_batch_index', -1)
+            # Filter batches to only process remaining uncompleted batches
+            batches = [b for b in batches if b['batch_index'] > last_batch_index]
+            logger.info(f"📦 Resuming from batch {last_batch_index + 1} ({len(batches)} batches remaining)")
+        else:
+            orchestration_execution_id = str(uuid.uuid4())[:8]
+            if html_first:
+                reset_html_first_infographic_artifacts(course_bucket, project_folder)
+                logger.info(f"🆔 Fresh HTML-first orchestration execution_id: {orchestration_execution_id}")
         
         # Create batch tasks
         ppt_batch_tasks = create_ppt_batch_tasks(
