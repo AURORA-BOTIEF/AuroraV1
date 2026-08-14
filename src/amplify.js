@@ -2,6 +2,7 @@
 import { Amplify } from 'aws-amplify';
 import { cognitoUserPoolsTokenProvider } from "aws-amplify/auth/cognito";
 import { sessionStorage } from "aws-amplify/utils";
+import { COURSE_GENERATOR_API_URL } from './utils/apiConfig';
 /**
  * AWS Amplify v6 Configuration
  * Uses environment variables:
@@ -91,7 +92,7 @@ Amplify.configure({
   API: {
     REST: {
       CourseGeneratorAPI: {
-        endpoint: import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod",
+        endpoint: COURSE_GENERATOR_API_URL,
         region: region
       },
       // 👇 Nueva API registrada (HTTP API Gateway)

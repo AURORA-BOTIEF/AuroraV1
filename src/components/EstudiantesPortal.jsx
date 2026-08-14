@@ -4,8 +4,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import './EstudiantesPortal.css';
 
-const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
-const PRESENTACIONES_API = 'https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod';
+import { API_BASE } from '../utils/apiConfig';
+const PRESENTACIONES_API = API_BASE;
 
 function EstudiantesPortal() {
     const navigate = useNavigate();

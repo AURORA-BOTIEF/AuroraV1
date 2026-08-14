@@ -4,7 +4,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBlobUrlForS3Object } from '../utils/s3ImageLoader';
 import './InfographicViewer.css';
 
-const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL || "https://i0l7dxvw49.execute-api.us-east-1.amazonaws.com/Prod";
+import { API_BASE } from '../utils/apiConfig';
 
 function InfographicViewer() {
     const { folder } = useParams();

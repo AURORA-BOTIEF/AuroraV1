@@ -6,7 +6,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { post } from 'aws-amplify/api';
 import './GeneradorCursos.css';
 
-const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
+import { API_BASE } from '../utils/apiConfig';
 const API_NAME = 'CourseGeneratorAPI';
 
 function GeneradorCursos() {

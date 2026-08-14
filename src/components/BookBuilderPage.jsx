@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './BookBuilderPage.css';
 
-const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
+import { API_BASE } from '../utils/apiConfig';
 
 function BookBuilderPage() {
     const navigate = useNavigate();

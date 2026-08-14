@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import './AsignadorPortal.css';
 
-const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
+import { API_BASE } from '../utils/apiConfig';
 
 function AsignadorPortal() {
     const [activeTab, setActiveTab] = useState('by-course'); // 'by-course', 'by-user', or 'instructors'

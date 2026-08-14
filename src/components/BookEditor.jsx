@@ -27,7 +27,7 @@ import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-sql';
 import 'prismjs/components/prism-docker';
 
-const API_BASE = import.meta.env.VITE_COURSE_GENERATOR_API_URL;
+import { API_BASE } from '../utils/apiConfig';
 const IDENTITY_POOL_ID = import.meta.env.VITE_IDENTITY_POOL_ID || import.meta.env.VITE_AWS_IDENTITY_POOL_ID || '';
 const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
