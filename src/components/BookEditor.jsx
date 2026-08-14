@@ -911,7 +911,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     const loadBookDataFromAPI = async (type) => {
         try {
             console.log(`📡 Fetching ${type} data from API (background)...`);
-            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${type}`);
+            const response = await fetch(`${API_BASE}/load-book/${encodeURIComponent(projectFolder)}?bookType=${type}`);
             if (!response.ok) {
                 console.warn(`API error loading ${type}:`, response.status);
                 return null;
@@ -1026,7 +1026,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             setLoading(true);
             setLoadingImages(true);
 
-            const response = await fetch(`${API_BASE}/load-book/${projectFolder}?bookType=${bookType}`, {
+            const response = await fetch(`${API_BASE}/load-book/${encodeURIComponent(projectFolder)}?bookType=${bookType}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
