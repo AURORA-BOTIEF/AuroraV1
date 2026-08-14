@@ -547,13 +547,7 @@ function InfographicViewer() {
         try {
             let url = `${API_BASE}/infographic/${encodeURIComponent(folder)}?_t=${new Date().getTime()}`;
 
-            const response = await fetch(url, {
-                cache: 'no-store',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                }
-            });
+            const response = await fetch(url);
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status} `);
