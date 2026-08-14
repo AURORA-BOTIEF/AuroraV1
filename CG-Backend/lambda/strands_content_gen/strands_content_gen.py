@@ -42,7 +42,7 @@ secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
 DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
-DEFAULT_OPENAI_MODEL = "gpt-5"
+DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
 DEFAULT_REGION = "us-east-1"
 
 # Application-level Bedrock retries (after boto retries) for transient errors
@@ -804,38 +804,77 @@ CRÍTICO: El contenido de todas las lecciones DEBE estar 100% estrictamente alin
 
 
 def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
-    """Call AWS Bedrock Claude API with app-level backoff on transient errors."""
-    request_body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 32000,
-        "temperature": 0.7,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    }
+    """Call AWS Bedrock Claude API with app-level backoff and fallback model sequence."""
+    candidate_models = [
+        model_id,
+        "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        "us.anthropic.claude-3-haiku-20240307-v1:0",
+        "amazon.nova-pro-v1:0"
+    ]
+    # Deduplicate while preserving order
+    seen = set()
+    models_to_try = []
+    for m in candidate_models:
+        if m and m not in seen:
+            seen.add(m)
+            models_to_try.append(m)
+
     last_err: Optional[Exception] = None
-    for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
-        try:
-            response = bedrock_client.invoke_model(
-                modelId=model_id,
-                body=json.dumps(request_body),
-                contentType='application/json',
-                accept='application/json'
-            )
-            response_body = json.loads(response['body'].read())
-            if 'content' in response_body and len(response_body['content']) > 0:
-                return response_body['content'][0]['text']
-            raise ValueError("No content in Bedrock response")
-        except Exception as e:
-            last_err = e
-            print(f"Bedrock API Error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {str(e)}")
-            if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
-                _sleep_before_bedrock_retry(attempt - 1)
-                continue
-            raise
+
+    for m_id in models_to_try:
+        request_body = {
+            "max_tokens": 32000,
+            "temperature": 0.7,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+        if "anthropic" in m_id:
+            request_body["anthropic_version"] = "bedrock-2023-05-31"
+
+        print(f"🤖 Attempting Bedrock model: {m_id}")
+        for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
+            try:
+                response = bedrock_client.invoke_model(
+                    modelId=m_id,
+                    body=json.dumps(request_body),
+                    contentType='application/json',
+                    accept='application/json'
+                )
+                response_body = json.loads(response['body'].read())
+                if 'content' in response_body and len(response_body['content']) > 0:
+                    return response_body['content'][0]['text']
+                elif 'output' in response_body and 'message' in response_body['output']:
+                    # Amazon Nova format
+                    content_list = response_body['output']['message'].get('content', [])
+                    if content_list and 'text' in content_list[0]:
+                        return content_list[0]['text']
+                raise ValueError(f"No content in Bedrock response for model {m_id}")
+            except Exception as e:
+                last_err = e
+                err_str = str(e)
+                print(f"Bedrock API Error ({m_id}, attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {err_str}")
+                if "Too many tokens per day" in err_str or "ThrottlingException" in err_str:
+                    print(f"⚠️ Model {m_id} quota/rate limit exceeded. Trying next fallback model...")
+                    break
+                if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
+                    _sleep_before_bedrock_retry(attempt - 1)
+                    continue
+                break
+
+    # If all Bedrock models failed, attempt Google Gemini fallback if key is available
+    try:
+        google_key = get_google_api_key()
+        if google_key:
+            print("⚠️ All Bedrock models failed or throttled. Attempting fallback to Google Gemini...")
+            return call_gemini(prompt, google_key)
+    except Exception as g_err:
+        print(f"⚠️ Gemini fallback also failed: {g_err}")
+
     assert last_err is not None
     raise last_err
 
@@ -847,8 +886,8 @@ def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) ->
         
         client = OpenAI(api_key=api_key)
         
-        # GPT-5 (o1 models) use max_completion_tokens and don't support temperature or system messages
-        if model.startswith("o1-") or model == "gpt-5":
+        # GPT-5.6-terra and reasoning models use max_completion_tokens
+        if model.startswith("o1-") or model.startswith("o3-") or "gpt-5" in model:
             response = client.chat.completions.create(
                 model=model,
                 messages=[

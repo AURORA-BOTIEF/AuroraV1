@@ -40,8 +40,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-opus-4-6-v1")
-DEFAULT_OPENAI_MODEL = "gpt-5"
+DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
 
 # Retries per lab before failing the batch (Step Functions should not succeed with partial labs)
 MAX_LAB_GENERATION_ATTEMPTS = int(os.getenv("MAX_LAB_GENERATION_ATTEMPTS", "3"))
@@ -212,21 +211,20 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
     raise last_err
 
 
-def call_openai_agent(prompt: str, api_key: str, model_id: str = "gpt-5") -> str:
-    """Call OpenAI API."""
+def call_openai_agent(prompt: str, api_key: str, model_id: str = DEFAULT_OPENAI_MODEL) -> str:
+    """Call OpenAI API with GPT-5.6-terra compatibility."""
     try:
         import openai
         client = openai.OpenAI(api_key=api_key)
         
-        # GPT-5 (o1) models use max_completion_tokens instead of max_tokens
-        # and don't support temperature or system messages
-        if model_id.startswith("o1-") or model_id == "gpt-5":
+        # GPT-5.6-terra and reasoning models use max_completion_tokens
+        if model_id.startswith("o1-") or model_id.startswith("o3-") or "gpt-5" in model_id:
             response = client.chat.completions.create(
                 model=model_id,
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=16000
+                max_completion_tokens=32000
             )
         else:
             # GPT-4 and earlier models
@@ -1409,10 +1407,9 @@ def lambda_handler(event, context):
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
         
-        # FORCE Bedrock for lab generation (more reliable format compliance)
-        # unless Google Gemini is selected.
+        # Support bedrock, openai, and google/gemini providers
         original_provider = event.get('model_provider', 'bedrock').lower()
-        if original_provider in ('google', 'gemini'):
+        if original_provider in ('google', 'gemini', 'openai'):
             model_provider = original_provider
         else:
             model_provider = 'bedrock'

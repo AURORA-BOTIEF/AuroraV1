@@ -48,9 +48,7 @@ s3_client = boto3.client('s3')
 bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=boto_config)
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
-# Model Configuration
-DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
-DEFAULT_OPENAI_MODEL = "gpt-5"
+DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
 
 # Height Estimation Constants (pixels) - MATCHED TO ACTUAL HTML CSS RENDERING
 # HTML-FIRST DESIGN: These constants are calibrated for 1280px × 720px HTML slides

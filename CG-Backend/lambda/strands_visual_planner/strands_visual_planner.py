@@ -55,8 +55,7 @@ bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config
 secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
 
 # Model Configuration
-DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
-DEFAULT_OPENAI_MODEL = "gpt-5"
+DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
 
 BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
 
@@ -204,13 +203,13 @@ def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
 
 
 def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:
-    """Call OpenAI API."""
+    """Call OpenAI API with GPT-5.6-terra compatibility."""
     try:
         import openai
         client = openai.OpenAI(api_key=api_key)
         
-        # GPT-5 uses max_completion_tokens instead of max_tokens
-        if model.startswith("o1-") or model == "gpt-5":
+        # GPT-5.6-terra and reasoning models use max_completion_tokens
+        if model.startswith("o1-") or model.startswith("o3-") or "gpt-5" in model:
             response = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],

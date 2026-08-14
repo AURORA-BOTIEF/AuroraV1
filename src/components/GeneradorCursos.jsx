@@ -581,7 +581,7 @@ function GeneradorCursos() {
                                     className="form-select"
                                 >
                                     <option value="bedrock">AWS Bedrock (Claude 4.6 Sonnet)</option>
-                                    <option value="openai">OpenAI (GPT-5)</option>
+                                    <option value="openai">OpenAI (GPT 5.6 Terra)</option>
                                     <option value="google">Google Gemini (Gemini 3.5 Flash)</option>
                                 </select>
                                 <small className="form-hint">

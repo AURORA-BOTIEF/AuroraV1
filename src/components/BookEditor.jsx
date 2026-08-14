@@ -4886,6 +4886,19 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 <small>Selecciona qué versión del libro usar para generar las diapositivas</small>
                             </div>
 
+                            <div className="ppt-form-group">
+                                <label>Modelo / Proveedor de IA:</label>
+                                <select
+                                    value={pptModelProvider}
+                                    onChange={(e) => setPptModelProvider(e.target.value)}
+                                    disabled={pptGenerating}
+                                >
+                                    <option value="bedrock">AWS Bedrock (Claude / Nova)</option>
+                                    <option value="openai">OpenAI (GPT 5.6 Terra)</option>
+                                </select>
+                                <small>Selecciona el proveedor de IA para la generación de la presentación</small>
+                            </div>
+
                             <div className="ppt-info-box">
                                 <strong>ℹ️ Información:</strong>
                                 <ul>
