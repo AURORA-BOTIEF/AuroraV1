@@ -243,7 +243,7 @@
       "ResultPath": "$.lab_validation_result",
       "ResultSelector": {
         "statusCode.$": "$.Payload.statusCode",
-        "is_valid.$": "$.Payload.is_valid"
+        "all_valid.$": "$.Payload.all_valid"
       },
       "Retry": [
         {
@@ -303,7 +303,7 @@
       "ResultPath": "$.lab_validation_result",
       "ResultSelector": {
         "statusCode.$": "$.Payload.statusCode",
-        "is_valid.$": "$.Payload.is_valid"
+        "all_valid.$": "$.Payload.all_valid"
       },
       "Retry": [
         {
@@ -361,7 +361,7 @@
       "ResultPath": "$.lesson_validation_result",
       "ResultSelector": {
         "statusCode.$": "$.Payload.statusCode",
-        "is_valid.$": "$.Payload.is_valid"
+        "all_valid.$": "$.Payload.all_valid"
       },
       "Retry": [
         {
@@ -421,7 +421,7 @@
       "ResultPath": "$.lesson_validation_result",
       "ResultSelector": {
         "statusCode.$": "$.Payload.statusCode",
-        "is_valid.$": "$.Payload.is_valid"
+        "all_valid.$": "$.Payload.all_valid"
       },
       "Retry": [
         {

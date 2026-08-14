@@ -667,6 +667,7 @@ def lambda_handler(event, context):
             'statusCode': 200 if (all_valid or not fail_on_error) else 400,
             'validation_results': validation_results,
             'all_valid': all_valid,
+            'is_valid': all_valid,
             'total_errors': total_errors,
             'total_warnings': total_warnings,
             'files_validated': len(content_keys)
