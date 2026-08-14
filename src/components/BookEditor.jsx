@@ -4226,26 +4226,35 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
 
             const data = await response.json();
 
-            // Check for backend errors
-            if (data.error) {
-                throw new Error(`Backend error: ${data.error}`);
+            // Handle case where body might be a JSON string inside API Gateway payload
+            let resData = data;
+            if (data && typeof data.body === 'string') {
+                try {
+                    resData = JSON.parse(data.body);
+                } catch {
+                    resData = data;
+                }
             }
 
-            console.log('✅ API Response:', data);
+            // Check for backend errors
+            if (resData.error || data.error) {
+                throw new Error(`Backend error: ${resData.error || data.error}`);
+            }
 
-            // SUCCESS - Close modal and reset state
+            console.log('✅ API Response:', resData);
+
+            // SUCCESS - Close option modal and reset generating state
             setShowPPTModal(false);
             setPptGenerating(false);
 
-            // Show success notification based on response
-            // If we got execution_arn, it means async processing started
-            if (data.execution_arn || data.message?.includes('started') || data.message?.includes('Iniciada') || data.message?.includes('orchestration')) {
-                // Async batch orchestration started - show custom modal
+            // Show success confirmation modal based on response
+            if (response.status === 202 || resData.execution_arn || resData.execution_name || resData.message?.includes('started') || resData.message?.includes('Iniciada') || resData.message?.includes('orchestration')) {
+                // Async batch orchestration started - show confirmation modal
                 setShowSuccessModal(true);
-            } else if (data.html_s3_key || data.html_url) {
+            } else if (resData.html_s3_key || resData.html_url) {
                 // Immediate completion (single batch)
-                const htmlUrl = data.html_url || `https://crewai-course-artifacts.s3.amazonaws.com/${data.html_s3_key}`;
-                const totalSlides = data.total_slides || 'múltiples';
+                const htmlUrl = resData.html_url || `https://crewai-course-artifacts.s3.amazonaws.com/${resData.html_s3_key}`;
+                const totalSlides = resData.total_slides || 'múltiples';
 
                 const successMessage = `✅ ¡Infografía Interactiva Generada!\n\n` +
                     `📊 ${totalSlides} diapositivas creadas\n` +
@@ -4262,9 +4271,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                     window.open(htmlUrl, '_blank');
                 }
             } else {
-                // Generic success
-                alert('✅ Presentación generada exitosamente\n\n' +
-                    'Revisa la sección de Presentaciones para ver el resultado.');
+                setShowSuccessModal(true);
             }
 
         } catch (error) {

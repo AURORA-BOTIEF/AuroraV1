@@ -241,6 +241,10 @@
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lab_validation_result",
+      "ResultSelector": {
+        "statusCode.$": "$.Payload.statusCode",
+        "is_valid.$": "$.Payload.is_valid"
+      },
       "Retry": [
         {
           "BackoffRate": 2.0,
@@ -297,6 +301,10 @@
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lab_validation_result",
+      "ResultSelector": {
+        "statusCode.$": "$.Payload.statusCode",
+        "is_valid.$": "$.Payload.is_valid"
+      },
       "Retry": [
         {
           "BackoffRate": 2.0,
@@ -351,6 +359,10 @@
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lesson_validation_result",
+      "ResultSelector": {
+        "statusCode.$": "$.Payload.statusCode",
+        "is_valid.$": "$.Payload.is_valid"
+      },
       "Retry": [
         {
           "BackoffRate": 2.0,
@@ -407,6 +419,10 @@
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lesson_validation_result",
+      "ResultSelector": {
+        "statusCode.$": "$.Payload.statusCode",
+        "is_valid.$": "$.Payload.is_valid"
+      },
       "Retry": [
         {
           "BackoffRate": 2.0,
@@ -628,6 +644,13 @@
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.master_lab_plan_result",
+      "ResultSelector": {
+        "Payload": {
+          "statusCode.$": "$.Payload.statusCode",
+          "master_plan_key.$": "$.Payload.master_plan_key",
+          "total_labs.$": "$.Payload.total_labs"
+        }
+      },
       "Retry": [
         {
           "BackoffRate": 2.0,
@@ -666,6 +689,14 @@
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.book_result",
+      "ResultSelector": {
+        "Payload": {
+          "statusCode.$": "$.Payload.statusCode",
+          "book_s3_key.$": "$.Payload.book_s3_key",
+          "book_json_key.$": "$.Payload.book_json_key",
+          "lesson_count.$": "$.Payload.lesson_count"
+        }
+      },
       "Retry": [
         {
           "BackoffRate": 2.0,
