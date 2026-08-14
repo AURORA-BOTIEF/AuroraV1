@@ -545,13 +545,15 @@ function InfographicViewer() {
         setError(null);
 
         try {
-            let url = `${API_BASE}/infographic/${encodeURIComponent(folder)}`;
+            let url = `${API_BASE}/infographic/${encodeURIComponent(folder)}?_t=${new Date().getTime()}`;
 
-            if (forceRefresh) {
-                url += `?_t=${new Date().getTime()}`;
-            }
-
-            const response = await fetch(url);
+            const response = await fetch(url, {
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                }
+            });
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status} `);
