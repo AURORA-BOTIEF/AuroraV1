@@ -141,9 +141,17 @@ function InfographicViewer() {
                         transition: background-color 0.3s;
                     }
 
-                    /* Hide everything that is not a slide (in presentation mode) */
-                    body:not(.grid-mode) > *:not(.slide):not(script):not(style) {
+                    /* Hide toolbar and top-level non-slide/non-content elements in presentation mode */
+                    body:not(.grid-mode) > *:not(.slide):not(.content):not(script):not(style) {
                         display: none !important;
+                    }
+
+                    body:not(.grid-mode) > .content {
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        width: 100% !important;
+                        height: 100% !important;
+                        display: block !important;
                     }
 
                     /* === PRESENTATION MODE (Default - No Wrappers) === */
