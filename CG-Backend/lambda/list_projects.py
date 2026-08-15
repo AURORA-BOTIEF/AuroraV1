@@ -47,10 +47,25 @@ def lambda_handler(event, context):
         all_folders = list_all_root_prefixes(s3_client, bucket_name, excluded_folders)
         print(f"--- {len(all_folders)} project prefixes (after exclusions) ---")
 
-        # Sort by creation date string (newest first); folders without date sort last
+        # Sort by creation date string (newest first); folders without date query S3 object timestamps
+        folder_dates_cache = {}
+
         def sort_key(folder):
             d = extract_date_from_folder(folder)
-            return (d or "0000-00-00", folder)
+            if d:
+                return (d, folder)
+            if folder in folder_dates_cache:
+                return (folder_dates_cache[folder], folder)
+            try:
+                res = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=f"{folder}/", MaxKeys=3)
+                contents = res.get("Contents", [])
+                if contents:
+                    d = max(obj["LastModified"] for obj in contents).strftime("%Y-%m-%d")
+                    folder_dates_cache[folder] = d
+                    return (d, folder)
+            except Exception:
+                pass
+            return ("0000-00-00", folder)
 
         all_folders.sort(key=sort_key, reverse=True)
 
@@ -216,7 +231,7 @@ def build_project_row(s3_client, bucket_name, project_folder):
         elif not course_title:
             course_title = project_folder.split("-", 1)[1] if "-" in project_folder else project_folder
 
-    creation_date = extract_date_from_folder(project_folder) or metadata.get("created", "")
+    creation_date = get_project_creation_date(s3_client, bucket_name, project_folder, metadata)
 
     return {
         "folder": project_folder,
@@ -238,6 +253,26 @@ def extract_date_from_folder(folder_name):
         year, month, day = match.groups()
         return f"20{year}-{month}-{day}"
     return None
+
+
+def get_project_creation_date(s3_client, bucket_name, project_folder, metadata=None):
+    """Get exact creation date from folder prefix, metadata, or S3 object timestamps."""
+    folder_date = extract_date_from_folder(project_folder)
+    if folder_date:
+        return folder_date
+    if metadata and metadata.get("created"):
+        created_val = str(metadata["created"])
+        if len(created_val) >= 10:
+            return created_val[:10]
+    try:
+        res = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=f"{project_folder}/", MaxKeys=5)
+        contents = res.get("Contents", [])
+        if contents:
+            dates = [obj["LastModified"] for obj in contents]
+            return min(dates).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return ""
 
 
 def load_project_metadata(s3_client, bucket_name, project_folder):
