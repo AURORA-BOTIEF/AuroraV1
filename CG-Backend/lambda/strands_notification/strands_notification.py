@@ -58,8 +58,17 @@ def lambda_handler(event, context):
     admin_email = "juan.ossa@netec.com"
     recipients = [admin_email]
     
-    if user_email:
-        recipients.append(user_email)
+    if user_email and isinstance(user_email, str):
+        cleaned_email = user_email.strip()
+        if (cleaned_email and 
+            "@" in cleaned_email and 
+            not cleaned_email.lower().endswith("@example.com") and 
+            not cleaned_email.lower().endswith("@iam.amazonaws.com") and 
+            "unknown" not in cleaned_email.lower()):
+            recipients.append(cleaned_email)
+            logger.info(f"📧 Added user recipient: {cleaned_email}")
+        else:
+            logger.info(f"⚠️ Ignored dummy/invalid user email: {cleaned_email}")
         
     # Remove duplicates
     recipients = list(set(recipients))

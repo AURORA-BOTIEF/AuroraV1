@@ -278,9 +278,9 @@ def lambda_handler(event, context):
         book_type = body.get('book_type', 'theory')  # 'theory' or 'lab'
         course_duration_hours = body.get('course_duration_hours')
         
-        # HTML-first architecture: Skip PPT merging and conversion (HTML is final output)
+        # HTML-first architecture: Invoke merger to compile final HTML presentation
         # Legacy architecture: Merge batches and convert to PPT
-        auto_combine = False if html_first else body.get('auto_combine', True)
+        auto_combine = body.get('auto_combine', True)
         
         if not course_bucket or not project_folder:
             return {
@@ -413,9 +413,9 @@ def lambda_handler(event, context):
             'execution_id': orchestration_execution_id,
         }
         
-        # Add user_email if provided (for notifications)
+        # Add user_email for notifications
+        state_machine_input['user_email'] = user_email or ""
         if user_email:
-            state_machine_input['user_email'] = user_email
             logger.info(f"📧 User email for notifications: {user_email}")
         
         # Start Step Functions execution

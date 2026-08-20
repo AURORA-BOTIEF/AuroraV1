@@ -1324,6 +1324,7 @@ Resources:
         StrandsInfographicGeneratorArn: !GetAtt StrandsInfographicGenerator.Arn
         StrandsPptMergerArn: !GetAtt StrandsPptMerger.Arn
         StrandsVisualOptimizerArn: !GetAtt StrandsVisualOptimizer.Arn
+        StrandsNotificationArn: !GetAtt StrandsNotification.Arn
       Type: STANDARD
       Policies:
         - Version: '2012-10-17'

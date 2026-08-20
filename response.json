@@ -1,1 +1,1 @@
-{"statusCode": 400, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token", "Access-Control-Allow-Methods": "OPTIONS,GET"}, "body": "{\"error\": \"projectFolder parameter is required\"}"}
+{"statusCode": 200, "body": "\"Notification process completed. Results: Success: sebastian.nino@netec.com.co, Success: juan.ossa@netec.com\""}

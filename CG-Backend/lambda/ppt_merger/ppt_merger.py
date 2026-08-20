@@ -208,9 +208,14 @@ def lambda_handler(event, context):
             
             # Only regenerate HTML if it doesn't exist (fallback)
             if not html_exists:
-                logger.warning(f"🔄 FALLBACK: Generating HTML from structure (HTML-First should have created it)")
-                from html_generator import generate_html_from_structure
-                final_html = generate_html_from_structure(merged_structure)
+                logger.warning(f"🔄 FALLBACK: Generating HTML from structure using modern HTML-First layout")
+                from html_first_generator import generate_html_output
+                final_html = generate_html_output(
+                    slides=merged_structure.get('slides', []),
+                    style='professional',
+                    image_url_mapping=merged_structure.get('image_url_mapping', {}),
+                    course_title=merged_structure.get('course_title', 'Course Presentation')
+                )
                 
                 s3_client.put_object(
                     Bucket=course_bucket,

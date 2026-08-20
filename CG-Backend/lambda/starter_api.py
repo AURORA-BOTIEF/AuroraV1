@@ -812,13 +812,16 @@ def lambda_handler(event, context):
             print(f"⚠️ Error parsing body for email extraction: {e}")
             body_for_email = {}
 
-        if body_for_email.get('user_email'):
-            if not user_email:
-                user_email = body_for_email.get('user_email')
-            print(f"Request body user_email: {body_for_email.get('user_email')}")
-            if not user_id:
-                raw = body_for_email.get('user_email') or ''
-                user_id = re.sub(r'[^a-zA-Z0-9_-]+', '-', raw.split('@')[0]).strip('-') or None
+        req_email = body_for_email.get('user_email') or body_for_email.get('email')
+        if req_email and isinstance(req_email, str):
+            req_email = req_email.strip()
+            if not user_email or user_email.endswith('@example.com') or user_email.endswith('@iam.amazonaws.com'):
+                user_email = req_email
+            print(f"Request body user_email: {user_email}")
+            if not user_id or user_id == 'unknown-user' or 'stateMachine' in user_id or 'Role' in user_id:
+                raw = req_email.split('@')[0]
+                user_id = re.sub(r'[^a-zA-Z0-9_-]+', '-', raw).strip('-') or 'unknown-user'
+                print(f"Derived user_id from email: {user_id}")
 
         if not user_id:
             user_id = 'unknown-user'
