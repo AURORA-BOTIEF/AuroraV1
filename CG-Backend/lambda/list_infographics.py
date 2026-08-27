@@ -153,7 +153,7 @@ def check_infographic_exists(s3_client, bucket_name, project_folder):
             return {
                 'folder': project_folder,
                 'last_modified': last_modified,
-                'created': extract_date_from_folder(project_folder) or last_modified.split('T')[0]
+                'created': last_modified
             }
         except:
             return None

@@ -134,6 +134,7 @@
                 "total_lessons.$": "$.total_lessons",
                 "course_bucket.$": "$.course_bucket",
                 "project_folder.$": "$.project_folder",
+                "user_email.$": "$.user_email",
                 "ppt_batch_results.$": "$.all_ppt_batch_results[*].ppt_generation_result.Payload",
                 "auto_combine.$": "$.auto_combine"
             },
@@ -197,6 +198,7 @@
                 "course_bucket.$": "$.course_bucket",
                 "auto_combine.$": "$.auto_combine",
                 "project_folder.$": "$.project_folder",
+                "user_email.$": "$.user_email",
                 "total_lessons.$": "$.total_lessons",
                 "total_batches.$": "$.total_batches",
                 "ppt_merger_result.$": "States.StringToJson($.ppt_merger_result.Payload.body)"
@@ -230,6 +232,15 @@
                     "BackoffRate": 2.0
                 }
             ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "PptOrchestrationComplete",
+                    "ResultPath": "$.notification_error"
+                }
+            ],
             "Next": "PptOrchestrationComplete"
         },
         "NotifyFailure": {
@@ -257,6 +268,15 @@
                     "IntervalSeconds": 5,
                     "MaxAttempts": 2,
                     "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "FailWorkflow",
+                    "ResultPath": "$.notification_error"
                 }
             ],
             "Next": "FailWorkflow"

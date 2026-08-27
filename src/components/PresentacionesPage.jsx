@@ -70,6 +70,7 @@ function PresentacionesPage() {
         if (!dateString) return 'Fecha desconocida';
         try {
             const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString;
             return date.toLocaleDateString('es-MX', {
                 year: 'numeric',
                 month: 'long',
