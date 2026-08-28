@@ -67,7 +67,7 @@ course:
     assert new_key == "folder/course.yaml"
     mock_s3.get_object.assert_called_with(Bucket="my-bucket", Key="folder/course.pdf")
     mock_extract_pdf.assert_called_with(b"pdf binary data")
-    mock_convert.assert_called_with("Extracted Text from PDF", "course.pdf")
+    mock_convert.assert_called_with("Extracted Text from PDF", "course.pdf", course_duration_hours=None)
     mock_s3.put_object.assert_called_once()
     mock_normalize.assert_called_with(mock_s3, "my-bucket", "folder/course.yaml")
 
@@ -139,4 +139,22 @@ def test_should_not_defer_when_already_async():
     })
     assert should_async is False
     assert reason is None
+
+
+@patch('starter_api.call_bedrock_ai')
+def test_convert_non_yaml_preserves_short_course_guidance(mock_call_bedrock):
+    mock_call_bedrock.return_value = """
+```yaml
+course:
+  title: "Short 1.5h Seminar"
+  total_duration_minutes: 90
+  modules: []
+```
+"""
+    result = starter_api.convert_non_yaml_to_yaml("Seminar content: 1.5h duration", "seminar.pdf", course_duration_hours=None)
+    assert "total_duration_minutes: 90" in result
+    prompt_used = mock_call_bedrock.call_args[0][0]
+    assert "CRITICAL - Extraction & Preservation of Exact Durations" in prompt_used
+    assert "NEVER inflate, scale up, or multiply durations" in prompt_used
+
 

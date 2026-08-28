@@ -979,6 +979,9 @@ OUTPUT FORMAT (JSON):
         is_lab_lesson = (
             'laboratorio' in lesson_title.lower() or
             'lab' in lesson_title.lower() or
+            'demo' in lesson_title.lower() or
+            'demostración' in lesson_title.lower() or
+            'demostracion' in lesson_title.lower() or
             lesson_title.lower() in lab_titles
         )
         
@@ -1006,6 +1009,9 @@ OUTPUT FORMAT (JSON):
         is_lab_lesson = (
             'laboratorio' in lesson_title.lower() or
             'lab' in lesson_title.lower() or
+            'demo' in lesson_title.lower() or
+            'demostración' in lesson_title.lower() or
+            'demostracion' in lesson_title.lower() or
             lesson_title.lower() in lab_titles
         )
         
@@ -2024,10 +2030,13 @@ def lambda_handler(event, context):
                         for mod_lesson in module_info.get('lessons', []):
                              l_title = mod_lesson.get('title', '').lower()
                              l_type = mod_lesson.get('type', '').lower()
-                             # Check if it is a lab
+                             # Check if it is a lab or demo
                              if (l_title.startswith('lab ') or l_title.startswith('lab-') or 
-                                 l_title.startswith('práctica') or 'laboratorio -' in l_title or
-                                 l_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio']):
+                                 l_title.startswith('práctica') or l_title.startswith('practica') or
+                                 l_title.startswith('demo') or l_title.startswith('demostración') or
+                                 l_title.startswith('demostracion') or
+                                 'laboratorio -' in l_title or 'demo -' in l_title or
+                                 l_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'demo', 'demostracion', 'demostración']):
                                      
                                      all_slides.append(create_lab_intro_slide(mod_lesson, is_spanish, len(all_slides)+1))
                                      all_slides.append(create_lab_result_slide(mod_lesson, is_spanish, len(all_slides)+1))

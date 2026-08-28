@@ -192,24 +192,37 @@ def is_spanish_course(course_data: dict) -> bool:
 
 
 def is_lab_lesson(lesson: dict) -> bool:
-    """Detect if a lesson is a lab / hands-on activity lesson."""
+    """Detect if a lesson is a lab / demo / hands-on activity lesson."""
     if not isinstance(lesson, dict):
         return False
     lesson_type = str(lesson.get('type', '')).strip().lower()
     lesson_title = str(lesson.get('title', '')).strip()
     lesson_title_lower = lesson_title.lower()
 
-    if lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica']:
+    if lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica', 'demo', 'demostracion', 'demostración']:
         return True
 
-    prefixes = ['laboratorio', 'lab:', 'lab ', 'práctica', 'practica', 'actividad práctica', 'actividad practica']
+    prefixes = ['laboratorio', 'lab:', 'lab ', 'práctica', 'practica', 'actividad práctica', 'actividad practica', 'demo:', 'demo ', 'demostración:', 'demostracion:', 'demostración', 'demostracion', '[demo]']
     for p in prefixes:
         if lesson_title_lower.startswith(p):
             return True
 
-    if 'laboratorio:' in lesson_title_lower or 'laboratorio -' in lesson_title_lower:
+    if 'laboratorio:' in lesson_title_lower or 'laboratorio -' in lesson_title_lower or 'demo:' in lesson_title_lower or 'demo -' in lesson_title_lower:
         return True
 
+    return False
+
+
+def is_demo_lesson(lesson: dict) -> bool:
+    """Detect if a lesson is an instructor demo."""
+    if not isinstance(lesson, dict):
+        return False
+    lesson_type = str(lesson.get('type', '')).strip().lower()
+    lesson_title = str(lesson.get('title', '')).strip().lower()
+    if lesson_type in ['demo', 'demostracion', 'demostración']:
+        return True
+    if 'demo' in lesson_title or 'demostración' in lesson_title or 'demostracion' in lesson_title:
+        return True
     return False
 
 
@@ -354,14 +367,31 @@ def generate_batch_single_call(
         labs_str = "\n".join(labs_formatted)
 
         l_is_lab = is_lab_lesson(lesson)
+        l_is_demo = is_demo_lesson(lesson)
         if l_is_lab:
             l_title = lesson.get('title', 'Untitled')
-            spec = f"""
+            if l_is_demo:
+                if not l_title.lower().startswith('demo'):
+                    l_title = f"Demo: {l_title}"
+                spec = f"""
+    {lesson_term} {i + 1}: {l_title} (TIPO: DEMOSTRACIÓN / DEMO DEL INSTRUCTOR)
+    {dur_label}: {lesson.get('duration_minutes', module_duration)} {min_label}
+    *** INSTRUCCIÓN CRÍTICA DE DEMOSTRACIÓN DEL INSTRUCTOR ***
+    Esta lección representa una demostración práctica guiada realizada por el instructor (no una práctica individual del alumno). La guía detallada paso a paso se genera en la GUÍA DE LABORATORIO.
+    En el Libro de Teoría, esta lección debe ser ÚNICAMENTE UNA LECCIÓN DE REFERENCIA corta (~300-500 palabras) con la siguiente estructura exacta:
+    1. # {module_number}.{i + 1}: {l_title}
+    2. ## Objetivos de Aprendizaje
+    3. ## Referencia a la Demostración del Instructor (un bloque destacado aclarando que esta actividad es una demostración realizada por el instructor para que los alumnos observen, y que los pasos guiados y comandos se encuentran en la Guía de Laboratorio del Capítulo {module_number})
+    4. ## Resumen de la Demostración (Contexto, conceptos demostrados por el instructor y duración estimada)
+    5. ## Referencias Bibliográficas (enlaces https válidos)
+"""
+            else:
+                spec = f"""
     {lesson_term} {i + 1}: {l_title} (TIPO: LABORATORIO / ACTIVIDAD PRÁCTICA)
     {dur_label}: {lesson.get('duration_minutes', module_duration)} {min_label}
     *** INSTRUCCIÓN CRÍTICA DE NO DUPLICIDAD DE LABORATORIO ***
     Esta lección representa una actividad de laboratorio. La guía práctica detallada, código y comandos se generan en su GUÍA DE LABORATORIO DEDICADA.
-    En el Libro de Teoría, esta lección debe ser ÚNICAMENTE UNA LECCIÓN DE REFERENCIA corta (~300-500 palabras) con la siguiente estructura exactas:
+    En el Libro de Teoría, esta lección debe ser ÚNICAMENTE UNA LECCIÓN DE REFERENCIA corta (~300-500 palabras) con la siguiente estructura exacta:
     1. # {module_number}.{i + 1}: {l_title}
     2. ## Objetivos de Aprendizaje
     3. ## Referencia a la Guía de Laboratorio (un bloque destacado indicando que los pasos guiados, comandos y solución de esta práctica se encuentran en la Guía de Laboratorio dedicada del Capítulo {module_number})

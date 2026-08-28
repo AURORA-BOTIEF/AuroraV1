@@ -4020,17 +4020,24 @@ def generate_complete_course(
             '## lab activity' in lesson_content_lower or
             '## laboratory' in lesson_content_lower or
             'guía de laboratorio' in lesson_content_lower or
-            'guia de laboratorio' in lesson_content_lower
+            'guia de laboratorio' in lesson_content_lower or
+            'demostración realizada por el instructor' in lesson_content_lower or
+            'demostracion realizada por el instructor' in lesson_content_lower or
+            'instructor-led' in lesson_content_lower
         )
         
         # Detect lab lessons by type field OR title patterns
         is_lab_lesson = (
-            lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica'] or
+            lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica', 'demo', 'demostracion', 'demostración'] or
             lesson_title_lower.startswith('laboratorio') or
             lesson_title_lower.startswith('lab ') or
             lesson_title_lower.startswith('lab:') or
             lesson_title_lower.startswith('práctica') or
+            lesson_title_lower.startswith('practica') or
             lesson_title_lower.startswith('actividad') or
+            lesson_title_lower.startswith('demo') or
+            lesson_title_lower.startswith('demostración') or
+            lesson_title_lower.startswith('demostracion') or
             has_lab_markers
         )
         

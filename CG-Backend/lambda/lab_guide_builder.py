@@ -350,7 +350,7 @@ def extract_lab_title(content, filename):
 
 
 def normalize_lab_title(title, lab_num):
-    """Normalize lab title to remove 'Lab XX-YY-ZZ:' prefixes."""
+    """Normalize lab title to remove 'Lab XX-YY-ZZ:' prefixes while preserving 'Demo:'."""
     import re
     
     # Remove "Lab 01-07-01:" or similar patterns
@@ -358,11 +358,20 @@ def normalize_lab_title(title, lab_num):
         r'^Lab\s+\d+-\d+-\d+:\s*',  # Lab 01-07-01:
         r'^Lab\s+\d+:\s*',           # Lab 1:
         r'^Práctica\s+\d+:\s*',      # Práctica 1:
+        r'^Practica\s+\d+:\s*',      # Practica 1:
     ]
     
     cleaned_title = title
     for pattern in patterns:
         cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
+    
+    cleaned_title = cleaned_title.strip()
+    
+    # Normalize Demo / Demostración if present
+    if re.match(r'^(demostración|demostracion)\s*:\s*', cleaned_title, flags=re.IGNORECASE):
+        cleaned_title = re.sub(r'^(demostración|demostracion)\s*:\s*', 'Demo: ', cleaned_title, flags=re.IGNORECASE)
+    elif re.match(r'^(demostración|demostracion)\s*-\s*', cleaned_title, flags=re.IGNORECASE):
+        cleaned_title = re.sub(r'^(demostración|demostracion)\s*-\s*', 'Demo: ', cleaned_title, flags=re.IGNORECASE)
     
     return cleaned_title.strip()
 

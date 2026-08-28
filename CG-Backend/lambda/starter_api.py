@@ -304,8 +304,14 @@ def call_bedrock_ai(prompt: str) -> str:
         raise ValueError(f"AI Service unavailable: {e}")
 
 
-def convert_non_yaml_to_yaml(content: str, filename: str, course_duration_hours: int = 40) -> str:
+def convert_non_yaml_to_yaml(content: str, filename: str, course_duration_hours: float | None = None) -> str:
     """Use AI to align/convert text into a standard syllabus YAML string."""
+    duration_guidance = ""
+    if course_duration_hours:
+        duration_guidance = f"- If and ONLY IF no course or module durations are mentioned anywhere in the source document, use a target course duration of approximately {course_duration_hours} hours ({int(course_duration_hours * 60)} minutes)."
+    else:
+        duration_guidance = "- If no durations are specified anywhere in the source document, estimate realistic, proportional durations based on the depth of each topic (e.g. 15-30 min per topic)."
+
     prompt = f"""You are an expert curriculum designer and syllabus alignment assistant.
 Your task is to take the following course description, topics, or outline (uploaded as {filename}) and convert/align it into a standardized YAML format that matches our system's expected schema exactly.
 
@@ -335,7 +341,7 @@ course:
       bloom_level: "Understand" or "Apply" or "Analyze" or "Remember"
       lessons:
         - title: "Lesson Title"
-          duration_minutes: integer (Usually between 15 and 90 minutes)
+          duration_minutes: integer
           bloom_level: "Understand" or "Apply" or "Analyze" etc.
           topics:
             - title: "Topic 1 details"
@@ -345,24 +351,27 @@ course:
               duration_minutes: integer
               bloom_level: "Apply"
           lab_activities:
-            - title: "Hands-on activity details"
+            - title: "Hands-on activity details OR Demo: Demonstration details"
               duration_minutes: integer
               bloom_level: "Apply"
 ```
 
 Important Alignment & Content Rules:
-1. **100% Structural Alignment:** The output must match this exact schema. If any key details like audience, prerequisites, durations, or learning outcomes are missing from the input, you MUST generate sensible, professional defaults to ensure a complete, high-quality course syllabus.
-2. **Durations & Calculations:** Ensure all durations are populated. Total duration must be the sum of all module durations, and each module duration must be the sum of its lessons and labs. Topics and lab activities should also have sub-durations.
-3. **Strict 1-to-1 Structural Fidelity:**
+1. **100% Structural Alignment:** The output must match this exact schema. If any key details like audience, prerequisites, or learning outcomes are missing from the input, you MUST generate sensible, professional defaults to ensure a complete, high-quality course syllabus.
+2. **CRITICAL - Extraction & Preservation of Exact Durations:**
+   - Scan the source document carefully for ANY duration indicators (e.g., '1.5 h', '1.5 horas', '90 min', '2 horas', '4h', '(15 min)', '(3 min)', '(5 min)', '(24 min)', etc.).
+   - If the source document specifies durations for the course, modules, lessons, or topics (e.g., a 1.5-hour seminar, a 2-hour workshop, a 4-hour crash course, a 16-hour course, etc.), you MUST STRICTLY PRESERVE and USE THOSE EXACT DURATIONS.
+   - NEVER inflate, scale up, or multiply durations. If a seminar or workshop is 1.5 hours (90 minutes), the `total_duration_minutes` MUST be 90 minutes.
+   {duration_guidance}
+   - `total_duration_minutes` MUST be the exact mathematical sum of all module durations.
+   - Each module's `duration_minutes` MUST be the exact sum of its lessons and lab activities.
+3. **Strict 1-to-1 Structural Fidelity & Support for Demos/Labs:**
    - Preserve ALL modules, chapters, sections, and numbered subtopics from the source document EXACTLY as written.
    - EVERY numbered sub-item in the source document (e.g., 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, etc.) MUST be created as an individual `lesson` entry in the YAML under its respective module.
    - DO NOT group, merge, consolidate, or collapse subtopics into fewer lessons than listed in the source document.
-   - If a sub-item represents a hands-on exercise or laboratory (e.g. "1.7 Laboratorio: ..."), place it in `lab_activities` or as a dedicated lesson entry with `type: "lab"`.
-4. **Target Course Hours ({course_duration_hours} Hours / {course_duration_hours * 60} Minutes):**
-   - Ensure the sum of all module durations (`total_duration_minutes`) is approximately {course_duration_hours * 60} minutes.
-   - Distribute the duration across all individual lessons and lab activities.
-5. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
-6. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
+   - **Demos & Demostraciones Support**: When the syllabus or outline specifies demos or demonstrations (e.g., "Demo: ...", "Demostración: ...", "Demo de...", or lesson type demo), these MUST be classified and developed just like laboratories and included in `lab_activities` (or as practical lesson entries). For any Demo, the title MUST explicitly include the word "Demo" (e.g., "Demo: [Topic/Activity]"), so that it is included in the lab guide and clearly distinguished as an instructor-led demonstration.
+4. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
+5. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
 
 Input Content:
 ---
@@ -524,7 +533,7 @@ def process_manual_pdfs(s3_client, bucket: str, manual_s3_keys: list, project_fo
     return manual_text_s3_key, combined_text
 
 
-def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str, course_duration_hours: int = 40) -> str:
+def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str, course_duration_hours: float | None = None) -> str:
     """
     Checks the extension of the outline file. If it is non-YAML, extracts text,
     converts it to normalized YAML using AI, saves it back to S3 under a .yaml extension,
@@ -966,7 +975,13 @@ def lambda_handler(event, context):
             }
 
         # Set defaults and extract parameters
-        course_duration_hours = body.get('course_duration_hours', 40)
+        raw_duration = body.get('course_duration_hours')
+        course_duration_hours = None
+        if raw_duration is not None:
+            try:
+                course_duration_hours = float(raw_duration)
+            except (ValueError, TypeError):
+                course_duration_hours = None
         course_bucket = body.get('course_bucket', 'crewai-course-artifacts')  # Default bucket - must be defined early
         project_folder = body.get('project_folder') or f"course-{user_id}-{int(datetime.now().timestamp())}"
         
@@ -1082,6 +1097,28 @@ def lambda_handler(event, context):
         else:
             course_language = "es"
             print(f"🌐 course_language default (no outline key): {course_language}")
+
+        # Determine course duration: prefer outline total_duration_minutes if not explicitly specified in body
+        if outline_s3_key and s3_client:
+            try:
+                outline_obj = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
+                outline_content = outline_obj['Body'].read().decode('utf-8')
+                outline_data = yaml.safe_load(outline_content)
+                if outline_data:
+                    c_data = outline_data.get('course', outline_data)
+                    total_mins = c_data.get('total_duration_minutes')
+                    if total_mins:
+                        calc_hours = round(float(total_mins) / 60.0, 2)
+                        if not course_duration_hours:
+                            course_duration_hours = calc_hours
+                            print(f"⏱️ Extracted course_duration_hours={course_duration_hours} from outline total_duration_minutes={total_mins}")
+                    elif c_data.get('duration_hours') and not course_duration_hours:
+                        course_duration_hours = float(c_data['duration_hours'])
+            except Exception as e:
+                print(f"⚠️ Could not read duration from outline: {e}")
+
+        if not course_duration_hours:
+            course_duration_hours = 40
 
         # Initialize Step Functions client
         sf_client = boto3.client('stepfunctions')

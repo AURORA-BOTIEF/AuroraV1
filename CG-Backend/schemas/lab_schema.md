@@ -462,11 +462,26 @@ docker pull <image-name>
 
 ---
 
+## Demos / Demostraciones (Instructor-Led Activities)
+
+When the syllabus specifies a Demo or Demostración:
+1. **Development**: Demos are developed with the same step-by-step depth and rigor as hands-on labs.
+2. **Placement**: Included in the Lab Guide (`labguide`).
+3. **Title Format**: The title MUST contain the word **Demo** (e.g., `# Lab 01-02-01: Demo: Instalación y Configuración` or `# Demo: Instalación y Configuración`).
+4. **Mandatory Instructor Callout**: Under the Overview (`Descripción General`), include a clear callout notice stating that the practice is performed by the instructor:
+   ```markdown
+   > ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente.
+   ```
+   *(English courses:* `> ℹ️ **Note:** This activity is an **Instructor-Led Demonstration**. The instructor will perform the steps and commands while students observe, take notes, and analyze the procedure, rather than performing it individually.`*)*
+
+---
+
 ## Validation Checklist
 
 Before finalizing lab content, verify:
 
-- [ ] Single H1 heading with proper Lab ID format
+- [ ] Single H1 heading with proper Lab ID format (and includes "Demo" if instructor demo)
+- [ ] For Demos: Mandatory instructor callout note is present under Overview
 - [ ] Metadata table with Duration, Complexity, Bloom Level
 - [ ] No skipped heading levels (H1 → H2 → H3)
 - [ ] All required sections present
@@ -484,4 +499,6 @@ Before finalizing lab content, verify:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1 | 2026-08-28 | Added support for Demos / Demostraciones (Instructor-led activities) |
 | 1.0 | 2025-12-08 | Initial schema definition |
+

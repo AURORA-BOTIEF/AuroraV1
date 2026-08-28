@@ -21,6 +21,7 @@ function GeneradorCursos() {
     const [imageModel, setImageModel] = useState('models/gemini-2.5-flash-image'); // Default to cost-optimized
     const contentType = 'both'; // Always theory + labs
     const [labRequirements, setLabRequirements] = useState('');
+    const [courseDurationHours, setCourseDurationHours] = useState(''); // Optional duration override (e.g. 1.5, 8, 40)
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [userEmail, setUserEmail] = useState('');
@@ -263,6 +264,7 @@ function GeneradorCursos() {
                 image_model: imageModel, // 'gemini' or 'imagen'
                 content_type: contentType, // 'theory', 'labs', or 'both'
                 lab_requirements: labRequirements.trim() || undefined, // Optional
+                course_duration_hours: courseDurationHours ? parseFloat(courseDurationHours) : undefined, // Optional duration override
                 user_email: emailForJob || undefined, // SES + Step Functions naming (backend)
             };
 
@@ -381,6 +383,7 @@ function GeneradorCursos() {
                 setManualFiles([]);
                 setPastedText('');
                 setLabRequirements('');
+                setCourseDurationHours('');
                 const fileInput = document.getElementById('fileInput');
                 if (fileInput) fileInput.value = '';
                 const manualInput = document.getElementById('manualInput');
@@ -586,6 +589,24 @@ function GeneradorCursos() {
                                 </select>
                                 <small className="form-hint">
                                     Modelo de IA que se utilizará para generar el contenido
+                                </small>
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="courseDurationHours">Duración Estimada del Curso en Horas (Opcional)</label>
+                                <input
+                                    id="courseDurationHours"
+                                    type="number"
+                                    step="0.5"
+                                    min="0.5"
+                                    value={courseDurationHours}
+                                    onChange={(e) => setCourseDurationHours(e.target.value)}
+                                    placeholder="Auto-detectar del temario (ej: 1.5, 2, 8, 16, 40)"
+                                    disabled={isProcessing}
+                                    className="form-input"
+                                />
+                                <small className="form-hint">
+                                    Si se deja vacío, el sistema detecta automáticamente la duración indicada en el documento (ej. 1.5h para seminarios).
                                 </small>
                             </div>
 

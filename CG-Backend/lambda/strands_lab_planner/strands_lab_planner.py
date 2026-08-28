@@ -137,8 +137,42 @@ def recover_yaml_unquoted_scalars(yaml_content: str) -> str:
     return '\n'.join(repaired_lines)
 
 
+def is_demo_activity(title: str, item_type: str = "") -> bool:
+    """Check if an activity/lesson is an instructor demonstration/demo."""
+    t_lower = (title or "").lower().strip()
+    type_lower = (item_type or "").lower().strip()
+    if type_lower in ['demo', 'demostracion', 'demostración']:
+        return True
+    if t_lower.startswith('demo') or t_lower.startswith('demostración') or t_lower.startswith('demostracion'):
+        return True
+    if 'demo:' in t_lower or 'demo -' in t_lower or 'demo ' in t_lower:
+        return True
+    if 'demostración:' in t_lower or 'demostración -' in t_lower or 'demostración ' in t_lower:
+        return True
+    if 'demostracion:' in t_lower or 'demostracion -' in t_lower or 'demostracion ' in t_lower:
+        return True
+    if '(demo)' in t_lower or '[demo]' in t_lower:
+        return True
+    return False
+
+
+def ensure_demo_title(title: str) -> str:
+    """Ensure a demo title includes the word 'Demo'."""
+    t = (title or "").strip()
+    t_lower = t.lower()
+    if t_lower.startswith("demostración:") or t_lower.startswith("demostracion:"):
+        return re.sub(r'^(demostración|demostracion)\s*:\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if t_lower.startswith("demostración -") or t_lower.startswith("demostracion -"):
+        return re.sub(r'^(demostración|demostracion)\s*-\s*', 'Demo - ', t, flags=re.IGNORECASE).strip()
+    if t_lower.startswith("demostración") or t_lower.startswith("demostracion"):
+        return re.sub(r'^(demostración|demostracion)\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if re.search(r'\bdemo\b', t_lower):
+        return t
+    return f"Demo: {t}"
+
+
 def extract_all_labs(
-    outline_data: dict,
+    outline_data: any,
     modules_to_generate: any = "all",
     lab_ids_to_filter: List[str] = None
 ) -> List[Dict[str, Any]]:
@@ -146,7 +180,7 @@ def extract_all_labs(
     Extract lab activities from the outline, optionally filtering by modules or specific lab IDs.
     
     Args:
-        outline_data: The course outline dictionary
+        outline_data: The course outline dictionary or list of modules
         modules_to_generate: 
             - "all": Extract from all modules
             - int (e.g., 3): Single module
@@ -186,10 +220,15 @@ def extract_all_labs(
             print(f"⚠️  Invalid modules_to_generate value: {modules_to_generate}, treating as 'all'")
             target_modules = None
     
-    # Get modules from standard normalized format (course.modules)
+    # Get modules from standard normalized format (course.modules) or direct list/dict
     # Note: StarterApiFunction normalizes the outline before execution
-    course_data = outline_data.get('course', outline_data)
-    modules = course_data.get('modules', [])
+    if isinstance(outline_data, list):
+        modules = outline_data
+    elif isinstance(outline_data, dict):
+        course_data = outline_data.get('course', outline_data)
+        modules = course_data.get('modules', []) if isinstance(course_data, dict) else []
+    else:
+        modules = []
     
     print(f"\n{'='*70}")
     print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")
@@ -228,31 +267,36 @@ def extract_all_labs(
             if not lab_activities:
                 lesson_type = str(lesson.get('type', '')).lower().strip()
                 l_title_lower = lesson_title.lower().strip()
+                is_demo = is_demo_activity(lesson_title, lesson_type)
                 is_lab_lesson_entry = (
-                    lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica'] or
+                    lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica', 'demo', 'demostracion', 'demostración'] or
                     l_title_lower.startswith('laboratorio') or
                     l_title_lower.startswith('lab:') or
                     l_title_lower.startswith('lab ') or
                     l_title_lower.startswith('práctica') or
-                    l_title_lower.startswith('practica')
+                    l_title_lower.startswith('practica') or
+                    is_demo
                 )
                 if is_lab_lesson_entry:
+                    final_title = ensure_demo_title(lesson_title) if is_demo else lesson_title
                     lab_info = {
                         'module_number': mod_idx,
                         'module_title': module_title,
                         'lesson_number': les_idx,
                         'lesson_title': lesson_title,
                         'lab_index': 1,
-                        'lab_title': lesson_title,
+                        'lab_title': final_title,
                         'duration_minutes': lesson.get('duration_minutes', 30),
                         'bloom_level': lesson_bloom,
                         'context_topics': context_topics,
                         'lab_id': f"{mod_idx:02d}-{les_idx:02d}-01",
                         'objectives': lesson.get('objectives', []),
-                        'activities': []
+                        'activities': [],
+                        'is_demo': is_demo
                     }
                     labs.append(lab_info)
-                    print(f"  ✓ Lab Lesson {lab_info['lab_id']}: {lesson_title} ({lesson.get('duration_minutes', 30)} min)")
+                    label = "Demo" if is_demo else "Lab"
+                    print(f"  ✓ {label} {lab_info['lab_id']}: {final_title} ({lesson.get('duration_minutes', 30)} min)")
             else:
                 for lab_idx, lab in enumerate(lab_activities, 1):
                     if isinstance(lab, dict):
@@ -261,12 +305,17 @@ def extract_all_labs(
                         lab_bloom = lab.get('bloom_level', lesson_bloom)
                         lab_objectives = lab.get('objectives', [])
                         lab_activities_list = lab.get('activities', [])
+                        lab_type = lab.get('type', '')
                     else:
                         lab_title = str(lab)
                         lab_duration = 30
                         lab_bloom = lesson_bloom
                         lab_objectives = []
                         lab_activities_list = []
+                        lab_type = ''
+                    
+                    is_demo = is_demo_activity(lab_title, lab_type)
+                    final_title = ensure_demo_title(lab_title) if is_demo else lab_title
                     
                     lab_info = {
                         'module_number': mod_idx,
@@ -274,17 +323,19 @@ def extract_all_labs(
                         'lesson_number': les_idx,
                         'lesson_title': lesson_title,
                         'lab_index': lab_idx,
-                        'lab_title': lab_title,
+                        'lab_title': final_title,
                         'duration_minutes': lab_duration,
                         'bloom_level': lab_bloom,
                         'context_topics': context_topics,
                         'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}",
                         'objectives': lab_objectives,
-                        'activities': lab_activities_list
+                        'activities': lab_activities_list,
+                        'is_demo': is_demo
                     }
                     
                     labs.append(lab_info)
-                    print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
+                    label = "Demo" if is_demo else "Lab"
+                    print(f"  ✓ {label} {lab_info['lab_id']}: {final_title} ({lab_duration} min)")
         
         # OPTION 2: Extract labs from module level (supports both 'labs' and 'lab_activities' keys)
         module_labs = module.get('labs', []) or module.get('lab_activities', [])
@@ -311,6 +362,7 @@ def extract_all_labs(
                     lab_objectives = lab.get('objectives', [])
                     lab_activities_list = lab.get('activities', [])
                     lab_description = lab.get('description', '')
+                    lab_type = lab.get('type', '')
                 else:
                     # String format (simple lab title)
                     lab_number = lab_idx
@@ -320,6 +372,10 @@ def extract_all_labs(
                     lab_objectives = []
                     lab_activities_list = []
                     lab_description = ''
+                    lab_type = ''
+                
+                is_demo = is_demo_activity(lab_title, lab_type)
+                final_title = ensure_demo_title(lab_title) if is_demo else lab_title
                 
                 lab_info = {
                     'module_number': mod_idx,
@@ -327,18 +383,20 @@ def extract_all_labs(
                     'lesson_number': 0,  # Module-level lab, not tied to specific lesson
                     'lesson_title': 'Module Lab',
                     'lab_index': lab_number,
-                    'lab_title': lab_title,
+                    'lab_title': final_title,
                     'duration_minutes': lab_duration,
                     'bloom_level': lab_bloom,
                     'context_topics': all_context_topics,
                     'lab_id': f"{mod_idx:02d}-00-{lab_number:02d}",
                     'objectives': lab_objectives,
                     'activities': lab_activities_list,
-                    'description': lab_description
+                    'description': lab_description,
+                    'is_demo': is_demo
                 }
                 
                 labs.append(lab_info)
-                print(f"  ✓ Lab {lab_info['lab_id']}: {lab_title} ({lab_duration} min)")
+                label = "Demo" if is_demo else "Lab"
+                print(f"  ✓ {label} {lab_info['lab_id']}: {final_title} ({lab_duration} min)")
     
     print(f"\n📊 Total labs found: {len(labs)}")
     
@@ -400,31 +458,56 @@ def build_fallback_lab_plans_from_outline(
             continue
         duration = int(lab.get("duration_minutes") or 30)
         title = lab.get("lab_title") or "Lab"
+        is_demo = bool(lab.get("is_demo")) or is_demo_activity(title)
+        if is_demo:
+            title = ensure_demo_title(title)
         lesson_title = lab.get("lesson_title") or ""
         objectives = lab.get("objectives") or []
         if not objectives:
-            objectives = (
-                [f"Aplicar en la práctica: {title}."]
-                if spanish
-                else [f"Hands-on practice: {title}."]
-            )
+            if is_demo:
+                objectives = (
+                    [f"Demostrar en vivo por parte del instructor: {title}."]
+                    if spanish
+                    else [f"Live demonstration by instructor: {title}."]
+                )
+            else:
+                objectives = (
+                    [f"Aplicar en la práctica: {title}."]
+                    if spanish
+                    else [f"Hands-on practice: {title}."]
+                )
         if spanish:
-            scope = (
-                f"Práctica alineada con la lección «{lesson_title}», enfocada en {title}. "
-                f"Usa los conceptos del módulo y el material teórico de la lección."
-            )
-            outcomes = [f"Completar los objetivos del laboratorio {lab_id}."]
+            if is_demo:
+                scope = (
+                    f"Demostración guiada realizada por el instructor: «{title}». "
+                    f"El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento."
+                )
+                outcomes = [f"Comprender y analizar la demostración {lab_id} realizada por el instructor."]
+            else:
+                scope = (
+                    f"Práctica alineada con la lección «{lesson_title}», enfocada en {title}. "
+                    f"Usa los conceptos del módulo y el material teórico de la lección."
+                )
+                outcomes = [f"Completar los objetivos del laboratorio {lab_id}."]
         else:
-            scope = (
-                f"Hands-on practice aligned with lesson «{lesson_title}», focused on {title}. "
-                f"Apply module concepts and lesson theory."
-            )
-            outcomes = [f"Complete the practical objectives for lab {lab_id}."]
+            if is_demo:
+                scope = (
+                    f"Instructor-led demonstration: «{title}». "
+                    f"The instructor demonstrates the steps and commands while students observe, take notes, and analyze the procedure."
+                )
+                outcomes = [f"Understand and analyze demonstration {lab_id} performed by the instructor."]
+            else:
+                scope = (
+                    f"Hands-on practice aligned with lesson «{lesson_title}», focused on {title}. "
+                    f"Apply module concepts and lesson theory."
+                )
+                outcomes = [f"Complete the practical objectives for lab {lab_id}."]
         topics = [t for t in (lab.get("context_topics") or []) if t][:8]
         out.append(
             {
                 "lab_id": lab_id,
                 "lab_title": title,
+                "is_demo": is_demo,
                 "objectives": objectives,
                 "scope": scope,
                 "estimated_duration": duration,
@@ -590,6 +673,7 @@ THOR ALIGNMENT & DEEP TECH SPEC:
 - Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
 - Environmental Constants: Explicitly predefine global environment defaults in special_considerations (e.g., default database name, container names, default ports, working directories).
 - Continuity: Ensure each lab's scope builds logically on the outputs and state created by the previous lab.
+- Demos & Demostraciones: For any lab designated as a Demo or containing 'Demo' in its title, this activity is an INSTRUCTOR-LED DEMONSTRATION (performed live by the instructor while students observe and take notes, NOT an individual student lab). The lab_title MUST contain the word 'Demo' and its scope/objectives must explicitly specify that it is demonstrated by the instructor.
 
 {prompt_prefix}
 
@@ -677,7 +761,9 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
                     lab_plan['lab_title'] = original_lab['lab_title']
                     # Add module_number from original lab or extract from lab_id
                     lab_plan['module_number'] = original_lab.get('module_number')
-                    print(f"  ✓ Lab {lab_id}: Module {lab_plan['module_number']}, Title '{original_lab['lab_title']}'")
+                    if original_lab.get('is_demo'):
+                        lab_plan['is_demo'] = True
+                    print(f"  ✓ Lab {lab_id}: Module {lab_plan['module_number']}, Title '{original_lab['lab_title']}', Demo={lab_plan.get('is_demo', False)}")
                 elif lab_id:
                     # Fallback: Extract module number from lab_id (format: MM-LL-NN)
                     try:

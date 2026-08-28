@@ -138,6 +138,89 @@ def call_gemini_agent(prompt: str, api_key: str, model_id: str = "gemini-3.5-fla
         raise
 
 
+def is_demo_plan(lab_plan: dict) -> bool:
+    """Determine if a lab plan is an instructor demo."""
+    if lab_plan.get('is_demo'):
+        return True
+    title = str(lab_plan.get('lab_title', '')).lower()
+    scope = str(lab_plan.get('scope', '')).lower()
+    if 'demo' in title or 'demostración' in title or 'demostracion' in title:
+        return True
+    if 'instructor-led demo' in scope or 'demostración guiada' in scope or 'demostración realizada por el instructor' in scope:
+        return True
+    return False
+
+
+def ensure_demo_title(title: str) -> str:
+    """Ensure title has 'Demo'."""
+    t = (title or "").strip()
+    t_lower = t.lower()
+    if t_lower.startswith("demostración:") or t_lower.startswith("demostracion:"):
+        return re.sub(r'^(demostración|demostracion)\s*:\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if t_lower.startswith("demostración -") or t_lower.startswith("demostracion -"):
+        return re.sub(r'^(demostración|demostracion)\s*-\s*', 'Demo - ', t, flags=re.IGNORECASE).strip()
+    if t_lower.startswith("demostración") or t_lower.startswith("demostracion"):
+        return re.sub(r'^(demostración|demostracion)\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if re.search(r'\bdemo\b', t_lower):
+        return t
+    return f"Demo: {t}"
+
+
+def _ensure_demo_formatting(markdown: str, is_demo: bool, is_spanish: bool = True) -> str:
+    """Ensure that Demo markdown has 'Demo' in title and the mandatory instructor note."""
+    if not is_demo or not markdown:
+        return markdown
+
+    updated = markdown
+
+    # 1. Check/fix H1 title
+    lines = updated.split('\n')
+    for i, line in enumerate(lines):
+        if line.strip().startswith('# '):
+            if 'demo' not in line.lower():
+                if re.match(r'^#\s+Lab\s+[\d\-]+:\s*', line, flags=re.IGNORECASE):
+                    lines[i] = re.sub(r'^(#\s+Lab\s+[\d\-]+:\s*)(.*)', r'\1Demo: \2', line, flags=re.IGNORECASE)
+                else:
+                    lines[i] = f"# Demo: {line.strip()[2:].strip()}"
+            break
+    updated = '\n'.join(lines)
+
+    # 2. Check/inject instructor note
+    has_instructor_note = (
+        'realizada por el instructor' in updated.lower() or
+        'instructor-led' in updated.lower() or
+        'realizado por el instructor' in updated.lower() or
+        ('el instructor' in updated.lower() and 'demostración' in updated.lower())
+    )
+
+    if not has_instructor_note:
+        demo_note = (
+            "> ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. "
+            "El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente.\n"
+            if is_spanish
+            else
+            "> ℹ️ **Note:** This activity is an **Instructor-Led Demonstration**. "
+            "The instructor will perform the steps and commands while students observe, take notes, and analyze the procedure, rather than performing it individually.\n"
+        )
+        if "## Descripción General" in updated:
+            updated = updated.replace("## Descripción General", f"## Descripción General\n\n{demo_note}")
+        elif "## Overview" in updated:
+            updated = updated.replace("## Overview", f"## Overview\n\n{demo_note}")
+        elif "## Metadatos" in updated:
+            updated = updated.replace("## Metadatos", f"{demo_note}\n## Metadatos")
+        elif "## Metadata" in updated:
+            updated = updated.replace("## Metadata", f"{demo_note}\n## Metadata")
+        else:
+            first_nl = updated.find('\n')
+            if first_nl != -1:
+                updated = updated[:first_nl+1] + f"\n{demo_note}\n" + updated[first_nl+1:]
+            else:
+                updated = f"{updated}\n\n{demo_note}"
+
+    return updated
+
+
+
 
 def load_master_plan_from_s3(bucket: str, key: str) -> dict:
     """Load master plan JSON from S3."""
@@ -264,10 +347,12 @@ def generate_lab_guide(
     """
     
     lab_id = lab_plan['lab_id']
-    lab_title = lab_plan['lab_title']
+    is_demo = is_demo_plan(lab_plan)
+    lab_title = ensure_demo_title(lab_plan['lab_title']) if is_demo else lab_plan['lab_title']
     target_language = master_context.get('target_language', 'English')
+    is_spanish = 'spanish' in target_language.lower() or 'español' in target_language.lower() or 'es' in target_language.lower()
     
-    print(f"  🔨 Generating lab guide: [{lab_id}] {lab_title}")
+    print(f"  🔨 Generating lab guide: [{lab_id}] {lab_title} (Demo={is_demo})")
     print(f"  🌐 Language: {target_language}")
     
     # Build context from master plan
@@ -296,11 +381,25 @@ CRITICAL: Base all instructions, commands, verification steps, and expected outp
         else ""
     )
 
+    demo_directive = (
+        f"""
+DEMO / DEMOSTRACIÓN (INSTRUCTOR-LED REQUIREMENT):
+CRITICAL: This activity is an INSTRUCTOR-LED DEMONSTRATION conducted live by the instructor (NOT performed individually by students).
+- The H1 title MUST contain the word 'Demo' (e.g., # Lab {lab_id}: {lab_title}).
+- In the Overview section (Descripción General), you MUST include this exact notice block:
+  > ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente.
+- All steps should be framed as clear demonstration steps for the instructor to present to the class.
+"""
+        if is_demo
+        else ""
+    )
+
     # Build prompt with standardized schema
     prompt = f"""
 You are creating a professional, detailed laboratory guide for technical training.
 
 {manual_directive}
+{demo_directive}
 
 LANGUAGE REQUIREMENT:
 **ALL CONTENT MUST BE WRITTEN IN: {target_language}**
@@ -661,6 +760,7 @@ Return ONLY the Markdown content following this schema exactly, no additional co
         elif lab_guide.startswith("```") and lab_guide.endswith("```"):
             lab_guide = lab_guide[3:-3].strip()
         
+        lab_guide = _ensure_demo_formatting(lab_guide, is_demo=is_demo, is_spanish=is_spanish)
         print(f"    ✅ Lab guide generated ({len(lab_guide)} characters)")
         return lab_guide
     
@@ -901,7 +1001,37 @@ def _compact_single_lab_prompt(
     spec_line = "; ".join(str(x) for x in spec[:6]) if spec else "N/A"
     obj_line = "; ".join(str(x) for x in objs[:6]) if objs else "N/A"
     lid = lab_plan["lab_id"]
-    title = lab_plan["lab_title"]
+    is_demo = is_demo_plan(lab_plan)
+    title = ensure_demo_title(lab_plan["lab_title"]) if is_demo else lab_plan["lab_title"]
+    is_spanish = "spanish" in tl.lower() or "español" in tl.lower() or "es" in tl.lower()
+
+    demo_note_block = (
+        "> ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. "
+        "El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente."
+        if is_spanish
+        else
+        "> ℹ️ **Note:** This activity is an **Instructor-Led Demonstration**. "
+        "The instructor will perform the steps and commands while students observe, take notes, and analyze the procedure, rather than performing it individually."
+    )
+
+    demo_section = (
+        f"""
+DEMO / DEMOSTRACIÓN (INSTRUCTOR-LED REQUIREMENT):
+CRITICAL: This activity is an INSTRUCTOR DEMONSTRATION conducted live by the instructor (NOT an individual student lab).
+- The H1 title MUST include the word 'Demo' (e.g., # Lab {lid}: {title}).
+- In the Overview section (Descripción General), you MUST include this exact notice block:
+  {demo_note_block}
+- Frame all step-by-step instructions for the instructor to demonstrate clearly to the students.
+"""
+        if is_demo
+        else ""
+    )
+
+    overview_rule = (
+        "2. Overview — 2–4 sentences (MUST include the instructor Demo notice block right below Overview heading)"
+        if is_demo
+        else "2. Overview — 2–4 sentences"
+    )
 
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
@@ -917,10 +1047,11 @@ LAB SPECIFICATION:
 {labs_summary_text}
 {previous_lab_context_section}
 {lesson_context_section}
+{demo_section}
 
 STRUCTURE (single H1 for lab title; then ## / ###):
 1. Metadata — table: Duration, Complexity, Bloom level
-2. Overview — 2–4 sentences
+{overview_rule}
 3. Learning objectives — 3–5 checkboxes
 4. Prerequisites — knowledge + access
 5. Lab environment — concise HW/SW tables if useful + setup commands
@@ -962,8 +1093,11 @@ def generate_all_labs_batch(
     # Build comprehensive prompt for ALL labs
     labs_summary = []
     for lab in lab_plans:
+        is_demo = is_demo_plan(lab)
+        lab_title_formatted = ensure_demo_title(lab['lab_title']) if is_demo else lab['lab_title']
+        demo_tag = " (TIPO: DEMOSTRACIÓN / DEMO DEL INSTRUCTOR)" if is_demo else ""
         labs_summary.append(f"""
-**Lab {lab['lab_id']}: {lab['lab_title']}**
+**Lab {lab['lab_id']}: {lab_title_formatted}**{demo_tag}
 - Duration: {lab['estimated_duration']} minutes
 - Complexity: {lab.get('complexity', 'medium')}
 - Bloom Level: {lab['bloom_level']}
@@ -1043,6 +1177,7 @@ Each lab MUST follow this EXACT structure with proper heading hierarchy:
 
 [2-3 sentences describing what this lab accomplishes]
 [Explain the practical value and real-world relevance]
+[FOR DEMOS ONLY: Include mandatory notice: > ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente.]
 
 ## Learning Objectives
 
@@ -1217,6 +1352,13 @@ CRITICAL FORMATTING RULES
 - REAL, EXECUTABLE commands - NO placeholders like <filename>
 - Always specify language (bash, python, yaml, etc.)
 
+**DEMOS / DEMOSTRACIONES (INSTRUCTOR-LED ACTIVITIES):**
+- For any lab marked as a Demo or containing 'Demo' in its title, this activity is an INSTRUCTOR-LED DEMONSTRATION conducted live by the instructor while students observe.
+- The H1 title MUST contain the word 'Demo' (e.g. # Lab [LAB_ID]: Demo: [Title]).
+- Under Overview (Descripción General), you MUST include the instructor notice callout:
+  > ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente.
+- All steps should be framed for the instructor to demonstrate clearly to the class.
+
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (USE DELIMITERS)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1364,6 +1506,13 @@ Generate ALL {len(lab_plans)} labs now:
                         print(
                             f"  ⚠️ Raw response {len(raw)} chars but heuristic failed; preview: {raw[:400]!r}"
                         )
+
+        target_lang = master_context.get('target_language', 'English')
+        is_spanish = 'spanish' in target_lang.lower() or 'español' in target_lang.lower() or 'es' in target_lang.lower()
+        for lid in list(labs_dict.keys()):
+            plan = next((p for p in lab_plans if p.get('lab_id') == lid), None)
+            is_demo = is_demo_plan(plan) if plan else False
+            labs_dict[lid] = _ensure_demo_formatting(labs_dict[lid], is_demo=is_demo, is_spanish=is_spanish)
 
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict
@@ -1541,8 +1690,14 @@ def lambda_handler(event, context):
                             master_context,
                             model_provider=model_provider
                         )
+                        is_demo = is_demo_plan(lab_plan)
+                        verified_guide = _ensure_demo_formatting(
+                            verified_guide,
+                            is_demo=is_demo,
+                            is_spanish=course_language.startswith('es')
+                        )
                         labs_markdown[lab_id] = verified_guide
-                        print(f"  ✅ Lab {lab_id} generated & verified (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
+                        print(f"  ✅ Lab {lab_id} generated & verified (Demo={is_demo}) (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
                         break
                     last_error = ValueError(f"Model returned no content for {lab_id}")
                     print(f"  ⚠️ Empty content for {lab_id} on attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS}")
@@ -1568,6 +1723,8 @@ def lambda_handler(event, context):
         
         for lab_plan in lab_plans:
             lab_id = lab_plan['lab_id']
+            is_demo = is_demo_plan(lab_plan)
+            lab_title = ensure_demo_title(lab_plan['lab_title']) if is_demo else lab_plan['lab_title']
             
             if lab_id not in labs_markdown:
                 print(f"  ⚠️  Lab {lab_id} not found in generated content, skipping")
@@ -1578,7 +1735,7 @@ def lambda_handler(event, context):
                     bucket=course_bucket,
                     project_folder=project_folder,
                     lab_id=lab_id,
-                    lab_title=lab_plan['lab_title'],
+                    lab_title=lab_title,
                     lab_guide=labs_markdown[lab_id]
                 )
                 lab_guide_keys.append(lab_key)
