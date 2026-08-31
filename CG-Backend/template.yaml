@@ -1149,6 +1149,7 @@ Resources:
           STATE_MACHINE_ARN: !Ref CourseGeneratorStateMachine
           SKIP_S3_HEAD_CHECK: 'true'
           BEDROCK_MODEL: us.anthropic.claude-sonnet-4-6
+          PROVIDER_LOCKS_TABLE: !Ref ProviderExecutionLocks
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -1157,6 +1158,21 @@ Resources:
                 - states:StartExecution
                 - states:RedriveExecution
               Resource: !Ref CourseGeneratorStateMachine
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+              Resource:
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:CourseGeneratorStateMachine:*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:TransactWriteItems
+              Resource:
+                - !GetAtt ProviderExecutionLocks.Arn
+                - !Sub "${ProviderExecutionLocks.Arn}/index/*"
             - Effect: Allow
               Action:
                 - s3:HeadObject
@@ -1211,6 +1227,39 @@ Resources:
             Path: /presign
             Method: post
 
+  ProviderLockFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ProviderLockFunction
+      Description: Acquire and release Bedrock/Google/OpenAI locks across course and PPT executions
+      Handler: provider_lock.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 15
+      Environment:
+        Variables:
+          PROVIDER_LOCKS_TABLE: !Ref ProviderExecutionLocks
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:TransactWriteItems
+              Resource:
+                - !GetAtt ProviderExecutionLocks.Arn
+                - !Sub "${ProviderExecutionLocks.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+              Resource:
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:CourseGeneratorStateMachine:*"
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:PptBatchOrchestrator:*"
+
   ExecStatusFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1220,6 +1269,9 @@ Resources:
       CodeUri: lambda/
       MemorySize: 128
       Timeout: 10
+      Environment:
+        Variables:
+          PROVIDER_LOCKS_TABLE: !Ref ProviderExecutionLocks
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -1230,6 +1282,13 @@ Resources:
               Resource: 
                 - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${CourseGeneratorStateMachine.Name}:*"
                 - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${CourseGeneratorStateMachine.Name}"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ProviderExecutionLocks.Arn
+                - !Sub "${ProviderExecutionLocks.Arn}/index/*"
       Events:
         ExecStatusApi:
           Type: Api
@@ -1259,6 +1318,7 @@ Resources:
         StrandsLabWriterArn: !GetAtt StrandsLabWriter.Arn
         StrandsNotificationArn: !GetAtt StrandsNotification.Arn
         PptBatchOrchestratorArn: !GetAtt PptBatchOrchestrator.Arn
+        ProviderLockFunctionArn: !GetAtt ProviderLockFunction.Arn
       Type: STANDARD
       Policies:
         - Version: '2012-10-17'
@@ -1279,6 +1339,7 @@ Resources:
                 - !GetAtt StrandsNotification.Arn
                 - !GetAtt ContentValidator.Arn
                 - !GetAtt PptBatchOrchestrator.Arn
+                - !GetAtt ProviderLockFunction.Arn
 
   # Course generator reliability: failed / timed-out executions (subscribe actions in console or add SNS)
   CourseGeneratorExecutionsFailedAlarm:
@@ -1325,6 +1386,7 @@ Resources:
         StrandsPptMergerArn: !GetAtt StrandsPptMerger.Arn
         StrandsVisualOptimizerArn: !GetAtt StrandsVisualOptimizer.Arn
         StrandsNotificationArn: !GetAtt StrandsNotification.Arn
+        ProviderLockFunctionArn: !GetAtt ProviderLockFunction.Arn
       Type: STANDARD
       Policies:
         - Version: '2012-10-17'
@@ -1337,6 +1399,7 @@ Resources:
                 - !GetAtt StrandsPptMerger.Arn
                 - !GetAtt StrandsVisualOptimizer.Arn
                 - !GetAtt StrandsNotification.Arn
+                - !GetAtt ProviderLockFunction.Arn
 
   PdfGenerationStateMachine:
     Type: AWS::Serverless::StateMachine
@@ -1355,6 +1418,67 @@ Resources:
               Resource:
                 - !GetAtt BookToPdfFunction.Arn
                 - !GetAtt StrandsNotification.Arn
+
+  ProviderLockReleaseRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ProviderLockReleaseOnExecutionTerminal
+      Description: Release provider locks when course or PPT executions reach a terminal state
+      EventPattern:
+        source:
+          - aws.states
+        detail-type:
+          - Step Functions Execution Status Change
+        detail:
+          status:
+            - SUCCEEDED
+            - FAILED
+            - TIMED_OUT
+            - ABORTED
+          stateMachineArn:
+            - !Ref CourseGeneratorStateMachine
+            - !Ref PptBatchOrchestratorStateMachine
+      Targets:
+        - Id: ProviderLockRelease
+          Arn: !GetAtt ProviderLockFunction.Arn
+
+  ProviderLockReleasePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProviderLockFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ProviderLockReleaseRule.Arn
+
+  ProviderExecutionLocks:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ProviderExecutionLocks
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: holder_arn
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      GlobalSecondaryIndexes:
+        - IndexName: holder_arn-index
+          KeySchema:
+            - AttributeName: holder_arn
+              KeyType: HASH
+            - AttributeName: pk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   # ======================================
   # SECURITY & ASSIGNMENTS

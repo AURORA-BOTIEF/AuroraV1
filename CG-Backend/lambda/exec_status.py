@@ -121,6 +121,16 @@ def lambda_handler(event, context):
             "performance_mode": execution_input.get('performance_mode')
         }
 
+        if execution_status == 'RUNNING':
+            try:
+                import provider_lock
+                response_body["queue_status"] = provider_lock.get_queue_status(execution_arn)
+            except Exception as queue_err:
+                print(f"Could not read provider queue status: {queue_err}")
+                response_body["queue_status"] = "unknown"
+        else:
+            response_body["queue_status"] = execution_status.lower() if execution_status else "unknown"
+
         # Add output if execution completed successfully
         if execution_status == 'SUCCEEDED' and parsed_output:
             response_body.update({

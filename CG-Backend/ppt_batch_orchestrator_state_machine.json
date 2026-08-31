@@ -5,7 +5,59 @@
         "ValidateInput": {
             "Comment": "Validate required input parameters",
             "Type": "Pass",
-            "Next": "ExpandPptBatches"
+            "Next": "AcquireProviderLocks"
+        },
+        "AcquireProviderLocks": {
+            "Comment": "Take Bedrock/Google/OpenAI locks (all-or-nothing) before any model calls",
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "${ProviderLockFunctionArn}",
+                "Payload": {
+                    "action": "acquire",
+                    "job_kind": "ppt",
+                    "execution_arn.$": "$$.Execution.Id",
+                    "execution_input.$": "$"
+                }
+            },
+            "ResultSelector": {
+                "acquired.$": "$.Payload.acquired",
+                "wait_seconds.$": "$.Payload.wait_seconds",
+                "providers.$": "$.Payload.providers",
+                "reason.$": "$.Payload.reason"
+            },
+            "ResultPath": "$.provider_lock",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 5,
+                    "MaxAttempts": 2,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Next": "CheckProviderLocksAcquired"
+        },
+        "CheckProviderLocksAcquired": {
+            "Comment": "Proceed only when this execution holds every required provider lock",
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.provider_lock.acquired",
+                    "BooleanEquals": true,
+                    "Next": "ExpandPptBatches"
+                }
+            ],
+            "Default": "WaitForProviders"
+        },
+        "WaitForProviders": {
+            "Comment": "Another overlapping job is using a shared provider; retry after a short wait",
+            "Type": "Wait",
+            "SecondsPath": "$.provider_lock.wait_seconds",
+            "Next": "AcquireProviderLocks"
         },
         "ExpandPptBatches": {
             "Comment": "Prepare batch task array for parallel processing",

@@ -1,7 +1,59 @@
 {
   "Comment": "Orchestrate Theory and/or Lab Guide generation with content_type selector",
-  "StartAt": "CheckResumeMode",
+  "StartAt": "AcquireProviderLocks",
   "States": {
+    "AcquireProviderLocks": {
+      "Comment": "Take Bedrock/Google/OpenAI locks (all-or-nothing) before any model calls",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ProviderLockFunctionArn}",
+        "Payload": {
+          "action": "acquire",
+          "job_kind": "course",
+          "execution_arn.$": "$$.Execution.Id",
+          "execution_input.$": "$"
+        }
+      },
+      "ResultSelector": {
+        "acquired.$": "$.Payload.acquired",
+        "wait_seconds.$": "$.Payload.wait_seconds",
+        "providers.$": "$.Payload.providers",
+        "reason.$": "$.Payload.reason"
+      },
+      "ResultPath": "$.provider_lock",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Next": "CheckProviderLocksAcquired"
+    },
+    "CheckProviderLocksAcquired": {
+      "Comment": "Proceed only when this execution holds every required provider lock",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.provider_lock.acquired",
+          "BooleanEquals": true,
+          "Next": "CheckResumeMode"
+        }
+      ],
+      "Default": "WaitForProviders"
+    },
+    "WaitForProviders": {
+      "Comment": "Another overlapping job is using a shared provider; retry after a short wait",
+      "Type": "Wait",
+      "SecondsPath": "$.provider_lock.wait_seconds",
+      "Next": "AcquireProviderLocks"
+    },
     "CheckResumeMode": {
       "Comment": "Resume failed runs from BookBuilder onward without regenerating lessons/images",
       "Type": "Choice",

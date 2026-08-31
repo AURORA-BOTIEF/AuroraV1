@@ -588,7 +588,8 @@ function GeneradorCursos() {
                                     <option value="google">Google Gemini (Gemini 3.5 Flash)</option>
                                 </select>
                                 <small className="form-hint">
-                                    Modelo de IA que se utilizará para generar el contenido
+                                    Modelo de IA que se utilizará para generar el contenido.
+                                    Si otro curso o presentación está usando el mismo proveedor (Bedrock, Google u OpenAI, incluyendo imágenes), este job esperará en cola; recibirás el mismo email al terminar.
                                 </small>
                             </div>
 
@@ -624,7 +625,7 @@ function GeneradorCursos() {
                                     <option value="gpt-image-2">OpenAI GPT Image 2 (Alta Calidad)</option>
                                 </select>
                                 <small className="form-hint">
-                                    Gemini 2.5: ~7s/imagen, menor costo | Gemini 3: ~25s/imagen (máx 4 por lote) | GPT Image 2: Alta Calidad (~13s entre imágenes en generación)
+                                    Gemini 2.5: ~7s/imagen, menor costo | Gemini 3: ~25s/imagen (máx 4 por lote) | GPT Image 2: Alta Calidad (~13s entre imágenes en generación). Gemini comparte cupo con Google; GPT Image comparte cupo con OpenAI.
                                 </small>
                             </div>
                         </div>

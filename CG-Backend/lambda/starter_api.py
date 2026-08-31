@@ -895,6 +895,49 @@ def lambda_handler(event, context):
             sf_client = boto3.client('stepfunctions')
             try:
                 print(f"♻️ Redriving failed execution: {redrive_execution_arn}")
+                try:
+                    exec_desc = sf_client.describe_execution(executionArn=redrive_execution_arn)
+                    exec_input = json.loads(exec_desc.get("input") or "{}")
+                except (ClientError, json.JSONDecodeError) as desc_err:
+                    print(f"❌ Could not read execution input before redrive: {desc_err}")
+                    exec_input = {}
+
+                # Redrive skips AcquireProviderLocks; re-take locks or refuse.
+                import provider_lock
+                lock_result = provider_lock.acquire(
+                    execution_arn=redrive_execution_arn,
+                    job_kind="course",
+                    model_provider=exec_input.get("model_provider", "bedrock"),
+                    image_model=exec_input.get("image_model"),
+                    content_type=exec_input.get("content_type"),
+                    resume_from=exec_input.get("resume_from"),
+                    project_folder=exec_input.get("project_folder") or "",
+                )
+                if not lock_result.get("acquired"):
+                    wait_s = lock_result.get("wait_seconds", 60)
+                    print(f"⏳ Redrive blocked; providers busy: {lock_result}")
+                    return {
+                        "statusCode": 409,
+                        "headers": {
+                            "Content-Type": "application/json",
+                            "Access-Control-Allow-Origin": "*",
+                            "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                            "Access-Control-Allow-Methods": "OPTIONS,POST"
+                        },
+                        "body": json.dumps({
+                            "error": (
+                                "No se puede reanudar ahora: otro job está usando el mismo proveedor "
+                                "(Bedrock, Google u OpenAI). Reintenta el redrive más tarde o lanza "
+                                "un nuevo /start-job para encolar."
+                            ),
+                            "execution_arn": redrive_execution_arn,
+                            "queue_status": "waiting",
+                            "providers": lock_result.get("providers", []),
+                            "wait_seconds": wait_s,
+                            "reason": lock_result.get("reason"),
+                        })
+                    }
+
                 response = sf_client.redrive_execution(executionArn=redrive_execution_arn)
                 return {
                     "statusCode": 200,

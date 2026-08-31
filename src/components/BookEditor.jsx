@@ -4896,7 +4896,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     <option value="bedrock">AWS Bedrock (Claude / Nova)</option>
                                     <option value="openai">OpenAI (GPT 5.6 Terra)</option>
                                 </select>
-                                <small>Selecciona el proveedor de IA para la generación de la presentación</small>
+                                <small>Selecciona el proveedor de IA para la generación de la presentación. Si un curso u otra presentación está usando el mismo proveedor, este job esperará en cola; el email de finalización se envía igual.</small>
                             </div>
 
                             <div className="ppt-info-box">
@@ -4905,6 +4905,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                     <li>Se generará una presentación con TODO el contenido del libro</li>
                                     <li>El número de diapositivas se ajustará automáticamente según el contenido</li>
                                     <li>Las imágenes del libro se incluirán automáticamente</li>
+                                    <li>Si otro job (curso o PPT) usa el mismo proveedor, esta generación espera en cola</li>
                                 </ul>
                             </div>
                         </div>
