@@ -69,6 +69,11 @@ def lambda_handler(event, context):
         plan_obj = s3_client.get_object(Bucket=course_bucket, Key=master_plan_key)
         plan_content = plan_obj['Body'].read().decode('utf-8')
         master_plan = json.loads(plan_content)
+        additional_requirements = (
+            master_plan.get('additional_requirements')
+            or master_plan.get('metadata', {}).get('additional_requirements')
+            or ''
+        )
         
         # Get all labs (optional: only labs listed in lab_ids_to_regenerate)
         lab_plans = master_plan.get('lab_plans', [])
@@ -150,7 +155,8 @@ def lambda_handler(event, context):
                 'course_bucket': course_bucket,
                 'master_plan_key': master_plan_key,
                 'project_folder': project_folder,
-                'model_provider': model_provider
+                'model_provider': model_provider,
+                'additional_requirements': additional_requirements
             }
             
             all_batches.append(batch_task)

@@ -394,12 +394,24 @@ CRITICAL: This activity is an INSTRUCTOR-LED DEMONSTRATION conducted live by the
         else ""
     )
 
+    add_req = master_context.get("additional_requirements", "")
+    add_req_directive = (
+        f"""
+USER ADDITIONAL REQUIREMENTS (CRITICAL):
+{add_req}
+Ensure all steps, commands, scenarios, and configurations strictly adhere to these requirements.
+"""
+        if add_req and add_req.strip()
+        else ""
+    )
+
     # Build prompt with standardized schema
     prompt = f"""
 You are creating a professional, detailed laboratory guide for technical training.
 
 {manual_directive}
 {demo_directive}
+{add_req_directive}
 
 LANGUAGE REQUIREMENT:
 **ALL CONTENT MUST BE WRITTEN IN: {target_language}**
@@ -1033,6 +1045,16 @@ CRITICAL: This activity is an INSTRUCTOR DEMONSTRATION conducted live by the ins
         else "2. Overview — 2–4 sentences"
     )
 
+    add_req = master_context.get("additional_requirements", "")
+    add_req_section = (
+        f"""
+USER REQUIREMENTS (CRITICAL - MUST BE INCORPORATED):
+{add_req}
+"""
+        if add_req and add_req.strip()
+        else ""
+    )
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1042,7 +1064,7 @@ COURSE CONTEXT (brief):
 - Typical hardware: {hw_line}
 - Typical software: {sw_line}
 - Notes: {spec_line}
-
+{add_req_section}
 LAB SPECIFICATION:
 {labs_summary_text}
 {previous_lab_context_section}
@@ -1150,6 +1172,8 @@ Software Requirements:
 
 Special Considerations:
 {chr(10).join('- ' + con for con in master_context.get('special_considerations', []))}
+
+{f"USER ADDITIONAL REQUIREMENTS (CRITICAL - MUST BE INCORPORATED INTO ALL LABS):{chr(10)}{master_context.get('additional_requirements')}" if master_context.get('additional_requirements') else ""}
 
 {lesson_context_section}
 
@@ -1616,13 +1640,23 @@ def lambda_handler(event, context):
                 print(f"⚠️ Could not load manual reference text in lab writer: {man_err}")
 
         # Build master context for all labs (including language)
+        additional_requirements = (
+            event.get('additional_requirements')
+            or master_plan.get('additional_requirements')
+            or master_plan.get('metadata', {}).get('additional_requirements')
+            or ''
+        )
+        if additional_requirements:
+            print(f"📋 User Additional Requirements: {additional_requirements[:100]}...")
+
         master_context = {
             'hardware_requirements': master_plan.get('hardware_requirements', []),
             'software_requirements': master_plan.get('software_requirements', []),
             'special_considerations': master_plan.get('special_considerations', []),
             'overall_objectives': master_plan.get('overall_objectives', []),
             'target_language': target_language,  # NEW: Pass language to prompt
-            'manual_reference_text': manual_reference_text
+            'manual_reference_text': manual_reference_text,
+            'additional_requirements': additional_requirements
         }
         
         # Step 2: Generate lab guides ONE AT A TIME for reliability

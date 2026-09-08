@@ -807,7 +807,8 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
         'hardware_requirements': list(all_hardware_reqs),
         'software_requirements': all_software_reqs,
         'lab_plans': all_lab_plans,
-        'special_considerations': all_special_considerations
+        'special_considerations': all_special_considerations,
+        'additional_requirements': additional_requirements or ''
     }
     if outline_fallback:
         master_plan['_outline_fallback_used'] = True
@@ -1000,7 +1001,11 @@ def lambda_handler(event, context):
             for lid, plan in fresh_by_id.items():
                 if lid in regen_set and lid not in existing_ids:
                     merged_plans.append(plan)
-            master_plan = {**existing, "lab_plans": merged_plans}
+            master_plan = {
+                **existing,
+                "lab_plans": merged_plans,
+                "additional_requirements": lab_requirements or existing.get("additional_requirements", "")
+            }
             print(
                 f"🔀 Merged replan: {len(fresh_by_id)} lab(s) refreshed, "
                 f"{len(merged_plans)} total in master plan"
@@ -1014,6 +1019,7 @@ def lambda_handler(event, context):
 
         # CRITICAL: Add total_labs to root level for State Machine validation
         master_plan["total_labs"] = len(lab_plan_list)
+        master_plan["additional_requirements"] = lab_requirements or master_plan.get("additional_requirements", "")
 
         # Add metadata (including language for LabWriter)
         course_language = outline_language_code(course_info)
