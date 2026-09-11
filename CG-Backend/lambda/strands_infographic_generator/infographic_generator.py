@@ -221,6 +221,12 @@ def load_book_from_s3(bucket: str, book_key: str) -> Dict:
             # Extract course metadata
             if 'course' in outline_data:
                 course = outline_data['course']
+                dur_min = course.get('total_duration_minutes', 0)
+                try:
+                    dur_min_val = float(dur_min) if dur_min else 0.0
+                    dur_hours = (dur_min_val / 60.0) if dur_min_val > 0 else None
+                except (TypeError, ValueError):
+                    dur_hours = None
                 book_data['course_metadata'] = {
                     'title': course.get('title', ''),
                     'description': course.get('description', ''),
@@ -228,7 +234,9 @@ def load_book_from_s3(bucket: str, book_key: str) -> Dict:
                     'prerequisites': course.get('prerequisites', []),
                     'learning_outcomes': course.get('learning_outcomes', []),
                     'level': course.get('level', ''),
-                    'duration': course.get('total_duration_minutes', 0),
+                    'duration': dur_min,
+                    'total_duration_minutes': dur_min,
+                    'course_duration_hours': dur_hours,
                     'language': course.get('language', '')  # Add language field
                 }
                 logger.info(f"✅ Extracted course metadata: {course.get('title', 'N/A')} [lang: {course.get('language', 'N/A')}]")
@@ -1708,17 +1716,29 @@ def lambda_handler(event, context):
         # DYNAMIC SLIDE BUDGET RECALCULATION:
         # Scale slides_per_lesson based on total course hours AND total lessons in the course
         # Target: ~14 slides per hour of course (e.g., 35h -> ~490-500 slides, 28h -> ~390-400 slides)
-        if 'slides_per_lesson' not in body and _cdh is not None:
-            try:
-                ch = float(_cdh)
-                if ch > 0 and total_lessons > 0:
-                    target_total_slides = ch * 14.0
-                    slides_per_lesson = max(4, min(15, round(target_total_slides / total_lessons)))
-                    logger.info(
-                        f"🎯 DYNAMIC SLIDE BUDGET: course_hours={ch}h, total_lessons={total_lessons} => slides_per_lesson={slides_per_lesson} (target total: ~{int(slides_per_lesson * total_lessons)} slides)"
-                    )
-            except (TypeError, ValueError):
-                pass
+        if 'slides_per_lesson' not in body:
+            if _cdh is None:
+                cm = book_data.get('course_metadata') or {}
+                bm = book_data.get('metadata') or {}
+                _cdh = cm.get('course_duration_hours') or bm.get('course_duration_hours')
+                if _cdh is None:
+                    _dur_min = cm.get('total_duration_minutes') or cm.get('duration') or bm.get('total_duration_minutes')
+                    if _dur_min:
+                        try:
+                            _cdh = float(_dur_min) / 60.0
+                        except (TypeError, ValueError):
+                            pass
+            if _cdh is not None:
+                try:
+                    ch = float(_cdh)
+                    if ch > 0 and total_lessons > 0:
+                        target_total_slides = ch * 14.0
+                        slides_per_lesson = max(4, min(15, round(target_total_slides / total_lessons)))
+                        logger.info(
+                            f"🎯 DYNAMIC SLIDE BUDGET: course_hours={ch}h, total_lessons={total_lessons} => slides_per_lesson={slides_per_lesson} (target total: ~{int(slides_per_lesson * total_lessons)} slides)"
+                        )
+                except (TypeError, ValueError):
+                    pass
         
         logger.info(f"📖 Processing lessons {lesson_start}-{lesson_end} of {total_lessons}")
         

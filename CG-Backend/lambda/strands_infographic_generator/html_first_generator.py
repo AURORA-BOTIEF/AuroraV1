@@ -2452,14 +2452,21 @@ def _find_outline_lesson_duration_minutes(
         return None
 
     lesson_title = _normalize_text(lesson.get('title', ''))
-    if not lesson_title:
-        return None
+    clean_lesson_title = re.sub(r'^\s*(\d+(\.\d+)*)\s*[-.:]?\s*', '', lesson_title).strip()
 
     module_info = outline_modules[module_number - 1] or {}
-    for outline_lesson in module_info.get('lessons', []):
-        if _normalize_text(outline_lesson.get('title', '')) != lesson_title:
-            continue
-        return _coerce_positive_int(outline_lesson.get('duration_minutes'))
+    outline_lessons = module_info.get('lessons', [])
+    for outline_lesson in outline_lessons:
+        ot = _normalize_text(outline_lesson.get('title', ''))
+        clean_ot = re.sub(r'^\s*(\d+(\.\d+)*)\s*[-.:]?\s*', '', ot).strip()
+        if (lesson_title and ot == lesson_title) or (clean_lesson_title and clean_ot == clean_lesson_title):
+            return _coerce_positive_int(outline_lesson.get('duration_minutes'))
+
+    # Fallback by lesson_number index if available
+    lesson_number = _coerce_positive_int(lesson.get('lesson_number'))
+    if lesson_number and 1 <= lesson_number <= len(outline_lessons):
+        return _coerce_positive_int(outline_lessons[lesson_number - 1].get('duration_minutes'))
+
     return None
 
 
@@ -4020,17 +4027,24 @@ def generate_complete_course(
             '## lab activity' in lesson_content_lower or
             '## laboratory' in lesson_content_lower or
             'guía de laboratorio' in lesson_content_lower or
-            'guia de laboratorio' in lesson_content_lower
+            'guia de laboratorio' in lesson_content_lower or
+            'demostración realizada por el instructor' in lesson_content_lower or
+            'demostracion realizada por el instructor' in lesson_content_lower or
+            'instructor-led' in lesson_content_lower
         )
         
         # Detect lab lessons by type field OR title patterns
         is_lab_lesson = (
-            lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica'] or
+            lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica', 'demo', 'demostracion', 'demostración'] or
             lesson_title_lower.startswith('laboratorio') or
             lesson_title_lower.startswith('lab ') or
             lesson_title_lower.startswith('lab:') or
             lesson_title_lower.startswith('práctica') or
+            lesson_title_lower.startswith('practica') or
             lesson_title_lower.startswith('actividad') or
+            lesson_title_lower.startswith('demo') or
+            lesson_title_lower.startswith('demostración') or
+            lesson_title_lower.startswith('demostracion') or
             has_lab_markers
         )
         

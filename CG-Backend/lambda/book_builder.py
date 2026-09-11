@@ -364,6 +364,27 @@ def lambda_handler(event, context):
             'content': (glossary_content or '').strip() or generate_default_glossary(is_spanish)
         })
 
+        course_info = outline_data.get('course', outline_data) if outline_data else {}
+        total_duration_minutes = course_info.get('total_duration_minutes')
+        try:
+            dur_val = float(total_duration_minutes) if total_duration_minutes else 0.0
+            course_duration_hours = (dur_val / 60.0) if dur_val > 0 else None
+        except (TypeError, ValueError):
+            course_duration_hours = None
+
+        course_metadata = {
+            'title': course_info.get('title', book_title),
+            'description': course_info.get('description', ''),
+            'audience': course_info.get('audience', []),
+            'prerequisites': course_info.get('prerequisites', []),
+            'learning_outcomes': course_info.get('learning_outcomes', []),
+            'level': course_info.get('level', ''),
+            'duration': total_duration_minutes,
+            'total_duration_minutes': total_duration_minutes,
+            'course_duration_hours': course_duration_hours,
+            'language': course_info.get('language', 'es' if is_spanish else 'en')
+        }
+
         book_json = {
             'metadata': {
                 'title': book_title,
@@ -372,10 +393,13 @@ def lambda_handler(event, context):
                 'total_modules': len(modules),
                 'total_lessons': len(all_lessons),
                 'total_words': total_words,
+                'total_duration_minutes': total_duration_minutes,
+                'course_duration_hours': course_duration_hours,
                 'course_introduction': course_intro_content,
                 'course_glossary': glossary_content,
                 'project_folder': project_folder
             },
+            'course_metadata': course_metadata,
             'modules': [
                 {
                     'module_number': module_num,

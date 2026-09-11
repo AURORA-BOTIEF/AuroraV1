@@ -2452,14 +2452,21 @@ def _find_outline_lesson_duration_minutes(
         return None
 
     lesson_title = _normalize_text(lesson.get('title', ''))
-    if not lesson_title:
-        return None
+    clean_lesson_title = re.sub(r'^\s*(\d+(\.\d+)*)\s*[-.:]?\s*', '', lesson_title).strip()
 
     module_info = outline_modules[module_number - 1] or {}
-    for outline_lesson in module_info.get('lessons', []):
-        if _normalize_text(outline_lesson.get('title', '')) != lesson_title:
-            continue
-        return _coerce_positive_int(outline_lesson.get('duration_minutes'))
+    outline_lessons = module_info.get('lessons', [])
+    for outline_lesson in outline_lessons:
+        ot = _normalize_text(outline_lesson.get('title', ''))
+        clean_ot = re.sub(r'^\s*(\d+(\.\d+)*)\s*[-.:]?\s*', '', ot).strip()
+        if (lesson_title and ot == lesson_title) or (clean_lesson_title and clean_ot == clean_lesson_title):
+            return _coerce_positive_int(outline_lesson.get('duration_minutes'))
+
+    # Fallback by lesson_number index if available
+    lesson_number = _coerce_positive_int(lesson.get('lesson_number'))
+    if lesson_number and 1 <= lesson_number <= len(outline_lessons):
+        return _coerce_positive_int(outline_lessons[lesson_number - 1].get('duration_minutes'))
+
     return None
 
 

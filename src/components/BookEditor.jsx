@@ -4185,7 +4185,13 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                 console.warn('Could not extract user email:', error);
             }
 
-            const courseHours = bookData?.course_metadata?.course_duration_hours || bookData?.course_duration_hours || bookData?.total_duration_hours || null;
+            const courseHours = bookData?.course_metadata?.course_duration_hours ||
+                bookData?.metadata?.course_duration_hours ||
+                bookData?.course_duration_hours ||
+                bookData?.total_duration_hours ||
+                (bookData?.course_metadata?.duration ? Number(bookData.course_metadata.duration) / 60 : null) ||
+                (bookData?.metadata?.total_duration_minutes ? Number(bookData.metadata.total_duration_minutes) / 60 : null) ||
+                null;
 
             const requestBody = {
                 course_bucket: import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts',

@@ -306,6 +306,41 @@ def lambda_handler(event, context):
         # Load book to determine lesson count
         book_data, book_version_key = load_book_from_s3(course_bucket, project_folder, book_version_key, book_type)
         
+        # Resolve course duration hours if not provided directly in request
+        if course_duration_hours is None:
+            cm = book_data.get('course_metadata') or {}
+            bm = book_data.get('metadata') or {}
+            course_duration_hours = cm.get('course_duration_hours') or bm.get('course_duration_hours')
+            if course_duration_hours is None:
+                dur_min = cm.get('total_duration_minutes') or cm.get('duration') or bm.get('total_duration_minutes')
+                if dur_min:
+                    try:
+                        course_duration_hours = float(dur_min) / 60.0
+                    except (TypeError, ValueError):
+                        pass
+
+            # If still None, look for outline YAML in S3
+            if course_duration_hours is None:
+                try:
+                    import yaml
+                    outline_prefix = f"{project_folder}/outline/"
+                    outline_resp = s3_client.list_objects_v2(Bucket=course_bucket, Prefix=outline_prefix)
+                    for obj in outline_resp.get('Contents', []):
+                        if obj['Key'].endswith('.yaml') or obj['Key'].endswith('.yml'):
+                            o_data = s3_client.get_object(Bucket=course_bucket, Key=obj['Key'])
+                            outline_yaml = yaml.safe_load(o_data['Body'].read().decode('utf-8')) or {}
+                            c_info = outline_yaml.get('course', outline_yaml)
+                            dur_min = c_info.get('total_duration_minutes')
+                            if dur_min:
+                                course_duration_hours = float(dur_min) / 60.0
+                                logger.info(f"⏱️ Discovered course_duration_hours={course_duration_hours}h from {obj['Key']}")
+                                break
+                except Exception as e:
+                    logger.warning(f"Could not discover course duration from outline: {e}")
+
+        if course_duration_hours is not None:
+            logger.info(f"⏱️ Using course_duration_hours: {course_duration_hours}h")
+        
         # Count total lessons - prefer top-level 'lessons' array (newer/more reliable format)
         # Fall back to counting from 'modules' for older books
         total_lessons = 0
