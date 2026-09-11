@@ -1,0 +1,955 @@
+// src/components/InfographicViewer.jsx
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { getBlobUrlForS3Object } from '../utils/s3ImageLoader';
+import './InfographicViewer.css';
+
+import { API_BASE } from '../utils/apiConfig';
+
+function InfographicViewer() {
+    const { folder } = useParams();
+    const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const returnTo = searchParams.get('returnTo') || '/presentaciones';
+    const [infographic, setInfographic] = useState(null);
+    const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [viewMode, setViewMode] = useState('presentation'); // 'presentation' or 'grid'
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [scale, setScale] = useState(1);
+    const [zoomedImage, setZoomedImage] = useState(null); // For image zoom feature
+
+    const [htmlContent, setHtmlContent] = useState(null);
+    const iframeRef = React.useRef(null);
+    const viewportContainerRef = React.useRef(null);
+
+    useEffect(() => {
+        loadInfographic();
+    }, [folder]);
+
+    // Fetch and prepare HTML content when available
+    useEffect(() => {
+        console.log('=== INFOGRAPHIC DATA RECEIVED ===');
+        console.log('Infographic object:', infographic);
+
+        if (infographic) {
+            console.log('Available keys:', Object.keys(infographic));
+            console.log('Has html_content?', 'html_content' in infographic);
+            console.log('Has html_url?', 'html_url' in infographic);
+            console.log('Has image_url_mapping?', 'image_url_mapping' in infographic);
+
+            if (infographic.image_url_mapping) {
+                console.log('Image URL mapping entries:', Object.keys(infographic.image_url_mapping).length);
+                console.log('Image URLs:', Object.values(infographic.image_url_mapping));
+            }
+
+            if (infographic.html_content) {
+                console.log('HTML content length:', infographic.html_content.length);
+                fetchHtmlContent(infographic.html_content);
+            } else if (infographic.html_url) {
+                console.log('🌐 Fetching HTML content from html_url:', infographic.html_url);
+                fetch(infographic.html_url)
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return res.text();
+                    })
+                    .then(htmlText => fetchHtmlContent(htmlText))
+                    .catch(err => console.error('Error fetching html_url:', err));
+            } else {
+                console.error('✗ No HTML content or URL found in response!');
+            }
+        }
+    }, [infographic]);
+
+    // Update iframe when current slide changes
+    useEffect(() => {
+        if (iframeRef.current && iframeRef.current.contentWindow && infographic) {
+            // Map the current visible index to the original index in the full list
+            // This is crucial because the iframe contains ALL slides (including hidden ones)
+            // but our state (currentSlideIndex) tracks only VISIBLE slides.
+            const currentSlide = infographic.slides[currentSlideIndex];
+            const originalIndex = infographic.allSlides.indexOf(currentSlide);
+
+            if (originalIndex !== -1) {
+                iframeRef.current.contentWindow.postMessage({
+                    type: 'NAVIGATE_SLIDE',
+                    index: originalIndex
+                }, '*');
+            }
+        }
+    }, [currentSlideIndex, infographic]);
+
+    const fetchHtmlContent = async (htmlContent) => {
+        try {
+            console.log('=== PROCESSING HTML CONTENT ===');
+            console.log('HTML content length:', htmlContent?.length);
+
+            // Render HTML immediately with original URLs
+            // We will fetch images in background and update them via postMessage
+            let text = htmlContent;
+
+            // Find all S3 URLs to fetch in background
+            const s3UrlPattern = /https?:\/\/[^\/\s"']+\.s3[^\/\s"']*?\.amazonaws\.com\/[^"'\s)]+/gi;
+            const matches = text.match(s3UrlPattern) || [];
+            const s3Urls = [...new Set(matches)];
+
+            console.log(`Found ${s3Urls.length} unique S3 URLs - starting background fetch`);
+
+            // Start background fetch process
+            (async () => {
+                let successCount = 0;
+                let failCount = 0;
+                const CONCURRENCY_LIMIT = 8;
+
+                const queue = [...s3Urls];
+                const workers = Array(Math.min(CONCURRENCY_LIMIT, queue.length)).fill(null).map(async () => {
+                    while (queue.length > 0) {
+                        const s3Url = queue.shift();
+                        try {
+                            const blobUrl = await getBlobUrlForS3Object(s3Url);
+                            if (iframeRef.current && iframeRef.current.contentWindow) {
+                                iframeRef.current.contentWindow.postMessage({
+                                    type: 'UPDATE_IMAGE_SRC',
+                                    originalSrc: s3Url,
+                                    newSrc: blobUrl
+                                }, '*');
+                            }
+                            successCount++;
+                        } catch (error) {
+                            failCount++;
+                            console.error(`Failed to load background image: ${s3Url}`, error);
+                        }
+                    }
+                });
+
+                await Promise.all(workers);
+                console.log(`Background image loading complete: ${successCount} success, ${failCount} failed`);
+            })();
+
+            // Inject styles and scripts for single-slide pagination and grid view
+            const styleInjection = `
+                <style>
+                    /* === BASE STYLES === */
+                    body {
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        overflow: hidden !important;
+                        width: 100vw !important;
+                        height: 100vh !important;
+                        background-color: white;
+                        transition: background-color 0.3s;
+                    }
+
+                    /* Hide toolbar and top-level non-slide/non-content elements in presentation mode */
+                    body:not(.grid-mode) > *:not(.slide):not(.content):not(script):not(style) {
+                        display: none !important;
+                    }
+
+                    body:not(.grid-mode) > .content {
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        width: 100% !important;
+                        height: 100% !important;
+                        display: block !important;
+                    }
+
+                    /* === PRESENTATION MODE (Default - No Wrappers) === */
+                    .slide {
+                        display: none !important;
+                        position: absolute !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        width: 100% !important;
+                        height: 100% !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        overflow: hidden !important;
+                        z-index: 0 !important;
+                    }
+                    
+                    .slide.active {
+                        display: block !important;
+                        z-index: 10 !important;
+                    }
+
+                    /* === GRID MODE STYLES (With Wrappers) === */
+                    body.grid-mode {
+                        display: grid !important;
+                        grid-template-columns: repeat(auto-fill, 320px) !important;
+                        gap: 30px !important;
+                        padding: 40px !important;
+                        overflow-y: auto !important;
+                        height: 100vh !important;
+                        background-color: #1a1a1a !important;
+                        justify-content: center !important;
+                        align-content: start !important;
+                    }
+                    
+                    /* In grid mode, hide direct non-wrapper children */
+                    body.grid-mode > *:not(.slide-wrapper):not(script):not(style) {
+                        display: none !important;
+                    }
+
+                    body.grid-mode .slide-wrapper {
+                        display: block !important;
+                        position: relative !important;
+                        width: 320px !important;
+                        height: 180px !important;
+                        overflow: hidden !important;
+                        border-radius: 8px !important;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+                        cursor: pointer !important;
+                        background-color: white !important;
+                        transition: transform 0.2s, box-shadow 0.2s !important;
+                    }
+
+                    body.grid-mode .slide-wrapper:hover {
+                        transform: scale(1.05) !important;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;
+                        z-index: 20 !important;
+                        outline: 3px solid #4682B4 !important;
+                    }
+
+                    /* The Slide inside the Wrapper in Grid Mode */
+                    body.grid-mode .slide {
+                        display: block !important; /* Always visible inside wrapper */
+                        position: absolute !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        
+                        /* Force Full HD Resolution */
+                        width: 1280px !important;
+                        height: 720px !important;
+                        
+                        /* Scale to 320x180 */
+                        transform: scale(0.25) !important; 
+                        transform-origin: top left !important;
+                        
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        box-sizing: border-box !important;
+                        z-index: 0 !important;
+                    }
+                </style>
+                <script>
+                    (function() {
+                        let currentSlide = 0;
+                        let viewMode = 'presentation';
+                        
+                        // Wrap slides for grid layout
+                        function wrapSlides() {
+                            const slides = document.querySelectorAll('.slide');
+                            slides.forEach(slide => {
+                                    const wrapper = document.createElement('div');
+                                    wrapper.className = 'slide-wrapper';
+                                    slide.parentNode.insertBefore(wrapper, slide);
+                                    wrapper.appendChild(slide);
+                                    
+                                    // Forward click from wrapper to parent logic
+                                    wrapper.onclick = (e) => {
+                                        e.stopPropagation();
+                                        // Find index
+                                        const allWrappers = Array.from(document.querySelectorAll('.slide-wrapper'));
+                                        const index = allWrappers.indexOf(wrapper);
+                                        window.parent.postMessage({
+                                            type: 'SLIDE_CLICKED',
+                                            index: index
+                                        }, '*');
+                                    };
+                            });
+                        }
+
+                        // Unwrap slides for presentation layout (restore original DOM)
+                        function unwrapSlides() {
+                            const wrappers = document.querySelectorAll('.slide-wrapper');
+                            wrappers.forEach(wrapper => {
+                                const slide = wrapper.querySelector('.slide');
+                                if (slide) {
+                                    wrapper.parentNode.insertBefore(slide, wrapper);
+                                }
+                                wrapper.remove();
+                            });
+                        }
+
+                        function showSlide(index) {
+                            // In presentation mode, we work with .slide directly
+                            const slides = document.querySelectorAll('.slide');
+                            slides.forEach((slide, i) => {
+                                if (i === index) {
+                                    slide.classList.add('active');
+                                } else {
+                                    slide.classList.remove('active');
+                                }
+                            });
+                        }
+                        
+                        // Listen for messages from parent
+                        window.addEventListener('message', (event) => {
+                            if (event.data.type === 'NAVIGATE_SLIDE') {
+                                currentSlide = event.data.index;
+                                if (viewMode === 'presentation') {
+                                    showSlide(currentSlide);
+                                }
+                            } else if (event.data.type === 'UPDATE_IMAGE_SRC') {
+                                const { originalSrc, newSrc } = event.data;
+                                
+                                // Helper to normalize URLs for comparison
+                                const normalize = (url) => {
+                                    if (!url) return '';
+                                    return decodeURIComponent(url)
+                                        .replace(/&amp;/g, '&')
+                                        .trim();
+                                };
+                                const normOriginal = normalize(originalSrc);
+                                const baseOriginal = normOriginal.split('?')[0];
+
+                                // Update img tags
+                                const images = document.querySelectorAll('img');
+                                images.forEach(img => {
+                                    const currentSrc = img.getAttribute('src') || '';
+                                    const resolvedSrc = img.src || '';
+                                    const normCurrent = normalize(currentSrc);
+                                    const normResolved = normalize(resolvedSrc);
+
+                                    if (normCurrent === normOriginal || 
+                                        normResolved === normOriginal ||
+                                        (baseOriginal && normResolved.split('?')[0] === baseOriginal)) {
+                                        img.src = newSrc;
+                                    }
+                                });
+
+                                // Update background images
+                                const allElements = document.querySelectorAll('*');
+                                allElements.forEach(el => {
+                                    const style = window.getComputedStyle(el);
+                                    const bgImage = style.backgroundImage;
+                                    if (bgImage && bgImage !== 'none') {
+                                        const matches = bgImage.match(/url\(['"]?([^'"]+)['"]?\)/i);
+                                        if (matches && matches[1]) {
+                                            const normBg = normalize(matches[1]);
+                                            if (normBg === normOriginal || (baseOriginal && normBg.split('?')[0] === baseOriginal)) {
+                                                el.style.backgroundImage = 'url(' + newSrc + ')';
+                                            }
+                                        }
+                                    }
+                                });
+                            } else if (event.data.type === 'SET_VIEW_MODE') {
+                                viewMode = event.data.mode;
+                                if (viewMode === 'grid') {
+                                    wrapSlides();
+                                    document.body.classList.add('grid-mode');
+                                } else {
+                                    document.body.classList.remove('grid-mode');
+                                    unwrapSlides();
+                                    showSlide(currentSlide);
+                                }
+                            }
+                        });
+                        
+                        function initSlides() {
+                            // Start in presentation mode (unwrapped)
+                            showSlide(0);
+                        }
+                        
+                        setTimeout(initSlides, 0);
+                        if (document.readyState === 'loading') {
+                            document.addEventListener('DOMContentLoaded', initSlides);
+                        } else {
+                            initSlides();
+                        }
+                        window.addEventListener('load', initSlides);
+                    })();
+
+                    // Image click handler for zoom (only in presentation mode)
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const images = document.querySelectorAll('img');
+                        images.forEach(img => {
+                            img.style.cursor = 'zoom-in';
+                            img.onclick = (e) => {
+                                // Only allow zoom in presentation mode
+                                if (document.body.classList.contains('grid-mode')) return;
+                                
+                                e.stopPropagation();
+                                window.parent.postMessage({
+                                    type: 'IMAGE_CLICK',
+                                    src: img.src
+                                }, '*');
+                            };
+                        });
+                    });
+
+                    // Forward keydown events
+                    document.addEventListener('keydown', (e) => {
+                        if (['ArrowRight', 'ArrowLeft', ' ', 'PageUp', 'PageDown', 'Escape'].includes(e.key)) {
+                            window.parent.postMessage({
+                                type: 'KEYDOWN',
+                                key: e.key
+                            }, '*');
+                        }
+                    });
+                </script>
+            </head>
+    `;
+
+            let modifiedHtml = text.replace(/<\/head>/i, styleInjection);
+
+            // Fallback if no head tag found
+            if (modifiedHtml === text) {
+                modifiedHtml = styleInjection + text;
+            }
+
+
+            setHtmlContent(modifiedHtml);
+        } catch (err) {
+            console.error('Error fetching HTML content:', err);
+        }
+    };
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const isNowFullscreen = !!document.fullscreenElement;
+            setIsFullscreen(isNowFullscreen);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+        };
+    }, []);
+
+    useEffect(() => {
+        const updateScale = () => {
+            if (viewportContainerRef.current) {
+                const containerWidth = viewportContainerRef.current.clientWidth;
+                const containerHeight = viewportContainerRef.current.clientHeight;
+
+                if (containerWidth > 0 && containerHeight > 0) {
+                    const scaleX = containerWidth / 1280;
+                    const scaleY = containerHeight / 720;
+                    const newScale = Math.min(scaleX, scaleY);
+                    setScale(newScale);
+                    console.log('Scale updated:', newScale, 'Container:', containerWidth, 'x', containerHeight);
+                }
+            }
+        };
+
+        updateScale();
+
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== 'undefined' && viewportContainerRef.current) {
+            resizeObserver = new ResizeObserver(() => {
+                updateScale();
+            });
+            resizeObserver.observe(viewportContainerRef.current);
+        } else {
+            window.addEventListener('resize', updateScale);
+        }
+
+        return () => {
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            } else {
+                window.removeEventListener('resize', updateScale);
+            }
+        };
+    }, [viewMode, isFullscreen, infographic]);
+
+    // Handle keyboard navigation
+    useEffect(() => {
+        const handleKeyPress = (e) => {
+            // If image is zoomed, ESC closes it
+            if (zoomedImage) {
+                if (e.key === 'Escape') {
+                    setZoomedImage(null);
+                }
+                return; // Don't navigate slides while zoomed
+            }
+
+            // If fullscreen, ESC exits (handled by browser usually, but good to have)
+            if (isFullscreen && e.key === 'Escape') {
+                setIsFullscreen(false);
+                return;
+            }
+
+            // Slide navigation
+            if (viewMode === 'presentation') {
+                if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+                    nextSlide();
+                } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+                    previousSlide();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyPress);
+        return () => window.removeEventListener('keydown', handleKeyPress);
+    }, [currentSlideIndex, viewMode, infographic, isFullscreen, zoomedImage]);
+
+    // Handle messages from iframe (image clicks and keyboard navigation)
+    useEffect(() => {
+        const handleMessage = (event) => {
+            if (event.data.type === 'IMAGE_CLICK') {
+                setZoomedImage(event.data.src);
+            } else if (event.data.type === 'KEYDOWN') {
+                const key = event.data.key;
+
+                // Handle ESC key from iframe
+                if (key === 'Escape') {
+                    if (zoomedImage) {
+                        setZoomedImage(null);
+                    } else if (isFullscreen) {
+                        setIsFullscreen(false);
+                    }
+                    return;
+                }
+
+                // Handle navigation keys from iframe
+                if (!zoomedImage && viewMode === 'presentation') {
+                    if (key === 'ArrowRight' || key === ' ' || key === 'PageDown') {
+                        nextSlide();
+                    } else if (key === 'ArrowLeft' || key === 'PageUp') {
+                        previousSlide();
+                    }
+                }
+            } else if (event.data.type === 'SLIDE_CLICKED') {
+                // The iframe sends the ORIGINAL index (including hidden slides)
+                // We need to map this back to our VISIBLE index
+                if (infographic && infographic.allSlides) {
+                    const originalIndex = event.data.index;
+                    const targetSlide = infographic.allSlides[originalIndex];
+
+                    if (targetSlide && !targetSlide.hidden) {
+                        const visibleIndex = infographic.slides.indexOf(targetSlide);
+                        if (visibleIndex !== -1) {
+                            goToSlide(visibleIndex);
+                        }
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [zoomedImage, isFullscreen, viewMode, currentSlideIndex, infographic]);
+
+    // Handle view mode changes
+    useEffect(() => {
+        if (iframeRef.current && iframeRef.current.contentWindow) {
+            iframeRef.current.contentWindow.postMessage({
+                type: 'SET_VIEW_MODE',
+                mode: viewMode
+            }, '*');
+        }
+    }, [viewMode]);
+
+    const loadInfographic = async (forceRefresh = false) => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            let url = `${API_BASE}/infographic/${encodeURIComponent(folder)}?_t=${new Date().getTime()}`;
+
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status} `);
+            }
+
+            const data = await response.json();
+
+            // Add timestamp to html_url if forcing refresh
+            if (forceRefresh && data.html_url) {
+                const separator = data.html_url.includes('?') ? '&' : '?';
+                data.html_url = `${data.html_url}${separator} _t = ${new Date().getTime()} `;
+            }
+
+            // Filter out hidden slides for presentation view
+            const visibleSlides = data.slides.filter(slide => !slide.hidden);
+            setInfographic({
+                ...data,
+                allSlides: data.slides, // Keep all slides for grid view
+                slides: visibleSlides  // Only visible slides for presentation
+            });
+
+            if (forceRefresh) {
+                console.log('Infographic reloaded with fresh data');
+                // Show a temporary success message
+                const toast = document.createElement('div');
+                toast.textContent = '✅ Presentación recargada';
+                toast.style.position = 'fixed';
+                toast.style.bottom = '20px';
+                toast.style.left = '50%';
+                toast.style.transform = 'translateX(-50%)';
+                toast.style.backgroundColor = '#4CAF50';
+                toast.style.color = 'white';
+                toast.style.padding = '10px 20px';
+                toast.style.borderRadius = '5px';
+                toast.style.zIndex = '10000';
+                toast.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+                document.body.appendChild(toast);
+                setTimeout(() => document.body.removeChild(toast), 3000);
+            }
+        } catch (err) {
+            console.error('Error loading infographic:', err);
+            setError('Error al cargar la presentación. Por favor, intenta de nuevo.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const nextSlide = () => {
+        if (infographic && currentSlideIndex < infographic.slides.length - 1) {
+            // Find next visible slide
+            let nextIndex = currentSlideIndex + 1;
+            while (nextIndex < infographic.slides.length && infographic.slides[nextIndex].hidden) {
+                nextIndex++;
+            }
+
+            if (nextIndex < infographic.slides.length) {
+                setCurrentSlideIndex(nextIndex);
+            }
+        }
+    };
+
+    const previousSlide = () => {
+        if (currentSlideIndex > 0) {
+            // Find previous visible slide
+            let prevIndex = currentSlideIndex - 1;
+            while (prevIndex >= 0 && infographic.slides[prevIndex].hidden) {
+                prevIndex--;
+            }
+
+            if (prevIndex >= 0) {
+                setCurrentSlideIndex(prevIndex);
+            }
+        }
+    };
+
+    const goToSlide = (index) => {
+        setCurrentSlideIndex(index);
+        setViewMode('presentation');
+    };
+
+    const containerRef = React.useRef(null);
+
+    const toggleFullscreen = () => {
+        console.log('Toggle fullscreen called');
+        if (!document.fullscreenElement) {
+            // Request fullscreen on the viewer container
+            const container = containerRef.current;
+            console.log('Container ref:', container);
+
+            if (container) {
+                try {
+                    if (container.requestFullscreen) {
+                        container.requestFullscreen();
+                    } else if (container.webkitRequestFullscreen) {
+                        container.webkitRequestFullscreen();
+                    } else if (container.msRequestFullscreen) {
+                        container.msRequestFullscreen();
+                    }
+                    setIsFullscreen(true);
+                } catch (err) {
+                    console.error('Error entering fullscreen:', err);
+                }
+            } else {
+                console.error('Container ref is null');
+            }
+        } else {
+            // Exit fullscreen
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            setIsFullscreen(false);
+        }
+    };
+
+
+
+    // renderSlide and renderContentBlocks are no longer needed in the parent component
+    // as the iframe will handle rendering all slides, including the grid view.
+
+    if (loading) {
+        return (
+            <div className="viewer-loading-overlay">
+                <div className="viewer-loading-container">
+                    <h1>🖼️ Presentación</h1>
+                    <p>Cargando presentación...</p>
+                    <div className="viewer-loading-bar-wrapper">
+                        <div className="viewer-loading-bar"></div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="viewer-container">
+                <div className="error-message">
+                    <h2>⚠️ Error</h2>
+                    <p>{error}</p>
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (!infographic || !infographic.slides || infographic.slides.length === 0) {
+        return (
+            <div className="viewer-container">
+                <div className="error-message">
+                    <h2>📭 Sin diapositivas</h2>
+                    <p>Esta presentación no tiene diapositivas.</p>
+                    <button onClick={() => navigate(returnTo)}>
+                        Volver
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    const currentSlide = infographic.slides[currentSlideIndex];
+
+    return (
+        <div ref={containerRef} className={`viewer-container ${isFullscreen ? 'fullscreen-mode' : ''}`}>
+            {/* Top Controls */}
+            <div className="viewer-controls">
+                <button onClick={() => navigate(returnTo)} className="btn-back">
+                    ← Volver
+                </button>
+
+                <div className="view-mode-toggle">
+                    <button
+                        className={viewMode === 'presentation' ? 'active' : ''}
+                        onClick={() => setViewMode('presentation')}
+                    >
+                        🖼️ Presentación
+                    </button>
+                    <button
+                        className={viewMode === 'grid' ? 'active' : ''}
+                        onClick={() => setViewMode('grid')}
+                    >
+                        ⊞ Cuadrícula
+                    </button>
+                </div>
+
+                <div className="viewer-title">
+                    <span className="slide-counter">
+                        {currentSlideIndex + 1} / {infographic.slides.length}
+                    </span>
+                </div>
+
+                <div className="viewer-actions">
+
+
+                    <button
+                        onClick={toggleFullscreen}
+                        className="btn-fullscreen"
+                        title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                    >
+                        {isFullscreen ? '⊗' : '⛶'} {isFullscreen ? 'Salir' : 'Pantalla completa'}
+                    </button>
+
+                    <button
+                        onClick={() => navigate(`/presentaciones/editor/${folder}?returnTo=${encodeURIComponent(returnTo)}`)}
+                        className="btn-edit"
+                    >
+                        ✏️ Editar
+                    </button>
+
+                    <button
+                        onClick={async () => {
+                            const btn = document.querySelector('.btn-download');
+                            try {
+                                if (btn) {
+                                    btn.disabled = true;
+                                    btn.textContent = '⏳ Generando...';
+                                }
+
+                                let response = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt`, {
+                                    method: 'GET',
+                                    headers: { 'Accept': 'application/json' }
+                                });
+
+                                // On server error (often API Gateway timeout), poll until the new export lands.
+                                if (response.status === 500 || response.status === 504) {
+                                    console.log('Generation may have timed out, polling for refreshed PPT...');
+
+                                    const maxAttempts = 12;
+                                    let pollResponse = response;
+                                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                                        if (btn) btn.textContent = `⏳ Verificando ${attempt}/${maxAttempts}...`;
+                                        await new Promise(r => setTimeout(r, 5000));
+
+                                        pollResponse = await fetch(`${API_BASE}/infographic/${encodeURIComponent(folder)}/ppt?check_only=true`, {
+                                            method: 'GET',
+                                            headers: { 'Accept': 'application/json' }
+                                        });
+
+                                        if (pollResponse.ok) {
+                                            response = pollResponse;
+                                            break;
+                                        }
+
+                                        if (![404, 409].includes(pollResponse.status)) {
+                                            response = pollResponse;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!response.ok && pollResponse.ok) {
+                                        response = pollResponse;
+                                    }
+                                }
+
+                                if (!response.ok) {
+                                    const errorData = await response.json().catch(() => ({}));
+                                    throw new Error(errorData.error || `Error: ${response.status}`);
+                                }
+
+                                const data = await response.json();
+
+                                if (data.download_url) {
+                                    window.location.href = data.download_url;
+                                    console.log(`PPT download started: ${data.filename} (${Math.round(data.size_bytes / 1024)} KB)${data.cached ? ' [cached]' : ''}`);
+                                } else {
+                                    throw new Error('No download URL in response');
+                                }
+
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 PPT';
+                                }
+                            } catch (err) {
+                                console.error('PPT download error:', err);
+                                alert('Error descargando PPT: ' + err.message);
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '📥 PPT';
+                                }
+                            }
+                        }}
+                        className="btn-download"
+                        title="Descargar PPT"
+                        style={{ backgroundColor: '#FF8C00', marginLeft: '0.5rem' }}
+                    >
+                        📥 PPT
+                    </button>
+
+                    <button
+                        onClick={() => loadInfographic(true)}
+                        className="btn-reload"
+                        title="Recargar presentación"
+                        style={{ backgroundColor: '#e74c3c', marginLeft: '0.5rem' }}
+                    >
+                        🔄
+                    </button>
+                </div>
+            </div>
+
+            {/* Presentation View (Used for both Presentation and Grid modes) */}
+            <div className="presentation-view">
+                <div
+                    ref={viewportContainerRef}
+                    className={`slide-viewport-container ${viewMode === 'grid' ? 'grid-mode' : ''}`}
+                >
+                    <div
+                        className={`slide-viewport ${viewMode === 'presentation' ? 'presentation-mode' : 'grid-mode'}`}
+                        style={
+                            viewMode === 'presentation'
+                                ? { transform: `scale(${scale})` }
+                                : {}
+                        }
+                    >
+                        {htmlContent ? (
+                            <iframe
+                                ref={iframeRef}
+                                srcDoc={htmlContent}
+                                className="slide-iframe"
+                                title="Presentación"
+                                allowFullScreen
+                                style={{
+                                    background: viewMode === 'grid' ? '#1a1a1a' : 'white'
+                                }}
+                            />
+                        ) : (
+                            <div className="viewer-inline-loading">
+                                <p>Cargando contenido...</p>
+                                <div className="viewer-loading-bar-wrapper">
+                                    <div className="viewer-loading-bar"></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Navigation Controls (Only in Presentation Mode) */}
+                {viewMode === 'presentation' && (
+                    <>
+                        <div className="slide-navigation">
+                            <button
+                                onClick={previousSlide}
+                                disabled={currentSlideIndex === 0}
+                                className="nav-btn"
+                            >
+                                ← Anterior
+                            </button>
+
+                            <div className="progress-bar">
+                                <div
+                                    className="progress-fill"
+                                    style={{
+                                        width: `${((currentSlideIndex + 1) / infographic.slides.length) * 100}%`
+                                    }}
+                                ></div>
+                            </div>
+
+                            <button
+                                onClick={nextSlide}
+                                disabled={currentSlideIndex === infographic.slides.length - 1}
+                                className="nav-btn"
+                            >
+                                Siguiente →
+                            </button>
+                        </div>
+
+                        <div className="keyboard-hint">
+                            Usa las teclas ← → o espacio para navegar
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* Image Zoom Overlay */}
+            {zoomedImage && (
+                <div className="image-zoom-overlay" onClick={() => setZoomedImage(null)}>
+                    <button className="close-zoom-btn" onClick={() => setZoomedImage(null)}>×</button>
+                    <img
+                        src={zoomedImage}
+                        alt="Zoomed"
+                        className="zoomed-image"
+                        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image
+                    />
+                    <div className="zoom-hint">
+                        Haz clic fuera de la imagen para cerrar
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default InfographicViewer;

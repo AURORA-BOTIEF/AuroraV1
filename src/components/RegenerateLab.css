@@ -1,0 +1,363 @@
+/* src/components/RegenerateLab.css */
+
+.regenerate-lab-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50000;
+    backdrop-filter: blur(4px);
+}
+
+.regenerate-lab-modal {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.regenerate-lab-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 2px solid #fde68a;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+}
+
+.regenerate-lab-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.regenerate-lab-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.regenerate-lab-close:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+.regenerate-lab-close:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.regenerate-lab-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.regenerate-lab-info {
+    background: #fffbeb;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid #f59e0b;
+}
+
+.regenerate-lab-info p {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+.regenerate-lab-info p:first-child {
+    font-weight: 600;
+    color: #374151;
+}
+
+.lab-title {
+    font-size: 1.1rem;
+    color: #d97706;
+    font-weight: 600;
+}
+
+.lab-id,
+.lab-module {
+    font-size: 0.9rem;
+    color: #6b7280;
+    font-family: 'Courier New', monospace;
+}
+
+.regenerate-lab-form {
+    margin-bottom: 1.5rem;
+}
+
+.regenerate-lab-form label {
+    display: block;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.lab-requirements-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #fde68a;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s;
+}
+
+.lab-requirements-input:focus {
+    outline: none;
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.lab-requirements-input:disabled {
+    background: #f3f4f6;
+    cursor: not-allowed;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.regenerate-lab-error {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    color: #991b1b;
+    font-size: 0.9rem;
+}
+
+.regenerate-lab-warning {
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 1rem;
+    font-size: 0.9rem;
+    color: #92400e;
+    line-height: 1.5;
+}
+
+.regenerate-lab-warning strong {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.regenerate-lab-footer {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    padding: 1.5rem;
+    border-top: 2px solid #fde68a;
+    background: #fffbeb;
+}
+
+.regenerate-lab-footer button {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-cancel {
+    background: white;
+    color: #374151;
+    border: 2px solid #e5e7eb !important;
+}
+
+.btn-cancel:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #d1d5db !important;
+}
+
+.btn-regenerate {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+}
+
+.btn-regenerate:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.btn-regenerate:disabled,
+.btn-cancel:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Success Modal Styles */
+.regenerate-success-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50001;
+    backdrop-filter: blur(4px);
+}
+
+.regenerate-success-modal {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 450px;
+    overflow: hidden;
+}
+
+.regenerate-success-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+}
+
+.regenerate-success-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.regenerate-success-body {
+    padding: 1.5rem;
+}
+
+.regenerate-success-body p {
+    margin: 0.5rem 0;
+    color: #4b5563;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.regenerate-success-body .highlight {
+    color: #d97706;
+    font-weight: 600;
+}
+
+.regenerate-success-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background: #fffbeb;
+    border-top: 1px solid #fde68a;
+}
+
+.btn-success-cancel {
+    background: white;
+    color: #374151;
+    border: 2px solid #e5e7eb;
+    padding: 0.625rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-success-cancel:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+.btn-success-ok {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    padding: 0.625rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-success-ok:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+/* Responsive design */
+@media (max-width: 640px) {
+    .regenerate-lab-modal {
+        width: 95%;
+        max-height: 95vh;
+    }
+
+    .regenerate-lab-header h2 {
+        font-size: 1.25rem;
+    }
+
+    .regenerate-lab-footer {
+        flex-direction: column;
+    }
+
+    .regenerate-lab-footer button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .regenerate-success-modal {
+        width: 95%;
+    }
+}

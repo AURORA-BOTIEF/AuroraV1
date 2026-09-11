@@ -1,0 +1,1074 @@
+"""
+Lab Planner - Agent 1: Master Planning
+Reads course outline and creates comprehensive lab guide plan.
+
+Features:
+- Extracts all lab_activities from outline
+- Generates master plan with objectives, scope, duration
+- Identifies hardware and software requirements
+- Integrates user's additional requirements
+- Outputs structured JSON plan for Lab Writer
+"""
+
+import os
+import json
+import yaml
+import re
+import boto3
+from botocore.config import Config
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+# AWS Clients with extended timeout for Bedrock (complex prompts can take 3-5 minutes)
+bedrock_config = Config(
+    read_timeout=600,  # 10 minutes
+    connect_timeout=60,
+    retries={'max_attempts': 3}
+)
+s3_client = boto3.client('s3')
+bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1', config=bedrock_config)
+secrets_client = boto3.client('secretsmanager', region_name='us-east-1')
+
+# Model Configuration
+DEFAULT_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
+DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
+
+
+def get_secret(secret_name: str) -> dict:
+    """Retrieve secret from AWS Secrets Manager."""
+    try:
+        response = secrets_client.get_secret_value(SecretId=secret_name)
+        return json.loads(response['SecretString'])
+    except Exception as e:
+        print(f"⚠️  Error retrieving secret {secret_name}: {e}")
+        # Return empty dict if secret not found
+        return {}
+
+
+def get_google_api_key() -> str:
+    """Get Google API key from Secrets Manager or environment."""
+    try:
+        secret = get_secret("aurora/google-api-key")
+        api_key = secret.get('api_key')
+        if api_key:
+            return api_key
+    except Exception as e:
+        print(f"⚠️ Failed to retrieve Google key from Secrets Manager: {e}")
+    return os.getenv('GOOGLE_API_KEY')
+
+
+def call_gemini_agent(prompt: str, api_key: str, model_id: str = "gemini-3.5-flash") -> str:
+    """Call Google Gemini API."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"❌ Gemini API error: {e}")
+        raise
+
+
+def outline_language_code(course_info: Optional[dict]) -> str:
+    """Spanish by default; English only when outline explicitly sets English."""
+    raw = (course_info or {}).get("language")
+    if raw is None or not str(raw).strip():
+        return "es"
+    s = str(raw).strip().lower()
+    if s.startswith("en") or "english" in s or "inglés" in s or "ingles" in s:
+        return "en"
+    return "es"
+
+
+def load_outline_from_s3(bucket: str, key: str) -> dict:
+    """Load and parse course outline YAML from S3."""
+    try:
+        print(f"📥 Loading outline from s3://{bucket}/{key}")
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        yaml_content = response['Body'].read().decode('utf-8')
+
+        try:
+            outline_data = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as parse_err:
+            print(f"⚠️  YAML parse failed, trying recovery for unquoted scalar values: {parse_err}")
+            recovered_yaml = recover_yaml_unquoted_scalars(yaml_content)
+            outline_data = yaml.safe_load(recovered_yaml)
+            print("✅ YAML recovered successfully after auto-quoting plain scalar values")
+
+        print(f"✅ Outline loaded successfully")
+        return outline_data
+    except Exception as e:
+        print(f"❌ Error loading outline: {e}")
+        raise
+
+
+def recover_yaml_unquoted_scalars(yaml_content: str) -> str:
+    """Quote plain scalar values that contain colon-space and are likely YAML-breaking.
+
+    This recovers common malformed lines such as:
+      title: Práctica 13: API + RAG avanzado
+    """
+    repaired_lines = []
+    key_value_pattern = re.compile(r'^(\s*-?\s*[A-Za-z_][\w\-]*\s*:\s*)(.+)$')
+
+    for raw_line in yaml_content.splitlines():
+        line = raw_line.rstrip('\n')
+        match = key_value_pattern.match(line)
+        if not match:
+            repaired_lines.append(line)
+            continue
+
+        prefix, value = match.group(1), match.group(2).strip()
+
+        # Skip empty values and already-safe/structured YAML values.
+        if not value or value[0] in ("'", '"', '{', '[', '|', '>', '&', '*', '!'):
+            repaired_lines.append(line)
+            continue
+
+        # If scalar contains ": " it can be misinterpreted as nested mapping.
+        if ': ' in value:
+            escaped = value.replace("'", "''")
+            repaired_lines.append(f"{prefix}'{escaped}'")
+            continue
+
+        repaired_lines.append(line)
+
+    return '\n'.join(repaired_lines)
+
+
+def is_demo_activity(title: str, item_type: str = "") -> bool:
+    """Check if an activity/lesson is an instructor demonstration/demo."""
+    t_lower = (title or "").lower().strip()
+    type_lower = (item_type or "").lower().strip()
+    if type_lower in ['demo', 'demostracion', 'demostración']:
+        return True
+    if t_lower.startswith('demo') or t_lower.startswith('demostración') or t_lower.startswith('demostracion'):
+        return True
+    if 'demo:' in t_lower or 'demo -' in t_lower or 'demo ' in t_lower:
+        return True
+    if 'demostración:' in t_lower or 'demostración -' in t_lower or 'demostración ' in t_lower:
+        return True
+    if 'demostracion:' in t_lower or 'demostracion -' in t_lower or 'demostracion ' in t_lower:
+        return True
+    if '(demo)' in t_lower or '[demo]' in t_lower:
+        return True
+    return False
+
+
+def ensure_demo_title(title: str) -> str:
+    """Ensure a demo title includes the word 'Demo'."""
+    t = (title or "").strip()
+    t_lower = t.lower()
+    if t_lower.startswith("demostración:") or t_lower.startswith("demostracion:"):
+        return re.sub(r'^(demostración|demostracion)\s*:\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if t_lower.startswith("demostración -") or t_lower.startswith("demostracion -"):
+        return re.sub(r'^(demostración|demostracion)\s*-\s*', 'Demo - ', t, flags=re.IGNORECASE).strip()
+    if t_lower.startswith("demostración") or t_lower.startswith("demostracion"):
+        return re.sub(r'^(demostración|demostracion)\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if re.search(r'\bdemo\b', t_lower):
+        return t
+    return f"Demo: {t}"
+
+
+def extract_all_labs(
+    outline_data: any,
+    modules_to_generate: any = "all",
+    lab_ids_to_filter: List[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Extract lab activities from the outline, optionally filtering by modules or specific lab IDs.
+    
+    Args:
+        outline_data: The course outline dictionary or list of modules
+        modules_to_generate: 
+            - "all": Extract from all modules
+            - int (e.g., 3): Single module
+            - list of ints (e.g., [1, 3, 5]): Multiple modules
+        lab_ids_to_filter:
+            - None: No lab ID filtering (use module filtering if specified)
+            - list of lab IDs (e.g., ["01-00-01", "02-00-01"]): Only extract these specific labs
+    
+    Returns list of lab info with context:
+    [
+        {
+            'module_number': 1,
+            'module_title': 'Introduction',
+            'lesson_number': 1,
+            'lesson_title': 'Getting Started',
+            'lab_index': 1,
+            'lab_title': 'Setup environment',
+            'duration_minutes': 30,
+            'bloom_level': 'Apply',
+            'context_topics': ['topic1', 'topic2']
+        },
+        ...
+    ]
+    """
+    labs = []
+    
+    # Parse module filter
+    target_modules = set()
+    if modules_to_generate == "all" or modules_to_generate is None:
+        target_modules = None  # Include all
+    elif isinstance(modules_to_generate, list):
+        target_modules = set(int(m) for m in modules_to_generate)
+    elif isinstance(modules_to_generate, (int, str)):
+        try:
+            target_modules = {int(modules_to_generate)}
+        except (ValueError, TypeError):
+            print(f"⚠️  Invalid modules_to_generate value: {modules_to_generate}, treating as 'all'")
+            target_modules = None
+    
+    # Get modules from standard normalized format (course.modules) or direct list/dict
+    # Note: StarterApiFunction normalizes the outline before execution
+    if isinstance(outline_data, list):
+        modules = outline_data
+    elif isinstance(outline_data, dict):
+        course_data = outline_data.get('course', outline_data)
+        modules = course_data.get('modules', []) if isinstance(course_data, dict) else []
+    else:
+        modules = []
+    
+    print(f"\n{'='*70}")
+    print(f"🔍 EXTRACTING LAB ACTIVITIES FROM OUTLINE")
+    print(f"📊 Found {len(modules)} modules in outline")
+    if target_modules is None:
+        print(f"🎯 Filtering: All modules")
+    else:
+        print(f"🎯 Filtering: Modules {sorted(target_modules)} only")
+    print(f"{'='*70}")
+    
+    for mod_idx, module in enumerate(modules, 1):
+        # Skip modules that don't match the filter
+        if target_modules is not None and mod_idx not in target_modules:
+            continue
+            
+        module_title = module.get('title', f'Module {mod_idx}')
+        lessons = module.get('lessons', [])
+        
+        # OPTION 1: Extract labs from lessons (old format: lab_activities inside lessons)
+        for les_idx, lesson in enumerate(lessons, 1):
+            lesson_title = lesson.get('title', f'Lesson {les_idx}')
+            lesson_bloom = lesson.get('bloom_level', module.get('bloom_level', 'Understand'))
+            
+            # Extract topics for context
+            topics = lesson.get('topics', [])
+            context_topics = []
+            for topic in topics:
+                if isinstance(topic, dict):
+                    context_topics.append(topic.get('title', ''))
+                else:
+                    context_topics.append(str(topic))
+            
+            # Extract lab activities from lesson
+            lab_activities = lesson.get('lab_activities', [])
+            
+            if not lab_activities:
+                lesson_type = str(lesson.get('type', '')).lower().strip()
+                l_title_lower = lesson_title.lower().strip()
+                is_demo = is_demo_activity(lesson_title, lesson_type)
+                is_lab_lesson_entry = (
+                    lesson_type in ['lab', 'practice', 'activity', 'lab_activity', 'laboratorio', 'práctica', 'practica', 'demo', 'demostracion', 'demostración'] or
+                    l_title_lower.startswith('laboratorio') or
+                    l_title_lower.startswith('lab:') or
+                    l_title_lower.startswith('lab ') or
+                    l_title_lower.startswith('práctica') or
+                    l_title_lower.startswith('practica') or
+                    is_demo
+                )
+                if is_lab_lesson_entry:
+                    final_title = ensure_demo_title(lesson_title) if is_demo else lesson_title
+                    lab_info = {
+                        'module_number': mod_idx,
+                        'module_title': module_title,
+                        'lesson_number': les_idx,
+                        'lesson_title': lesson_title,
+                        'lab_index': 1,
+                        'lab_title': final_title,
+                        'duration_minutes': lesson.get('duration_minutes', 30),
+                        'bloom_level': lesson_bloom,
+                        'context_topics': context_topics,
+                        'lab_id': f"{mod_idx:02d}-{les_idx:02d}-01",
+                        'objectives': lesson.get('objectives', []),
+                        'activities': [],
+                        'is_demo': is_demo
+                    }
+                    labs.append(lab_info)
+                    label = "Demo" if is_demo else "Lab"
+                    print(f"  ✓ {label} {lab_info['lab_id']}: {final_title} ({lesson.get('duration_minutes', 30)} min)")
+            else:
+                for lab_idx, lab in enumerate(lab_activities, 1):
+                    if isinstance(lab, dict):
+                        lab_title = lab.get('title', f'Lab {lab_idx}')
+                        lab_duration = lab.get('duration_minutes', 30)
+                        lab_bloom = lab.get('bloom_level', lesson_bloom)
+                        lab_objectives = lab.get('objectives', [])
+                        lab_activities_list = lab.get('activities', [])
+                        lab_type = lab.get('type', '')
+                    else:
+                        lab_title = str(lab)
+                        lab_duration = 30
+                        lab_bloom = lesson_bloom
+                        lab_objectives = []
+                        lab_activities_list = []
+                        lab_type = ''
+                    
+                    is_demo = is_demo_activity(lab_title, lab_type)
+                    final_title = ensure_demo_title(lab_title) if is_demo else lab_title
+                    
+                    lab_info = {
+                        'module_number': mod_idx,
+                        'module_title': module_title,
+                        'lesson_number': les_idx,
+                        'lesson_title': lesson_title,
+                        'lab_index': lab_idx,
+                        'lab_title': final_title,
+                        'duration_minutes': lab_duration,
+                        'bloom_level': lab_bloom,
+                        'context_topics': context_topics,
+                        'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}",
+                        'objectives': lab_objectives,
+                        'activities': lab_activities_list,
+                        'is_demo': is_demo
+                    }
+                    
+                    labs.append(lab_info)
+                    label = "Demo" if is_demo else "Lab"
+                    print(f"  ✓ {label} {lab_info['lab_id']}: {final_title} ({lab_duration} min)")
+        
+        # OPTION 2: Extract labs from module level (supports both 'labs' and 'lab_activities' keys)
+        module_labs = module.get('labs', []) or module.get('lab_activities', [])
+        if module_labs:
+            print(f"  📋 Found {len(module_labs)} module-level labs")
+            
+            # Collect all topics from all lessons for context
+            all_context_topics = []
+            for lesson in lessons:
+                topics = lesson.get('topics', [])
+                for topic in topics:
+                    if isinstance(topic, dict):
+                        all_context_topics.append(topic.get('title', ''))
+                    else:
+                        all_context_topics.append(str(topic))
+            
+            for lab_idx, lab in enumerate(module_labs, 1):
+                # Handle both dict and string formats
+                if isinstance(lab, dict):
+                    lab_number = lab.get('number', lab_idx)
+                    lab_title = lab.get('title', f'Lab {lab_number}')
+                    lab_duration = lab.get('duration_minutes', 30)
+                    lab_bloom = lab.get('bloom_level', module.get('bloom_level', 'Apply'))
+                    lab_objectives = lab.get('objectives', [])
+                    lab_activities_list = lab.get('activities', [])
+                    lab_description = lab.get('description', '')
+                    lab_type = lab.get('type', '')
+                else:
+                    # String format (simple lab title)
+                    lab_number = lab_idx
+                    lab_title = str(lab)
+                    lab_duration = 30
+                    lab_bloom = module.get('bloom_level', 'Apply')
+                    lab_objectives = []
+                    lab_activities_list = []
+                    lab_description = ''
+                    lab_type = ''
+                
+                is_demo = is_demo_activity(lab_title, lab_type)
+                final_title = ensure_demo_title(lab_title) if is_demo else lab_title
+                
+                lab_info = {
+                    'module_number': mod_idx,
+                    'module_title': module_title,
+                    'lesson_number': 0,  # Module-level lab, not tied to specific lesson
+                    'lesson_title': 'Module Lab',
+                    'lab_index': lab_number,
+                    'lab_title': final_title,
+                    'duration_minutes': lab_duration,
+                    'bloom_level': lab_bloom,
+                    'context_topics': all_context_topics,
+                    'lab_id': f"{mod_idx:02d}-00-{lab_number:02d}",
+                    'objectives': lab_objectives,
+                    'activities': lab_activities_list,
+                    'description': lab_description,
+                    'is_demo': is_demo
+                }
+                
+                labs.append(lab_info)
+                label = "Demo" if is_demo else "Lab"
+                print(f"  ✓ {label} {lab_info['lab_id']}: {final_title} ({lab_duration} min)")
+    
+    print(f"\n📊 Total labs found: {len(labs)}")
+    
+    # NEW: Filter by specific lab IDs if requested
+    if lab_ids_to_filter:
+        print(f"🎯 Filtering for specific lab IDs: {lab_ids_to_filter}")
+        original_count = len(labs)
+        labs = [lab for lab in labs if lab['lab_id'] in lab_ids_to_filter]
+        print(f"✓ Filtered from {original_count} to {len(labs)} lab(s)")
+    
+    print(f"{'='*70}\n")
+    
+    return labs
+
+
+def call_bedrock_agent(prompt: str, model_id: str) -> str:
+    """Call AWS Bedrock with Strands Agents pattern."""
+    try:
+        payload = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 32000,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.7
+        }
+        
+        response = bedrock_client.invoke_model(
+            modelId=model_id,
+            body=json.dumps(payload),
+            contentType='application/json',
+            accept='application/json'
+        )
+        
+        response_body = json.loads(response['body'].read())
+        return response_body['content'][0]['text']
+    
+    except Exception as e:
+        print(f"❌ Bedrock API error: {e}")
+        raise
+
+
+def build_fallback_lab_plans_from_outline(
+    labs: List[Dict[str, Any]],
+    course_language: str = "es",
+) -> List[Dict[str, Any]]:
+    """
+    Minimal lab_plans when the LLM returns nothing or unparsable JSON, so LabBatchExpander
+    still receives lab_id entries and the writer can run.
+    """
+    spanish = str(course_language).lower().startswith("es")
+    out: List[Dict[str, Any]] = []
+    for lab in labs:
+        lab_id = lab.get("lab_id")
+        if not lab_id:
+            continue
+        duration = int(lab.get("duration_minutes") or 30)
+        title = lab.get("lab_title") or "Lab"
+        is_demo = bool(lab.get("is_demo")) or is_demo_activity(title)
+        if is_demo:
+            title = ensure_demo_title(title)
+        lesson_title = lab.get("lesson_title") or ""
+        objectives = lab.get("objectives") or []
+        if not objectives:
+            if is_demo:
+                objectives = (
+                    [f"Demostrar en vivo por parte del instructor: {title}."]
+                    if spanish
+                    else [f"Live demonstration by instructor: {title}."]
+                )
+            else:
+                objectives = (
+                    [f"Aplicar en la práctica: {title}."]
+                    if spanish
+                    else [f"Hands-on practice: {title}."]
+                )
+        if spanish:
+            if is_demo:
+                scope = (
+                    f"Demostración guiada realizada por el instructor: «{title}». "
+                    f"El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento."
+                )
+                outcomes = [f"Comprender y analizar la demostración {lab_id} realizada por el instructor."]
+            else:
+                scope = (
+                    f"Práctica alineada con la lección «{lesson_title}», enfocada en {title}. "
+                    f"Usa los conceptos del módulo y el material teórico de la lección."
+                )
+                outcomes = [f"Completar los objetivos del laboratorio {lab_id}."]
+        else:
+            if is_demo:
+                scope = (
+                    f"Instructor-led demonstration: «{title}». "
+                    f"The instructor demonstrates the steps and commands while students observe, take notes, and analyze the procedure."
+                )
+                outcomes = [f"Understand and analyze demonstration {lab_id} performed by the instructor."]
+            else:
+                scope = (
+                    f"Hands-on practice aligned with lesson «{lesson_title}», focused on {title}. "
+                    f"Apply module concepts and lesson theory."
+                )
+                outcomes = [f"Complete the practical objectives for lab {lab_id}."]
+        topics = [t for t in (lab.get("context_topics") or []) if t][:8]
+        out.append(
+            {
+                "lab_id": lab_id,
+                "lab_title": title,
+                "is_demo": is_demo,
+                "objectives": objectives,
+                "scope": scope,
+                "estimated_duration": duration,
+                "bloom_level": lab.get("bloom_level") or "Apply",
+                "prerequisites": [],
+                "key_technologies": topics,
+                "expected_outcomes": outcomes,
+                "complexity": "medium",
+                "module_number": lab.get("module_number"),
+            }
+        )
+    return out
+
+
+def _parse_batch_plan_json(response_text: str) -> dict:
+    """Parse JSON from model output; tolerate fenced blocks and trailing text."""
+    text = response_text.strip()
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in text:
+        text = text.split("```", 1)[1].split("```", 1)[0]
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        return json.loads(text[start : end + 1])
+    raise json.JSONDecodeError("No JSON object found in model response", text, 0)
+
+
+def call_openai_agent(prompt: str, api_key: str, model_id: str = DEFAULT_OPENAI_MODEL) -> str:
+    """Call OpenAI API with GPT-5.6-terra compatibility."""
+    try:
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        
+        # GPT-5.6-terra and reasoning models use max_completion_tokens
+        if model_id.startswith("o1-") or model_id.startswith("o3-") or "gpt-5" in model_id:
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=32000
+            )
+        else:
+            # GPT-4 and earlier models
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical instructor and lab designer."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=32000,
+                temperature=0.7
+            )
+        
+        return response.choices[0].message.content
+    
+    except Exception as e:
+        print(f"❌ OpenAI API error: {e}")
+        raise
+
+
+def generate_lab_master_plan(
+    labs: List[Dict[str, Any]],
+    course_info: dict,
+    additional_requirements: Optional[str],
+    model_provider: str = "bedrock",
+    batch_size: int = 5
+) -> dict:
+    """
+    Generate comprehensive master plan for all labs using AI with batching for large courses.
+    
+    The AI will analyze labs in batches and create:
+    - Overall objectives for the lab guide
+    - Hardware requirements (aggregated)
+    - Software requirements (aggregated)
+    - Detailed plan for each lab with objectives and scope
+    
+    Args:
+        labs: List of lab dictionaries
+        course_info: Course metadata
+        additional_requirements: User-specified requirements
+        model_provider: "bedrock" or "openai"
+        batch_size: Number of labs to process per AI call (default 5)
+    """
+    
+    print(f"\n{'='*70}")
+    print(f"🤖 GENERATING MASTER LAB PLAN (OPTIMIZED FOR LARGE COURSES)")
+    print(f"{'='*70}")
+    print(f"Model Provider: {model_provider}")
+    print(f"Total Labs: {len(labs)}")
+    print(f"Batch Size: {batch_size} labs per AI call")
+    
+    # Build course context
+    course_title = course_info.get('title', 'Course')
+    course_description = course_info.get('description', '')
+    course_level = course_info.get('level', 'intermediate')
+    prerequisites = course_info.get('prerequisites', [])
+    
+    # For large courses, process labs in batches to avoid token limits and timeouts
+    num_batches = (len(labs) + batch_size - 1) // batch_size
+    print(f"📦 Processing {len(labs)} labs in {num_batches} batch(es)")
+
+    course_language = outline_language_code(course_info)
+    BATCH_MAX_ATTEMPTS = 3
+
+    all_lab_plans = []
+    all_hardware_reqs = set()
+    all_software_reqs = []
+    all_overall_objectives = set()
+    all_special_considerations = []
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min((batch_idx + 1) * batch_size, len(labs))
+        batch_labs = labs[start_idx:end_idx]
+        
+        print(f"\n🔄 Processing batch {batch_idx + 1}/{num_batches} ({len(batch_labs)} labs)...")
+        
+        # Build labs summary for this batch
+        labs_summary = []
+        for lab in batch_labs:
+            labs_summary.append(
+                f"[{lab['lab_id']}] Module {lab['module_number']}.{lab['lesson_number']} - "
+                f"{lab['lab_title']} ({lab['duration_minutes']} min, {lab['bloom_level']})\n"
+                f"  Context Topics: {', '.join(lab['context_topics']) if lab['context_topics'] else 'N/A'}"
+            )
+        
+        # Build prompt for AI - OPTIMIZED with shorter instructions for batches
+        if num_batches == 1:
+            # Single batch - full prompt
+            prompt_prefix = "Create a comprehensive master plan for the entire laboratory guide."
+        else:
+            # Multiple batches - streamlined prompt
+            prompt_prefix = f"Create a detailed plan for this batch of labs (batch {batch_idx + 1} of {num_batches})."
+        
+        # Build prompt for AI - OPTIMIZED with shorter instructions for batches
+        if num_batches == 1:
+            # Single batch - full prompt
+            prompt_prefix = "Create a comprehensive master plan for the entire laboratory guide."
+        else:
+            # Multiple batches - streamlined prompt
+            prompt_prefix = f"Create a detailed plan for this batch of labs (batch {batch_idx + 1} of {num_batches})."
+        
+        prompt = f"""
+You are an expert technical instructor designing laboratory guides.
+
+COURSE: {course_title}
+Level: {course_level}
+{'Prerequisites: ' + ', '.join(prerequisites) if prerequisites else ''}
+
+LABS IN THIS BATCH ({len(batch_labs)} labs):
+{chr(10).join(labs_summary)}
+
+REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
+
+THOR ALIGNMENT & DEEP TECH SPEC:
+- Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
+- Environmental Constants: Explicitly predefine global environment defaults in special_considerations (e.g., default database name, container names, default ports, working directories).
+- Continuity: Ensure each lab's scope builds logically on the outputs and state created by the previous lab.
+- Demos & Demostraciones: For any lab designated as a Demo or containing 'Demo' in its title, this activity is an INSTRUCTOR-LED DEMONSTRATION (performed live by the instructor while students observe and take notes, NOT an individual student lab). The lab_title MUST contain the word 'Demo' and its scope/objectives must explicitly specify that it is demonstrated by the instructor.
+
+{prompt_prefix}
+
+Return JSON with:
+{{
+  "overall_objectives": ["objective 1", "objective 2"],
+  "hardware_requirements": ["requirement 1", "requirement 2"],
+  "software_requirements": [{{"name": "Software", "version": "Exact Version (e.g. 16.2)", "purpose": "Why needed", "installation_notes": "Brief notes"}}],
+  "lab_plans": [
+    {{
+      "lab_id": "01-01-01",
+      "lab_title": "Title",
+      "objectives": ["objective 1", "objective 2"],
+      "scope": "Detailed description and sequential dependency description",
+      "estimated_duration": 30,
+      "bloom_level": "Apply",
+      "prerequisites": ["prereq 1"],
+      "key_technologies": ["tech 1"],
+      "expected_outcomes": ["outcome 1"],
+      "complexity": "easy|medium|hard"
+    }}
+  ],
+  "special_considerations": ["Environment constants (ports, credentials, container names, DB names, directory paths)", "consideration 2"]
+}}
+
+BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
+"""
+
+        batch_plan = None
+        for attempt in range(BATCH_MAX_ATTEMPTS):
+            try:
+                effective_provider = model_provider
+                if effective_provider == "openai":
+                    secret_data = get_secret("aurora/openai-api-key")
+                    api_key = secret_data.get('api_key') or os.environ.get('OPENAI_API_KEY')
+                    if not api_key:
+                        print("⚠️  OpenAI API key not found, falling back to Bedrock")
+                        effective_provider = "bedrock"
+                    else:
+                        response_text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+
+                elif effective_provider in ("google", "gemini"):
+                    google_key = get_google_api_key()
+                    if not google_key:
+                        print("⚠️  Google API key not found, falling back to Bedrock")
+                        effective_provider = "bedrock"
+                    else:
+                        response_text = call_gemini_agent(prompt, google_key)
+
+                if effective_provider == "bedrock":
+                    response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
+
+                batch_plan = _parse_batch_plan_json(response_text)
+                lp = batch_plan.get("lab_plans") or []
+                if not lp:
+                    raise ValueError("Model returned empty lab_plans")
+                if len(lp) < len(batch_labs):
+                    raise ValueError(
+                        f"Incomplete lab_plans: expected {len(batch_labs)}, got {len(lp)}"
+                    )
+                break
+            except Exception as e:
+                print(
+                    f"❌ Batch {batch_idx + 1} attempt {attempt + 1}/{BATCH_MAX_ATTEMPTS}: {e}"
+                )
+                if attempt == BATCH_MAX_ATTEMPTS - 1:
+                    print("⚠️  Batch failed after retries; continuing to next batch")
+                    batch_plan = None
+                else:
+                    print("🔁 Retrying batch with same prompt...")
+
+        if not batch_plan:
+            continue
+
+        try:
+            # Aggregate results from this batch
+            # IMPORTANT: Override AI-generated titles with exact titles from outline
+            # AND extract module_number from lab_id (format: "MM-LL-NN")
+            for lab_plan in batch_plan.get('lab_plans', []):
+                lab_id = lab_plan.get('lab_id')
+                # Find the original lab from outline to get exact title and module number
+                original_lab = next((l for l in batch_labs if l['lab_id'] == lab_id), None)
+                if original_lab:
+                    # Override with exact outline title
+                    lab_plan['lab_title'] = original_lab['lab_title']
+                    # Add module_number from original lab or extract from lab_id
+                    lab_plan['module_number'] = original_lab.get('module_number')
+                    if original_lab.get('is_demo'):
+                        lab_plan['is_demo'] = True
+                    print(f"  ✓ Lab {lab_id}: Module {lab_plan['module_number']}, Title '{original_lab['lab_title']}', Demo={lab_plan.get('is_demo', False)}")
+                elif lab_id:
+                    # Fallback: Extract module number from lab_id (format: MM-LL-NN)
+                    try:
+                        module_num = int(lab_id.split('-')[0])
+                        lab_plan['module_number'] = module_num
+                        print(f"  ⚠️ Lab {lab_id}: Extracted module {module_num} from ID (not found in outline)")
+                    except (ValueError, IndexError):
+                        lab_plan['module_number'] = None
+                        print(f"  ❌ Lab {lab_id}: Could not extract module number")
+
+            all_lab_plans.extend(batch_plan.get('lab_plans', []))
+            all_hardware_reqs.update(batch_plan.get('hardware_requirements', []))
+
+            # Merge software requirements (avoid duplicates by name)
+            for sw in batch_plan.get('software_requirements', []):
+                if isinstance(sw, dict) and sw.get('name'):
+                    if not any(s.get('name') == sw['name'] for s in all_software_reqs):
+                        all_software_reqs.append(sw)
+
+            all_overall_objectives.update(batch_plan.get('overall_objectives', []))
+            all_special_considerations.extend(batch_plan.get('special_considerations', []))
+
+            print(f"✅ Batch {batch_idx + 1} completed: {len(batch_plan.get('lab_plans', []))} lab plans generated")
+
+        except Exception as e:
+            print(f"❌ Error merging batch {batch_idx + 1} results: {e}")
+            continue
+
+    outline_fallback = False
+    if labs and not all_lab_plans:
+        print(
+            "⚠️ No lab_plans from model after all batches — using outline-derived fallback "
+            "(downstream lab generation will still run)."
+        )
+        all_lab_plans = build_fallback_lab_plans_from_outline(labs, course_language=course_language)
+        outline_fallback = True
+
+    # Compile final master plan
+    master_plan = {
+        'overall_objectives': list(all_overall_objectives),
+        'hardware_requirements': list(all_hardware_reqs),
+        'software_requirements': all_software_reqs,
+        'lab_plans': all_lab_plans,
+        'special_considerations': all_special_considerations,
+        'additional_requirements': additional_requirements or ''
+    }
+    if outline_fallback:
+        master_plan['_outline_fallback_used'] = True
+
+    print(f"\n✅ Master plan generation complete")
+    print(f"   - Overall objectives: {len(master_plan['overall_objectives'])}")
+    print(f"   - Hardware requirements: {len(master_plan['hardware_requirements'])}")
+    print(f"   - Software requirements: {len(master_plan['software_requirements'])}")
+    print(f"   - Lab plans: {len(master_plan['lab_plans'])}")
+    print(f"   - Special considerations: {len(master_plan['special_considerations'])}")
+    
+    return master_plan
+
+
+def load_master_plan_from_s3(bucket: str, project_folder: str) -> Optional[dict]:
+    """Load existing lab-master-plan.json if present (for partial regeneration)."""
+    key = f"{project_folder}/labguide/lab-master-plan.json"
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        data = json.loads(response["Body"].read().decode("utf-8"))
+        print(f"📥 Loaded existing master plan from s3://{bucket}/{key}")
+        return data
+    except Exception as e:
+        print(f"⚠️  No existing master plan to merge (ok for full runs): {e}")
+        return None
+
+
+def save_master_plan_to_s3(
+    bucket: str,
+    project_folder: str,
+    master_plan: dict
+) -> str:
+    """Save master plan JSON to S3."""
+    try:
+        key = f"{project_folder}/labguide/lab-master-plan.json"
+        
+        print(f"💾 Saving master plan to s3://{bucket}/{key}")
+        
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(master_plan, indent=2),
+            ContentType='application/json'
+        )
+        
+        print(f"✅ Master plan saved successfully")
+        return key
+    
+    except Exception as e:
+        print(f"❌ Error saving master plan: {e}")
+        raise
+
+
+def lambda_handler(event, context):
+    """
+    Lambda handler for Lab Planner (Agent 1).
+    
+    Input event:
+    {
+        "course_bucket": "crewai-course-artifacts",
+        "outline_s3_key": "uploads/xxx/outline.yaml",
+        "project_folder": "251014-kubernetes-course",
+        "model_provider": "bedrock",
+        "lab_requirements": "Use Docker containers, focus on AWS services"
+    }
+    
+    Output:
+    {
+        "statusCode": 200,
+        "master_plan_key": "project/labguide/lab-master-plan.json",
+        "total_labs": 15,
+        "total_duration_minutes": 600,
+        "project_folder": "251014-kubernetes-course",
+        "bucket": "crewai-course-artifacts",
+        "model_provider": "bedrock"
+    }
+    """
+    
+    print("\n" + "="*70)
+    print("🧪 LAB PLANNER - AGENT 1: MASTER PLANNING")
+    print("="*70)
+    
+    try:
+        # Extract parameters
+        course_bucket = event.get('course_bucket', 'crewai-course-artifacts')
+        outline_key = event['outline_s3_key']
+        project_folder = event['project_folder']
+        model_provider = event.get('model_provider', 'bedrock')
+        lab_requirements = event.get('lab_requirements')
+        manual_text_s3_key = event.get('manual_text_s3_key')
+        if manual_text_s3_key:
+            try:
+                s3_client = boto3.client('s3')
+                man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
+                man_text = man_obj['Body'].read().decode('utf-8')
+                manual_rule = f"\n\n[REGLA DE ALINEACIÓN ESTRICTA AL MANUAL: Todas las actividades de laboratorio, comandos y escenarios DEBEN basarse 100% exclusivamente en el siguiente texto del manual de referencia]:\n{man_text[:10000]}"
+                lab_requirements = (lab_requirements or '') + manual_rule
+                print(f"📚 Manual reference text loaded in Lab Planner ({len(man_text):,} chars)")
+            except Exception as man_err:
+                print(f"⚠️ Could not load manual reference text in lab planner: {man_err}")
+
+        # Support bedrock, openai, and google/gemini providers
+        original_provider = event.get('model_provider', 'bedrock').lower()
+        if original_provider in ('google', 'gemini', 'openai'):
+            model_provider = original_provider
+        else:
+            model_provider = 'bedrock'
+        
+        # Support both old (modules) and new (lab_ids) parameters
+        modules_to_generate = event.get('modules_to_generate')
+        if modules_to_generate is None:
+            # Fallback to old single-module parameter
+            module_to_generate = event.get('module_to_generate', 'all')
+            if module_to_generate == 'all':
+                modules_to_generate = 'all'
+            else:
+                modules_to_generate = [int(module_to_generate)]
+        elif not isinstance(modules_to_generate, list):
+            modules_to_generate = [int(modules_to_generate)]
+        
+        # NEW: Get lab IDs to regenerate (takes priority over module filtering)
+        lab_ids_to_regenerate = event.get('lab_ids_to_regenerate')
+        
+        print(f"📦 Bucket: {course_bucket}")
+        print(f"📄 Outline: {outline_key}")
+        print(f"📁 Project: {project_folder}")
+        print(f"🤖 Model: {model_provider}")
+        print(f"🎯 Module Scope: {modules_to_generate}")
+        if lab_ids_to_regenerate:
+            print(f"🆔 Lab IDs to Regenerate: {lab_ids_to_regenerate}")
+        print(f"📋 Additional Requirements: {lab_requirements if lab_requirements else 'None'}")
+        
+        # Step 1: Load outline
+        outline_data = load_outline_from_s3(course_bucket, outline_key)
+        course_info = outline_data.get('course', {})
+        
+        # Step 2: Extract labs (filtered by lab_ids if specified, otherwise by modules)
+        labs = extract_all_labs(
+            outline_data,
+            modules_to_generate=modules_to_generate,
+            lab_ids_to_filter=lab_ids_to_regenerate
+        )
+        
+        if not labs:
+            print("⚠️  No labs found in outline! Returning success with empty plan.")
+            # Return success with empty lab plan instead of error
+            # This allows the workflow to continue with theory-only content
+            return {
+                'statusCode': 200,
+                'master_plan_key': None,
+                'total_labs': 0,
+                'total_duration_minutes': 0,
+                'project_folder': project_folder,
+                'bucket': course_bucket,
+                'model_provider': model_provider,
+                'message': 'No lab activities found in outline - skipping lab generation'
+            }
+        
+        # Step 3: Generate master plan with AI (with retries + outline fallback if model yields nothing)
+        master_plan = generate_lab_master_plan(
+            labs=labs,
+            course_info=course_info,
+            additional_requirements=lab_requirements,
+            model_provider=model_provider
+        )
+
+        outline_fallback = master_plan.pop('_outline_fallback_used', False)
+
+        if lab_ids_to_regenerate:
+            regen_set = {x for x in lab_ids_to_regenerate if x}
+            existing = load_master_plan_from_s3(course_bucket, project_folder)
+            if not existing or not existing.get("lab_plans"):
+                raise ValueError(
+                    "lab_ids_to_regenerate requires existing "
+                    f"{project_folder}/labguide/lab-master-plan.json on s3://{course_bucket}"
+                )
+            fresh_by_id = {
+                p["lab_id"]: p
+                for p in master_plan.get("lab_plans", [])
+                if p.get("lab_id")
+            }
+            merged_plans: List[Dict[str, Any]] = []
+            for p in existing["lab_plans"]:
+                lid = p.get("lab_id")
+                if lid in regen_set and lid in fresh_by_id:
+                    merged_plans.append(fresh_by_id[lid])
+                else:
+                    merged_plans.append(p)
+            existing_ids = {p.get("lab_id") for p in existing["lab_plans"]}
+            for lid, plan in fresh_by_id.items():
+                if lid in regen_set and lid not in existing_ids:
+                    merged_plans.append(plan)
+            master_plan = {
+                **existing,
+                "lab_plans": merged_plans,
+                "additional_requirements": lab_requirements or existing.get("additional_requirements", "")
+            }
+            print(
+                f"🔀 Merged replan: {len(fresh_by_id)} lab(s) refreshed, "
+                f"{len(merged_plans)} total in master plan"
+            )
+
+        lab_plan_list = master_plan.get("lab_plans") or []
+        duration_sum = sum(
+            int(p.get("estimated_duration") or p.get("duration_minutes") or 30)
+            for p in lab_plan_list
+        )
+
+        # CRITICAL: Add total_labs to root level for State Machine validation
+        master_plan["total_labs"] = len(lab_plan_list)
+        master_plan["additional_requirements"] = lab_requirements or master_plan.get("additional_requirements", "")
+
+        # Add metadata (including language for LabWriter)
+        course_language = outline_language_code(course_info)
+        master_plan['metadata'] = {
+            'generated_at': datetime.utcnow().isoformat(),
+            'model_provider': model_provider,
+            'course_title': course_info.get('title', 'Unknown'),
+            'course_language': course_language,  # Pass language to LabWriter
+            'total_labs': len(lab_plan_list),
+            'total_duration_minutes': duration_sum,
+            'additional_requirements': lab_requirements,
+            'lab_plans_source': 'outline_fallback' if outline_fallback else 'ai',
+            'lab_plans_count': len(lab_plan_list),
+        }
+        
+        # Step 4: Save to S3
+        master_plan_key = save_master_plan_to_s3(
+            bucket=course_bucket,
+            project_folder=project_folder,
+            master_plan=master_plan
+        )
+        
+        print(f"\n{'='*70}")
+        print(f"✅ LAB PLANNING COMPLETED SUCCESSFULLY")
+        print(f"{'='*70}\n")
+        
+        return {
+            'statusCode': 200,
+            'master_plan_key': master_plan_key,
+            'total_labs': len(lab_plan_list),
+            'total_duration_minutes': duration_sum,
+            'project_folder': project_folder,
+            'bucket': course_bucket,
+            'model_provider': model_provider,
+            'lab_plans_source': master_plan['metadata'].get('lab_plans_source', 'ai'),
+        }
+    
+    except KeyError as e:
+        print(f"❌ Missing required parameter: {e}")
+        return {
+            'statusCode': 400,
+            'error': f'Missing required parameter: {e}'
+        }
+    
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'statusCode': 500,
+            'error': str(e)
+        }

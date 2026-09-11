@@ -1,0 +1,69 @@
+2010-09-09	NETEC Course Generator with Strands Agents (NO DOCKER!)
+APIBASEURL	API Gateway base URL
+VALUE	https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod
+BOOKBUILDERFUNCTION	Book Builder Lambda Function ARN
+FN::GETATT	BookBuilder
+FN::GETATT	Arn
+COURSEGENERATORSTATEMACHINEARN	Step Functions State Machine ARN
+VALUE	CourseGeneratorStateMachine
+EXECSTATUSENDPOINT	Execution status endpoint
+VALUE	https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/exec-status
+EXECSTATUSFUNCTION	ExecStatus Lambda ARN
+FN::GETATT	ExecStatusFunction
+FN::GETATT	Arn
+GENERATEPPTENDPOINT	Generate PowerPoint presentation endpoint
+VALUE	https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/generate-ppt
+IMAGESGENARN	Images Generation Lambda ARN
+FN::GETATT	ImagesGen
+FN::GETATT	Arn
+LABGUIDEBUILDERFUNCTION	Lab Guide Builder Lambda Function ARN
+FN::GETATT	LabGuideBuilder
+FN::GETATT	Arn
+LISTPROJECTSFUNCTION	List Projects Lambda Function ARN
+FN::GETATT	ListProjectsFunction
+FN::GETATT	Arn
+LOADBOOKFUNCTION	Load Book Lambda Function ARN
+FN::GETATT	LoadBookFunction
+FN::GETATT	Arn
+POSTCONFIRMATIONFUNCTIONARN	Post Confirmation Lambda ARN
+FN::GETATT	PostConfirmationFunction
+FN::GETATT	Arn
+PRESIGNENDPOINT	Presign endpoint
+VALUE	https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presign
+PRESIGNFUNCTION	Presign Lambda ARN
+FN::GETATT	PresignFunction
+FN::GETATT	Arn
+SAVEBOOKFUNCTION	Save Book Lambda Function ARN
+FN::GETATT	SaveBookFunction
+FN::GETATT	Arn
+STARTJOBENDPOINT	Start job endpoint
+VALUE	https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/start-job
+STARTERAPIFUNCTION	Starter API Lambda ARN
+FN::GETATT	StarterApiFunction
+FN::GETATT	Arn
+STRANDSCONTENTGENARN	Strands Content Generator Lambda ARN
+FN::GETATT	StrandsContentGen
+FN::GETATT	Arn
+STRANDSINFOGRAPHICGENERATORARN	Strands Infographic Generator Lambda ARN
+FN::GETATT	StrandsInfographicGenerator
+FN::GETATT	Arn
+STRANDSLABPLANNERARN	Strands Lab Planner Lambda ARN
+FN::GETATT	StrandsLabPlanner
+FN::GETATT	Arn
+STRANDSLABWRITERARN	Strands Lab Writer Lambda ARN
+FN::GETATT	StrandsLabWriter
+FN::GETATT	Arn
+STRANDSVISUALPLANNERARN	Strands Visual Planner Lambda ARN
+FN::GETATT	StrandsVisualPlanner
+FN::GETATT	Arn
+ASSIGNCOURSEFUNCTION	AWS::Lambda::Function
+METADATA	AssignCourseFunction
+PROPERTIES	Assign courses to users	AssignCourseFunction	assignments/assign_course.lambda_handler	128	python3.12	30
+CODE	aws-sam-cli-managed-default-samclisourcebucket-ft8ensjaaupq	crewai-course-generator-stack/2a74de45004ee5b8286c76819ad2e9cc
+ASSIGNMENTS_TABLE	CourseAssignmentsTable
+FN::GETATT	AssignCourseFunctionRole
+FN::GETATT	Arn
+TAGS	lambda:createdBy	SAM
+ASSIGNCOURSEFUNCTIONASSIGNCOURSEAPIPERMISSIONPROD	AWS::Lambda::Permission
+PROPERTIES	lambda:InvokeFunction	apigateway.amazonaws.com
+FUNCTIONNAME	AssignCourseFunction
