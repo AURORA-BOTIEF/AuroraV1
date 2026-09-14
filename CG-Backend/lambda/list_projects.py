@@ -90,30 +90,39 @@ def lambda_handler(event, context):
                 "total_pages": total_pages,
             }
         else:
-            # Search: need title/description/topic — enrich all, then filter (parallel, no book JSON)
-            print(f"--- Search mode: enriching {len(all_folders)} projects ---")
-            projects_all = _enrich_folders_parallel(
-                s3_client, bucket_name, all_folders, max_workers
+            # Search all folders by name + outline/metadata title, then enrich only the page.
+            print(f"--- Search mode: resolving titles for {len(all_folders)} projects ---")
+            search_rows = _map_folders_parallel(
+                s3_client,
+                bucket_name,
+                all_folders,
+                max_workers,
+                load_search_fields,
             )
-            projects_all.sort(key=lambda p: (p.get("created") or "", p.get("folder", "")), reverse=True)
+            search_rows.sort(
+                key=lambda p: (p.get("created") or "", p.get("folder", "")),
+                reverse=True,
+            )
 
-            filtered = [
-                p
-                for p in projects_all
-                if search_term in (p.get("title") or "").lower()
-                or search_term in (p.get("folder") or "").lower()
-                or search_term in (p.get("description") or "").lower()
-                or search_term in (p.get("course_topic") or "").lower()
+            matched_folders = [
+                row["folder"]
+                for row in search_rows
+                if _matches_search(search_term, row)
             ]
-            print(f"--- Search '{search_term}': {len(filtered)} matches ---")
+            print(f"--- Search '{search_term}': {len(matched_folders)} matches ---")
 
-            total_count = len(filtered)
+            total_count = len(matched_folders)
             total_pages = max((total_count + limit - 1) // limit, 1)
             start_idx = (page - 1) * limit
-            paginated_projects = filtered[start_idx : start_idx + limit]
+            page_folders = matched_folders[start_idx : start_idx + limit]
+            projects = _enrich_folders_parallel(
+                s3_client, bucket_name, page_folders, max_workers
+            )
+            folder_order = {f: i for i, f in enumerate(page_folders)}
+            projects.sort(key=lambda p: folder_order.get(p["folder"], 999))
 
             body = {
-                "projects": paginated_projects,
+                "projects": projects,
                 "total_count": total_count,
                 "page": page,
                 "limit": limit,
@@ -179,14 +188,40 @@ def list_all_root_prefixes(s3_client, bucket_name, excluded_folders):
     return prefixes
 
 
-def _enrich_folders_parallel(s3_client, bucket_name, folders, max_workers):
+def _folder_slug(project_folder):
+    return project_folder.split("-", 1)[1] if "-" in project_folder else project_folder
+
+
+def _title_is_generic(title, project_folder):
+    """True when title is missing or just the folder name (not the real course title)."""
+    if not title:
+        return True
+    t = str(title).strip()
+    if not t or t == "Generated Course Book":
+        return True
+    return t in {project_folder, _folder_slug(project_folder)}
+
+
+def _matches_search(search_term, row):
+    haystack = " ".join(
+        [
+            row.get("folder") or "",
+            row.get("title") or "",
+            row.get("description") or "",
+            row.get("course_topic") or "",
+        ]
+    ).lower()
+    return search_term in haystack
+
+
+def _map_folders_parallel(s3_client, bucket_name, folders, max_workers, worker, on_error=None):
     if not folders:
         return []
     workers = min(max_workers, len(folders))
     results = [None] * len(folders)
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_idx = {
-            executor.submit(build_project_row, s3_client, bucket_name, folder): i
+            executor.submit(worker, s3_client, bucket_name, folder): i
             for i, folder in enumerate(folders)
         }
         for future in as_completed(future_to_idx):
@@ -195,23 +230,77 @@ def _enrich_folders_parallel(s3_client, bucket_name, folders, max_workers):
                 results[idx] = future.result()
             except Exception as e:
                 folder = folders[idx]
-                print(f"ERROR enriching {folder}: {e}")
-                results[idx] = _fallback_row(folder, str(e))
+                print(f"ERROR mapping {folder}: {e}")
+                results[idx] = on_error(folder, str(e)) if on_error else None
     return [r for r in results if r is not None]
+
+
+def _enrich_folders_parallel(s3_client, bucket_name, folders, max_workers):
+    return _map_folders_parallel(
+        s3_client,
+        bucket_name,
+        folders,
+        max_workers,
+        build_project_row,
+        on_error=_fallback_row,
+    )
 
 
 def _fallback_row(project_folder, err):
     print(f"_fallback_row for {project_folder}: {err}")
+    slug = _folder_slug(project_folder)
     return {
         "folder": project_folder,
-        "title": project_folder.split("-", 1)[1] if "-" in project_folder else project_folder,
+        "title": slug,
         "description": "",
         "created": extract_date_from_folder(project_folder) or "",
         "hasBook": False,
         "hasLabGuide": False,
         "lessonCount": 0,
-        "course_topic": project_folder.split("-", 1)[1] if "-" in project_folder else project_folder,
+        "course_topic": slug,
         "model_provider": "bedrock",
+    }
+
+
+def load_search_fields(s3_client, bucket_name, project_folder):
+    """Lightweight title/description for searching every project (skips book/lesson checks)."""
+    slug = _folder_slug(project_folder)
+    title = ""
+    description = ""
+    course_topic = ""
+    created = extract_date_from_folder(project_folder) or ""
+
+    try:
+        response = s3_client.get_object(
+            Bucket=bucket_name, Key=f"{project_folder}/metadata.json"
+        )
+        metadata = json.loads(response["Body"].read().decode("utf-8"))
+        title = str(metadata.get("title") or "").strip()
+        description = str(metadata.get("description") or "").strip()
+        course_topic = str(metadata.get("course_topic") or "").strip()
+        if not created and metadata.get("created"):
+            created = str(metadata["created"])[:10]
+    except Exception:
+        pass
+
+    if _title_is_generic(title, project_folder) or not description:
+        outline = load_outline_fields(s3_client, bucket_name, project_folder)
+        if _title_is_generic(title, project_folder) and outline.get("title"):
+            title = outline["title"]
+        if not description and outline.get("description"):
+            description = outline["description"]
+        if not course_topic and outline.get("course_topic"):
+            course_topic = outline["course_topic"]
+
+    if not title:
+        title = slug
+
+    return {
+        "folder": project_folder,
+        "title": title,
+        "description": description,
+        "course_topic": course_topic or slug,
+        "created": created,
     }
 
 
@@ -224,24 +313,32 @@ def build_project_row(s3_client, bucket_name, project_folder):
     has_book, has_lab_guide = check_for_book(s3_client, bucket_name, project_folder)
 
     course_title = metadata.get("title")
-    if not course_title or course_title == "Generated Course Book":
-        outline_title = get_course_title_from_outline(s3_client, bucket_name, project_folder)
-        if outline_title:
-            course_title = outline_title
-        elif not course_title:
-            course_title = project_folder.split("-", 1)[1] if "-" in project_folder else project_folder
+    description = metadata.get("description") or ""
+    course_topic = metadata.get("course_topic") or ""
+    if _title_is_generic(course_title, project_folder) or not description:
+        outline = load_outline_fields(s3_client, bucket_name, project_folder)
+        if _title_is_generic(course_title, project_folder) and outline.get("title"):
+            course_title = outline["title"]
+        if (not description or description.startswith("Course project")) and outline.get(
+            "description"
+        ):
+            description = outline["description"]
+        if not course_topic and outline.get("course_topic"):
+            course_topic = outline["course_topic"]
+    if not course_title:
+        course_title = _folder_slug(project_folder)
 
     creation_date = get_project_creation_date(s3_client, bucket_name, project_folder, metadata)
 
     return {
         "folder": project_folder,
         "title": course_title,
-        "description": metadata.get("description", ""),
+        "description": description,
         "created": creation_date,
         "hasBook": has_book,
         "hasLabGuide": has_lab_guide,
         "lessonCount": metadata.get("lessonCount", 0),
-        "course_topic": metadata.get("course_topic", ""),
+        "course_topic": course_topic or _folder_slug(project_folder),
         "model_provider": metadata.get("model_provider", "bedrock"),
     }
 
@@ -350,8 +447,9 @@ def check_for_book(s3_client, bucket_name, project_folder):
     return has_book, has_lab_guide
 
 
-def get_course_title_from_outline(s3_client, bucket_name, project_folder):
-    """Extract course title from outline.yaml if available."""
+def load_outline_fields(s3_client, bucket_name, project_folder):
+    """Extract course title/description from outline.yaml if available."""
+    empty = {"title": None, "description": None, "course_topic": None}
     try:
         outline_prefix = f"{project_folder}/outline/"
         response = s3_client.list_objects_v2(
@@ -360,36 +458,57 @@ def get_course_title_from_outline(s3_client, bucket_name, project_folder):
             MaxKeys=10,
         )
 
-        if "Contents" in response:
-            for obj in response["Contents"]:
-                key = obj["Key"]
-                if key.endswith(".yaml") or key.endswith(".yml"):
-                    file_response = s3_client.get_object(Bucket=bucket_name, Key=key)
-                    outline_content = file_response["Body"].read().decode("utf-8")
+        for obj in response.get("Contents", []):
+            key = obj["Key"]
+            if not (key.endswith(".yaml") or key.endswith(".yml")):
+                continue
+            file_response = s3_client.get_object(Bucket=bucket_name, Key=key)
+            outline_content = file_response["Body"].read().decode("utf-8")
 
-                    try:
-                        import yaml
+            title = None
+            description = None
+            try:
+                import yaml
 
-                        outline_data = yaml.safe_load(outline_content)
-                        if (
-                            outline_data
-                            and "course" in outline_data
-                            and "title" in outline_data["course"]
-                        ):
-                            return outline_data["course"]["title"]
-                    except ImportError:
-                        pass
-                    except Exception:
-                        pass
+                outline_data = yaml.safe_load(outline_content)
+                course = (outline_data or {}).get("course") if isinstance(outline_data, dict) else None
+                if isinstance(course, dict):
+                    title = course.get("title")
+                    description = course.get("description")
+            except Exception:
+                pass
 
-                    match = re.search(
-                        r'course:\s*\n\s*title:\s*["\']?([^"\'\n]+)["\']?',
-                        outline_content,
-                    )
-                    if match:
-                        return match.group(1).strip()
+            if not title:
+                match = re.search(
+                    r'course:\s*\n\s*title:\s*["\']?([^"\'\n]+)["\']?',
+                    outline_content,
+                )
+                if match:
+                    title = match.group(1).strip()
 
-        return None
+            if not description:
+                match = re.search(
+                    r'(?m)^\s*description:\s*["\']?([^"\'\n]+)',
+                    outline_content,
+                )
+                if match:
+                    description = match.group(1).strip()
+
+            if isinstance(description, str):
+                description = " ".join(description.split())
+
+            return {
+                "title": str(title).strip() if title else None,
+                "description": description or None,
+                "course_topic": str(title).strip() if title else None,
+            }
+
+        return empty
     except Exception as e:
         print(f"Error loading outline for {project_folder}: {e}")
-        return None
+        return empty
+
+
+def get_course_title_from_outline(s3_client, bucket_name, project_folder):
+    """Extract course title from outline.yaml if available."""
+    return load_outline_fields(s3_client, bucket_name, project_folder).get("title")

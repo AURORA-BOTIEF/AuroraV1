@@ -20,26 +20,23 @@ function BookBuilderPage() {
 
     // Load projects when page or search changes (with debounce for search)
     useEffect(() => {
+        const controller = new AbortController();
         const debounceTimer = setTimeout(() => {
-            loadProjects(currentPage, searchTerm);
+            loadProjects(currentPage, searchTerm, controller.signal);
         }, searchTerm ? 300 : 0);
 
-        return () => clearTimeout(debounceTimer);
+        return () => {
+            clearTimeout(debounceTimer);
+            controller.abort();
+        };
     }, [currentPage, searchTerm]);
 
-    // Reset to page 1 when search changes
-    useEffect(() => {
-        if (searchTerm) {
-            setCurrentPage(1);
-        }
-    }, [searchTerm]);
-
-    const loadProjects = async (page = 1, search = '') => {
+    const loadProjects = async (page = 1, search = '', signal) => {
         try {
             setLoading(true);
             if (search) setIsSearching(true);
 
-            // Build URL with search parameter for backend filtering
+            // Backend searches the full project history, then paginates matches
             let url = `${API_BASE}/list-projects?page=${page}&limit=${limit}`;
             if (search) {
                 url += `&search=${encodeURIComponent(search)}`;
@@ -47,7 +44,8 @@ function BookBuilderPage() {
 
             const response = await fetch(url, {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                signal,
             });
 
             if (!response.ok) {
@@ -61,11 +59,14 @@ function BookBuilderPage() {
             setTotalPages(data.total_pages || 1);
             setTotalCount(data.total_count || 0);
         } catch (error) {
+            if (error.name === 'AbortError') return;
             console.error('Error loading projects:', error);
             alert('Error loading projects: ' + error.message);
         } finally {
-            setLoading(false);
-            setIsSearching(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+                setIsSearching(false);
+            }
         }
     };
 
@@ -130,7 +131,10 @@ function BookBuilderPage() {
                     type="text"
                     placeholder="Buscar en todos los proyectos..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1);
+                    }}
                     className="search-input"
                 />
                 <div className="pagination-info">
@@ -218,7 +222,11 @@ function BookBuilderPage() {
                         {filteredProjects.length === 0 && (
                             <div className="no-projects">
                                 <h3>No se encontraron proyectos</h3>
-                                <p>No hay proyectos en esta página que coincidan con tu búsqueda.</p>
+                                <p>
+                                    {searchTerm
+                                        ? 'Ningún proyecto del historial coincide con tu búsqueda.'
+                                        : 'No hay proyectos para mostrar.'}
+                                </p>
                             </div>
                         )}
                     </div>
