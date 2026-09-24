@@ -1,0 +1,394 @@
+/* src/components/AsignadorPortal.css */
+
+.asignador-portal {
+    padding: 30px;
+    max-width: 1400px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: #f8fafc;
+}
+
+.asignador-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.asignador-header h1 {
+    font-size: 2.5rem;
+    color: #0d3f66;
+    margin-bottom: 10px;
+}
+
+.asignador-header p {
+    color: #3b82a0;
+    font-size: 1.1rem;
+}
+
+.asignador-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    color: #0d3f66;
+    font-size: 1.5rem;
+}
+
+.message {
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.message.success {
+    background: rgba(46, 204, 113, 0.15);
+    border: 1px solid #2ecc71;
+    color: #22c55e;
+}
+
+.message.error {
+    background: rgba(231, 76, 60, 0.15);
+    border: 1px solid #e74c3c;
+    color: #dc2626;
+}
+
+.tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 30px;
+    justify-content: center;
+}
+
+.tab {
+    padding: 15px 40px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: #e2e8f0;
+    color: #0d3f66;
+}
+
+.tab:hover {
+    background: #cbd5e1;
+    color: #1b5784;
+}
+
+.tab.active {
+    background: #0d3f66;
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(13, 63, 102, 0.3);
+}
+
+.asignador-content {
+    background: #fff;
+    border-radius: 15px;
+    padding: 30px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.assignment-flow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+}
+
+.selection-panel {
+    background: #f1f5f9;
+    border-radius: 12px;
+    padding: 25px;
+    border: 1px solid #e2e8f0;
+}
+
+.selection-panel h3 {
+    color: #0d3f66;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+}
+
+.selected-info {
+    background: rgba(13, 63, 102, 0.1);
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    color: #1b5784;
+}
+
+.selected-info strong {
+    color: #0d3f66;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 15px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #1b5784;
+    font-size: 1rem;
+    margin-bottom: 15px;
+    box-sizing: border-box;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #0d3f66;
+    box-shadow: 0 0 10px rgba(13, 63, 102, 0.15);
+}
+
+.search-input::placeholder {
+    color: #94a3b8;
+}
+
+/* CSV Input Section */
+.csv-input-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: rgba(13, 63, 102, 0.05);
+    border-radius: 10px;
+    border: 1px dashed #0d3f66;
+}
+
+.csv-input-section h4 {
+    color: #0d3f66;
+    margin-bottom: 10px;
+    font-size: 1rem;
+}
+
+.csv-input-section textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #1b5784;
+    font-size: 0.9rem;
+    font-family: monospace;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.csv-input-section textarea:focus {
+    outline: none;
+    border-color: #0d3f66;
+}
+
+.csv-input-section textarea::placeholder {
+    color: #94a3b8;
+}
+
+.csv-input-section small {
+    display: block;
+    margin-top: 8px;
+    color: #3b82a0;
+    font-size: 0.8rem;
+}
+
+.csv-count {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 10px;
+    background: rgba(13, 63, 102, 0.15);
+    border-radius: 15px;
+    font-size: 0.85rem;
+    color: #0d3f66;
+}
+
+.items-list {
+    max-height: 350px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.items-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.items-list::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+
+.items-list::-webkit-scrollbar-thumb {
+    background: #0d3f66;
+    border-radius: 4px;
+    opacity: 0.5;
+}
+
+.item-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 15px;
+    padding-right: 100px;
+    /* Space for badge */
+    background: #fff;
+    border-radius: 10px;
+    border: 2px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    min-height: 50px;
+}
+
+.item-card:hover {
+    background: #f8fafc;
+    border-color: #0d3f66;
+}
+
+.item-card.selected {
+    background: rgba(13, 63, 102, 0.08);
+    border-color: #0d3f66;
+}
+
+.item-card.assigned {
+    background: rgba(46, 204, 113, 0.1);
+    border-color: rgba(46, 204, 113, 0.4);
+}
+
+.item-title {
+    font-weight: 600;
+    color: #1b5784;
+    font-size: 0.95rem;
+    line-height: 1.3;
+    word-wrap: break-word;
+    padding-right: 10px;
+}
+
+.item-subtitle {
+    color: #3b82a0;
+    font-size: 0.8rem;
+    font-family: monospace;
+}
+
+.item-badge {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    background: #0d3f66;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.item-card input[type="checkbox"] {
+    position: absolute;
+    top: 50%;
+    right: 15px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #0d3f66;
+}
+
+.remove-btn {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    background: rgba(231, 76, 60, 0.1);
+    color: #dc2626;
+    border: 1px solid #dc2626;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.remove-btn:hover {
+    background: #dc2626;
+    color: #fff;
+}
+
+.assign-btn {
+    width: 100%;
+    margin-top: 20px;
+    padding: 15px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    background: #0d3f66;
+    color: #fff;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(13, 63, 102, 0.3);
+}
+
+.assign-btn:hover {
+    background: #1b5784;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(13, 63, 102, 0.4);
+}
+
+.divider {
+    display: flex;
+    align-items: center;
+    margin: 15px 0;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #cbd5e1;
+}
+
+.divider span {
+    padding: 0 15px;
+}
+
+/* Instructor-specific styles */
+.item-card.instructor {
+    border-left: 4px solid #8e44ad;
+}
+
+.item-card.instructor.selected {
+    background: linear-gradient(135deg, rgba(142, 68, 173, 0.15) 0%, rgba(155, 89, 182, 0.1) 100%);
+    border-color: #8e44ad;
+}
+
+.item-badge.instructor {
+    background: rgba(142, 68, 173, 0.1);
+    color: #8e44ad;
+}
+
+.csv-input-section.instructor h4 {
+    color: #8e44ad;
+}
+
+.csv-count.instructor {
+    background: rgba(142, 68, 173, 0.1);
+    color: #8e44ad;
+}
+
+.assign-btn.instructor {
+    background: linear-gradient(135deg, #8e44ad 0%, #9b59b6 100%);
+}
+
+.assign-btn.instructor:hover {
+    background: linear-gradient(135deg, #7d3c98 0%, #8e44ad 100%);
+    box-shadow: 0 6px 20px rgba(142, 68, 173, 0.4);
+}
+
+@media (max-width: 900px) {
+    .assignment-flow {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,0 +1,1382 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: NETEC Course Generator with Strands Agents (NO DOCKER!)
+
+Globals:
+  Api:
+    Cors:
+      AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+      AllowOrigin: "'*'"
+    Auth:
+      ApiKeyRequired: false
+      DefaultAuthorizer: AWS_IAM
+    GatewayResponses:
+      UNAUTHORIZED:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      MISSING_AUTHENTICATION_TOKEN:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      ACCESS_DENIED:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      INVALID_SIGNATURE:
+        StatusCode: 403
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+      DEFAULT_5XX:
+        StatusCode: 500
+        ResponseParameters:
+          Headers:
+            Access-Control-Allow-Origin: "'*'"
+            Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,x-amz-content-sha256'"
+            Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+
+Resources:
+  # ======================================
+  # LAMBDA LAYERS
+  # ======================================
+  StrandsAgentsLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: strands-agents-dependencies
+      Description: Strands Agents SDK for AWS-native agent deployment
+      Content: ./lambda-layers/strands-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
+  GeminiLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: gemini-dependencies
+      Description: Google Gemini API + Pillow for image generation
+      Content: ./lambda-layers/gemini-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
+  # ======================================
+  # STRANDS AGENTS - COURSE GENERATION
+  # ======================================
+  StrandsContentGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsContentGen
+      Description: Generate course lesson content using Strands Agents (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_content_gen.lambda_handler
+      CodeUri: ./lambda/strands_content_gen/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+          OPENAI_API_KEY: ""  # Will be set via environment or Secrets Manager
+          UPDATED_AT: "2025-10-12-16:45"
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+  
+  BatchExpander:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: BatchExpander
+      Description: Expand modules into individual batch tasks for parallel processing
+      Runtime: python3.12
+      Handler: batch_expander.lambda_handler
+      CodeUri: ./lambda/
+      Timeout: 60
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          MAX_LESSONS_PER_BATCH: '3'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+
+  StrandsVisualPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsVisualPlanner
+      Description: Extract visual tags and create image generation prompts using Strands Agents (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_visual_planner.lambda_handler
+      CodeUri: ./lambda/strands_visual_planner/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 300
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  ImagesGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ImagesGen
+      Description: Generate images from prompts using Google Gemini API (NO DOCKER!)
+      Runtime: python3.12
+      Handler: images_gen.lambda_handler
+      CodeUri: ./lambda/images_gen/
+      Layers:
+        - !Ref GeminiLayer
+      Timeout: 900
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          IMAGES_BACKEND_MAX: '50'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
+
+  # ======================================
+  # STRANDS AGENTS - LAB GUIDE GENERATION
+  # ======================================
+  StrandsLabPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsLabPlanner
+      Description: Generate master plan for lab guides (Agent 1)
+      Runtime: python3.12
+      Handler: strands_lab_planner.lambda_handler
+      CodeUri: ./lambda/strands_lab_planner/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 600
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  StrandsLabWriter:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsLabWriter
+      Description: Generate detailed step-by-step lab guides (Agent 2)
+      Runtime: python3.12
+      Handler: strands_lab_writer.lambda_handler
+      CodeUri: ./lambda/strands_lab_writer/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+                - arn:aws:s3:::netec-course-generator-content
+                - arn:aws:s3:::netec-course-generator-content/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/openai-api-key-*
+
+  # ======================================
+  # SUPPORTING LAMBDAS
+  # ======================================
+  BookBuilder:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Builds complete books by combining lessons and images
+      Handler: book_builder.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 300
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        BuildBookApi:
+          Type: Api
+          Properties:
+            Path: /build-book
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  ListProjectsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lists available course projects for the Book Builder interface
+      Handler: list_projects.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        ListProjectsApi:
+          Type: Api
+          Properties:
+            Path: /list-projects
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  LoadBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Loads book data for the Book Editor interface
+      Handler: load_book.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:GetObjectAcl
+            - s3:HeadObject
+            - s3:ListBucket
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        LoadBookApi:
+          Type: Api
+          Properties:
+            Path: /load-book/{projectFolder}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  SaveBookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Saves book data from the Book Editor interface
+      Handler: save_book.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:GetObjectAcl
+            - s3:HeadObject
+            - s3:ListBucket
+            - s3:PutObject
+            - s3:PutObjectAcl
+          Resource:
+          - arn:aws:s3:::crewai-course-artifacts
+          - arn:aws:s3:::crewai-course-artifacts/*
+          - arn:aws:s3:::netec-course-generator-content
+          - arn:aws:s3:::netec-course-generator-content/*
+      Events:
+        SaveBookApi:
+          Type: Api
+          Properties:
+            Path: /save-book
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  # ======================================
+  # API ENDPOINTS
+  # ======================================
+  CorsHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Handles CORS preflight OPTIONS requests
+      Handler: cors_handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 5
+      Events:
+        StartJobOptions:
+          Type: Api
+          Properties:
+            Path: /start-job
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ExecStatusOptions:
+          Type: Api
+          Properties:
+            Path: /exec-status/{executionArn}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ListProjectsOptions:
+          Type: Api
+          Properties:
+            Path: /list-projects
+            Method: options
+            Auth:
+              Authorizer: NONE
+        LoadBookOptions:
+          Type: Api
+          Properties:
+            Path: /load-book/{projectFolder}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        SaveBookOptions:
+          Type: Api
+          Properties:
+            Path: /save-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        BuildBookOptions:
+          Type: Api
+          Properties:
+            Path: /build-book
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PresignOptions:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: options
+            Auth:
+              Authorizer: NONE
+
+  StarterApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: API endpoint to start the ContentGen -> VisualPlanner state machine
+      Handler: starter_api.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref CourseGeneratorStateMachine
+          SKIP_S3_HEAD_CHECK: 'true'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref CourseGeneratorStateMachine
+            - Effect: Allow
+              Action:
+                - s3:HeadObject
+                - s3:GetObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        StartJobApi:
+          Type: Api
+          Properties:
+            Path: /start-job
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  PresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Issues presigned URLs for outline uploads
+      Handler: presign.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          UPLOAD_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts/uploads/*
+      Events:
+        PresignApi:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: post
+
+  ExecStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Returns Step Functions execution status for a given arn
+      Handler: exec_status.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 10
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+                - states:GetExecutionHistory
+              Resource: 
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${CourseGeneratorStateMachine.Name}:*"
+                - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${CourseGeneratorStateMachine.Name}"
+      Events:
+        ExecStatusApi:
+          Type: Api
+          Properties:
+            Path: /exec-status/{executionArn}
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  # ======================================
+  # STEP FUNCTIONS STATE MACHINE
+  # ======================================
+  CourseGeneratorStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: CourseGeneratorStateMachine
+      Definition:
+        Comment: "Orchestrate Theory and/or Lab Guide generation with content_type selector"
+        StartAt: DetermineContentType
+        States:
+          # ===== ROUTER: Determine what to generate =====
+          DetermineContentType:
+            Type: Choice
+            Comment: "Route based on content_type: theory, labs, or both"
+            Choices:
+              - And:
+                  - Variable: $.content_type
+                    IsPresent: true
+                  - Variable: $.content_type
+                    StringEquals: "labs"
+                Next: LabsOnlyBranch
+              - And:
+                  - Variable: $.content_type
+                    IsPresent: true
+                  - Variable: $.content_type
+                    StringEquals: "both"
+                Next: GenerateLabMasterPlan
+            Default: TheoryOnlyBranch
+          
+          # ===== THEORY ONLY BRANCH =====
+          TheoryOnlyBranch:
+            Type: Pass
+            Comment: "Prepare input for batch expansion"
+            Next: ExpandModulesToBatches
+          
+          ExpandModulesToBatches:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Expand modules into individual batch tasks for parallel processing"
+            Parameters:
+              FunctionName: !GetAtt BatchExpander.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                outline_s3_key.$: $.outline_s3_key
+                project_folder.$: $.project_folder
+                model_provider.$: $.model_provider
+                content_source.$: $.content_source
+                modules_to_generate.$: $.modules_to_generate
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.batch_expansion
+            Next: ProcessBatchesInParallel
+          
+          ProcessBatchesInParallel:
+            Type: Map
+            Comment: "Process 2 batches concurrently using Step Functions MaxConcurrency"
+            ItemsPath: $.batch_expansion.Payload.batches
+            MaxConcurrency: 2
+            Parameters:
+              batch_task.$: $$.Map.Item.Value
+            Iterator:
+              StartAt: GenerateBatchContent
+              States:
+                GenerateBatchContent:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate ONE batch of lessons (max 3 lessons, ~6-7 minutes)"
+                  Parameters:
+                    FunctionName: !GetAtt StrandsContentGen.Arn
+                    Payload.$: $.batch_task
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: BatchFailState
+                  ResultPath: $.batch_result
+                  Next: ProcessBatchVisuals
+                ProcessBatchVisuals:
+                  Type: Map
+                  Comment: "Process visual tags for lessons in this batch"
+                  ItemsPath: $.batch_result.Payload.lesson_keys
+                  MaxConcurrency: 2
+                  Parameters:
+                    lesson_key.$: $$.Map.Item.Value
+                    course_bucket.$: $.batch_task.course_bucket
+                    project_folder.$: $.batch_task.project_folder
+                    model_provider.$: $.batch_task.model_provider
+                  Iterator:
+                    StartAt: InvokeVisualPlannerForLesson
+                    States:
+                      InvokeVisualPlannerForLesson:
+                        Type: Task
+                        Resource: arn:aws:states:::lambda:invoke
+                        Parameters:
+                          FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                          Payload:
+                            course_bucket.$: $.course_bucket
+                            lesson_key.$: $.lesson_key
+                            project_folder.$: $.project_folder
+                            model_provider.$: $.model_provider
+                        Retry:
+                          - ErrorEquals:
+                              - Lambda.ServiceException
+                              - Lambda.AWSLambdaException
+                              - Lambda.SdkClientException
+                            IntervalSeconds: 5
+                            MaxAttempts: 2
+                            BackoffRate: 2.0
+                        Next: VisualPlannerSuccess
+                      VisualPlannerSuccess:
+                        Type: Pass
+                        OutputPath: $.Payload
+                        End: true
+                  ResultPath: $.visual_results
+                  Next: GenerateBatchImages
+                GenerateBatchImages:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate images for this batch's lessons"
+                  Parameters:
+                    FunctionName: !GetAtt ImagesGen.Arn
+                    Payload:
+                      course_bucket.$: $.batch_task.course_bucket
+                      project_folder.$: $.batch_task.project_folder
+                      prompts_prefix.$: $.visual_results[0].prompts_s3_prefix
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  ResultPath: $.images_result
+                  Next: BatchComplete
+                BatchComplete:
+                  Type: Pass
+                  Comment: "Batch processing complete"
+                  Parameters:
+                    module_number.$: $.batch_task.module_number
+                    batch_index.$: $.batch_task.batch_index
+                    lesson_keys.$: $.batch_result.Payload.lesson_keys
+                    image_mappings.$: $.images_result.Payload.image_mappings
+                  End: true
+                BatchFailState:
+                  Type: Fail
+                  Cause: BatchGenerationFailed
+                  Error: BatchGenerationError
+            ResultPath: $.all_batches_results
+            Next: CombineResultsAndBuildBook
+          
+          # ===== COMBINE RESULTS AND BUILD BOOK =====
+          CombineResultsAndBuildBook:
+            Type: Pass
+            Comment: "Flatten results from all batches for BookBuilder"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              all_lesson_keys.$: $.all_batches_results[*].lesson_keys[*]
+              all_image_mappings.$: $.all_batches_results[*].image_mappings
+            Next: InvokeBookBuilder
+          
+          InvokeBookBuilder:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Build final book with all modules"
+            Parameters:
+              FunctionName: !GetAtt BookBuilder.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                project_folder.$: $.project_folder
+                lesson_keys.$: $.all_lesson_keys
+                image_mappings.$: $.all_image_mappings
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            Next: SuccessState
+          
+          # ===== LABS ONLY BRANCH =====
+          LabsOnlyBranch:
+            Type: Parallel
+            Comment: "Generate only lab guides"
+            Branches:
+              - StartAt: InvokeLabPlanner
+                States:
+                  InvokeLabPlanner:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsLabPlanner.Arn
+                      Payload:
+                        course_bucket.$: $.course_bucket
+                        outline_s3_key.$: $.outline_s3_key
+                        project_folder.$: $.project_folder
+                        model_provider.$: $.model_provider
+                        lab_requirements.$: $.lab_requirements
+                        modules_to_generate.$: $.modules_to_generate
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    Catch:
+                      - ErrorEquals:
+                          - States.ALL
+                        ResultPath: $.error
+                        Next: LabsFailState
+                    Next: CheckLabPlannerResult
+                  CheckLabPlannerResult:
+                    Type: Choice
+                    Comment: "Check if LabPlanner succeeded (statusCode 200)"
+                    Choices:
+                      - Variable: $.Payload.statusCode
+                        NumericEquals: 200
+                        Next: InvokeLabWriter
+                    Default: LabsFailState
+                  InvokeLabWriter:
+                    Type: Task
+                    Resource: arn:aws:states:::lambda:invoke
+                    Parameters:
+                      FunctionName: !GetAtt StrandsLabWriter.Arn
+                      Payload:
+                        course_bucket.$: $.Payload.bucket
+                        master_plan_key.$: $.Payload.master_plan_key
+                        project_folder.$: $.Payload.project_folder
+                        model_provider.$: $.Payload.model_provider
+                    Retry:
+                      - ErrorEquals:
+                          - Lambda.ServiceException
+                          - Lambda.AWSLambdaException
+                          - Lambda.SdkClientException
+                        IntervalSeconds: 5
+                        MaxAttempts: 2
+                        BackoffRate: 2.0
+                    End: true
+                  LabsFailState:
+                    Type: Fail
+                    Cause: LabGenerationFailed
+                    Error: LabGenerationError
+            Next: SuccessState
+          
+          # ===== BOTH THEORY AND LABS BRANCH =====
+          GenerateLabMasterPlan:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Generate master lab plan for ALL modules ONCE before parallel processing"
+            Parameters:
+              FunctionName: !GetAtt StrandsLabPlanner.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                outline_s3_key.$: $.outline_s3_key
+                project_folder.$: $.project_folder
+                model_provider.$: $.model_provider
+                lab_requirements.$: $.lab_requirements
+                modules_to_generate.$: $.modules_to_generate
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            ResultPath: $.master_lab_plan_result
+            Next: CheckMasterLabPlanResult
+          CheckMasterLabPlanResult:
+            Type: Choice
+            Comment: "Check if master lab plan generation succeeded"
+            Choices:
+              - Variable: $.master_lab_plan_result.Payload.statusCode
+                NumericEquals: 200
+                Next: BothTheoryAndLabsBranch
+            Default: LabPlanningFailedState
+          LabPlanningFailedState:
+            Type: Fail
+            Comment: "Master lab planning failed - cannot proceed with lab generation"
+            Cause: "LabPlanner returned error"
+            Error: "MasterLabPlanningFailed"
+          BothTheoryAndLabsBranch:
+            Type: Map
+            Comment: "Process up to 4 modules concurrently with CSMA coordination for reliability"
+            ItemsPath: $.modules_to_generate
+            MaxConcurrency: 4
+            Parameters:
+              module_number.$: $$.Map.Item.Value
+              course_bucket.$: $.course_bucket
+              outline_s3_key.$: $.outline_s3_key
+              project_folder.$: $.project_folder
+              model_provider.$: $.model_provider
+              content_source.$: $.content_source
+              lab_requirements.$: $.lab_requirements
+              master_plan_key.$: $.master_lab_plan_result.Payload.master_plan_key
+              execution_id.$: $$.Execution.Name
+              total_modules.$: $.total_modules
+            Iterator:
+              StartAt: AcquireContentGenLock
+              States:
+                AcquireContentGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Acquire lock for ContentGen phase using CSMA protocol"
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "ContentGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: $.lock_result
+                  Next: CheckContentGenLock
+                CheckContentGenLock:
+                  Type: Choice
+                  Comment: "Check if we can proceed or need to wait"
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeTheoryContentGenForModuleBoth
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: false
+                      Next: WaitForContentGenSlot
+                  Default: InvokeTheoryContentGenForModuleBoth
+                WaitForContentGenSlot:
+                  Type: Wait
+                  Comment: "Wait for minimum delay between ContentGen calls"
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireContentGenLock
+                InvokeTheoryContentGenForModuleBoth:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate content for ONE module"
+                  Parameters:
+                    FunctionName: !GetAtt StrandsContentGen.Arn
+                    Payload:
+                      course_bucket.$: $.course_bucket
+                      outline_s3_key.$: $.outline_s3_key
+                      project_folder.$: $.project_folder
+                      model_provider.$: $.model_provider
+                      content_source.$: $.content_source
+                      module_number.$: $.module_number
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: ReleaseContentGenLockOnFailure
+                  ResultPath: $.lambda_result
+                  Next: CheckTheoryContentGenResultBoth
+                CheckTheoryContentGenResultBoth:
+                  Type: Choice
+                  Comment: "Check if ContentGen succeeded or returned error"
+                  Choices:
+                    - Variable: $.lambda_result.Payload.statusCode
+                      NumericEquals: 500
+                      Next: ReleaseContentGenLockOnFailure
+                    - Variable: $.lambda_result.Payload.statusCode
+                      NumericEquals: 200
+                      Next: ReleaseContentGenLock
+                  Default: ReleaseContentGenLockOnFailure
+                ReleaseContentGenLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ContentGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: null
+                  Next: ModuleTheoryFailStateBoth
+                ReleaseContentGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ContentGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: null
+                  Next: ProcessModuleTheoryContentBoth
+                ProcessModuleTheoryContentBoth:
+                  Type: Pass
+                  Comment: "Parse theory generation result for this module"
+                  Parameters:
+                    lesson_keys.$: $.lambda_result.Payload.lesson_keys
+                    course_bucket.$: $.lambda_result.Payload.bucket
+                    project_folder.$: $.lambda_result.Payload.project_folder
+                    model_provider.$: $.lambda_result.Payload.model_provider
+                    module_number.$: $.module_number
+                    outline_s3_key.$: $.outline_s3_key
+                    lab_requirements.$: $.lab_requirements
+                    master_plan_key.$: $.master_plan_key
+                    execution_id.$: $.execution_id
+                    total_modules.$: $.total_modules
+                  Next: ProcessVisualsForModuleBoth
+                ProcessVisualsForModuleBoth:
+                  Type: Map
+                  Comment: "Process visual tags for all lessons in this module"
+                  ItemsPath: $.lesson_keys
+                  MaxConcurrency: 2
+                  Parameters:
+                    lesson_key.$: $$.Map.Item.Value
+                    course_bucket.$: $.course_bucket
+                    project_folder.$: $.project_folder
+                    model_provider.$: $.model_provider
+                  Iterator:
+                    StartAt: InvokeVisualPlannerForLessonBoth
+                    States:
+                      InvokeVisualPlannerForLessonBoth:
+                        Type: Task
+                        Resource: arn:aws:states:::lambda:invoke
+                        Parameters:
+                          FunctionName: !GetAtt StrandsVisualPlanner.Arn
+                          Payload:
+                            course_bucket.$: $.course_bucket
+                            lesson_key.$: $.lesson_key
+                            project_folder.$: $.project_folder
+                            model_provider.$: $.model_provider
+                        Retry:
+                          - ErrorEquals:
+                              - Lambda.ServiceException
+                              - Lambda.AWSLambdaException
+                              - Lambda.SdkClientException
+                            IntervalSeconds: 5
+                            MaxAttempts: 2
+                            BackoffRate: 2.0
+                        Next: VisualPlannerSuccessForLessonBoth
+                      VisualPlannerSuccessForLessonBoth:
+                        Type: Pass
+                        OutputPath: $.Payload
+                        End: true
+                  ResultPath: $.visual_results
+                  Next: AcquireImagesGenLock
+                AcquireImagesGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "ImagesGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: $.lock_result
+                  Next: CheckImagesGenLock
+                CheckImagesGenLock:
+                  Type: Choice
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeImagesGenForModuleBoth
+                  Default: WaitForImagesGenSlot
+                WaitForImagesGenSlot:
+                  Type: Wait
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireImagesGenLock
+                InvokeImagesGenForModuleBoth:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate all images for this module's lessons using collected visual prompts"
+                  Parameters:
+                    FunctionName: !GetAtt ImagesGen.Arn
+                    Payload:
+                      course_bucket.$: $.course_bucket
+                      project_folder.$: $.project_folder
+                      lesson_keys.$: $.lesson_keys
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: ReleaseImagesGenLockOnFailure
+                  ResultPath: $.images_result
+                  Next: ReleaseImagesGenLock
+                ReleaseImagesGenLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ImagesGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: null
+                  Next: ModuleTheoryFailStateBoth
+                ReleaseImagesGenLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "ImagesGen"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: null
+                  Next: AcquireLabWriterLock
+                AcquireLabWriterLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "acquire"
+                      phase_name: "LabWriter"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: $.lock_result
+                  Next: CheckLabWriterLock
+                CheckLabWriterLock:
+                  Type: Choice
+                  Choices:
+                    - Variable: $.lock_result.Payload.can_proceed
+                      BooleanEquals: true
+                      Next: InvokeLabWriterForModule
+                  Default: WaitForLabWriterSlot
+                WaitForLabWriterSlot:
+                  Type: Wait
+                  SecondsPath: $.lock_result.Payload.wait_seconds
+                  Next: AcquireLabWriterLock
+                InvokeLabWriterForModule:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Comment: "Generate lab guides for this module using pre-generated master plan"
+                  Parameters:
+                    FunctionName: !GetAtt StrandsLabWriter.Arn
+                    Payload:
+                      course_bucket.$: $.course_bucket
+                      master_plan_key.$: $.master_plan_key
+                      project_folder.$: $.project_folder
+                      model_provider.$: $.model_provider
+                      module_number.$: $.module_number
+                  Retry:
+                    - ErrorEquals:
+                        - Lambda.ServiceException
+                        - Lambda.AWSLambdaException
+                        - Lambda.SdkClientException
+                      IntervalSeconds: 5
+                      MaxAttempts: 2
+                      BackoffRate: 2.0
+                  Catch:
+                    - ErrorEquals:
+                        - States.ALL
+                      ResultPath: $.error
+                      Next: ReleaseLabWriterLockOnFailure
+                  ResultPath: $.lab_writer_result
+                  Next: ReleaseLabWriterLock
+                ReleaseLabWriterLockOnFailure:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "LabWriter"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: null
+                  Next: ModuleLabsSkipped
+                ReleaseLabWriterLock:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    FunctionName: !GetAtt PhaseCoordinator.Arn
+                    Payload:
+                      action: "release"
+                      phase_name: "LabWriter"
+                      module_number.$: $.module_number
+                      execution_id.$: $.execution_id
+                      total_modules.$: $.total_modules
+                  ResultPath: null
+                  Next: ModuleCompleteBoth
+                ModuleLabsSkipped:
+                  Type: Pass
+                  Comment: "Lab generation failed or skipped for this module"
+                  Result:
+                    Payload:
+                      lab_guides_generated: 0
+                  ResultPath: $.lab_writer_result
+                  Next: ModuleCompleteBoth
+                ModuleCompleteBoth:
+                  Type: Pass
+                  Comment: "Module complete with theory and labs"
+                  Parameters:
+                    module_number.$: $.module_number
+                    lesson_keys.$: $.lesson_keys
+                    image_mappings.$: $.images_result.Payload.image_mappings
+                    labs_generated.$: $.lab_writer_result.Payload.lab_guides_generated
+                  End: true
+                ModuleTheoryFailStateBoth:
+                  Type: Fail
+                  Comment: "Theory generation failed for this module"
+                  Cause: "ContentGen Lambda returned error"
+                  Error: "ModuleTheoryGenerationFailed"
+            ResultPath: $.all_modules_results
+            Next: CombineResultsAndBuildBookBoth
+          CombineResultsAndBuildBookBoth:
+            Type: Pass
+            Comment: "Flatten results from all modules for BookBuilder"
+            Parameters:
+              course_bucket.$: $.course_bucket
+              project_folder.$: $.project_folder
+              all_lesson_keys.$: $.all_modules_results[*].lesson_keys[*]
+              all_image_mappings.$: $.all_modules_results[*].image_mappings
+            Next: InvokeBookBuilderBoth
+          InvokeBookBuilderBoth:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Comment: "Build final book with all modules"
+            Parameters:
+              FunctionName: !GetAtt BookBuilder.Arn
+              Payload:
+                course_bucket.$: $.course_bucket
+                project_folder.$: $.project_folder
+                lesson_keys.$: $.all_lesson_keys
+                image_mappings.$: $.all_image_mappings
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                IntervalSeconds: 5
+                MaxAttempts: 2
+                BackoffRate: 2.0
+            Next: SuccessState
+          
+          # ===== SUCCESS STATE =====
+          SuccessState:
+            Type: Succeed
+      Type: STANDARD
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt StrandsContentGen.Arn
+                - !GetAtt StrandsVisualPlanner.Arn
+                - !GetAtt ImagesGen.Arn
+                - !GetAtt BookBuilder.Arn
+                - !GetAtt StrandsLabPlanner.Arn
+                - !GetAtt StrandsLabWriter.Arn
+                - !GetAtt PhaseCoordinator.Arn
+
+Outputs:
+  # Strands Agents Lambdas - Theory Generation
+  StrandsContentGenArn:
+    Description: Strands Content Generator Lambda ARN
+    Value: !GetAtt StrandsContentGen.Arn
+  
+  StrandsVisualPlannerArn:
+    Description: Strands Visual Planner Lambda ARN
+    Value: !GetAtt StrandsVisualPlanner.Arn
+  
+  ImagesGenArn:
+    Description: Images Generation Lambda ARN
+    Value: !GetAtt ImagesGen.Arn
+  
+  # Strands Agents Lambdas - Lab Guide Generation
+  StrandsLabPlannerArn:
+    Description: Strands Lab Planner Lambda ARN
+    Value: !GetAtt StrandsLabPlanner.Arn
+  
+  StrandsLabWriterArn:
+    Description: Strands Lab Writer Lambda ARN
+    Value: !GetAtt StrandsLabWriter.Arn
+
+  # Supporting Lambdas
+  BookBuilderFunction:
+    Description: Book Builder Lambda Function ARN
+    Value: !GetAtt BookBuilder.Arn
+  
+  ListProjectsFunction:
+    Description: List Projects Lambda Function ARN
+    Value: !GetAtt ListProjectsFunction.Arn
+  
+  LoadBookFunction:
+    Description: Load Book Lambda Function ARN
+    Value: !GetAtt LoadBookFunction.Arn
+  
+  SaveBookFunction:
+    Description: Save Book Lambda Function ARN
+    Value: !GetAtt SaveBookFunction.Arn
+
+  # API Endpoints
+  StarterApiFunction:
+    Description: Starter API Lambda ARN
+    Value: !GetAtt StarterApiFunction.Arn
+  
+  PresignFunction:
+    Description: Presign Lambda ARN
+    Value: !GetAtt PresignFunction.Arn
+  
+  ExecStatusFunction:
+    Description: ExecStatus Lambda ARN
+    Value: !GetAtt ExecStatusFunction.Arn
+
+  # State Machine
+  CourseGeneratorStateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value: !Ref CourseGeneratorStateMachine
+
+  # API Gateway
+  ApiBaseUrl:
+    Description: API Gateway base URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  
+  PresignEndpoint:
+    Description: Presign endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presign"
+  
+  StartJobEndpoint:
+    Description: Start job endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/start-job"
+  
+  ExecStatusEndpoint:
+    Description: Execution status endpoint
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/exec-status"

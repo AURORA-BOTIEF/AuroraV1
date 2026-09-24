@@ -14,3 +14,30 @@ h2 { font-size: 1.2rem; font-weight: bold; color: black; border-bottom: 2px soli
 .subcapitulos-tabla th, .subcapitulos-tabla td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #ddd; }
 .subcapitulos-tabla th { background-color: #f8f8f8; font-weight: bold; }
 .subcapitulo-practico td { background-color: #e3f2fd; font-weight: 500; }
+
+/* Estilos para los objetivos del capítulo */
+.objetivos-capitulo-seccion {
+  margin: 1rem 0 1.5rem 1rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-left: 4px solid #1b5784;
+  border-radius: 0 4px 4px 0;
+}
+
+.objetivos-capitulo-seccion h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: #1b5784;
+  font-weight: 600;
+}
+
+.objetivos-capitulo-seccion ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.objetivos-capitulo-seccion li {
+  margin-bottom: 0.4rem;
+  line-height: 1.4;
+}
+

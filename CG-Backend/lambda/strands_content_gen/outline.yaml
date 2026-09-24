@@ -1,0 +1,301 @@
+course:
+  title: Kubernetes for DevOps Engineers — Practical Course Outline
+  description: 'A hands-on, practical course that introduces Kubernetes fundamentals,
+
+    cluster architecture, application deployment patterns, observability,
+
+    and operational best practices for DevOps engineers.
+
+    '
+  language: en
+  level: intermediate
+  audience:
+  - DevOps engineers
+  - Site Reliability Engineers
+  - Platform engineers
+  prerequisites:
+  - Familiarity with Linux command line
+  - Basic Docker / container knowledge
+  - Comfortable with YAML & bash scripting
+  total_duration_minutes: 1200
+  learning_outcomes:
+  - Understand Kubernetes architecture and core components
+  - Deploy, expose, and scale containerized applications
+  - Implement basic security, observability, and troubleshooting
+modules:
+- title: Module 1 — Introduction & Setup
+  summary: Context, goals, and local lab environment setup.
+  duration_minutes: 150
+  percent_theory: 60
+  percent_practice: 40
+  bloom_level: Remember / Understand
+  lessons:
+  - title: Course overview & objectives
+    duration_minutes: 50
+    bloom_level: Remember / Understand
+    topics:
+    - title: Course goals and roadmap
+      duration_minutes: 13
+      bloom_level: Remember
+    - title: Target audience and expected outcomes
+      duration_minutes: 12
+      bloom_level: Understand
+    lab_activities:
+    - title: Intro quiz (baseline)
+      duration_minutes: 12
+      bloom_level: Remember
+    - title: Expectations discussion
+      duration_minutes: 13
+      bloom_level: Understand
+  - title: Kubernetes core concepts
+    duration_minutes: 50
+    bloom_level: Understand
+    topics:
+    - title: Containers, images, and runtime concepts
+      duration_minutes: 18
+      bloom_level: Understand
+    - title: Pods, nodes, and control plane overview
+      duration_minutes: 20
+      bloom_level: Understand
+    lab_activities:
+    - title: Diagram labeling exercise
+      duration_minutes: 12
+      bloom_level: Apply
+  - title: Local lab setup
+    duration_minutes: 50
+    bloom_level: Apply
+    topics:
+    - title: Minikube vs kind vs managed clusters
+      duration_minutes: 15
+      bloom_level: Understand
+    - title: kubectl basics and context management
+      duration_minutes: 12
+      bloom_level: Apply
+    lab_activities:
+    - title: 'Hands-on: start a local cluster and run hello-world pod'
+      duration_minutes: 60
+      bloom_level: Apply
+- title: Module 2 — Cluster Architecture & Networking
+  summary: Dive into cluster components, networking, and basic security.
+  duration_minutes: 250
+  percent_theory: 65
+  percent_practice: 35
+  bloom_level: Understand / Analyze
+  lessons:
+  - title: Control plane and data plane
+    duration_minutes: 100
+    bloom_level: Understand / Analyze
+    topics:
+    - title: API server, scheduler, controller manager
+      duration_minutes: 38
+      bloom_level: Understand
+    - title: etcd and persistent storage considerations
+      duration_minutes: 25
+      bloom_level: Analyze
+    lab_activities:
+    - title: 'Walkthrough: inspect control plane logs and components'
+      duration_minutes: 37
+      bloom_level: Analyze
+  - title: Kubernetes networking fundamentals
+    duration_minutes: 75
+    bloom_level: Understand / Apply
+    topics:
+    - title: 'Service types: ClusterIP, NodePort, LoadBalancer'
+      duration_minutes: 25
+      bloom_level: Understand
+    - title: DNS, Kube-proxy, and CNI plugins
+      duration_minutes: 25
+      bloom_level: Understand
+    lab_activities:
+    - title: Deploy a multi-pod service and verify connectivity
+      duration_minutes: 25
+      bloom_level: Apply
+  - title: Security basics
+    duration_minutes: 75
+    bloom_level: Understand / Apply
+    topics:
+    - title: Namespaces, resource quotas, and admission controls
+      duration_minutes: 20
+      bloom_level: Understand
+    - title: RBAC concepts and principals
+      duration_minutes: 30
+      bloom_level: Understand
+    lab_activities:
+    - title: Create roles, rolebindings and test access controls
+      duration_minutes: 87
+      bloom_level: Apply
+- title: Module 3 — Deployments, Services & Storage
+  summary: 'Application lifecycle: deployments, scaling, service discovery, and storage.'
+  duration_minutes: 300
+  percent_theory: 40
+  percent_practice: 60
+  bloom_level: Apply / Create
+  lessons:
+  - title: Deployments, ReplicaSets, and rolling updates
+    duration_minutes: 75
+    bloom_level: Understand / Apply
+    topics:
+    - title: Deployment patterns and update strategies
+      duration_minutes: 18
+      bloom_level: Understand
+    - title: ReplicaSets and scaling mechanics
+      duration_minutes: 12
+      bloom_level: Understand
+    lab_activities:
+    - title: 'Hands-on: create deployment and perform rolling update'
+      duration_minutes: 45
+      bloom_level: Apply
+  - title: Services, Ingress, and traffic routing
+    duration_minutes: 75
+    bloom_level: Apply
+    topics:
+    - title: Service discovery and DNS
+      duration_minutes: 15
+      bloom_level: Understand
+    - title: Ingress controllers and routing rules
+      duration_minutes: 15
+      bloom_level: Understand
+    lab_activities:
+    - title: Expose app via Service and test with curl/host entries
+      duration_minutes: 45
+      bloom_level: Apply
+  - title: Persistent storage and volumes
+    duration_minutes: 75
+    bloom_level: Apply
+    topics:
+    - title: Volumes, PersistentVolumeClaims, StorageClasses
+      duration_minutes: 18
+      bloom_level: Understand
+    - title: Dynamic provisioning patterns
+      duration_minutes: 12
+      bloom_level: Analyze
+    lab_activities:
+    - title: 'Hands-on: provision PVC and mount to a pod'
+      duration_minutes: 45
+      bloom_level: Apply
+  - title: Scaling patterns and autoscaling
+    duration_minutes: 75
+    bloom_level: Apply / Analyze
+    topics:
+    - title: Horizontal Pod Autoscaler (HPA)
+      duration_minutes: 18
+      bloom_level: Understand
+    - title: Cluster autoscaling basics
+      duration_minutes: 12
+      bloom_level: Understand
+    lab_activities:
+    - title: Configure HPA and observe scaling under load
+      duration_minutes: 180
+      bloom_level: Apply
+- title: Module 4 — Observability & Troubleshooting
+  summary: Monitoring, logging, and practical debugging techniques.
+  duration_minutes: 250
+  percent_theory: 35
+  percent_practice: 65
+  bloom_level: Analyze / Apply
+  lessons:
+  - title: Logging and metrics
+    duration_minutes: 100
+    bloom_level: Understand / Apply
+    topics:
+    - title: Logging stack options (Fluentd, Elastic, Loki)
+      duration_minutes: 17
+      bloom_level: Understand
+    - title: 'Metrics: Prometheus fundamentals'
+      duration_minutes: 16
+      bloom_level: Understand
+    lab_activities:
+    - title: Deploy Prometheus + Grafana demo and query metrics
+      duration_minutes: 72
+      bloom_level: Apply
+  - title: Debugging applications and pods
+    duration_minutes: 75
+    bloom_level: Analyze
+    topics:
+    - title: kubectl exec, logs, port-forward
+      duration_minutes: 16
+      bloom_level: Apply
+    - title: Diagnosing networking and DNS issues
+      duration_minutes: 11
+      bloom_level: Analyze
+    lab_activities:
+    - title: 'Practical debugging lab: fix a failing pod'
+      duration_minutes: 45
+      bloom_level: Analyze
+  - title: Alerting and SLO basics
+    duration_minutes: 75
+    bloom_level: Understand / Evaluate
+    topics:
+    - title: Define alerts and simple SLOs
+      duration_minutes: 14
+      bloom_level: Understand
+    - title: Integrating alerting with Slack/email
+      duration_minutes: 14
+      bloom_level: Apply
+    lab_activities:
+    - title: Create an alert rule and trigger it in the lab
+      duration_minutes: 162
+      bloom_level: Apply
+- title: Module 5 — Advanced Topics & Best Practices
+  summary: Service meshes, GitOps, CI/CD integration, and production hardening.
+  duration_minutes: 250
+  percent_theory: 50
+  percent_practice: 50
+  bloom_level: Analyze / Create
+  lessons:
+  - title: GitOps and CI/CD for Kubernetes
+    duration_minutes: 75
+    bloom_level: Understand / Apply
+    topics:
+    - title: GitOps principles and tools (ArgoCD, Flux)
+      duration_minutes: 23
+      bloom_level: Understand
+    - title: Connecting CI pipelines to clusters
+      duration_minutes: 15
+      bloom_level: Apply
+    lab_activities:
+    - title: Setup a simple GitOps sync (demo)
+      duration_minutes: 37
+      bloom_level: Apply
+  - title: Service mesh overview
+    duration_minutes: 50
+    bloom_level: Understand / Analyze
+    topics:
+    - title: Istio/Linkerd concepts and when to use them
+      duration_minutes: 22
+      bloom_level: Understand
+    - title: Traffic management and mTLS basics
+      duration_minutes: 7
+      bloom_level: Analyze
+    lab_activities:
+    - title: Install a lightweight service mesh and inspect traffic rules
+      duration_minutes: 15
+      bloom_level: Apply
+  - title: Production hardening
+    duration_minutes: 63
+    bloom_level: Analyze / Evaluate
+    topics:
+    - title: Pod security policies / Pod Security Admission
+      duration_minutes: 19
+      bloom_level: Understand
+    - title: Resource budgeting and capacity planning
+      duration_minutes: 10
+      bloom_level: Analyze
+    lab_activities:
+    - title: Audit cluster for common misconfigurations
+      duration_minutes: 37
+      bloom_level: Evaluate
+  - title: Cost optimization and runbook creation
+    duration_minutes: 62
+    bloom_level: Analyze / Create
+    topics:
+    - title: Cost centers and rightsizing
+      duration_minutes: 19
+      bloom_level: Analyze
+    - title: Create a runbook for common incidents
+      duration_minutes: 10
+      bloom_level: Create
+    lab_activities:
+    - title: 'Exercise: write a short incident runbook'
+      duration_minutes: 125
+      bloom_level: Create
