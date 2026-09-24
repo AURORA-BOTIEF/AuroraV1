@@ -153,6 +153,12 @@ def is_demo_activity(title: str, item_type: str = "") -> bool:
         return True
     if '(demo)' in t_lower or '[demo]' in t_lower:
         return True
+    if 'instructor-led' in t_lower or 'instructor led' in t_lower:
+        return True
+    if re.search(r'instructor\s+dem(?:o|ue)str', t_lower):
+        return True
+    if 'demostración realizada por el instructor' in t_lower or 'demostracion realizada por el instructor' in t_lower:
+        return True
     return False
 
 
@@ -168,6 +174,12 @@ def ensure_demo_title(title: str) -> str:
         return re.sub(r'^(demostración|demostracion)\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
     if re.search(r'\bdemo\b', t_lower):
         return t
+    t = re.sub(
+        r'^(práctica|practica|laboratorio|lab)\s*[:\-–]\s*',
+        '',
+        t,
+        flags=re.IGNORECASE,
+    ).strip()
     return f"Demo: {t}"
 
 

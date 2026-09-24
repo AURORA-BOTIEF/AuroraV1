@@ -2433,6 +2433,60 @@ def _normalize_text(value: str) -> str:
     return normalized
 
 
+def _outline_lab_activities(module: Optional[Dict]) -> List[Dict]:
+    """Return lab/demo entries from an outline module (`lab_activities` or `labs`)."""
+    if not isinstance(module, dict):
+        return []
+    raw = module.get('lab_activities') or module.get('labs') or []
+    activities = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            activities.append({'title': item.strip()})
+        elif isinstance(item, dict) and str(item.get('title') or '').strip():
+            activities.append(item)
+    return activities
+
+
+def _lesson_is_bookend_or_lab_placeholder(lesson: Dict) -> bool:
+    """True for intros, summaries, specials, or lessons that are themselves labs."""
+    if not isinstance(lesson, dict):
+        return True
+    if lesson.get('is_intro') or lesson.get('is_summary') or lesson.get('isSpecialSection'):
+        return True
+    if _lesson_title_is_bookend_skip(lesson.get('title', '')):
+        return True
+    lesson_type = str(lesson.get('type') or '').lower()
+    return lesson_type in {
+        'lab', 'practice', 'activity', 'lab_activity',
+        'laboratorio', 'práctica', 'practica', 'demo',
+        'demostracion', 'demostración',
+    }
+
+
+def _module_has_substantive_theory(book_data: Dict, mod_num: int) -> bool:
+    """True when the theory book has a real (non-bookend) lesson for this module."""
+    for lesson in book_data.get('lessons_full') or book_data.get('lessons') or []:
+        if lesson.get('module_number') == mod_num and not _lesson_is_bookend_or_lab_placeholder(lesson):
+            return True
+    for module in book_data.get('modules') or []:
+        if module.get('module_number') != mod_num:
+            continue
+        for lesson in module.get('lessons') or []:
+            if not _lesson_is_bookend_or_lab_placeholder(lesson):
+                return True
+    return False
+
+
+def _should_emit_lab_only_module(book_data: Dict, mod_num: int) -> bool:
+    """True when an outline chapter has labs but no theory lessons of its own."""
+    outline_modules = book_data.get('outline_modules') or []
+    if not (1 <= mod_num <= len(outline_modules)):
+        return False
+    if _module_has_substantive_theory(book_data, mod_num):
+        return False
+    return bool(_outline_lab_activities(outline_modules[mod_num - 1] or {}))
+
+
 def _coerce_positive_int(value: Any) -> Optional[int]:
     if value is None:
         return None
@@ -3670,6 +3724,7 @@ def generate_complete_course(
     # Track which modules already had their labs emitted (survives across calls within a batch)
     _modules_with_labs_emitted = set()
     _modules_end_slides_emitted = set()
+    _already_titled_modules = set()
 
     # ── Helper: emit module-end slides (references, chapter summary, logo) ──
     def _emit_module_end_slides(mod_num, mod_title, sc, *, emit_labs=False):
@@ -3781,7 +3836,7 @@ def generate_complete_course(
         if outline_modules and mod_num <= len(outline_modules):
             m_info = outline_modules[mod_num - 1]
             if emit_labs and mod_num not in _modules_with_labs_emitted:
-                for activity in m_info.get('lab_activities', []):
+                for activity in _outline_lab_activities(m_info):
                     a_title = activity.get('title', 'Lab Activity')
                     norm_a = _normalize_text(a_title)
                     if norm_a in processed_lab_activity_titles:
@@ -3836,6 +3891,37 @@ def generate_complete_course(
 
         _modules_end_slides_emitted.add(mod_num)
 
+        return sc
+
+    def _emit_lab_only_module(mod_num: int, sc: int) -> int:
+        """Title + lab slides for a chapter that has labs but no theory lessons."""
+        if not _should_emit_lab_only_module(book_data, mod_num):
+            return sc
+        outline_modules = book_data.get('outline_modules') or []
+        m_info = outline_modules[mod_num - 1] or {}
+        if mod_num in _modules_with_labs_emitted:
+            logger.info(f"   ⏭️ Lab-only module {mod_num} already emitted")
+            return sc
+
+        logger.info(f"🧪 Emitting lab-only module {mod_num}: {m_info.get('title', '')}")
+        if mod_num not in _already_titled_modules:
+            title_slide = create_module_title_slide(m_info, mod_num, is_spanish, sc)
+            all_slides.append(title_slide)
+            sc += 1
+            _already_titled_modules.add(mod_num)
+
+        return _emit_module_end_slides(
+            mod_num,
+            m_info.get('title', ''),
+            sc,
+            emit_labs=True,
+        )
+
+    def _flush_lab_only_modules(start_inclusive: int, end_exclusive: int, sc: int) -> int:
+        if start_inclusive >= end_exclusive:
+            return sc
+        for mod_num in range(start_inclusive, end_exclusive):
+            sc = _emit_lab_only_module(mod_num, sc)
         return sc
 
     # Add introduction slides ONLY for first batch
@@ -3899,7 +3985,6 @@ def generate_complete_course(
 
     # Build a set of modules that were already processed in PREVIOUS batches
     # to avoid creating duplicate module-title slides across batch boundaries
-    _already_titled_modules = set()
     if lesson_batch_start > 1:
         # Check which modules had lessons in earlier batches
         for mod in book_data.get('modules', []):
@@ -3956,6 +4041,9 @@ def generate_complete_course(
         # When module_number changes, we've entered a new module
         if current_module_number != last_module_number:
             logger.info(f"📚 Module change detected: {last_module_number} -> {current_module_number}")
+
+            gap_start = (last_module_number or 0) + 1
+            slide_counter = _flush_lab_only_modules(gap_start, current_module_number, slide_counter)
 
             # Enrich the lesson dict with module_title from outline if not already set
             if not lesson.get('module_title') and 'outline_modules' in book_data:
@@ -4248,6 +4336,16 @@ def generate_complete_course(
         book_data.get('lessons_full') or lessons
     )
     is_final_batch = lesson_batch_end is not None and lesson_batch_end >= course_total_lessons
+
+    if is_final_batch:
+        outline_count = len(book_data.get('outline_modules') or [])
+        remaining_start = (last_module_number or 0) + 1
+        slide_counter = _flush_lab_only_modules(
+            remaining_start,
+            outline_count + 1,
+            slide_counter,
+        )
+
     completion_status = "complete" if is_final_batch else "partial"
     
     logger.info(f"🔍 DEBUG: course_total_lessons={course_total_lessons}, is_final_batch={is_final_batch}, completion_status={completion_status}")

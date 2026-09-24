@@ -82,7 +82,7 @@ class ContentValidator:
     
     # Lab patterns
     LAB_TITLE_PATTERN = re.compile(r'^# Lab (\d{2})-(\d{2})-(\d{2}): (.+)$', re.MULTILINE)
-    LAB_STEP_PATTERN = re.compile(r'^### Step (\d+): (.+)$', re.MULTILINE)
+    LAB_STEP_PATTERN = re.compile(r'^### (?:Step|Paso) (\d+)[:.]\s*(.+)$', re.MULTILINE)
     
     # Visual tag pattern
     VISUAL_TAG_PATTERN = re.compile(r'\[VISUAL: (\d{2})-(\d{2})-(\d{4}) - ([^\]]{10,100})\]')
@@ -125,9 +125,9 @@ class ContentValidator:
         ("Metadata", "Metadatos"),
         ("Overview", "Descripción General"),
         ("Learning Objectives", "Objetivos de Aprendizaje"),
-        ("Prerequisites", "Prerrequisitos"),
-        ("Lab Environment", "Entorno de Laboratorio"),
-        ("Step-by-Step Instructions", "Instrucciones Paso a Paso"),
+        ("Prerequisites", "Prerrequisitos", "Requisitos previos"),
+        ("Lab Environment", "Entorno de Laboratorio", "Entorno del Laboratorio"),
+        ("Step-by-Step Instructions", "Instrucciones Paso a Paso", "Procedimiento paso a paso"),
         ("Validation & Testing", "Validación y Pruebas"),
         ("Troubleshooting", "Solución de Problemas"),
         ("Cleanup", "Limpieza"),
@@ -394,7 +394,7 @@ class ContentValidator:
         )
         
         # Check each step for required elements
-        step_sections = re.split(r'### Step \d+:', content)
+        step_sections = re.split(r'### (?:Step|Paso) \d+[:.]', content)
         
         required_in_step = ['**Objective:**', '**Instructions:**', '**Verification:**']
         

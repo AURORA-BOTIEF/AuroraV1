@@ -20,6 +20,7 @@ Expected event parameters:
 import os
 import json
 import random
+import re
 import yaml
 import boto3
 import time
@@ -191,10 +192,29 @@ def is_spanish_course(course_data: dict) -> bool:
     return True
 
 
+def is_demo_lesson(lesson: dict) -> bool:
+    """Detect if a lesson is an instructor demo."""
+    if not isinstance(lesson, dict):
+        return False
+    lesson_type = str(lesson.get('type', '')).strip().lower()
+    lesson_title = str(lesson.get('title', '')).strip().lower()
+    if lesson_type in ['demo', 'demostracion', 'demostración']:
+        return True
+    if 'demo' in lesson_title or 'demostración' in lesson_title or 'demostracion' in lesson_title:
+        return True
+    if re.search(r'instructor\s+dem(?:o|ue)str', lesson_title):
+        return True
+    if 'instructor-led' in lesson_title:
+        return True
+    return False
+
+
 def is_lab_lesson(lesson: dict) -> bool:
     """Detect if a lesson is a lab / demo / hands-on activity lesson."""
     if not isinstance(lesson, dict):
         return False
+    if is_demo_lesson(lesson):
+        return True
     lesson_type = str(lesson.get('type', '')).strip().lower()
     lesson_title = str(lesson.get('title', '')).strip()
     lesson_title_lower = lesson_title.lower()
@@ -210,19 +230,6 @@ def is_lab_lesson(lesson: dict) -> bool:
     if 'laboratorio:' in lesson_title_lower or 'laboratorio -' in lesson_title_lower or 'demo:' in lesson_title_lower or 'demo -' in lesson_title_lower:
         return True
 
-    return False
-
-
-def is_demo_lesson(lesson: dict) -> bool:
-    """Detect if a lesson is an instructor demo."""
-    if not isinstance(lesson, dict):
-        return False
-    lesson_type = str(lesson.get('type', '')).strip().lower()
-    lesson_title = str(lesson.get('title', '')).strip().lower()
-    if lesson_type in ['demo', 'demostracion', 'demostración']:
-        return True
-    if 'demo' in lesson_title or 'demostración' in lesson_title or 'demostracion' in lesson_title:
-        return True
     return False
 
 

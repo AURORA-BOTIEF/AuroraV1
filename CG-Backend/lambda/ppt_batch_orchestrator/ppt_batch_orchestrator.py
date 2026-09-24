@@ -355,23 +355,8 @@ def lambda_handler(event, context):
                 total_lessons += lessons_in_module
             logger.info(f"📖 Found {total_lessons} lessons across {len(modules)} modules")
         
-        if total_lessons == 0:
-            return {
-                'statusCode': 400,
-                'headers': {
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                    'Access-Control-Allow-Methods': 'POST,OPTIONS',
-                    'Content-Type': 'application/json'
-                },
-                'body': json.dumps({
-                    'error': 'No lessons found in course book'
-                })
-            }
-        
         logger.info(f"📖 Total lessons in course: {total_lessons}")
-        
-        # Determine batch size
+
         requested_batch_size = body.get('batch_size')
         batch_size = resolve_batch_size(requested_batch_size)
         logger.info(f"📦 Using batch size = {batch_size} lessons (env limit {MAX_LESSONS_PER_BATCH_LIMIT})")
@@ -384,8 +369,17 @@ def lambda_handler(event, context):
             logger.info(f"   ⚠️  Legacy mode: Will generate JSON + PPT")
             logger.info(f"   ⚠️  auto_combine={auto_combine}")
 
-        # Calculate batch configuration
-        batches = calculate_batch_configuration(total_lessons, batch_size)
+        if total_lessons == 0:
+            logger.info("📖 No theory lessons — generating lab slides from outline if present")
+            batches = [{
+                'batch_index': 0,
+                'lesson_start': 1,
+                'lesson_end': 0,
+                'total_lessons': 0,
+                'batch_size': 0,
+            }]
+        else:
+            batches = calculate_batch_configuration(total_lessons, batch_size)
         num_batches = len(batches)
         
         logger.info(f"📦 Batch configuration:")

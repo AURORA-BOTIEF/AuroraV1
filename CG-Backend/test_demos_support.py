@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,11 @@ def test_planner_is_demo_activity():
     assert strands_lab_planner.is_demo_activity("Configurar Redes", "demo") is True
     assert strands_lab_planner.is_demo_activity("Configurar Redes", "demostración") is True
     assert strands_lab_planner.is_demo_activity("Laboratorio 1: Crear Pod", "lab") is False
+    assert strands_lab_planner.is_demo_activity(
+        "Práctica: El instructor demostrará cómo obtener acuerdos con Intelligent Recap",
+        "",
+    ) is True
+    assert strands_lab_planner.is_demo_activity("El instructor demuestra Intelligent Recap", "") is True
 
 
 def test_planner_ensure_demo_title():
@@ -33,6 +39,9 @@ def test_planner_ensure_demo_title():
     assert strands_lab_planner.ensure_demo_title("Demostración: Configuración") == "Demo: Configuración"
     assert strands_lab_planner.ensure_demo_title("Demostracion: Configuración") == "Demo: Configuración"
     assert strands_lab_planner.ensure_demo_title("Configuración Inicial") == "Demo: Configuración Inicial"
+    assert strands_lab_planner.ensure_demo_title(
+        "Práctica: El instructor demostrará cómo obtener acuerdos"
+    ) == "Demo: El instructor demostrará cómo obtener acuerdos"
 
 
 def test_planner_extract_all_labs_with_demos():
@@ -166,8 +175,96 @@ def test_content_gen_demo_detection_and_spec():
     assert strands_content_gen.is_lab_lesson(lesson_demo) is True
     assert strands_content_gen.is_demo_lesson(lesson_demo) is True
 
+    instructor_practice = {
+        'title': 'Práctica: El instructor demostrará cómo obtener acuerdos',
+        'duration_minutes': 7,
+    }
+    assert strands_content_gen.is_demo_lesson(instructor_practice) is True
+    assert strands_content_gen.is_lab_lesson(instructor_practice) is True
+
+
+def test_planner_extracts_instructor_demo_labeled_as_practice():
+    modules = [
+        {
+            'title': 'Módulo 4: Reuniones',
+            'lessons': [
+                {
+                    'title': 'Práctica: El instructor demostrará cómo obtener acuerdos, decisiones y actividades',
+                    'duration_minutes': 7,
+                }
+            ],
+        }
+    ]
+    labs = strands_lab_planner.extract_all_labs(modules)
+    assert len(labs) == 1
+    assert labs[0]['is_demo'] is True
+    assert labs[0]['lab_title'].startswith('Demo:')
+    assert 'Práctica:' not in labs[0]['lab_title']
+
 
 def test_lab_guide_builder_normalize_lab_title():
     assert lab_guide_builder.normalize_lab_title("Lab 01-02-01: Demo: Instalación", 1) == "Demo: Instalación"
     assert lab_guide_builder.normalize_lab_title("Lab 01-02-01: Demostración: Configuración", 1) == "Demo: Configuración"
     assert lab_guide_builder.normalize_lab_title("Lab 1: Mi Práctica", 1) == "Mi Práctica"
+
+
+def test_normalize_lab_markdown_spanish_synonyms_and_extra_h1():
+    sample = """# Lab 04-00-01: Preparación de una reunión
+
+## Metadatos
+tabla
+
+## Descripción general
+texto
+
+## Objetivos de aprendizaje
+objs
+
+## Requisitos previos
+reqs
+
+## Entorno del laboratorio
+env
+
+## Procedimiento paso a paso
+### Paso 1. Revisar el contexto
+haz esto
+
+# Resumen de solicitud documental
+contenido de muestra
+
+## Resumen
+cierre
+"""
+    out = strands_lab_writer.normalize_lab_markdown(sample, is_spanish=True)
+    h1 = re.findall(r'^# .+$', out, re.MULTILINE)
+    assert len(h1) == 1
+    assert "## Prerrequisitos" in out
+    assert "## Requisitos previos" not in out
+    assert "## Entorno de Laboratorio" in out
+    assert "## Entorno del laboratorio" not in out
+    assert "## Instrucciones Paso a Paso" in out
+    assert "## Procedimiento paso a paso" not in out
+    assert "### Paso 1: Revisar el contexto" in out
+    assert "## Resumen de solicitud documental" in out
+    assert not re.search(r'^# Resumen de solicitud documental', out, re.MULTILINE)
+
+
+def test_finalize_lab_markdown_applies_demo_and_canonical_headings():
+    sample = """# Lab 04-00-02: Intelligent Recap
+
+## Metadatos
+x
+
+## Descripción general
+y
+
+## Requisitos previos
+z
+"""
+    out = strands_lab_writer._finalize_lab_markdown(sample, is_demo=True, is_spanish=True)
+    assert "# Lab 04-00-02: Demo: Intelligent Recap" in out
+    assert "Demostración realizada por el instructor" in out
+    assert "## Descripción General" in out
+    assert "## Prerrequisitos" in out
+

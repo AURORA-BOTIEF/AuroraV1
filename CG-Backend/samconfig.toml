@@ -13,6 +13,7 @@ stack_name = "crewai-course-generator-stack"
 s3_bucket = ""  # SAM will create a deployment bucket
 s3_prefix = "crewai-course-generator-stack"
 region = "us-east-1"
+profile = "Netec"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 resolve_image_repos = true

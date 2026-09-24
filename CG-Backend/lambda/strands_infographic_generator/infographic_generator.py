@@ -1702,8 +1702,10 @@ def lambda_handler(event, context):
         else:
             total_lessons = book_total_lessons
         
-        if lesson_end:
-            lesson_end = min(int(lesson_end), total_lessons)
+        if lesson_end is not None and lesson_end != '':
+            lesson_end = int(lesson_end)
+            if total_lessons > 0:
+                lesson_end = min(lesson_end, total_lessons)
         else:
             lesson_end = min(lesson_start + max_lessons_per_batch - 1, total_lessons)
         

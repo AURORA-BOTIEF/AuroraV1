@@ -15,6 +15,7 @@ import json
 import re
 import random
 import time
+import unicodedata
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -146,7 +147,11 @@ def is_demo_plan(lab_plan: dict) -> bool:
     scope = str(lab_plan.get('scope', '')).lower()
     if 'demo' in title or 'demostración' in title or 'demostracion' in title:
         return True
+    if re.search(r'instructor\s+dem(?:o|ue)str', title):
+        return True
     if 'instructor-led demo' in scope or 'demostración guiada' in scope or 'demostración realizada por el instructor' in scope:
+        return True
+    if re.search(r'instructor\s+dem(?:o|ue)str', scope) or 'instructor-led' in scope:
         return True
     return False
 
@@ -163,6 +168,12 @@ def ensure_demo_title(title: str) -> str:
         return re.sub(r'^(demostración|demostracion)\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
     if re.search(r'\bdemo\b', t_lower):
         return t
+    t = re.sub(
+        r'^(práctica|practica|laboratorio|lab)\s*[:\-–]\s*',
+        '',
+        t,
+        flags=re.IGNORECASE,
+    ).strip()
     return f"Demo: {t}"
 
 
@@ -202,10 +213,12 @@ def _ensure_demo_formatting(markdown: str, is_demo: bool, is_spanish: bool = Tru
             "> ℹ️ **Note:** This activity is an **Instructor-Led Demonstration**. "
             "The instructor will perform the steps and commands while students observe, take notes, and analyze the procedure, rather than performing it individually.\n"
         )
-        if "## Descripción General" in updated:
-            updated = updated.replace("## Descripción General", f"## Descripción General\n\n{demo_note}")
+        overview_match = re.search(r'^##\s+Descripci[oó]n\s+[Gg]eneral\s*$', updated, flags=re.MULTILINE)
+        if overview_match:
+            heading = overview_match.group(0)
+            updated = updated.replace(heading, f"{heading}\n\n{demo_note}", 1)
         elif "## Overview" in updated:
-            updated = updated.replace("## Overview", f"## Overview\n\n{demo_note}")
+            updated = updated.replace("## Overview", f"## Overview\n\n{demo_note}", 1)
         elif "## Metadatos" in updated:
             updated = updated.replace("## Metadatos", f"{demo_note}\n## Metadatos")
         elif "## Metadata" in updated:
@@ -220,6 +233,129 @@ def _ensure_demo_formatting(markdown: str, is_demo: bool, is_spanish: bool = Tru
     return updated
 
 
+# Canonical H2 titles from schemas/lab_schema.md. Models often emit synonyms
+# ("Requisitos previos", "Procedimiento paso a paso"); remap them deterministically.
+_H2_CANONICAL_ES = {
+    "metadatos": "Metadatos",
+    "metadata": "Metadatos",
+    "descripcion general": "Descripción General",
+    "overview": "Descripción General",
+    "objetivos de aprendizaje": "Objetivos de Aprendizaje",
+    "learning objectives": "Objetivos de Aprendizaje",
+    "prerrequisitos": "Prerrequisitos",
+    "requisitos previos": "Prerrequisitos",
+    "prerequisites": "Prerrequisitos",
+    "entorno de laboratorio": "Entorno de Laboratorio",
+    "entorno del laboratorio": "Entorno de Laboratorio",
+    "lab environment": "Entorno de Laboratorio",
+    "instrucciones paso a paso": "Instrucciones Paso a Paso",
+    "procedimiento paso a paso": "Instrucciones Paso a Paso",
+    "step-by-step instructions": "Instrucciones Paso a Paso",
+    "step by step instructions": "Instrucciones Paso a Paso",
+    "validacion y pruebas": "Validación y Pruebas",
+    "validation & testing": "Validación y Pruebas",
+    "validation and testing": "Validación y Pruebas",
+    "solucion de problemas": "Solución de Problemas",
+    "troubleshooting": "Solución de Problemas",
+    "limpieza": "Limpieza",
+    "cleanup": "Limpieza",
+    "resumen": "Resumen",
+    "summary": "Resumen",
+}
+
+_H2_CANONICAL_EN = {
+    "metadatos": "Metadata",
+    "metadata": "Metadata",
+    "descripcion general": "Overview",
+    "overview": "Overview",
+    "objetivos de aprendizaje": "Learning Objectives",
+    "learning objectives": "Learning Objectives",
+    "prerrequisitos": "Prerequisites",
+    "requisitos previos": "Prerequisites",
+    "prerequisites": "Prerequisites",
+    "entorno de laboratorio": "Lab Environment",
+    "entorno del laboratorio": "Lab Environment",
+    "lab environment": "Lab Environment",
+    "instrucciones paso a paso": "Step-by-Step Instructions",
+    "procedimiento paso a paso": "Step-by-Step Instructions",
+    "step-by-step instructions": "Step-by-Step Instructions",
+    "step by step instructions": "Step-by-Step Instructions",
+    "validacion y pruebas": "Validation & Testing",
+    "validation & testing": "Validation & Testing",
+    "validation and testing": "Validation & Testing",
+    "solucion de problemas": "Troubleshooting",
+    "troubleshooting": "Troubleshooting",
+    "limpieza": "Cleanup",
+    "cleanup": "Cleanup",
+    "resumen": "Summary",
+    "summary": "Summary",
+}
+
+
+def _fold_heading_key(title: str) -> str:
+    """Lowercase, strip punctuation/accents so synonym matching is stable."""
+    t = unicodedata.normalize("NFKD", title or "")
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = t.lower().strip().rstrip(":").strip()
+    t = t.replace("&", "and")
+    t = re.sub(r"[–—-]", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+
+def normalize_lab_markdown(markdown: str, is_spanish: bool = True) -> str:
+    """Force schema H2 titles, a single H1, and Paso/Step N: headings.
+
+    The LLM is instructed to use canonical titles but frequently emits
+    close Spanish synonyms or extra H1s (sample document titles). This
+    pass keeps the generated body and only rewrites heading lines.
+    """
+    if not markdown:
+        return markdown
+    mapping = _H2_CANONICAL_ES if is_spanish else _H2_CANONICAL_EN
+    seen_h1 = False
+    out = []
+    for line in markdown.split("\n"):
+        m = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if not m:
+            out.append(line)
+            continue
+        hashes, title = m.group(1), m.group(2)
+        level = len(hashes)
+        if level == 1:
+            if seen_h1:
+                hashes = "##"
+                level = 2
+            else:
+                seen_h1 = True
+                out.append(line)
+                continue
+        if level == 2:
+            key = _fold_heading_key(title)
+            if key in mapping:
+                out.append(f"## {mapping[key]}")
+            else:
+                out.append(f"## {title}")
+            continue
+        if level == 3:
+            step = re.match(r"^(?:paso|step)\s+(\d+)\s*[.:]?\s*(.*)$", title, flags=re.IGNORECASE)
+            if step:
+                n, rest = step.group(1), (step.group(2) or "").strip()
+                label = "Paso" if is_spanish else "Step"
+                suffix = f" {rest}" if rest else ""
+                out.append(f"### {label} {n}:{suffix}")
+                continue
+        if hashes == "##":
+            out.append(f"## {title}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _finalize_lab_markdown(markdown: str, is_demo: bool, is_spanish: bool = True) -> str:
+    """Demo notice + schema heading normalization applied at every writer exit."""
+    updated = _ensure_demo_formatting(markdown, is_demo=is_demo, is_spanish=is_spanish)
+    return normalize_lab_markdown(updated, is_spanish=is_spanish)
 
 
 def load_master_plan_from_s3(bucket: str, key: str) -> dict:
@@ -421,19 +557,20 @@ LANGUAGE REQUIREMENT:
 - Code commands can remain in their original language (usually English)
 - Technical terms may remain in English where appropriate
 
-If {target_language} is Spanish, use these section titles:
+If {target_language} is Spanish, use these EXACT H2 titles (no synonyms):
 - "Metadatos" instead of "Metadata"
 - "Descripción General" instead of "Overview"
 - "Objetivos de Aprendizaje" instead of "Learning Objectives"
-- "Prerrequisitos" instead of "Prerequisites"
-- "Entorno de Laboratorio" instead of "Lab Environment"
-- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
-- "Paso N:" instead of "Step N:"
+- "Prerrequisitos" instead of "Prerequisites" (NOT "Requisitos previos")
+- "Entorno de Laboratorio" instead of "Lab Environment" (NOT "Entorno del laboratorio")
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions" (NOT "Procedimiento paso a paso")
+- "### Paso N:" instead of "### Step N:" (colon required)
 - "Validación y Pruebas" instead of "Validation & Testing"
 - "Solución de Problemas" instead of "Troubleshooting"
 - "Limpieza" instead of "Cleanup"
 - "Resumen" instead of "Summary"
 - "Referencias Bibliográficas" instead of "Bibliographic References"
+Only one H1 is allowed (the lab title). Nested sample documents must be ### or ####.
 
 LAB INFORMATION:
 - Lab ID: {lab_id}
@@ -772,7 +909,7 @@ Return ONLY the Markdown content following this schema exactly, no additional co
         elif lab_guide.startswith("```") and lab_guide.endswith("```"):
             lab_guide = lab_guide[3:-3].strip()
         
-        lab_guide = _ensure_demo_formatting(lab_guide, is_demo=is_demo, is_spanish=is_spanish)
+        lab_guide = _finalize_lab_markdown(lab_guide, is_demo=is_demo, is_spanish=is_spanish)
         print(f"    ✅ Lab guide generated ({len(lab_guide)} characters)")
         return lab_guide
     
@@ -1040,9 +1177,48 @@ CRITICAL: This activity is an INSTRUCTOR DEMONSTRATION conducted live by the ins
     )
 
     overview_rule = (
-        "2. Overview — 2–4 sentences (MUST include the instructor Demo notice block right below Overview heading)"
+        "2. ## Descripción General — 2–4 sentences (MUST include the instructor Demo notice block right below this heading)"
+        if is_demo and is_spanish
+        else
+        "2. ## Overview — 2–4 sentences (MUST include the instructor Demo notice block right below this heading)"
         if is_demo
-        else "2. Overview — 2–4 sentences"
+        else
+        "2. ## Descripción General — 2–4 sentences"
+        if is_spanish
+        else
+        "2. ## Overview — 2–4 sentences"
+    )
+    structure_block = (
+        """STRUCTURE (exactly ONE H1 for the lab title; nested sample documents must be ### or ####, never a second # heading).
+H2 titles MUST be these exact Spanish strings — do not use synonyms such as "Requisitos previos", "Procedimiento paso a paso", or "Entorno del laboratorio":
+1. ## Metadatos — table: Duration, Complexity, Bloom level
+"""
+        + overview_rule + """
+3. ## Objetivos de Aprendizaje — 3–5 checkboxes
+4. ## Prerrequisitos — knowledge + access
+5. ## Entorno de Laboratorio — concise HW/SW tables if useful + setup commands
+6. ## Instrucciones Paso a Paso — each step heading MUST be `### Paso N: Title` (colon, not period) with **Objective**, numbered **Instructions**, **Expected output**, **Verification**
+7. ## Validación y Pruebas
+8. ## Solución de Problemas — **exactly 2** realistic issues (symptoms, cause, fix)
+9. ## Limpieza
+10. ## Resumen (+ optional resources)
+"""
+        if is_spanish
+        else
+        """STRUCTURE (exactly ONE H1 for the lab title; nested sample documents must be ### or ####, never a second # heading).
+H2 titles MUST be these exact English strings:
+1. ## Metadata — table: Duration, Complexity, Bloom level
+"""
+        + overview_rule + """
+3. ## Learning Objectives — 3–5 checkboxes
+4. ## Prerequisites — knowledge + access
+5. ## Lab Environment — concise HW/SW tables if useful + setup commands
+6. ## Step-by-Step Instructions — each step heading MUST be `### Step N: Title` with **Objective**, numbered **Instructions**, **Expected output**, **Verification**
+7. ## Validation & Testing
+8. ## Troubleshooting — **exactly 2** realistic issues (symptoms, cause, fix)
+9. ## Cleanup
+10. ## Summary (+ optional resources)
+"""
     )
 
     add_req = master_context.get("additional_requirements", "")
@@ -1071,18 +1247,7 @@ LAB SPECIFICATION:
 {lesson_context_section}
 {demo_section}
 
-STRUCTURE (single H1 for lab title; then ## / ###):
-1. Metadata — table: Duration, Complexity, Bloom level
-{overview_rule}
-3. Learning objectives — 3–5 checkboxes
-4. Prerequisites — knowledge + access
-5. Lab environment — concise HW/SW tables if useful + setup commands
-6. Step-by-step — each step: **Objective**, numbered **Instructions**, **Expected output**, **Verification** (keep steps focused; avoid repetition)
-7. Validation & testing
-8. Troubleshooting — **exactly 2** realistic issues (symptoms, cause, fix)
-9. Cleanup
-10. Summary (+ optional resources)
-
+{structure_block}
 QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
 
 OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
@@ -1147,19 +1312,20 @@ LANGUAGE REQUIREMENT:
 - Code commands can remain in their original language (usually English)
 - Technical terms may remain in English where appropriate
 
-If generating in Spanish, use these section titles:
+If generating in Spanish, use these EXACT H2 titles (no synonyms):
 - "Metadatos" instead of "Metadata"
 - "Descripción General" instead of "Overview"
 - "Objetivos de Aprendizaje" instead of "Learning Objectives"
-- "Prerrequisitos" instead of "Prerequisites"
-- "Entorno de Laboratorio" instead of "Lab Environment"
-- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions"
-- "Paso N:" instead of "Step N:"
+- "Prerrequisitos" instead of "Prerequisites" (NOT "Requisitos previos")
+- "Entorno de Laboratorio" instead of "Lab Environment" (NOT "Entorno del laboratorio")
+- "Instrucciones Paso a Paso" instead of "Step-by-Step Instructions" (NOT "Procedimiento paso a paso")
+- "### Paso N:" instead of "### Step N:" (colon required)
 - "Validación y Pruebas" instead of "Validation & Testing"
 - "Solución de Problemas" instead of "Troubleshooting"
 - "Limpieza" instead of "Cleanup"
 - "Resumen" instead of "Summary"
 - "Referencias Bibliográficas" instead of "Bibliographic References"
+Only one H1 is allowed (the lab title). Nested sample documents must be ### or ####.
 
 MASTER CONTEXT:
 Overall Objectives: {', '.join(master_context.get('overall_objectives', []))}
@@ -1536,7 +1702,7 @@ Generate ALL {len(lab_plans)} labs now:
         for lid in list(labs_dict.keys()):
             plan = next((p for p in lab_plans if p.get('lab_id') == lid), None)
             is_demo = is_demo_plan(plan) if plan else False
-            labs_dict[lid] = _ensure_demo_formatting(labs_dict[lid], is_demo=is_demo, is_spanish=is_spanish)
+            labs_dict[lid] = _finalize_lab_markdown(labs_dict[lid], is_demo=is_demo, is_spanish=is_spanish)
 
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict
@@ -1725,7 +1891,7 @@ def lambda_handler(event, context):
                             model_provider=model_provider
                         )
                         is_demo = is_demo_plan(lab_plan)
-                        verified_guide = _ensure_demo_formatting(
+                        verified_guide = _finalize_lab_markdown(
                             verified_guide,
                             is_demo=is_demo,
                             is_spanish=course_language.startswith('es')

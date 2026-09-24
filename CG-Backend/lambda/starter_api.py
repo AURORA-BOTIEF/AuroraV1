@@ -335,25 +335,30 @@ course:
   modules:
     - title: "Module Title"
       summary: "Short summary of the module goals"
-      duration_minutes: integer (Sum of all lessons and labs in this module)
+      duration_minutes: integer (Sum of theory lessons + lab_activities)
       percent_theory: integer (Percentage of theory vs practice, e.g. 50)
       percent_practice: integer (Percentage of practice, e.g. 50)
       bloom_level: "Understand" or "Apply" or "Analyze" or "Remember"
       lessons:
-        - title: "Lesson Title"
+        - title: "Theory lesson title only"
+          type: "theory"
           duration_minutes: integer
           bloom_level: "Understand" or "Apply" or "Analyze" etc.
           topics:
-            - title: "Topic 1 details"
+            - title: "Topic nested under this lesson"
               duration_minutes: integer
               bloom_level: "Understand"
-            - title: "Topic 2 details"
-              duration_minutes: integer
+            - title: "Another nested topic (duration optional if source has none)"
               bloom_level: "Apply"
-          lab_activities:
-            - title: "Hands-on activity details OR Demo: Demonstration details"
-              duration_minutes: integer
-              bloom_level: "Apply"
+      lab_activities:
+        - title: "Práctica: Hands-on student activity"
+          type: "lab"
+          duration_minutes: integer
+          bloom_level: "Apply"
+        - title: "Demo: Instructor-led demonstration"
+          type: "demo"
+          duration_minutes: integer
+          bloom_level: "Apply"
 ```
 
 Important Alignment & Content Rules:
@@ -364,14 +369,31 @@ Important Alignment & Content Rules:
    - NEVER inflate, scale up, or multiply durations. If a seminar or workshop is 1.5 hours (90 minutes), the `total_duration_minutes` MUST be 90 minutes.
    {duration_guidance}
    - `total_duration_minutes` MUST be the exact mathematical sum of all module durations.
-   - Each module's `duration_minutes` MUST be the exact sum of its lessons and lab activities.
-3. **Strict 1-to-1 Structural Fidelity & Support for Demos/Labs:**
-   - Preserve ALL modules, chapters, sections, and numbered subtopics from the source document EXACTLY as written.
-   - EVERY numbered sub-item in the source document (e.g., 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, etc.) MUST be created as an individual `lesson` entry in the YAML under its respective module.
-   - DO NOT group, merge, consolidate, or collapse subtopics into fewer lessons than listed in the source document.
-   - **Demos & Demostraciones Support**: When the syllabus or outline specifies demos or demonstrations (e.g., "Demo: ...", "Demostración: ...", "Demo de...", or lesson type demo), these MUST be classified and developed just like laboratories and included in `lab_activities` (or as practical lesson entries). For any Demo, the title MUST explicitly include the word "Demo" (e.g., "Demo: [Topic/Activity]"), so that it is included in the lab guide and clearly distinguished as an instructor-led demonstration.
-4. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
-5. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
+   - Each module's `duration_minutes` MUST be the exact sum of its theory `lessons` plus its module-level `lab_activities`.
+3. **Hierarchy from indentation / nesting (NOT from durations):**
+   Reconstruct the source as a tree. Typical depth:
+     Module (chapter) → Lesson (theory only) → Topics (nested under the lesson)
+     Module-level Práctica / Lab / Demo → lab_activities (NOT lessons)
+   Detect nesting from ANY of these signals (PDF text extraction may lose spaces, so use all of them):
+     - Visual indentation or nested bullets (`o`, `◦`, nested `-`/`*`/`•` under a parent heading)
+     - Nested numbering (e.g. 1.2.1 under lesson 1.2; 2.a / 2.b under lesson 2)
+     - A parent heading followed by a child list, even if the children have no duration
+   CRITICAL mapping:
+     - Direct children of a module that are instructional/theory headings = `lessons`.
+     - Items nested UNDER a theory lesson = `topics` of that lesson. NEVER promote nested topics to additional `lessons`.
+     - If a parent heading has nested children, KEEP the parent as the lesson title and put the children in `topics`. Do not discard the parent heading.
+     - Durations are optional and do NOT determine hierarchy. A nested item without minutes is still a topic. A nested item with "(3 min)" is still a topic. A lesson-level item without minutes is still a lesson. NEVER use "has minutes" / "viñeta con minutos" as the rule for creating a lesson.
+     - If the source is FLAT (module → a list of items with no further nesting), those items are lessons ONLY if they are theory. Practice/demo items in a flat list still go to `lab_activities`. Do not invent grouping headers. Do not invent topics the source did not list. If a lesson has no nested children, `topics` may be empty or a single topic matching the lesson title.
+     - Do NOT treat every numbered sub-item (1.1, 1.2, "o Item") as a lesson. Numbered items nested under a lesson are topics.
+     - Skip module-closing lines that are not instructional content: "Resumen", "Summary", "Recap".
+4. **Labs and instructor Demos are extracted for the Lab Guide — they are NOT lessons:**
+   Being listed inside a module does NOT make a practice a theory lesson. The lab planner searches `lab_activities` and writes the Lab Guide. The theory book must not contain a chapter for that practice.
+   - NEVER create a `lessons[]` entry for a Práctica / Lab / Demo. NEVER duplicate the same activity as both a lesson and a `lab_activities` item.
+   - Student hands-on ("Práctica", "Practica", "Laboratorio", "Lab", "Hands-on", "Exercise") → module-level `lab_activities` with `type: lab`.
+   - Instructor demonstrations ("Demo", "Demostración", "Demostracion", "instructor-led", "el instructor demostrará", "el instructor demuestra", "demostración realizada por el instructor") → module-level `lab_activities` with `type: demo`, even if the source prefixes them with "Práctica:". The title MUST start with "Demo: " (e.g. "Demo: Recuperación de acuerdos con Intelligent Recap").
+   - Demos follow the SAME laboratory procedure and MUST appear in the lab guide, clearly marked as instructor-led demos. Do not write them as theory lessons.
+5. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
+6. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
 
 Input Content:
 ---
@@ -388,6 +410,194 @@ Input Content:
         yaml_content = ai_output.strip()
         
     return yaml_content
+
+
+_LAB_ITEM_TYPES = {
+    'lab', 'practice', 'activity', 'lab_activity',
+    'laboratorio', 'práctica', 'practica',
+    'demo', 'demostracion', 'demostración',
+}
+_DEMO_ITEM_TYPES = {'demo', 'demostracion', 'demostración'}
+_LAB_TITLE_PREFIXES = (
+    'práctica', 'practica', 'laboratorio', 'lab:', 'lab ',
+    'hands-on', 'ejercicio', 'exercise',
+)
+
+
+def _is_demo_outline_item(title: str, item_type: str = '') -> bool:
+    type_lower = (item_type or '').strip().lower()
+    if type_lower in _DEMO_ITEM_TYPES:
+        return True
+    t_lower = (title or '').lower().strip()
+    if t_lower.startswith(('demo', 'demostración', 'demostracion')):
+        return True
+    if '(demo)' in t_lower or '[demo]' in t_lower:
+        return True
+    if 'instructor-led' in t_lower or 'instructor led' in t_lower:
+        return True
+    if re.search(r'instructor\s+dem(?:o|ue)str', t_lower):
+        return True
+    if 'demostración realizada por el instructor' in t_lower or 'demostracion realizada por el instructor' in t_lower:
+        return True
+    return False
+
+
+def _is_lab_or_demo_outline_item(title: str, item_type: str = '') -> bool:
+    if _is_demo_outline_item(title, item_type):
+        return True
+    type_lower = (item_type or '').strip().lower()
+    if type_lower in _LAB_ITEM_TYPES:
+        return True
+    t_lower = (title or '').strip().lower()
+    return t_lower.startswith(_LAB_TITLE_PREFIXES)
+
+
+def _normalize_lab_title_key(title: str) -> str:
+    t = (title or '').lower()
+    t = re.sub(
+        r'^(práctica|practica|laboratorio|lab|demo|demostración|demostracion)\s*[:\-–]\s*',
+        '',
+        t,
+    )
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def _ensure_outline_demo_title(title: str) -> str:
+    t = (title or '').strip()
+    t_lower = t.lower()
+    if t_lower.startswith('demostración:') or t_lower.startswith('demostracion:'):
+        return re.sub(r'^(demostración|demostracion)\s*:\s*', 'Demo: ', t, flags=re.IGNORECASE).strip()
+    if re.search(r'\bdemo\b', t_lower):
+        return t
+    t = re.sub(r'^(práctica|practica|laboratorio|lab)\s*[:\-–]\s*', '', t, flags=re.IGNORECASE).strip()
+    return f'Demo: {t}'
+
+
+def _as_module_lab_activity(item: dict) -> dict:
+    title = str(item.get('title') or '').strip()
+    item_type = str(item.get('type') or '').strip()
+    is_demo = _is_demo_outline_item(title, item_type)
+    activity = {
+        'title': _ensure_outline_demo_title(title) if is_demo else title,
+        'type': 'demo' if is_demo else 'lab',
+        'bloom_level': item.get('bloom_level') or 'Apply',
+    }
+    duration = item.get('duration_minutes')
+    if duration is not None:
+        activity['duration_minutes'] = duration
+    if item.get('objectives'):
+        activity['objectives'] = item['objectives']
+    if item.get('description'):
+        activity['description'] = item['description']
+    return activity
+
+
+def promote_lab_entries_out_of_lessons(outline_data: dict) -> bool:
+    """
+    Practices and demos belong in module.lab_activities for the lab guide.
+    They must not remain as theory-book lessons (nor be duplicated in both places).
+    Returns True if the outline was changed.
+    """
+    if not isinstance(outline_data, dict):
+        return False
+    course = outline_data.get('course', outline_data)
+    if not isinstance(course, dict):
+        return False
+    modules = course.get('modules') or []
+    changed = False
+
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        lessons = list(module.get('lessons') or [])
+        existing = list(module.get('lab_activities') or module.get('labs') or [])
+        collected = []
+        seen = set()
+
+        def add_lab(raw):
+            if isinstance(raw, str):
+                raw = {'title': raw}
+            if not isinstance(raw, dict) or not str(raw.get('title') or '').strip():
+                return
+            activity = _as_module_lab_activity(raw)
+            key = _normalize_lab_title_key(activity['title'])
+            if not key or key in seen:
+                return
+            seen.add(key)
+            collected.append(activity)
+
+        for lab in existing:
+            add_lab(lab)
+
+        kept_lessons = []
+        for lesson in lessons:
+            if not isinstance(lesson, dict):
+                kept_lessons.append(lesson)
+                continue
+            nested = list(lesson.get('lab_activities') or [])
+            is_practice_lesson = _is_lab_or_demo_outline_item(
+                str(lesson.get('title') or ''),
+                str(lesson.get('type') or ''),
+            )
+            if is_practice_lesson:
+                changed = True
+                if nested:
+                    for item in nested:
+                        add_lab(item)
+                else:
+                    add_lab(lesson)
+                continue
+            if nested:
+                changed = True
+                for item in nested:
+                    add_lab(item)
+                lesson = dict(lesson)
+                lesson['lab_activities'] = []
+            kept_lessons.append(lesson)
+
+        if kept_lessons != lessons:
+            changed = True
+        if collected != existing or module.get('labs'):
+            changed = True
+        module['lessons'] = kept_lessons
+        module['lab_activities'] = collected
+        if 'labs' in module:
+            del module['labs']
+
+    return changed
+
+
+def apply_lab_promotion_to_outline_s3(s3_client, bucket: str, s3_key: str) -> bool:
+    """Load outline YAML, promote labs/demos out of lessons, write back if changed."""
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+        raw = response['Body'].read()
+        if isinstance(raw, bytes):
+            outline_content = raw.decode('utf-8')
+        elif isinstance(raw, str):
+            outline_content = raw
+        else:
+            return False
+        outline_data = yaml.safe_load(outline_content)
+        if not isinstance(outline_data, dict):
+            return False
+    except Exception as e:
+        print(f"⚠️ Could not load outline for lab promotion: {e}")
+        return False
+
+    if not promote_lab_entries_out_of_lessons(outline_data):
+        print(f"✅ No practice/demo lessons to extract from theory: {s3_key}")
+        return False
+
+    promoted_yaml = yaml.dump(outline_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=s3_key,
+        Body=promoted_yaml.encode('utf-8'),
+        ContentType='application/x-yaml',
+    )
+    print(f"📤 Extracted practices/demos out of lessons into module lab_activities: {s3_key}")
+    return True
 
 
 def load_master_lab_plan_result(s3_client, bucket: str, project_folder: str, model_provider: str = "bedrock") -> dict | None:
@@ -545,6 +755,7 @@ def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str, course
     if is_yaml:
         print(f"📄 File is already YAML: {s3_key}. Normalizing structure directly.")
         normalize_outline_yaml(s3_client, bucket, s3_key)
+        apply_lab_promotion_to_outline_s3(s3_client, bucket, s3_key)
         return s3_key
 
     # For PDF, Markdown, or raw text, we convert.
@@ -599,6 +810,7 @@ def process_and_normalize_outline_s3(s3_client, bucket: str, s3_key: str, course
 
     # Run the standard normalization on the generated YAML to ensure absolute schema compliance
     normalize_outline_yaml(s3_client, bucket, new_s3_key)
+    apply_lab_promotion_to_outline_s3(s3_client, bucket, new_s3_key)
     
     return new_s3_key
 
