@@ -28,7 +28,11 @@ PT_DEFAULT_SLIDE_TITLE = 40
 
 
 def _normalize_ppt_plain_text(text: str) -> str:
-    """Strip markdown asterisks and ellipsis truncation markers for PPT display (THOR)."""
+    """Strip markdown residue for PPT display (THOR).
+
+    Removes emphasis markers, heading/bullet prefixes, blockquote markers and inline
+    link syntax left over from Markdown, so slides never show raw markers.
+    """
     if not text:
         return ""
     raw = str(text).strip()
@@ -36,10 +40,23 @@ def _normalize_ppt_plain_text(text: str) -> str:
     if low.startswith("http://") or low.startswith("https://"):
         return raw.replace("**", "").strip()
     t = raw.replace("**", "").strip()
+    # Markdown heading prefix (#### Title)
+    t = re.sub(r"^#{1,6}\s*", "", t)
+    # Blockquote prefix
+    t = re.sub(r"^>\s*", "", t)
+    # Bullet / numbered-list markers at the start
+    t = re.sub(r"^[-*+]\s+", "", t)
+    t = re.sub(r"^\d+[.)]\s+", "", t)
     while t.startswith("*") and len(t) > 1:
         t = t[1:].strip()
     while t.endswith("*") and len(t) > 1:
         t = t[:-1].strip()
+    # Inline code and links: [label](url) -> label ; `code` -> code
+    t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", t)
+    t = t.replace("`", "")
+    # Horizontal rules / separators that leak as content
+    if re.fullmatch(r"[-=*_]{3,}", t.strip()):
+        return ""
     t = re.sub(r"\btruncated\b", "…", t, flags=re.IGNORECASE)
     if t and t[-1] not in ".!?;:":
         t = t + "."

@@ -24,7 +24,7 @@ def estimate_slide_height(slide_soup) -> int:
     # Constants matching CSS/JS (from infographic_generator.py)
     BULLET_HEIGHT = 44
     HEADING_HEIGHT = 65
-    IMAGE_HEIGHT = 550  # CSS max-height
+    IMAGE_HEIGHT = 450  # CSS max-height (alineado con la guía del generador)
     SPACING = 20
     LINE_HEIGHT = 30
     CHARS_PER_LINE = 90

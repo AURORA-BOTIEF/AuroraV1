@@ -297,6 +297,12 @@ To reset your environment after completing this lab:
 | Summary | H2 | ✅ | Accomplishments and takeaways |
 | Bibliographic References | H2 | ✅ | Links for further learning and references |
 
+> **Reglas de calidad Thor (ver sección "Thor Quality Rules")**: versiones exactas + fuente
+> oficial, validación medible con evidencia, casos reproducibles, pruebas de limitaciones de IA
+> y terminología correcta. El validador emite advertencias (`vague_version`,
+> `unmeasurable_validation`, `missing_evidence`) e informativas (`missing_ai_limitations`,
+> `unresolved_placeholders`, `duration_mismatch`).
+
 ---
 
 ## Lab ID Format
@@ -462,6 +468,66 @@ docker pull <image-name>
 
 ---
 
+## Thor Quality Rules (informe de mejoras)
+
+Estas reglas son **obligatorias** para todo laboratorio generado por Thor.
+
+### 1. Terminología y conceptualización
+
+- Diferenciar una **instrucción** temporal (mensaje escrito en el chat) de un **agente o
+  asistente persistente** (configuración guardada que se reutiliza).
+- Usar correctamente los términos **instrucción**, **prompt** y **mensaje de sistema**;
+  no tratarlos como sinónimos.
+- No presentar el *prompting* como fin: evaluar **precisión, trazabilidad, incertidumbre,
+  utilidad y supervisión humana**. No exigir la exposición del razonamiento interno como
+  criterio de éxito.
+
+### 2. Tecnología, versión, licenciamiento y fuentes
+
+- Toda tecnología debe declarar **versión exacta** (edición + arquitectura cuando aplique),
+  **fuente oficial** (URL) y **método de verificación**.
+- Prohibido usar "última versión", "versión actual", "1.x" o rangos como `>=`.
+  Lo no confirmado se deja como `[VERSIÓN POR VALIDAR]` / `[ENLACE OFICIAL]`.
+- Registrar **licencia** y disponibilidad vigente; verificar rutas, modelos y capacidades
+  en la documentación oficial antes de publicar.
+- Separar claramente herramientas que no son lo mismo (por ejemplo **Microsoft 365 Copilot**,
+  **Copilot Chat**, **Designer**, **Planner**), indicando licencia y configuración de cada una.
+
+### 3. Duración y complejidad
+
+- Cada práctica debe caber en el tiempo y nivel definidos en el temario.
+- Para un seminario de 90 minutos, priorizar el **uso efectivo de la herramienta**, no
+  la documentación extensa ni capturas.
+
+### 4. Dependencias, archivos y reproducibilidad
+
+- Reducir archivos auxiliares y dependencias entre prácticas.
+- Incorporar directamente en los prompts la información que no requiera un archivo externo.
+- Proporcionar **escenarios, entradas y fuentes controladas** que permitan comparar
+  resultados entre participantes e instructors.
+
+### 5. Validación medible y evidencia
+
+- Definir **criterios medibles** y **evidencia suficiente** (comando, archivo, salida,
+  captura o recurso).
+- No declarar "listo para producción" a partir de cinco pruebas genéricas ni de una
+  tasa de éxito del 60 %.
+
+### 6. Limitaciones de IA (pruebas obligatorias)
+
+Incluir en `## Validación y Pruebas` al menos un caso que evalúe:
+
+- Información **inexistente** o **contradictoria**.
+- **Falta de evidencia** en la respuesta.
+- **Instrucciones incrustadas** en documentos (prompt injection).
+
+### 7. Alineación pedagógica
+
+- La sesión sincrónica debe servir para **experimentar, reforzar y ampliar** el contenido
+  asincrónico, no para repasar documentación o capturas.
+
+---
+
 ## Demos / Demostraciones (Instructor-Led Activities)
 
 When the syllabus specifies a Demo or Demostración:
@@ -499,6 +565,7 @@ Before finalizing lab content, verify:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2 | 2026-09-25 | Reglas de calidad Thor: versiones exactas, evidencia medible, casos reproducibles, pruebas de limitaciones de IA y terminología |
 | 1.1 | 2026-08-28 | Added support for Demos / Demostraciones (Instructor-led activities) |
 | 1.0 | 2025-12-08 | Initial schema definition |
 

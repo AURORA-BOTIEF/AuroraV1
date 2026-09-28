@@ -12,7 +12,8 @@ function GeneradorContenidosPage() {
   // Show menu by default, but hide it for "Generador de Cursos" AND "Editor de Libros" (Book Builder)
   const mostrarMenu = location.pathname.startsWith('/generador-contenidos')
     && !location.pathname.includes('/generador-cursos')
-    && !location.pathname.includes('/book-builder');
+    && !location.pathname.includes('/book-builder')
+    && !location.pathname.includes('/setup-guide');
 
   const handleRegresar = () => {
     navigate('/generador-contenidos'); // Navega de vuelta al menú principal
@@ -90,13 +91,13 @@ function GeneradorContenidosPage() {
             </div>
           </Link>
 
-          <div className="opcion-menu disabled">
+          <Link to="setup-guide" className="opcion-menu">
             <div className="icono">💻</div>
             <div className="texto">
-              <h3>Setup Guide (Próximamente)</h3>
-              <p>Especificaciones de hardware y software necesarias para el ambiente de los participantes.</p>
+              <h3>Setup Guide</h3>
+              <p>Genera el documento maestro con hardware, software, configuración y matriz de prácticas.</p>
             </div>
-          </div>
+          </Link>
 
           <Link to="faq" className="opcion-menu">
             <div className="icono">❓</div>

@@ -150,6 +150,20 @@ class ContentValidator:
                    'diseñar', 'desarrollar', 'construir', 'producir', 'componer', 'crear', 'generar']
     }
     
+    # --- Reglas alineadas al informe de mejoras THOR ---
+    VAGUE_VERSION_PATTERN = re.compile(
+        r'(?i)\b(latest|\u00faltima|ultima|current|actual|versi\u00f3n actual|reciente|v?\d+\.x|>=|m\u00e1s reciente)\b'
+    )
+    UNMEASURABLE_PATTERN = re.compile(
+        r'(?i)(\b\d{1,2}\s*%\s*(de\s*)?(\u00e9xito|exito|success)|'
+        r'\b5\s*(pruebas|tests)\s*gen\u00e9ric|listo para producci\u00f3n|funciona correctamente)'
+    )
+    AI_LIMITATION_PATTERN = re.compile(
+        r'(?i)(inexistente|contradictor|prompt\s*injection|inyecci\u00f3n de (prompt|instrucciones)|'
+        r'instrucciones incrustadas|sin evidencia|informaci\u00f3n falsa)'
+    )
+    PLACEHOLDER_PATTERN = re.compile(r'\[[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00d10-9 _/\-]{3,}\]|<[a-z_]{3,}>')
+
     def __init__(self):
         self.results: List[ValidationResult] = []
     
@@ -468,6 +482,91 @@ class ContentValidator:
             info=info
         )
     
+    def validate_vague_versions(self, content: str) -> None:
+        """Mejora THOR: versiones exactas. Detecta versiones vagas ('latest', '1.x', '>=')."""
+        for match in self.VAGUE_VERSION_PATTERN.finditer(content):
+            # Ignorar comparaciones de código fuera de tablas de requisitos
+            line_start = content.rfind('\n', 0, match.start()) + 1
+            line = content[line_start:content.find('\n', match.start()) if content.find('\n', match.start()) != -1 else len(content)]
+            if '|' not in line and 'version' not in line.lower() and 'versi\u00f3n' not in line.lower():
+                continue
+            self._add_result(
+                "vague_version",
+                ValidationSeverity.WARNING,
+                f"Versi\u00f3n no exacta detectada: '{match.group(0)}'",
+                line_number=self._find_line_number(content, match.group(0)),
+                suggestion="Registrar versi\u00f3n exacta (edici\u00f3n, arquitectura) o dejarla como [VERSI\u00d3N POR VALIDAR]."
+            )
+
+    def validate_evidence_quality(self, content: str) -> None:
+        """Mejora THOR: validaci\u00f3n medible y evidencia suficiente."""
+        for match in self.UNMEASURABLE_PATTERN.finditer(content):
+            self._add_result(
+                "unmeasurable_validation",
+                ValidationSeverity.WARNING,
+                f"Criterio de validaci\u00f3n no medible: '{match.group(0)}'",
+                line_number=self._find_line_number(content, match.group(0)),
+                suggestion="Definir criterios medibles y evidencia verificable (comando, salida, captura)."
+            )
+        if "validaci" not in content.lower() and "testing" not in content.lower():
+            return
+        has_evidence = re.search(r'(?i)(evidencia|expected (output|result)|resultado esperado|salida esperada)', content)
+        if not has_evidence:
+            self._add_result(
+                "missing_evidence",
+                ValidationSeverity.WARNING,
+                "La validaci\u00f3n no declara evidencia ni resultado esperado.",
+                suggestion="Indicar comando, archivo, salida o captura que comprueba el resultado."
+            )
+
+    def validate_ai_limitations(self, content: str) -> None:
+        """Mejora THOR: evaluar limitaciones de IA (info inexistente, contradictoria, prompt injection)."""
+        if self.AI_LIMITATION_PATTERN.search(content):
+            return
+        self._add_result(
+            "missing_ai_limitations",
+            ValidationSeverity.INFO,
+            "No se detectan pruebas frente a limitaciones de IA (informaci\u00f3n inexistente/contradictoria, falta de evidencia o instrucciones incrustadas).",
+            suggestion="Incluir al menos un caso que eval\u00fae incertidumbre, contradicci\u00f3n o instrucciones incrustadas en documentos."
+        )
+
+    def validate_placeholders(self, content: str) -> None:
+        """Mejora THOR: los datos no confirmados deben quedar como marcadores visibles."""
+        found = self.PLACEHOLDER_PATTERN.findall(content)
+        if found:
+            unique = sorted(set(found))
+            self._add_result(
+                "unresolved_placeholders",
+                ValidationSeverity.INFO,
+                f"Marcadores pendientes de confirmar: {', '.join(unique[:10])}",
+                suggestion="Confirmar los datos y reemplazar los marcadores antes de liberar el material."
+            )
+
+    def validate_duration_consistency(self, content: str) -> None:
+        """Mejora THOR: la duraci\u00f3n debe ser realista respecto al contenido."""
+        duration_match = re.search(r'(?i)duraci[oó]n[^\d]{0,15}(\d{1,3})\s*(min|minutos|minutes)', content)
+        if not duration_match:
+            return
+        duration = int(duration_match.group(1))
+        word_count = len(re.findall(r"\w+", content))
+        # ~40-60 palabras por minuto de pr\u00e1ctica guiada; margen amplio
+        min_words = max(120, int(duration * 20))
+        max_words = max(600, int(duration * 160) + 600)
+        if word_count < min_words:
+            self._add_result(
+                "duration_mismatch",
+                ValidationSeverity.INFO,
+                f"Duraci\u00f3n declarada ({duration} min) posiblemente sobreestimada para {word_count} palabras.",
+                suggestion="Ajustar la duraci\u00f3n al tiempo real del temario o ampliar el contenido."
+            )
+        elif word_count > max_words:
+            self._add_result(
+                "duration_mismatch",
+                ValidationSeverity.INFO,
+                f"Duraci\u00f3n declarada ({duration} min) posiblemente subestimada para {word_count} palabras.",
+                suggestion="Ajustar la duraci\u00f3n al tiempo real del temario."
+            )
+
     def validate_lab(self, content: str) -> ContentValidationReport:
         """Validate lab guide content against schema."""
         self.results = []
@@ -498,6 +597,14 @@ class ContentValidator:
         
         # Validate word count (labs tend to be longer)
         self.validate_word_count(content, min_words=1000, max_words=10000)
+
+        # Mejoras THOR: versiones exactas, evidencia medible, limitaciones IA,
+        # marcadores pendientes y consistencia de duraci\u00f3n.
+        self.validate_vague_versions(content)
+        self.validate_evidence_quality(content)
+        self.validate_ai_limitations(content)
+        self.validate_placeholders(content)
+        self.validate_duration_consistency(content)
         
         # Build report
         errors = [r for r in self.results if r.severity == ValidationSeverity.ERROR]

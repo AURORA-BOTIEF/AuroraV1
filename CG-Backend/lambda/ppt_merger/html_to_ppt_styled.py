@@ -240,8 +240,13 @@ def _parse_glossary_items_from_md(glossary_md: str) -> list:
                     defn = ''
                 if 'objetivos de aprendizaje' in defn.lower():
                     defn = ''
-                if len(defn) > 120:
-                    defn = defn[:117] + '...'
+                # Criterio THOR: glosario funcional, sin conceptos incompletos.
+                if not defn:
+                    continue
+                if len(defn) > 240:
+                    cut = defn[:240]
+                    last_stop = max(cut.rfind('. '), cut.rfind('; '), cut.rfind(', '))
+                    defn = (cut[:last_stop + 1] if last_stop > 160 else cut.rstrip()) + '…'
                 items.append((term, defn))
     return items
 

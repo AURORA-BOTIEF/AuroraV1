@@ -30,7 +30,7 @@ MAX_CONTENT_HEIGHT_NO_SUBTITLE = 520    # Slide without subtitle
 BULLET_HEIGHT = 50       # CRITICAL: 20pt font × 1.4 line-height + 8px padding + 4px margin = 50px (MATCHES CSS EXACTLY)
 LINE_HEIGHT = 30         # Line wrapping height
 HEADING_HEIGHT = 65      # 20pt font + spacing
-IMAGE_HEIGHT = 550       # CRITICAL: Matches CSS max-height (550px as per infographic_generator.py CSS)
+IMAGE_HEIGHT = 450       # CRITICAL: Matches CSS max-height (450px as per infographic generator CSS)
 SPACING_BETWEEN_BLOCKS = 20  # Vertical spacing between blocks
 CHARS_PER_LINE = 90      # Characters per line for wrapping calculation
 

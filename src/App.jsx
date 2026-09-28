@@ -46,6 +46,7 @@ import GeneradorCursos from './components/GeneradorCursos.jsx';
 import GeneradorTemariosPracticos from './components/GeneradorTemariosPracticos.jsx';
 
 import BookBuilderPage from './components/BookBuilderPage.jsx';
+import SetupGuidePage from './components/SetupGuidePage.jsx';
 import BookEditorPage from './components/BookEditorPage.jsx';
 
 import FAQ from "./components/FAQ.jsx";
@@ -555,6 +556,7 @@ function App() {
                 <Route path="Temario-seminarios" element={<GeneradorTemarios_Seminarios />} />
                 <Route path="generador-cursos" element={<GeneradorCursos />} />
                 <Route path="book-builder" element={<BookBuilderPage />} />
+                <Route path="setup-guide" element={<SetupGuidePage />} />
                 <Route path="generador-contenido" element={<GeneradorContenido />} />
                 <Route path="temario-practico" element={<GeneradorTemariosPracticos />} />
                 <Route path="faq" element={<FAQ />} />

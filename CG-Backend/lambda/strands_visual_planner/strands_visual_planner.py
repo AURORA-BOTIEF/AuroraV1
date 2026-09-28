@@ -291,6 +291,7 @@ Recibirás una lista de descripciones visuales extraídas de lecciones técnicas
    - Disposición: posición, espaciado, alineación
    - Colores: códigos hex o nombres (#0066CC azul, etc.)
    - Estilo: profesional, moderno, limpio, técnico
+   - Legibilidad: alto contraste, jerarquía visual clara, tamaño de texto legible al proyectar; sin marcas de agua ni texto ilegible
    - Verificación: "Comprueba que todo el texto visible esté en español: [lista de términos críticos]"
 
 INPUT VISUALS:
@@ -344,6 +345,7 @@ You will receive a list of visual descriptions extracted from technical course l
    - **Layout**: Position, spacing, alignment
    - **Colors**: Specific hex codes or names (#0066CC blue, #4CAF50 green, etc.)
    - **Style**: Professional, modern, clean, technical, minimalist
+   - **Legibility**: High contrast, clear visual hierarchy, text size readable when projected; no watermarks or garbled text
    - **Verification**: "Ensure all text is spelled correctly: [list critical English terms]"
 
 INPUT VISUALS:

@@ -465,6 +465,19 @@ def call_openai_agent(prompt: str, api_key: str, model_id: str = DEFAULT_OPENAI_
         raise
 
 
+THOR_QUALITY_RULES = """THOR QUALITY RULES (MANDATORY - informe de mejoras):
+1. TERMINOLOGÍA: Distinguish a temporary chat instruction from a persistent agent/assistant. Use 'instrucción', 'prompt' and 'mensaje de sistema' correctly (no son sinónimos).
+2. VERSIONES EXACTAS: Every technology MUST declare an exact version (edition + architecture) and an official source URL. Never use 'latest/última versión/versión actual/1.x/>=', or unresolvable placeholders. If unconfirmed, use '[VERSIÓN POR VALIDAR]' / '[ENLACE OFICIAL]'.
+3. LICENCIAS Y HERRAMIENTAS: Differentiate Microsoft 365 Copilot, Copilot Chat, Designer, Planner and similar tools, stating the license and configuration for each.
+4. DURACIÓN: Keep each lab within the time and complexity defined by the syllabus; for a 90-minute seminar prioritize effective tool usage.
+5. DEPENDENCIAS: Reduce auxiliary files/dependencies; embed in the prompts any information that does not require an external file. Provide controlled scenarios, inputs and sources so results are comparable.
+6. VALIDACIÓN MEDIBLE: Define measurable criteria and sufficient evidence (command, file, output, screenshot). Do NOT claim production-ready from five generic tests or a 60% success rate.
+7. LIMITACIONES DE IA: In Validation & Testing include at least one adversarial case: nonexistent/contradictory information, missing evidence, or instructions embedded in documents (prompt injection).
+8. PROMPTING: Evaluate precision, traceability, uncertainty, usefulness and human supervision; do NOT require exposing internal reasoning as a success criterion.
+9. PEDAGOGÍA: Favor experimentation and reinforcement over documentation/captures.
+"""
+
+
 def generate_lab_guide(
     lab_plan: dict,
     master_context: dict,
@@ -877,6 +890,7 @@ CRITICAL FORMATTING RULES
 - Analyze/Evaluate: More independent problem-solving
 - Create: Less hand-holding, open-ended challenges
 
+{THOR_QUALITY_RULES}
 ═══════════════════════════════════════════════════════════════════════════════
 
 Return ONLY the Markdown content following this schema exactly, no additional commentary.
@@ -1250,6 +1264,7 @@ LAB SPECIFICATION:
 {structure_block}
 QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
 
+{THOR_QUALITY_RULES}
 OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
 ---LAB_START---
 LAB_ID: {lid}
@@ -1548,6 +1563,17 @@ CRITICAL FORMATTING RULES
 - Under Overview (Descripción General), you MUST include the instructor notice callout:
   > ℹ️ **Nota:** Esta práctica es una **Demostración realizada por el instructor**. El instructor ejecutará los pasos y comandos mientras los alumnos observan, toman notas y analizan el procedimiento, en lugar de realizarla individualmente.
 - All steps should be framed for the instructor to demonstrate clearly to the class.
+
+**THOR QUALITY RULES (MANDATORY - informe de mejoras):**
+1. TERMINOLOGÍA: Distinguish a temporary instruction in a chat from a persistent agent/assistant. Use 'instrucción', 'prompt' and 'mensaje de sistema' correctly (no son sinónimos).
+2. VERSIONES EXACTAS: Every technology MUST declare an exact version (edition + architecture) and an official source URL. Never use 'latest/última versión/versión actual/1.x/>=', or unresolvable placeholders. If unconfirmed, use '[VERSIÓN POR VALIDAR]' / '[ENLACE OFICIAL]'.
+3. LICENCIAS Y HERRAMIENTAS: Differentiate Microsoft 365 Copilot, Copilot Chat, Designer, Planner and similar tools, stating the license and configuration for each.
+4. DURACIÓN: Keep each lab within the time and complexity defined by the syllabus; for a 90-minute seminar prioritize effective tool usage.
+5. DEPENDENCIAS: Reduce auxiliary files/dependencies; embed in the prompts any information that does not require an external file. Provide controlled scenarios, inputs and sources so results are comparable.
+6. VALIDACIÓN MEDIBLE: Define measurable criteria and sufficient evidence (command, file, output, screenshot). Do NOT claim production-ready from five generic tests or a 60% success rate.
+7. LIMITACIONES DE IA: In Validation & Testing include at least one adversarial case: nonexistent/contradictory information, missing evidence, or instructions embedded in documents (prompt injection).
+8. PROMPTING: Evaluate precision, traceability, uncertainty, usefulness and human supervision; do NOT require exposing internal reasoning as a success criterion.
+9. PEDAGOGÍA: Favor experimentation and reinforcement over documentation/captures.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (USE DELIMITERS)

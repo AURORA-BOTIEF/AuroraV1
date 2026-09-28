@@ -9,6 +9,11 @@ cfn_events.json
 # AWS SAM
 .aws-sam/
 
+# Lambda layer build artifacts (ARM64 staging)
+lambda-layers/pdf_layer_arm64/
+lambda-layers/pdf_layer_arm64.zip
+lambda-layers/_svglib_tmp/
+
 # Python
 __pycache__/
 *.py[cod]

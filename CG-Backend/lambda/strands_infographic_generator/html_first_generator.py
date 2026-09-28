@@ -213,14 +213,37 @@ def _split_bullet_into_chunks(text: str, max_chars: int = 230) -> List[str]:
     return chunks if chunks else _hard_wrap_words(text, max_chars)
 
 
+def _sanitize_visible_text(text: str) -> str:
+    """Elimina residuos de markdown que no deben verse en la diapositiva.
+
+    Red de seguridad final: fences de código, prefijos de lista sueltos y
+    encabezados markdown que el modelo pudo filtrar como texto plano.
+    """
+    if not text:
+        return text
+    value = str(text)
+    # Fences ```lang ... ```
+    value = re.sub(r'```[a-zA-Z0-9]*\s*\n?', '', value)
+    # Encabezados markdown al inicio de línea
+    value = re.sub(r'(?m)^\s{0,3}#{1,6}\s+', '', value)
+    # Viñetas/numeración al inicio de línea dentro de un mismo texto
+    value = re.sub(r'(?m)^\s*[-*+]\s+', '', value)
+    value = re.sub(r'(?m)^\s*\d+[.)]\s+', '', value)
+    return value.strip()
+
+
 def format_slide_inline_markup(s: Optional[str]) -> str:
     """
     Escape HTML then render a small safe subset of markdown used on slides:
     **bold**, *italic*, `inline code`, and stray backslash-escaped chars from model JSON.
     """
     raw = '' if s is None else str(s)
+    raw = _sanitize_visible_text(raw)
     raw = raw.replace('\\*', '*').replace('\\_', '_').replace('\\`', '`')
     raw = re.sub(r'\\([*_`])', r'\1', raw)
+    # El modelo a veces inserta HTML inline; normalizar a markdown antes de escapar
+    raw = re.sub(r'<\s*(?:strong|b)\s*>(.*?)<\s*/\s*(?:strong|b)\s*>', r'**\1**', raw, flags=re.IGNORECASE | re.DOTALL)
+    raw = re.sub(r'<\s*(?:em|i)\s*>(.*?)<\s*/\s*(?:em|i)\s*>', r'*\1*', raw, flags=re.IGNORECASE | re.DOTALL)
 
     parts = re.split(r'(`[^`\n]+`)', raw)
     out: List[str] = []
@@ -230,8 +253,12 @@ def format_slide_inline_markup(s: Optional[str]) -> str:
             out.append(f'<code class="slide-inline-code">{inner}</code>')
             continue
         escaped = html_module.escape(part)
-        escaped = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', escaped)
-        escaped = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<em>\1</em>', escaped)
+        # Bold: permite marcado anidado simple (p. ej. **texto (runtime):**)
+        escaped = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', escaped, flags=re.DOTALL)
+        escaped = re.sub(r'(?<!\*)\*([^*\n]+)\*(?!\*)', r'<em>\1</em>', escaped)
+        # Red de seguridad: marcadores sueltos que no formaron par (** o *)
+        escaped = escaped.replace('**', '')
+        escaped = re.sub(r'(?<![\w*])\*(?!\s)', '', escaped)
         out.append(escaped)
     return ''.join(out)
 

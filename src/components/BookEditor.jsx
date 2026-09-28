@@ -97,6 +97,7 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
     // Saving state
     const [isSaving, setIsSaving] = useState(false);
     const [publishingGithub, setPublishingGithub] = useState(false);
+    const [generatingSetupGuide, setGeneratingSetupGuide] = useState(false);
     // (Quill removed) we prefer Lexical editor; contentEditable is fallback
 
     // Helper function to clean text (remove encoding artifacts)
@@ -858,6 +859,45 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
             showModal(`No se pudo publicar en GitHub: ${error.message}`, 'Error');
         } finally {
             setPublishingGithub(false);
+        }
+    };
+
+    const generateSetupGuide = async () => {
+        if (!projectFolder) {
+            showModal('No hay un curso seleccionado.', 'Acción no disponible');
+            return;
+        }
+        const confirmed = await showConfirmModal(
+            `Se generará la Setup Guide consolidada del curso ${projectFolder}.\n\nEl documento reúne prerrequisitos, infraestructura, software, configuración y la matriz de prácticas.\n\n¿Deseas continuar?`,
+            'Generar Setup Guide'
+        );
+        if (!confirmed) return;
+        try {
+            setGeneratingSetupGuide(true);
+            const response = await fetch(`${API_BASE}/generate-setup-guide`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_folder: projectFolder })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data?.error || `HTTP ${response.status}`);
+            }
+            const downloadUrl = data?.download_url;
+            if (downloadUrl) {
+                const openDoc = await showConfirmModal(
+                    `Setup Guide generada.\n\nCurso: ${data?.course_title || projectFolder}\nClave: ${data?.course_key || 'N/D'}\nLaboratorios: ${data?.lab_count ?? 'N/A'}\nMarcadores pendientes: ${data?.placeholders_count ?? 'N/A'}\n\n¿Deseas abrir el PDF ahora?`,
+                    'Setup Guide generada'
+                );
+                if (openDoc) window.open(downloadUrl, '_blank');
+            } else {
+                showModal('Setup Guide generada correctamente.', 'Éxito');
+            }
+        } catch (error) {
+            console.error('Error generating setup guide:', error);
+            showModal(`No se pudo generar la Setup Guide: ${error.message}`, 'Error');
+        } finally {
+            setGeneratingSetupGuide(false);
         }
     };
 
@@ -4517,6 +4557,14 @@ function BookEditor({ projectFolder, bookType = 'theory', onClose, viewOnly = fa
                                 title="Publicar laboratorios en GitHub (repositorio público)"
                             >
                                 <span>{publishingGithub ? 'Publicando...' : 'Publicar GH'}</span>
+                            </button>
+                            <button
+                                className="btn-icon btn-secondary"
+                                onClick={generateSetupGuide}
+                                disabled={generatingSetupGuide}
+                                title="Generar la Setup Guide consolidada del curso (PDF)"
+                            >
+                                <span>{generatingSetupGuide ? 'Generando...' : 'Setup Guide'}</span>
                             </button>
                         </div>
                     )}

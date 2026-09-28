@@ -441,6 +441,89 @@ def markdown_anchor(text):
     return slug or "laboratorio"
 
 
+def build_setup_guide_markdown(bucket, project_folder, outline, module_index, repo_url):
+    """Índice navegable de la Setup Guide dentro del repositorio.
+
+    Usa `setupguide/setup-guide.json` si existe; si no, cae al outline y a la
+    matriz de laboratorios para no dejar rutas sin hipervínculo.
+    """
+    data = {}
+    key = f"{project_folder}/setupguide/setup-guide.json"
+    try:
+        data = json.loads(s3_client.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        data = {}
+
+    identification = data.get("identification") or {}
+    title = identification.get("title") or outline.get("title") or project_folder
+    course_key = identification.get("key") or "[CLAVE COMPLETA]"
+    version = identification.get("version") or "[V1.0]"
+    status = identification.get("status") or "BORRADOR"
+    last_validation = (data.get("metadata") or {}).get("last_validation") or "[FECHA DE VALIDACIÓN]"
+
+    parts = [
+        f"# {title} — Setup Guide\n\n",
+        '<p align="center"><img src="assets/LogoNetec.png" alt="NETEC" width="180" /></p>\n\n',
+        "Guía consolidada de instalación y preparación del entorno.\n\n",
+        "| Curso | Clave | Versión | Estado | Última validación |\n",
+        "|---|---|---|---|---|\n",
+        f"| {title} | {course_key} | {version} | {status} | {last_validation} |\n\n",
+        "## Accesos\n\n",
+        f"- **Repositorio:** [{repo_url}]({repo_url})\n",
+    ]
+
+    links = identification.get("links") or []
+    for link in links:
+        url = link.get("url")
+        if url:
+            parts.append(f"- **{link.get('label')}:** [{url}]({url})\n")
+        else:
+            parts.append(f"- **{link.get('label')}:** [INSERTAR ENLACE]\n")
+    parts.append("\n")
+
+    software = data.get("software") or []
+    if software:
+        parts.append("## Software y versiones\n\n")
+        parts.append("| Componente | Versión exacta | Fuente oficial | Momento | Validación |\n")
+        parts.append("|---|---|---|---|---|\n")
+        for item in software:
+            source = item.get("source") or "[ENLACE OFICIAL]"
+            source_cell = f"[{source}]({source})" if str(source).startswith("http") else source
+            parts.append(
+                f"| {item.get('name','')} | {item.get('version','')} | {source_cell} | "
+                f"{item.get('moment','')} | {item.get('validation','')} |\n"
+            )
+        parts.append("\n")
+
+    matrix = data.get("lab_matrix") or []
+    parts.append("## Matriz de prácticas\n\n")
+    if matrix:
+        parts.append("| Lab | Nombre | Duración | Resultado esperado | Acceso |\n")
+        parts.append("|---|---|---|---|---|\n")
+        for lab in matrix:
+            access = lab.get("access") or {}
+            url = access.get("url")
+            access_cell = f"[{access.get('label')}]({url})" if url else "[ENLACE]"
+            parts.append(
+                f"| {lab.get('number','')} | {lab.get('name','')} | {lab.get('duration','')} | "
+                f"{lab.get('expected_result','')} | {access_cell} |\n"
+            )
+    else:
+        for module_number in sorted(module_index.keys()):
+            parts.append(f"### Capítulo {module_number}\n\n")
+            for lab in module_index[module_number]:
+                chapter_path = f"Capitulo{module_number:02d}/README.md"
+                anchor = markdown_anchor(lab["title"])
+                parts.append(f"- [{lab['title']}]({chapter_path}#{anchor})\n")
+            parts.append("\n")
+
+    parts.append(
+        "---\n\n"
+        "*Material didáctico preparado por Global K, S.A. de C.V.*\n"
+    )
+    return "".join(parts)
+
+
 def normalize_lab_markdown(markdown_text):
     lines = markdown_text.splitlines()
     for idx, line in enumerate(lines):
@@ -453,16 +536,27 @@ def normalize_lab_markdown(markdown_text):
     return "\n".join(lines).strip()
 
 
-def build_root_readme(project_folder, outline, module_index):
+def build_root_readme(project_folder, outline, module_index, sug_url=None, logo_url=None):
     title = outline.get("title") or project_folder
     description = outline.get("description") or "Repositorio de laboratorios generado por THOR."
-    parts = [
-        f"# {title}\n\n"
-        f"{description}\n\n"
+    parts = []
+    if logo_url:
+        parts.append(
+            f'<p align="center">\n'
+            f'  <img src="{logo_url}" alt="NETEC" width="180" />\n'
+            f"</p>\n\n"
+        )
+    parts.append(f"# {title}\n\n{description}\n\n")
+    parts.append("## Accesos rápidos\n\n")
+    if sug_url:
+        parts.append(f"- [**Setup Guide del curso**]({sug_url})\n")
+    parts.append("- [Laboratorios por capítulo](#lista-de-laboratorios)\n\n")
+    parts.append(
         "## Estructura\n\n"
-        "- `CapituloXX/README.md`: guía de laboratorio por capítulo.\n\n",
-        "## Lista de laboratorios\n\n",
-    ]
+        "- `SETUP_GUIDE.md`: guía de instalación y preparación del entorno.\n"
+        "- `CapituloXX/README.md`: guía de laboratorio por capítulo.\n\n"
+    )
+    parts.append("## Lista de laboratorios\n\n")
     for module_number in sorted(module_index.keys()):
         parts.append(f"### Capítulo {module_number}\n\n")
         for lab in module_index[module_number]:
@@ -473,12 +567,16 @@ def build_root_readme(project_folder, outline, module_index):
                 parts.append(f"  - Descripción: {lab['description']}\n")
             if lab.get("duration"):
                 parts.append(f"  - Duración estimada: {lab['duration']}\n")
-        parts.append("\n")
+        parts.append(
+            f"  - [Ver capítulo completo](Capitulo{module_number:02d}/README.md)\n\n"
+        )
     parts.append(
         "## Flujo de colaboración\n\n"
         "- Trabajar en `changes_course`.\n"
         "- Crear Pull Request hacia `main`.\n"
-        "- Merge por `Squash and merge`.\n"
+        "- Merge por `Squash and merge`.\n\n"
+        "---\n\n"
+        "*Material didáctico preparado por Global K, S.A. de C.V.*\n"
     )
     return "".join(parts)
 
@@ -577,7 +675,31 @@ def lambda_handler(event, context):
             )
 
         outline = outline_data.get("course", outline_data) if isinstance(outline_data, dict) else {}
-        readme_text = build_root_readme(project_folder, outline, module_index)
+        repo_url = f"https://github.com/{org}/{repo_name}"
+        logo_url = f"https://raw.githubusercontent.com/{org}/{repo_name}/main/assets/LogoNetec.png"
+        sug_url = f"{repo_url}/blob/main/SETUP_GUIDE.md"
+
+        # Identidad: logo NETEC + índice de la Setup Guide en el repositorio
+        try:
+            logo_bytes = s3_client.get_object(Bucket=bucket, Key="logo/LogoNetec.png")["Body"].read()
+            put_file(
+                org, repo_name, "assets/LogoNetec.png", logo_bytes, token,
+                "chore: add NETEC logo",
+            )
+        except Exception as logo_err:  # noqa: BLE001
+            print(f"WARN no se pudo publicar el logo NETEC: {logo_err}")
+
+        try:
+            sug_md = build_setup_guide_markdown(bucket, project_folder, outline, module_index, repo_url)
+            if sug_md:
+                put_file(
+                    org, repo_name, "SETUP_GUIDE.md", sug_md.encode("utf-8"), token,
+                    "docs: add consolidated setup guide index",
+                )
+        except Exception as sug_err:  # noqa: BLE001
+            print(f"WARN no se pudo publicar la Setup Guide: {sug_err}")
+
+        readme_text = build_root_readme(project_folder, outline, module_index, sug_url=sug_url, logo_url=logo_url)
         put_file(org, repo_name, "README.md", readme_text.encode("utf-8"), token, "docs: update repository root index")
 
         configure_repo_settings(org, repo_name, token)

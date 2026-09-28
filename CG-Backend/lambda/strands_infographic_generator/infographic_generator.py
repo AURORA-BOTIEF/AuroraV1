@@ -1070,7 +1070,17 @@ OUTPUT FORMAT (JSON):
 - Use all available space: 10-12 bullets per slide, combine images with text
 - Add callouts alongside content (not on separate slides)"""
         
-        # Build image info string for the prompt
+        # Sanear el contenido para el prompt: los bloques de código se entregan ya
+        # extraídos (CODE BLOCKS FOUND IN CONTENT). Si se envían los fences, el modelo
+        # los copia literalmente como texto y aparecen "```" en las diapositivas.
+        lesson_content_for_prompt = lesson_content
+        for _cb in available_code_blocks:
+            _full = _cb.get('code', '')
+            if _full:
+                lesson_content_for_prompt = lesson_content_for_prompt.replace(_full.strip(), '')
+        lesson_content_for_prompt = re.sub(r'```[a-zA-Z0-9]*\s*\n?', '', lesson_content_for_prompt)
+        lesson_content_for_prompt = re.sub(r'\n{3,}', '\n\n', lesson_content_for_prompt).strip()
+
         image_info_lines = []
         for img in available_images:
             alt = img.get('alt_text', 'N/A')
@@ -1120,7 +1130,7 @@ Create {slide_count_instruction} for this lesson.
 LESSON {lesson_idx}: {lesson_title}
 
 CONTENT:
-{lesson_content}
+{lesson_content_for_prompt}
 
 AVAILABLE IMAGES ({len(available_images)}):
 {image_info_str}
@@ -1161,6 +1171,8 @@ REQUIREMENTS:
   * Each significant code block should have its own slide with explanatory title
   * Format: {{"type": "code", "heading": "Example Title", "language": "python", "code": "def example():\\n    return 'Hello'"}}
   * Add 2-3 bullet points BEFORE the code to explain what it demonstrates
+  * NUNCA escribas el carácter "```" ni fences de markdown dentro de un bullet, heading o callout.
+    Si el contenido incluye un bloque de código, usa SIEMPRE un content block type 'code'.
 - **COMPREHENSIVE**: Cover all major topics (create more slides if needed)
 - **LAST SLIDE**: Lesson summary with 6-8 key takeaways
 - **LANGUAGE**: Use the same language as the lesson content (Spanish/English)

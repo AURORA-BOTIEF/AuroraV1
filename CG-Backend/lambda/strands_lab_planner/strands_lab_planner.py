@@ -683,6 +683,8 @@ REQUIREMENTS: {additional_requirements if additional_requirements else 'None spe
 
 THOR ALIGNMENT & DEEP TECH SPEC:
 - Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
+- Licensing & Official Sources: For every software requirement provide the official source URL and the license type. If a value is not confirmed, use [ENLACE OFICIAL] / [LICENCIA POR VALIDAR]. Never invent versions, licenses, capabilities or availability; verify against official documentation.
+- Tool Separation: For courses about Copilot/assistants, distinguish Microsoft 365 Copilot, Copilot Chat, Designer, Planner and similar tools, each with its own license and configuration.
 - Environmental Constants: Explicitly predefine global environment defaults in special_considerations (e.g., default database name, container names, default ports, working directories).
 - Continuity: Ensure each lab's scope builds logically on the outputs and state created by the previous lab.
 - Demos & Demostraciones: For any lab designated as a Demo or containing 'Demo' in its title, this activity is an INSTRUCTOR-LED DEMONSTRATION (performed live by the instructor while students observe and take notes, NOT an individual student lab). The lab_title MUST contain the word 'Demo' and its scope/objectives must explicitly specify that it is demonstrated by the instructor.
@@ -693,7 +695,7 @@ Return JSON with:
 {{
   "overall_objectives": ["objective 1", "objective 2"],
   "hardware_requirements": ["requirement 1", "requirement 2"],
-  "software_requirements": [{{"name": "Software", "version": "Exact Version (e.g. 16.2)", "purpose": "Why needed", "installation_notes": "Brief notes"}}],
+  "software_requirements": [{{"name": "Software", "version": "Exact Version (e.g. 16.2)", "purpose": "Why needed", "installation_notes": "Brief notes", "source": "Official URL or [ENLACE OFICIAL]", "license": "License type or [LICENCIA POR VALIDAR]"}}],
   "lab_plans": [
     {{
       "lab_id": "01-01-01",

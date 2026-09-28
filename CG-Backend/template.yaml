@@ -95,14 +95,14 @@ Resources:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: pdf-dependencies
-      Description: PDF generation dependencies (xhtml2pdf, jinja2)
-      ContentUri: ./lambda-layers/pdf_layer/
+      Description: PDF generation dependencies (xhtml2pdf, jinja2) - prebuilt ARM64
+      # Zip precompilado para ARM64 (Docker no disponible en el entorno de build local).
+      # Rebuild: ver lambda-layers/build-pdf-layer-arm64.ps1
+      ContentUri: s3://crewai-course-artifacts/lambda-layers/pdf_layer_arm64.zip
       CompatibleRuntimes:
         - python3.12
       CompatibleArchitectures:
         - arm64
-    Metadata:
-      BuildMethod: python3.12
 
   # ======================================
   # STRANDS AGENTS - COURSE GENERATION
@@ -921,6 +921,52 @@ Resources:
           Type: Api
           Properties:
             Path: /build-pdf
+            Method: options
+            Auth:
+              Authorizer: NONE
+
+  SetupGuideBuilderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SetupGuideBuilderFunction
+      Description: Genera la Setup Guide consolidada por curso (JSON + PDF, plantilla Netec)
+      Runtime: python3.12
+      Handler: setup_guide_builder.lambda_handler
+      CodeUri: ./lambda/setup_guide_builder/
+      Layers:
+        - !Ref PdfLayer
+      Architectures:
+        - arm64
+      MemorySize: 2048
+      Timeout: 300
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+          GITHUB_ORG: Netec-Mx
+          PYTHONPATH: /opt/python
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+      Events:
+        SetupGuideApi:
+          Type: Api
+          Properties:
+            Path: /generate-setup-guide
+            Method: post
+            Auth:
+              Authorizer: NONE
+        SetupGuideApiOptions:
+          Type: Api
+          Properties:
+            Path: /generate-setup-guide
             Method: options
             Auth:
               Authorizer: NONE
@@ -1853,6 +1899,10 @@ Outputs:
   LabGuideBuilderFunction:
     Description: Lab Guide Builder Lambda Function ARN
     Value: !GetAtt LabGuideBuilder.Arn
+
+  SetupGuideBuilderFunction:
+    Description: Setup Guide Builder Lambda Function ARN
+    Value: !GetAtt SetupGuideBuilderFunction.Arn
   
   ListProjectsFunction:
     Description: List Projects Lambda Function ARN
