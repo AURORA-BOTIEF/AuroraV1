@@ -115,17 +115,58 @@ def get_google_api_key() -> str:
     return os.getenv('GOOGLE_API_KEY')
 
 
-def call_gemini(prompt: str, api_key: str, model_id: str = "gemini-3.5-flash") -> str:
-    """Call Google Gemini API."""
+def _extract_gemini_text(response) -> str:
+    """Best-effort text extraction that tolerates recitation/safety blocks."""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_id)
-        response = model.generate_content(prompt)
-        return response.text
+        text = getattr(response, "text", None)
+        if text and text.strip():
+            return text
     except Exception as e:
-        print(f"❌ Gemini API error: {e}")
-        raise
+        print(f"⚠️ Gemini response.text unavailable: {e}")
+
+    parts = []
+    for candidate in getattr(response, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                parts.append(part_text)
+    return "\n".join(parts).strip()
+
+
+def call_gemini(
+    prompt: str,
+    api_key: str,
+    model_id: str = "gemini-3.5-flash",
+    max_attempts: int = 4,
+) -> str:
+    """Call Google Gemini API with retries.
+
+    Retries transient errors AND empty/recitation responses (finish_reason 4).
+    """
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+
+    last_err: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            model = genai.GenerativeModel(model_id)
+            response = model.generate_content(prompt)
+            text = _extract_gemini_text(response)
+            if text:
+                if attempt > 1:
+                    print(f"✅ Gemini succeeded on attempt {attempt}/{max_attempts}")
+                return text
+            last_err = ValueError("Empty Gemini response (recitation or safety block)")
+        except Exception as e:
+            last_err = e
+        print(f"⚠️ Gemini attempt {attempt}/{max_attempts} failed: {last_err}")
+        if attempt < max_attempts:
+            time.sleep(3 * attempt)
+
+    assert last_err is not None
+    print(f"❌ Gemini API error after {max_attempts} attempts: {last_err}")
+    raise last_err
 
 
 def create_unique_filename(description: str, prefix: str = "visual") -> str:

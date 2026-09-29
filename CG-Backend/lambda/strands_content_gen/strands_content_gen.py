@@ -105,17 +105,63 @@ def get_google_api_key() -> str:
     return os.getenv('GOOGLE_API_KEY')
 
 
-def call_gemini(prompt: str, api_key: str, model_id: str = "gemini-3.5-flash") -> str:
-    """Call Google Gemini API."""
+def _extract_gemini_text(response) -> str:
+    """Best-effort text extraction that tolerates recitation/safety blocks.
+
+    ``response.text`` raises when the candidate has no valid Part (e.g.
+    finish_reason 4 = RECITATION), so fall back to walking candidates manually.
+    """
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_id)
-        response = model.generate_content(prompt)
-        return response.text
+        text = getattr(response, "text", None)
+        if text and text.strip():
+            return text
     except Exception as e:
-        print(f"❌ Gemini API error: {e}")
-        raise
+        print(f"⚠️ Gemini response.text unavailable: {e}")
+
+    parts = []
+    for candidate in getattr(response, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                parts.append(part_text)
+    return "\n".join(parts).strip()
+
+
+def call_gemini(
+    prompt: str,
+    api_key: str,
+    model_id: str = "gemini-3.5-flash",
+    max_attempts: int = 4,
+) -> str:
+    """Call Google Gemini API with retries.
+
+    Retries transient errors AND empty/recitation responses (finish_reason 4),
+    which otherwise abort the whole course batch on a single unlucky generation.
+    """
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+
+    last_err: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            model = genai.GenerativeModel(model_id)
+            response = model.generate_content(prompt)
+            text = _extract_gemini_text(response)
+            if text:
+                if attempt > 1:
+                    print(f"✅ Gemini succeeded on attempt {attempt}/{max_attempts}")
+                return text
+            last_err = ValueError("Empty Gemini response (recitation or safety block)")
+        except Exception as e:
+            last_err = e
+        print(f"⚠️ Gemini attempt {attempt}/{max_attempts} failed: {last_err}")
+        if attempt < max_attempts:
+            time.sleep(3 * attempt)
+
+    assert last_err is not None
+    print(f"❌ Gemini API error after {max_attempts} attempts: {last_err}")
+    raise last_err
 
 
 def count_existing_visuals(course_bucket: str, project_folder: str) -> int:
@@ -813,7 +859,11 @@ CRÍTICO: El contenido de todas las lecciones DEBE estar 100% estrictamente alin
             google_api_key = get_google_api_key()
             if not google_api_key:
                 raise ValueError("Google API key required for google/gemini provider")
-            response_text = call_gemini(prompt, google_api_key)
+            try:
+                response_text = call_gemini(prompt, google_api_key)
+            except Exception as gem_err:
+                print(f"⚠️ Gemini failed after retries ({gem_err}). Falling back to Bedrock...")
+                response_text = call_bedrock(prompt)
         else:
             raise ValueError(f"Unknown model provider: {model_provider}")
         

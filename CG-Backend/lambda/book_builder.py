@@ -103,65 +103,26 @@ def lambda_handler(event, context):
         else:
             print(f"  image_mappings is NOT a list, using as-is with {len(image_mappings) if isinstance(image_mappings, dict) else 0} mappings")
         
-        # If no image_mappings provided, scan prompts folder to build correct mappings
-        if not image_mappings:
-            print("No image_mappings provided, scanning prompts folder to reconstruct mappings...")
-            prompts_prefix = f"{project_folder}/prompts/"
-            try:
-                # Scan prompts folder for visual tag descriptions
-                prompts_response = s3_client.list_objects_v2(
-                    Bucket=course_bucket,
-                    Prefix=prompts_prefix
-                )
-                if 'Contents' in prompts_response:
-                    for prompt_obj in prompts_response['Contents']:
-                        prompt_key = prompt_obj['Key']
-                        if prompt_key.endswith('.json'):
-                            # Download and parse prompt JSON
-                            try:
-                                prompt_response = s3_client.get_object(Bucket=course_bucket, Key=prompt_key)
-                                prompt_data = json.loads(prompt_response['Body'].read().decode('utf-8'))
-                                
-                                # Extract description and ID
-                                description = prompt_data.get('description', '')
-                                img_id = prompt_data.get('id', '')
-                                
-                                if description and img_id:
-                                    # Build visual tag with ID and description (new format)
-                                    visual_tag = f"[VISUAL: {img_id} - {description}]"
-                                    # Build image path (images are stored as id.png)
-                                    image_path = f"{project_folder}/images/{img_id}.png"
-                                    image_mappings[visual_tag] = image_path
-                                    print(f"✅ Mapped: {visual_tag[:80]}... -> {img_id}.png")
-                            except Exception as e:
-                                print(f"Warning: Could not parse prompt {prompt_key}: {e}")
-                                continue
-                
-                print(f"Created {len(image_mappings)} image mappings from prompts folder")
-            except Exception as e:
-                print(f"Warning: Could not scan prompts folder: {e}")
-                # Fallback: try to scan images folder (old behavior)
-                print("Falling back to image filename-based mapping...")
-                images_prefix = f"{project_folder}/images/"
-                try:
-                    images_response = s3_client.list_objects_v2(
-                        Bucket=course_bucket,
-                        Prefix=images_prefix
-                    )
-                    if 'Contents' in images_response:
-                        for img_obj in images_response['Contents']:
-                            img_key = img_obj['Key']
-                            if img_key.endswith('.png'):
-                                img_filename = img_key.split('/')[-1]
-                                img_id = img_filename.replace('.png', '')
-                                visual_tag = f"[VISUAL: {img_id}]"
-                                image_mappings[visual_tag] = img_key
-                                print(f"✅ Fallback mapping: {visual_tag} -> {img_key}")
-                    print(f"Created {len(image_mappings)} fallback image mappings")
-                except Exception as fallback_error:
-                    print(f"Warning: Fallback image scan also failed: {fallback_error}")
-        
-        print(f"Using {len(image_mappings)} image mappings for visual tag replacement")
+        # ALWAYS augment the provided mappings by scanning S3 (prompts/, then images/).
+        # Rationale: partial/resumed executions only accumulate image mappings for the
+        # batches they actually ran, so lessons generated in earlier runs would otherwise
+        # keep their [VISUAL: ...] tags unresolved. Merging closes that gap idempotently.
+        scanned_mappings = scan_s3_image_mappings(s3_client, course_bucket, project_folder)
+        if scanned_mappings:
+            if isinstance(image_mappings, dict) and image_mappings:
+                added = 0
+                for img_id, img_data in scanned_mappings.items():
+                    if img_id not in image_mappings:
+                        image_mappings[img_id] = img_data
+                        added += 1
+                print(f"✓ Merged {added} scanned mapping(s) into provided mappings")
+            else:
+                image_mappings = scanned_mappings
+                print(f"✓ Built {len(image_mappings)} image mappings by scanning S3")
+        else:
+            print("No image mappings found on S3 to merge")
+
+        print(f"Using {len(image_mappings) if isinstance(image_mappings, dict) else 0} image mappings for visual tag replacement")
 
         # Collect all lessons content and organize by module
         modules = {}  # module_number -> {'title': str, 'lessons': []}
@@ -1406,36 +1367,95 @@ def generate_default_glossary(is_spanish: bool) -> str:
     title = "## Glosario" if is_spanish else "## Glossary"
     return title + "\n\n" + "\n".join(generate_default_glossary_lines(is_spanish)) + "\n"
 
+def scan_s3_image_mappings(s3_client, course_bucket, project_folder):
+    """Build ``{image_id: {s3_key, description}}`` mappings by scanning S3.
+
+    Prefers ``prompts/*.json`` (rich descriptions) and falls back to the
+    ``images/*.png`` folder when prompts are missing. Returns the NEW format so
+    visual tags can be matched by ID via regex, independently of description text.
+    """
+    mappings = {}
+
+    prompts_prefix = f"{project_folder}/prompts/"
+    try:
+        paginator = s3_client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=course_bucket, Prefix=prompts_prefix):
+            for prompt_obj in page.get('Contents', []):
+                prompt_key = prompt_obj['Key']
+                if not prompt_key.endswith('.json'):
+                    continue
+                try:
+                    prompt_response = s3_client.get_object(Bucket=course_bucket, Key=prompt_key)
+                    prompt_data = json.loads(prompt_response['Body'].read().decode('utf-8'))
+                    img_id = prompt_data.get('id') or prompt_key.split('/')[-1].replace('.json', '')
+                    if not img_id:
+                        continue
+                    mappings[str(img_id)] = {
+                        's3_key': f"{project_folder}/images/{img_id}.png",
+                        'description': prompt_data.get('description', ''),
+                    }
+                except Exception as e:
+                    print(f"Warning: Could not parse prompt {prompt_key}: {e}")
+                    continue
+    except Exception as e:
+        print(f"Warning: Could not scan prompts folder: {e}")
+
+    if mappings:
+        print(f"✓ Scanned {len(mappings)} image mapping(s) from prompts/")
+        return mappings
+
+    # Fallback: derive IDs from image filenames when no prompt JSONs exist
+    print("No prompt JSONs found; falling back to image filename scan...")
+    images_prefix = f"{project_folder}/images/"
+    try:
+        paginator = s3_client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=course_bucket, Prefix=images_prefix):
+            for img_obj in page.get('Contents', []):
+                img_key = img_obj['Key']
+                if not img_key.endswith('.png'):
+                    continue
+                img_id = img_key.split('/')[-1].replace('.png', '')
+                mappings[str(img_id)] = {'s3_key': img_key, 'description': ''}
+        print(f"✓ Scanned {len(mappings)} image mapping(s) from images/")
+    except Exception as e:
+        print(f"Warning: Could not scan images folder: {e}")
+
+    return mappings
+
+
 def replace_visual_tags(content, mappings, bucket):
     """
     Replace [VISUAL: description] tags with actual image references.
-    Supports both old format (visual_tag -> s3_key) and new format (id -> {s3_key, description}).
+
+    Handles each mapping entry independently so it works with mixed formats:
+    - NEW format: { "image_id": { "s3_key": "...", "description": "..." } } (matched by ID)
+    - OLD format: { "[VISUAL: ...]": "s3_key" } (exact match)
+    Also tolerates a list of mapping dicts (as produced by Step Functions Map states).
     """
     processed_content = content
-    
+
+    if isinstance(mappings, list):
+        merged = {}
+        for mapping_dict in mappings:
+            if isinstance(mapping_dict, dict):
+                merged.update(mapping_dict)
+        mappings = merged
+
+    if not mappings:
+        return processed_content
+
     print(f"DEBUG replace_visual_tags: Processing {len(mappings)} mappings")
-    
-    # Detect format: if any value is a dict with 's3_key', it's the new format
-    is_new_format = False
-    if mappings:
-        first_value = next(iter(mappings.values()))
-        if isinstance(first_value, dict) and 's3_key' in first_value:
-            is_new_format = True
-            print(f"  Using NEW FORMAT (id -> {{s3_key, description}})")
-    
-    if is_new_format:
-        # NEW FORMAT: { "image_id": { "s3_key": "path", "description": "text" } }
-        for img_id, img_data in mappings.items():
+
+    for img_id, img_data in mappings.items():
+        if isinstance(img_data, dict):
+            # NEW FORMAT: { "image_id": { "s3_key": "path", "description": "text" } }
             s3_key = img_data.get('s3_key', '')
-            
             if not s3_key:
                 continue
-            
-            # Use regex to match [VISUAL: img_id - ...] or [VISUAL: img_id]
-            # This ignores the description part which may be truncated
-            import re
-            pattern = rf'\[VISUAL:\s*{re.escape(img_id)}(?:\s*-[^\]]+)?\]'
-            
+
+            # Match [VISUAL: img_id - ...] or [VISUAL: img_id] (ignores description text)
+            pattern = rf'\[VISUAL:\s*{re.escape(str(img_id))}(?:\s*-[^\]]+)?\]'
+
             matches = re.findall(pattern, processed_content)
             if matches:
                 print(f"  ✓ Found {len(matches)} instance(s) of visual tag for {img_id}")
@@ -1444,12 +1464,10 @@ def replace_visual_tags(content, mappings, bucket):
                 processed_content = re.sub(pattern, image_markdown, processed_content)
             else:
                 print(f"  ✗ No visual tag found for {img_id}")
-    else:
-        # OLD FORMAT: { "visual_tag": "s3_key" }
-        print(f"  Using OLD FORMAT (visual_tag -> s3_key)")
-        for visual_tag, image_key in mappings.items():
-            if visual_tag in processed_content:
-                # Create markdown image reference
+        else:
+            # OLD FORMAT: { "visual_tag": "s3_key" }
+            visual_tag, image_key = img_id, img_data
+            if image_key and visual_tag in processed_content:
                 image_url = f"https://{bucket}.s3.amazonaws.com/{image_key}"
                 image_markdown = f"\n\n![{visual_tag}]({image_url})\n\n"
                 processed_content = processed_content.replace(visual_tag, image_markdown)
