@@ -859,11 +859,10 @@ CRÍTICO: El contenido de todas las lecciones DEBE estar 100% estrictamente alin
             google_api_key = get_google_api_key()
             if not google_api_key:
                 raise ValueError("Google API key required for google/gemini provider")
-            try:
-                response_text = call_gemini(prompt, google_api_key)
-            except Exception as gem_err:
-                print(f"⚠️ Gemini failed after retries ({gem_err}). Falling back to Bedrock...")
-                response_text = call_bedrock(prompt)
+            # Retries only. No cross-provider fallback: switching text providers
+            # mid-run would change style AND bypass the Bedrock provider lock
+            # (a google job only holds the google lock).
+            response_text = call_gemini(prompt, google_api_key)
         else:
             raise ValueError(f"Unknown model provider: {model_provider}")
         
