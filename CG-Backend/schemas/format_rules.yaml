@@ -1,0 +1,447 @@
+# Aurora Content Generation - Format Validation Rules v1.0
+# This file defines automated validation rules for content quality assurance
+
+version: "1.0"
+last_updated: "2025-12-08"
+
+# =============================================================================
+# LESSON VALIDATION RULES
+# =============================================================================
+lesson:
+  # Heading structure rules
+  headings:
+    h1:
+      required: true
+      count: 1
+      pattern: "^# (Lesson|Lección) \\d+\\.\\d+: .+"
+      description: "Single H1 with format: # Lesson M.L: Title (or Lección in Spanish)"
+    
+    h2:
+      required: true
+      min_count: 4
+      required_sections_en:
+        - "Learning Objectives"
+        - "Introduction"
+        - "Summary"
+      required_sections_es:
+        - "Objetivos de Aprendizaje"
+        - "Introducción"
+        - "Resumen"
+      description: "At least 4 H2 sections including required ones (in course language)"
+    
+    h3:
+      required: false
+      allowed_under: ["h2"]
+      description: "H3 only allowed under H2 sections"
+    
+    h4:
+      required: false
+      allowed_under: ["h3"]
+      description: "H4 only allowed under H3 sections"
+    
+    skip_levels_allowed: false
+    description: "Heading levels must not skip (H1 -> H3 is invalid)"
+
+  # Required sections with validation (supports English and Spanish)
+  required_sections:
+    - name_en: "Learning Objectives"
+      name_es: "Objetivos de Aprendizaje"
+      heading_level: 2
+      content_rules:
+        - type: "list"
+          min_items: 3
+          max_items: 5
+          item_pattern: "^- (Define|List|Identify|Name|Recall|Recognize|Describe|Explain|Summarize|Interpret|Classify|Implement|Execute|Use|Demonstrate|Solve|Compare|Differentiate|Examine|Investigate|Distinguish|Assess|Critique|Judge|Justify|Recommend|Design|Develop|Construct|Produce|Compose|Definir|Listar|Identificar|Nombrar|Recordar|Reconocer|Describir|Explicar|Resumir|Interpretar|Clasificar|Implementar|Ejecutar|Usar|Demostrar|Resolver|Comparar|Diferenciar|Examinar|Investigar|Distinguir|Evaluar|Criticar|Juzgar|Justificar|Recomendar|Diseñar|Desarrollar|Construir|Producir|Componer)"
+          description: "3-5 bullet points starting with Bloom verbs"
+    
+    - name_en: "Introduction"
+      name_es: "Introducción"
+      heading_level: 2
+      content_rules:
+        - type: "paragraph"
+          min_paragraphs: 2
+          max_paragraphs: 4
+          description: "2-4 paragraphs of introduction"
+    
+    - name_en: "Summary"
+      name_es: "Resumen"
+      heading_level: 2
+      subsections_en:
+        - "Key Takeaways"
+      subsections_es:
+        - "Puntos Clave"
+      description: "Summary section with Key Takeaways"
+
+  # NOTE: Review Questions section has been removed - quizzes handled separately
+
+  # Topic sections structure (titles in course language)
+  topic_sections:
+    min_count: 1
+    structure:
+      required_subsections_en:
+        - "Concept Overview"
+        - "Technical Details"
+      required_subsections_es:
+        - "Visión General del Concepto"
+        - "Detalles Técnicos"
+      optional_subsections_en:
+        - "Practical Application"
+        - "Best Practices"
+        - "Common Pitfalls"
+      optional_subsections_es:
+        - "Aplicación Práctica"
+        - "Mejores Prácticas"
+        - "Errores Comunes"
+
+  # Visual tag validation
+  visual_tags:
+    pattern: "\\[VISUAL: (\\d{2})-(\\d{2})-(\\d{4}) - ([^\\]]{10,100})\\]"
+    components:
+      module_number: "\\d{2}"  # 2 digits, zero-padded
+      lesson_number: "\\d{2}"  # 2 digits, zero-padded
+      image_counter: "\\d{4}"  # 4 digits, zero-padded
+      description: ".{10,100}"  # 10-100 characters
+    invalid_patterns:
+      - "\\[visual:"  # lowercase
+      - "\\[VISUAL:[^\\s]"  # no space after colon
+      - "\\[VISUAL: \\d+-\\d+-\\d+\\]"  # missing description
+      - "\\[VISUAL: [^\\d]"  # not starting with ID
+    description: "Format: [VISUAL: MM-LL-XXXX - description]"
+
+  # Code block validation
+  code_blocks:
+    require_language: true
+    allowed_languages:
+      - python
+      - javascript
+      - typescript
+      - java
+      - go
+      - rust
+      - c
+      - cpp
+      - bash
+      - shell
+      - sh
+      - powershell
+      - cmd
+      - yaml
+      - json
+      - xml
+      - html
+      - css
+      - sql
+      - graphql
+      - dockerfile
+      - terraform
+      - kubernetes
+      - plaintext
+    description: "All code blocks must specify a language"
+
+  # Table validation (should NOT be VISUAL tags)
+  tables:
+    use_native_markdown: true
+    pattern: "\\|.+\\|.*\\n\\|[-:]+\\|"
+    visual_tags_for_tables: false
+    description: "Tables must use native Markdown, not VISUAL tags"
+
+  # Word count guidelines by duration
+  word_count:
+    - duration_minutes: 15
+      min_words: 800
+      max_words: 1200
+      target_words: 1000
+    - duration_minutes: 30
+      min_words: 1500
+      max_words: 2200
+      target_words: 1800
+    - duration_minutes: 45
+      min_words: 2000
+      max_words: 3000
+      target_words: 2500
+    - duration_minutes: 60
+      min_words: 3000
+      max_words: 4000
+      target_words: 3500
+    - duration_minutes: 90
+      min_words: 4500
+      max_words: 6000
+      target_words: 5000
+
+# =============================================================================
+# LAB GUIDE VALIDATION RULES
+# =============================================================================
+lab_guide:
+  # Heading structure rules
+  headings:
+    h1:
+      required: true
+      count: 1
+      pattern: "^# Lab \\d{2}-\\d{2}-\\d{2}: .+"
+      description: "Single H1 with format: # Lab MM-LL-NN: Title"
+    
+    h2:
+      required: true
+      min_count: 8
+      required_sections:
+        - "Metadata"
+        - "Overview"
+        - "Learning Objectives"
+        - "Prerequisites"
+        - "Lab Environment"
+        - "Step-by-Step Instructions"
+        - "Validation & Testing"
+        - "Troubleshooting"
+        - "Cleanup"
+        - "Summary"
+      description: "All required H2 sections must be present"
+    
+    h3:
+      required: true
+      pattern_under_steps: "^### Step \\d+: .+"
+      description: "Steps must be H3 under Step-by-Step Instructions"
+    
+    skip_levels_allowed: false
+
+  # Lab ID format
+  lab_id:
+    pattern: "\\d{2}-\\d{2}-\\d{2}"
+    components:
+      module: "\\d{2}"  # MM
+      lesson: "\\d{2}"  # LL
+      sequence: "\\d{2}"  # NN
+    description: "Lab ID format: MM-LL-NN"
+
+  # Required sections with validation
+  required_sections:
+    - name: "Metadata"
+      heading_level: 2
+      content_rules:
+        - type: "table"
+          required_rows:
+            - "Duration"
+            - "Complexity"
+            - "Bloom Level"
+          description: "Table with Duration, Complexity, Bloom Level"
+    
+    - name: "Overview"
+      heading_level: 2
+      content_rules:
+        - type: "paragraph"
+          min_paragraphs: 1
+          max_paragraphs: 2
+          description: "1-2 paragraph overview"
+    
+    - name: "Learning Objectives"
+      heading_level: 2
+      content_rules:
+        - type: "checklist"
+          min_items: 3
+          max_items: 5
+          pattern: "^- \\[[ x]\\] .+"
+          description: "3-5 checkbox items"
+    
+    - name: "Prerequisites"
+      heading_level: 2
+      subsections:
+        - "Required Knowledge"
+        - "Required Access"
+      description: "Must include knowledge and access prerequisites"
+    
+    - name: "Lab Environment"
+      heading_level: 2
+      subsections:
+        - "Hardware Requirements"
+        - "Software Requirements"
+        - "Initial Setup"
+      description: "Environment setup details"
+    
+    - name: "Step-by-Step Instructions"
+      heading_level: 2
+      content_rules:
+        - type: "steps"
+          min_steps: 3
+          step_pattern: "^### Step \\d+: .+"
+          description: "At least 3 numbered steps"
+    
+    - name: "Validation & Testing"
+      heading_level: 2
+      subsections:
+        - "Success Criteria"
+      description: "Must include success criteria"
+    
+    - name: "Troubleshooting"
+      heading_level: 2
+      content_rules:
+        - type: "issues"
+          min_issues: 2
+          issue_pattern: "^### Issue \\d+:|^### Issue: "
+          description: "At least 2 troubleshooting issues"
+    
+    - name: "Cleanup"
+      heading_level: 2
+      content_rules:
+        - type: "code_block"
+          required: true
+          description: "Must include cleanup commands"
+    
+    - name: "Summary"
+      heading_level: 2
+      subsections:
+        - "What You Accomplished"
+        - "Key Takeaways"
+      description: "Summary with accomplishments and takeaways"
+
+  # Step structure validation
+  step_structure:
+    required_elements:
+      - name: "Objective"
+        pattern: "\\*\\*Objective:\\*\\*"
+        description: "Each step needs an objective"
+      - name: "Instructions"
+        pattern: "\\*\\*Instructions:\\*\\*|^\\d+\\."
+        description: "Numbered instructions required"
+      - name: "Expected Output"
+        pattern: "\\*\\*Expected Output:\\*\\*|\\*\\*Expected Result:\\*\\*"
+        description: "Expected output/result section"
+      - name: "Verification"
+        pattern: "\\*\\*Verification:\\*\\*"
+        description: "Verification criteria"
+    
+    step_separator: "^---$"
+    description: "Steps should be separated by horizontal rules"
+
+  # Code block validation
+  code_blocks:
+    require_language: true
+    no_placeholders: true
+    placeholder_patterns:
+      - "<[^>]+>"  # <your-value>
+      - "\\{[^}]+\\}"  # {placeholder} (unless in actual code)
+      - "YOUR_.*"  # YOUR_API_KEY
+      - "CHANGE_.*"  # CHANGE_THIS
+    description: "Real, executable commands required"
+
+  # Troubleshooting validation
+  troubleshooting:
+    min_issues_by_complexity:
+      beginner: 2
+      intermediate: 3
+      advanced: 3
+    
+    issue_structure:
+      required:
+        - "Symptoms"
+        - "Cause"
+        - "Solution"
+      description: "Each issue needs symptoms, cause, and solution"
+
+  # Duration by complexity
+  duration_guidelines:
+    beginner:
+      min_minutes: 15
+      max_minutes: 30
+      max_steps: 5
+    intermediate:
+      min_minutes: 30
+      max_minutes: 60
+      max_steps: 10
+    advanced:
+      min_minutes: 60
+      max_minutes: 120
+      max_steps: 15
+
+# =============================================================================
+# COMMON VALIDATION RULES
+# =============================================================================
+common:
+  # Markdown formatting
+  markdown:
+    lists:
+      unordered_markers: ["-"]  # Standardize on hyphen
+      ordered_markers: ["1."]  # Numbered lists
+    
+    emphasis:
+      bold: "**"
+      italic: "*"
+    
+    horizontal_rule: "---"
+  
+  # Forbidden patterns
+  forbidden_patterns:
+    - pattern: "```\\s*\\n[^`]+\\n```"
+      description: "Code blocks without language specification"
+      severity: "warning"
+    
+    - pattern: "# .+\\n\\n# "
+      description: "Multiple H1 headings"
+      severity: "error"
+    
+    - pattern: "## .+\\n\\n#### "
+      description: "Skipped heading level (H2 to H4)"
+      severity: "error"
+    
+    - pattern: "# .+\\n\\n### "
+      description: "Skipped heading level (H1 to H3)"
+      severity: "error"
+    
+    - pattern: "\\[VISUAL:.*\\|.*\\|.*\\]"
+      description: "VISUAL tag used for table data"
+      severity: "warning"
+    
+    - pattern: "TODO|FIXME|XXX"
+      description: "Placeholder comments in content"
+      severity: "warning"
+
+  # Quality metrics
+  quality:
+    min_sentence_length: 5
+    max_sentence_length: 50
+    min_paragraph_sentences: 2
+    max_paragraph_sentences: 8
+    
+    # Readability targets
+    readability:
+      target_grade_level: 12  # College level
+      max_grade_level: 16
+
+# =============================================================================
+# VALIDATION SEVERITY LEVELS
+# =============================================================================
+severity_levels:
+  error:
+    description: "Must be fixed before content is accepted"
+    action: "reject"
+  
+  warning:
+    description: "Should be fixed but content can proceed"
+    action: "flag"
+  
+  info:
+    description: "Informational, no action required"
+    action: "log"
+
+# =============================================================================
+# ERROR MESSAGES
+# =============================================================================
+error_messages:
+  lesson:
+    missing_h1: "Lesson must start with exactly one H1 heading in format: # Lesson M.L: Title"
+    missing_objectives: "Learning Objectives section is required with 3-5 bullet points"
+    missing_introduction: "Introduction section is required"
+    missing_summary: "Summary section is required"
+    invalid_visual_tag: "Invalid VISUAL tag format. Use: [VISUAL: MM-LL-XXXX - description]"
+    skipped_heading: "Heading levels cannot be skipped (e.g., H1 → H3)"
+    code_no_language: "Code blocks must specify a language"
+    table_as_visual: "Tables should use native Markdown, not VISUAL tags"
+  
+  lab:
+    missing_h1: "Lab must start with exactly one H1 heading in format: # Lab MM-LL-NN: Title"
+    invalid_lab_id: "Lab ID must follow format: MM-LL-NN (e.g., 01-02-01)"
+    missing_metadata: "Metadata table with Duration, Complexity, Bloom Level is required"
+    missing_steps: "At least 3 steps are required in Step-by-Step Instructions"
+    step_missing_objective: "Each step must include an Objective"
+    step_missing_verification: "Each step must include Verification criteria"
+    missing_troubleshooting: "At least 2 troubleshooting issues are required"
+    missing_cleanup: "Cleanup section with commands is required"
+    placeholder_command: "Commands must be real and executable, not placeholders"

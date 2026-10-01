@@ -220,3 +220,15 @@
     right: 20px;
   }
 }
+/* ✅ Quitar SOLO el icono extra tipo "documento" (si viene por CSS global) */
+#abrirChat::before,
+#abrirChat::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* ✅ Por si lo meten como background-image */
+#abrirChat {
+  background-image: none !important;
+}
+

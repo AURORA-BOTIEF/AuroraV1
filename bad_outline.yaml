@@ -1,0 +1,495 @@
+course:
+  title: Inteligencia Artificial Generativa Essentials
+  description: >
+    Este curso brinda una comprensión práctica y aplicada de la Inteligencia Artificial Generativa.
+    A lo largo de módulos progresivos, el participante aprenderá fundamentos, seguridad y ética,
+    técnicas de ingeniería de prompts y multimodalidad, comparará ecosistemas (ChatGPT, Copilot y Gemini)
+    y diseñará agentes de IA integrables en flujos de trabajo empresariales, sin requerir experiencia previa
+    en desarrollo de software.
+  language: es
+  level: beginner
+  audience:
+    - Profesionales de distintas industrias que buscan aplicar Inteligencia Artificial Generativa en su trabajo diario.
+    - Equipos de negocio, analítica, operaciones, administración, recursos humanos y áreas de soporte.
+    - Líderes y colaboradores que requieren productividad, análisis y creatividad asistidos por IA.
+  prerequisites:
+    - No se requiere experiencia técnica o de desarrollo de software.
+    - Interés en comprender cómo funciona la IA generativa y cómo puede apoyar actividades del día a día.
+  total_duration_minutes: 840
+  learning_outcomes:
+    - Comprender los fundamentos esenciales de la Inteligencia Artificial Generativa.
+    - Diseñar y optimizar prompts efectivos para distintos contextos.
+    - Aplicar ChatGPT, Copilot y Gemini en escenarios reales de productividad, análisis y creatividad.
+    - Crear agentes de IA con Copilot Studio, ChatGPT y Gemini.
+    - Integrar agentes de IA en flujos de trabajo empresariales.
+  modules:
+    - title: Capítulo 1 · Módulo 1. Introducción a la Inteligencia Artificial Generativa
+      summary: Reconocer qué es la IA generativa, cómo se diferencia de otros tipos de IA y cuáles son los principales modelos utilizados actualmente.
+      duration_minutes: 60
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar
+      lessons:
+        - title: 1.1 Origen y evolución de la Inteligencia Artificial
+          duration_minutes: 8
+          bloom_level: Comprender
+          topics:
+            - title: Contexto histórico y evolución hacia IA generativa
+              duration_minutes: 8
+              bloom_level: Comprender
+        - title: 1.2 IA tradicional vs IA generativa
+          duration_minutes: 8
+          bloom_level: Comprender
+          topics:
+            - title: Diferencias conceptuales y operativas
+              duration_minutes: 8
+              bloom_level: Comprender
+        - title: 1.3 Modelos generativos: arquitecturas, capacidad y predicción
+          duration_minutes: 8
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Tipos de modelos por arquitectura y el proceso de predicción
+              duration_minutes: 8
+              bloom_level: Comprender / Analizar
+      lab_activities:
+        - title: "Práctica: Demostración guiada de diferencia operativa IA tradicional vs IA generativa"
+          duration_minutes: 18
+          bloom_level: Aplicar
+          objective: Observar diferencias en entradas, restricciones y resultados entre IA tradicional e IA generativa.
+          description: Comparar dos tareas equivalentes con enfoques distintos y documentar hallazgos (precisión, variabilidad, control).
+        - title: "Práctica: Explorar integraciones de IA en PartyRock | Home"
+          duration_minutes: 18
+          bloom_level: Aplicar
+          objective: Identificar integraciones prácticas de IA generativa en una experiencia guiada.
+          description: Recorrer ejemplos, ejecutar una interacción y registrar oportunidades de uso en el trabajo diario.
+
+    - title: Capítulo 1 · Módulo 2. Seguridad y Ética en la Era de la IA
+      summary: Comprender riesgos del uso de IA generativa y aplicar buenas prácticas de seguridad, privacidad y ética.
+      duration_minutes: 90
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Analizar
+      lessons:
+        - title: 2.1 Privacidad, propiedad intelectual y derechos de autor
+          duration_minutes: 12
+          bloom_level: Comprender
+          topics:
+            - title: Privacidad de datos, propiedad intelectual y riesgos de exposición
+              duration_minutes: 12
+              bloom_level: Comprender
+        - title: 2.2 Marcos regulatorios, legislación local y cumplimiento
+          duration_minutes: 12
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Principios de cumplimiento y consideraciones organizacionales
+              duration_minutes: 12
+              bloom_level: Comprender / Analizar
+        - title: 2.3 Sesgos, alucinaciones y controles de calidad
+          duration_minutes: 12
+          bloom_level: Analizar
+          topics:
+            - title: Mitigación de sesgos y gestión de alucinaciones con controles
+              duration_minutes: 12
+              bloom_level: Analizar
+      lab_activities:
+        - title: "Práctica: Detectar y corregir sesgos algorítmicos con instrucciones de control"
+          duration_minutes: 14
+          bloom_level: Aplicar / Crear
+          objective: Diseñar instrucciones para reducir sesgo y promover equidad en procesos corporativos.
+          description: Probar prompts con variantes, identificar sesgo en respuestas y documentar reglas de control.
+        - title: "Práctica: Verificación cruzada y razonamiento lógico para detectar inconsistencias"
+          duration_minutes: 14
+          bloom_level: Aplicar / Analizar
+          objective: Establecer un protocolo de auditoría para mitigar riesgos operativos y mejorar veracidad.
+          description: Definir checklist de verificación, fuentes alternas y criterios de aceptación de respuestas.
+        - title: "Práctica: Evaluar cómo un prompt mal definido induce inferencia de datos sensibles"
+          duration_minutes: 13
+          bloom_level: Analizar
+          objective: Reconocer patrones de riesgo por ambigüedad y falta de restricciones.
+          description: Ejecutar prompts débiles y reforzados; comparar resultados y riesgos.
+        - title: "Práctica: Identificar PII y aplicar protocolos de anonimización antes de usar IA"
+          duration_minutes: 13
+          bloom_level: Aplicar
+          objective: Aplicar identificación de PII y anonimización manual/técnica previa a subir datos.
+          description: Clasificar datos, anonimizar y validar que el contenido resultante preserve utilidad sin exponer PII.
+
+    - title: Capítulo 2 · Módulo 3. Fundamentos de la ingeniería de prompts
+      summary: Crear prompts estructurados que produzcan resultados claros, útiles y repetibles.
+      duration_minutes: 90
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Analizar
+      lessons:
+        - title: 3.1 Qué es un prompt y relación con modelos de IA generativa
+          duration_minutes: 12
+          bloom_level: Comprender
+          topics:
+            - title: Prompt como interfaz de control de comportamiento del modelo
+              duration_minutes: 12
+              bloom_level: Comprender
+        - title: 3.2 Estructura básica de prompts
+          duration_minutes: 12
+          bloom_level: Aplicar
+          topics:
+            - title: Rol, contexto, tarea, restricciones y criterios de éxito
+              duration_minutes: 12
+              bloom_level: Aplicar
+        - title: 3.3 Técnicas: Chain of Thought y Few-Shot
+          duration_minutes: 12
+          bloom_level: Analizar
+          topics:
+            - title: Patrones para mejorar consistencia, control y calidad de respuestas
+              duration_minutes: 12
+              bloom_level: Analizar
+      lab_activities:
+        - title: "Práctica: Crear prompts interactivos con Say What You See — Google Arts & Culture"
+          duration_minutes: 13
+          bloom_level: Aplicar
+          objective: Practicar construcción de instrucciones con observación guiada y precisión descriptiva.
+          description: Iterar prompts, refinar restricciones y comparar claridad de resultados.
+        - title: "Práctica: Análisis financiero con y sin contexto para evaluar confiabilidad"
+          duration_minutes: 14
+          bloom_level: Analizar
+          objective: Observar cómo la falta de restricciones genera conclusiones poco confiables.
+          description: Comparar salidas, evaluar supuestos y definir restricciones mínimas.
+        - title: "Práctica: Comparar recomendaciones de proveedores con prompts genéricos vs criterios claros"
+          duration_minutes: 14
+          bloom_level: Analizar / Aplicar
+          objective: Diseñar criterios, objetivos de negocio y restricciones para obtener recomendaciones accionables.
+          description: Definir matriz de criterios y validar consistencia de recomendaciones.
+        - title: "Práctica: Diseñar instrucciones para razonamiento paso a paso en cálculos complejos"
+          duration_minutes: 13
+          bloom_level: Crear
+          objective: Reducir error en cálculos y mejorar trazabilidad del resultado.
+          description: Crear prompts con verificación, supuestos y validación interna del resultado.
+
+    - title: Capítulo 2 · Módulo 4. Análisis de Datos y Visión Artificial
+      summary: Utilizar IA generativa para analizar documentos, datos estructurados e imágenes mediante prompts adecuados.
+      duration_minutes: 120
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Analizar
+      lessons:
+        - title: 4.1 Procesamiento de documentos y bases de datos
+          duration_minutes: 16
+          bloom_level: Comprender / Aplicar
+          topics:
+            - title: Extracción y organización de información desde texto no estructurado
+              duration_minutes: 16
+              bloom_level: Comprender / Aplicar
+        - title: 4.2 Interpretación y digitalización visual
+          duration_minutes: 16
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Capacidades de visión artificial para extracción y verificación de información
+              duration_minutes: 16
+              bloom_level: Comprender / Analizar
+        - title: 4.3 Multimodalidad aplicada a flujos empresariales
+          duration_minutes: 16
+          bloom_level: Analizar
+          topics:
+            - title: Cruce de evidencia visual con datos estructurados para informes
+              duration_minutes: 16
+              bloom_level: Analizar
+      lab_activities:
+        - title: "Práctica: NLP para categorizar masivamente datos de clientes y generar KPIs"
+          duration_minutes: 18
+          bloom_level: Aplicar / Analizar
+          objective: Transformar texto no estructurado en indicadores estratégicos.
+          description: Definir categorías, extraer señales clave y producir KPIs orientados a mejora del servicio.
+        - title: "Práctica: Extraer puntos clave de una imagen y cruzarlos con Excel para un informe"
+          duration_minutes: 18
+          bloom_level: Aplicar / Analizar
+          objective: Generar un informe de ejecución combinando datos visuales y estructurados.
+          description: Interpretar imagen, estructurar hallazgos y validarlos contra un dataset tabular.
+        - title: "Práctica: Extracción automática de datos desde medios físicos para inventarios"
+          duration_minutes: 18
+          bloom_level: Aplicar
+          objective: Optimizar digitalización y control de activos mediante visión artificial.
+          description: Diseñar un flujo de captura, extracción, normalización y validación de datos.
+        - title: "Práctica: Convertir diagramas analógicos a estructuras digitales profesionales"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Acelerar transición de ideación a documentación formal de procesos.
+          description: Digitalizar un esquema, normalizar notación y producir un entregable listo para compartir.
+
+    - title: Capítulo 3 · Módulo 5. Panorama Competitivo y Aplicación Industrial
+      summary: Evaluar diferencias entre plataformas (ChatGPT, Copilot, Gemini) y su aplicabilidad por industria.
+      duration_minutes: 60
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Analizar
+      lessons:
+        - title: 5.1 Diferencias entre ChatGPT, Copilot y Gemini
+          duration_minutes: 12
+          bloom_level: Comprender
+          topics:
+            - title: Fortalezas, limitaciones y criterios de selección por contexto
+              duration_minutes: 12
+              bloom_level: Comprender
+        - title: 5.2 Casos de uso por industria y recomendaciones
+          duration_minutes: 12
+          bloom_level: Analizar
+          topics:
+            - title: Banca, salud, retail, educación y escenarios de uso
+              duration_minutes: 12
+              bloom_level: Analizar
+      lab_activities:
+        - title: "Práctica: Prueba comparativa con archivo extenso y complejo"
+          duration_minutes: 18
+          bloom_level: Analizar
+          objective: Evaluar rendimiento comparativo con material denso (reporte, manual o dataset no estructurado).
+          description: Medir calidad, consistencia, trazabilidad y utilidad de resultados por herramienta.
+        - title: "Práctica: Comparativo en industria regulada vs industria creativa"
+          duration_minutes: 18
+          bloom_level: Analizar
+          objective: Determinar cuál herramienta se ajusta a exigencias de control de datos y flexibilidad.
+          description: Ejecutar dos escenarios, comparar cumplimiento, trazabilidad y sensibilidad de datos.
+
+    - title: Capítulo 3 · Módulo 6. El Ecosistema de Microsoft Copilot
+      summary: Comprender integración de Copilot al ecosistema Microsoft para productividad empresarial.
+      duration_minutes: 90
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Analizar
+      lessons:
+        - title: 6.1 Modelos GPT dentro de la arquitectura de Azure (visión general)
+          duration_minutes: 12
+          bloom_level: Comprender
+          topics:
+            - title: Conceptos de arquitectura a alto nivel y flujo de valor
+              duration_minutes: 12
+              bloom_level: Comprender
+        - title: 6.2 Privacidad y gobernanza de datos en Copilot
+          duration_minutes: 12
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Controles de datos, permisos y consideraciones de cumplimiento
+              duration_minutes: 12
+              bloom_level: Comprender / Analizar
+        - title: 6.3 Líneas de especialización y herramientas del ecosistema Copilot
+          duration_minutes: 12
+          bloom_level: Comprender
+          topics:
+            - title: M365 Copilot Chat, Copilots de plataforma y GitHub Copilot
+              duration_minutes: 12
+              bloom_level: Comprender
+      lab_activities:
+        - title: "Práctica: M365 Copilot Chat crea un plan de proyecto con tareas, responsables y fechas"
+          duration_minutes: 18
+          bloom_level: Aplicar
+          objective: Demostrar creación asistida de planes y seguimiento en herramientas de trabajo.
+          description: Generar plan, revisar coherencia, ajustar restricciones y producir versión final.
+        - title: "Práctica: Copilot en Word transforma un texto en política/procedimiento completo"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Generar documentación estructurada con secciones y métricas.
+          description: Producir documento, checklist y glosario; iterar con criterios de calidad.
+        - title: "Práctica: Flujo M365: Excel (análisis) → Word (informe) → PowerPoint (infografía/presentación)"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Integrar productividad de extremo a extremo con entregables ejecutivos.
+          description: Analizar datos, redactar informe y sintetizar en materiales visuales listos para compartir.
+
+    - title: Capítulo 3 · Módulo 7. El Ecosistema de Google Gemini
+      summary: Conocer arquitectura y capacidades de Gemini en el ecosistema Google para seleccionar la herramienta adecuada.
+      duration_minutes: 90
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Analizar
+      lessons:
+        - title: 7.1 Modelos Gemini y arquitectura multimodal nativa
+          duration_minutes: 12
+          bloom_level: Comprender
+          topics:
+            - title: Capacidades multimodales y consideraciones de uso
+              duration_minutes: 12
+              bloom_level: Comprender
+        - title: 7.2 Privacidad y protección de datos en Google
+          duration_minutes: 12
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Principios de protección y buenas prácticas organizacionales
+              duration_minutes: 12
+              bloom_level: Comprender / Analizar
+        - title: 7.3 Herramientas del ecosistema Gemini
+          duration_minutes: 12
+          bloom_level: Comprender / Aplicar
+          topics:
+            - title: Gemini App, Extensions, Workspace, NotebookLM, AI Studio y Gemini para Google Cloud
+              duration_minutes: 12
+              bloom_level: Comprender / Aplicar
+      lab_activities:
+        - title: "Práctica: NotebookLM como sistema de gestión del conocimiento personalizado"
+          duration_minutes: 18
+          bloom_level: Aplicar / Crear
+          objective: Sintetizar múltiples fuentes y generar resúmenes ejecutivos y materiales inteligentes.
+          description: Cargar fuentes, generar síntesis y validar precisión con preguntas de control.
+        - title: "Práctica: Orquestar recuperación de información crítica dispersa con Gemini App"
+          duration_minutes: 18
+          bloom_level: Aplicar / Analizar
+          objective: Consolidar datos internos y automatizar resolución de conflictos administrativos.
+          description: Definir objetivo, criterios y restricciones; producir consolidado y bitácora.
+        - title: "Práctica: Generación de activos visuales de alta precisión e integración en Workspace"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Acelerar diseño de presentaciones y materiales de marca.
+          description: Generar activos, validar alineación con requerimientos y ensamblar entregable.
+        - title: "Práctica: Procesamiento masivo de documentos en Google AI Studio"
+          duration_minutes: 18
+          bloom_level: Aplicar / Analizar
+          objective: Extraer información estructurada de archivos no estructurados para revisión contractual.
+          description: Definir campos, extraer, normalizar y validar resultados para decisión.
+
+    - title: Capítulo 3 · Módulo 8. El Ecosistema de OpenAI ChatGPT
+      summary: Explorar capacidades de OpenAI para razonamiento, análisis de datos y flujos colaborativos.
+      duration_minutes: 60
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Analizar
+      lessons:
+        - title: 8.1 Evolución de modelos y arquitecturas de búsqueda y razonamiento
+          duration_minutes: 8
+          bloom_level: Comprender
+          topics:
+            - title: Capacidades de razonamiento y patrones de uso responsable
+              duration_minutes: 8
+              bloom_level: Comprender
+        - title: 8.2 Seguridad y privacidad en OpenAI
+          duration_minutes: 8
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Buenas prácticas de manejo de datos y control de riesgo
+              duration_minutes: 8
+              bloom_level: Comprender / Analizar
+        - title: 8.3 Herramientas: Canvas, Advanced Data Analysis, DALL·E, GPT Store y Codex
+          duration_minutes: 8
+          bloom_level: Comprender / Aplicar
+          topics:
+            - title: Cuándo usar cada herramienta y qué entregables habilita
+              duration_minutes: 8
+              bloom_level: Comprender / Aplicar
+      lab_activities:
+        - title: "Práctica: Advanced Data Analysis → entregable ejecutivo en Canvas"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Analizar datos reales y producir un entregable claro, accionable y listo para decisión.
+          description: Ejecutar análisis, sintetizar hallazgos, iterar redacción y estructurar recomendación.
+        - title: "Práctica: GPT Store y creación de un GPT para comparar contratos/políticas"
+          duration_minutes: 18
+          bloom_level: Crear / Analizar
+          objective: Identificar diferencias relevantes y riesgos potenciales en documentos.
+          description: Definir alcance, cargar fuentes, probar casos y ajustar instrucciones del agente.
+
+    - title: Capítulo 4 · Módulo 9. Arquitectura de Agentes de IA
+      summary: Comprender estructura modular de un agente y definir comportamiento mediante búsqueda y acción.
+      duration_minutes: 60
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Analizar / Crear
+      lessons:
+        - title: 9.1 Conceptos de agentes, asistentes y roles especializados
+          duration_minutes: 8
+          bloom_level: Comprender
+          topics:
+            - title: Diferencias prácticas entre asistente y agente en contexto empresarial
+              duration_minutes: 8
+              bloom_level: Comprender
+        - title: 9.2 Componentes del agente: identidad/control, conocimiento y acción
+          duration_minutes: 8
+          bloom_level: Comprender / Analizar
+          topics:
+            - title: Componentes estructurales y reglas de operación
+              duration_minutes: 8
+              bloom_level: Comprender / Analizar
+        - title: 9.3 Planificación, límites, ciclo de vida y aseguramiento de calidad
+          duration_minutes: 8
+          bloom_level: Analizar
+          topics:
+            - title: Límites operativos, manejo de errores y estrategia de calidad
+              duration_minutes: 8
+              bloom_level: Analizar
+      lab_activities:
+        - title: "Práctica: Explorar un ejemplo de agente (Recruiter Dashboard - Resume Matcher)"
+          duration_minutes: 12
+          bloom_level: Aplicar
+          objective: Observar un caso real y reconocer componentes del agente.
+          description: Analizar interfaz, entradas/salidas, fuentes y acciones; mapear a componentes.
+        - title: "Práctica: Caso de oficina: definir qué hace un Asistente vs qué hace un Agente"
+          duration_minutes: 12
+          bloom_level: Analizar
+          objective: Delimitar automatización, decisión y acción en un proceso real (p. ej., viáticos).
+          description: Descomponer proceso y asignar responsabilidades por tipo de solución.
+        - title: "Práctica: Diseñar estructura lógica de un agente conversacional robusto"
+          duration_minutes: 12
+          bloom_level: Crear
+          objective: Definir identidad, reglas de negocio y guías de interacción con usuarios.
+          description: Redactar prompt base, límites, tono, objetivos y criterios de éxito.
+
+    - title: Capítulo 4 · Módulo 10. Desarrollo de GPTs y Gems
+      summary: Construir agentes personalizados en ChatGPT y Gemini.
+      duration_minutes: 60
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Crear
+      lessons:
+        - title: 10.1 Creación y configuración de agentes personalizados en ChatGPT
+          duration_minutes: 12
+          bloom_level: Comprender / Aplicar
+          topics:
+            - title: Configuración, instrucciones y curación de conocimiento
+              duration_minutes: 12
+              bloom_level: Comprender / Aplicar
+        - title: 10.2 Creación y personalización de Gems en Gemini
+          duration_minutes: 12
+          bloom_level: Comprender / Aplicar
+          topics:
+            - title: Diseño de Gems para orquestación de tareas creativas
+              duration_minutes: 12
+              bloom_level: Comprender / Aplicar
+      lab_activities:
+        - title: "Práctica: Construir y desplegar un agente en ChatGPT con base de conocimiento corporativa"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Asegurar respuestas precisas y trazables para consulta interna.
+          description: Curar documentos, probar preguntas, ajustar instrucciones y verificar calidad.
+        - title: "Práctica: Diseñar y personalizar Gems en Gemini para planes de acción y activos multimodales"
+          duration_minutes: 18
+          bloom_level: Crear
+          objective: Transformar conceptos breves en planes y entregables de comunicación.
+          description: Definir objetivo, entradas, salidas; iterar hasta lograr versión utilizable.
+
+    - title: Capítulo 4 · Módulo 11. Implementación de agentes en el flujo de trabajo con Copilot Studio
+      summary: Integrar un agente en un flujo de trabajo real y automatizar tareas.
+      duration_minutes: 60
+      percent_theory: 40
+      percent_practice: 60
+      bloom_level: Comprender / Aplicar / Crear
+      lessons:
+        - title: 11.1 Configuración de agentes en Copilot Studio
+          duration_minutes: 8
+          bloom_level: Comprender / Aplicar
+          topics:
+            - title: Componentes de configuración y pruebas iniciales
+              duration_minutes: 8
+              bloom_level: Comprender / Aplicar
+        - title: 11.2 Gestión de fuentes de datos y Knowledge Base
+          duration_minutes: 8
+          bloom_level: Analizar
+          topics:
+            - title: Curación de conocimiento y control de calidad de fuentes
+              duration_minutes: 8
+              bloom_level: Analizar
+        - title: 11.3 Integración en flujos de trabajo y automatización
+          duration_minutes: 8
+          bloom_level: Aplicar / Crear
+          topics:
+            - title: Integración, disparo de flujos y procesamiento de datos
+              duration_minutes: 8
+              bloom_level: Aplicar / Crear
+      lab_activities:
+        - title: "Práctica: Crear un agente que analiza solicitud, consulta base, dispara un flujo y se publica en un canal interno"
+          duration_minutes: 36
+          bloom_level: Crear
+          objective: Integrar un agente de extremo a extremo en un flujo de trabajo real.
+          description: Diseñar conversación, conectar conocimiento, automatizar acción y validar resultados con casos de prueba.

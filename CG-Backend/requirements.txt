@@ -1,0 +1,14 @@
+langchain-community
+python-dotenv
+duckduckgo-search
+openai
+boto3
+requests
+pyyaml
+jinja2
+google-generativeai
+google-cloud-aiplatform
+Pillow
+PyJWT
+beautifulsoup4
+lxml
