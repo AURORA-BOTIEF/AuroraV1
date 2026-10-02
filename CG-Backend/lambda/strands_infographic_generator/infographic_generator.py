@@ -1478,6 +1478,14 @@ def merge_html_first_incremental_structure(
     existing_structure['lessons_processed'] = int(existing_structure.get('lessons_processed', 0)) + int(
         incoming_structure.get('lessons_processed', 0)
     )
+    # total_lessons must reflect the whole course, not just the last merged batch.
+    # Each batch reports only its own lesson count, so keep the largest of the
+    # accumulated processed lessons and any explicit total seen so far.
+    existing_structure['total_lessons'] = max(
+        int(existing_structure.get('total_lessons', 0) or 0),
+        int(existing_structure['lessons_processed']),
+        int(incoming_structure.get('total_lessons', 0) or 0),
+    )
     existing_structure['last_batch_index'] = batch_index
 
     spans = list(existing_structure.get('batch_slide_spans') or [])

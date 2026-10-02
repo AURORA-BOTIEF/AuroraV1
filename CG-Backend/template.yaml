@@ -320,12 +320,15 @@ Resources:
               Action:
                 - s3:GetObject
                 - s3:ListBucket
+                - s3:DeleteObject
               Resource:
                 - arn:aws:s3:::crewai-course-artifacts
                 - arn:aws:s3:::crewai-course-artifacts/*
             - Effect: Allow
               Action:
                 - states:StartExecution
+                - states:ListExecutions
+                - states:DescribeExecution
               Resource:
                 - !Ref PptBatchOrchestratorStateMachine
       Events:

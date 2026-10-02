@@ -213,6 +213,60 @@ def _split_bullet_into_chunks(text: str, max_chars: int = 230) -> List[str]:
     return chunks if chunks else _hard_wrap_words(text, max_chars)
 
 
+_PART_TITLE_SUFFIX_RE = re.compile(
+    r'\s*(?:[-—–]\s*)?(?:parte|part)\s*\d+(?:\s*(?:de|of)\s*\d+)?\s*$',
+    re.IGNORECASE,
+)
+
+
+def _clean_part_base_title(title: str) -> str:
+    """Strip a trailing 'parte N' / '(Parte N de M)' / 'part N' suffix so we can re-number cleanly."""
+    cleaned = _PART_TITLE_SUFFIX_RE.sub('', title or '').strip()
+    cleaned = re.sub(
+        r'\s*\((?:parte|part)\s*\d+\s*(?:de|of)\s*\d+\)\s*$',
+        '',
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    return cleaned or (title or 'Slide')
+
+
+def _part_title(base_title: str, part_index: int, total_parts: int) -> str:
+    """Continuation title without duplicated 'parte N' suffixes.
+
+    The model often already titles drafts like "Tema (Parte 1 de 2)"; when we further
+    split those we previously produced "… (Parte 1 de 2) — parte 2". Now the first part
+    keeps the base title and later parts use a single clean "— parte i de N" suffix.
+    """
+    if total_parts <= 1 or part_index <= 1:
+        return base_title
+    return f"{_clean_part_base_title(base_title)} — parte {part_index} de {total_parts}"
+
+
+def _balanced_chunks(items: List, max_size: int) -> List[List]:
+    """Split ``items`` into ``max_size``-bounded chunks distributed as evenly as possible.
+
+    Sequential chunking (``items[i:i+max_size]``) can leave a tiny final chunk (1–2 lines
+    of code), producing near-empty continuation slides. Balancing avoids that.
+    """
+    if max_size <= 0:
+        return [list(items)] if items else []
+    n = len(items)
+    if n == 0:
+        return []
+    if n <= max_size:
+        return [list(items)]
+    parts = math.ceil(n / max_size)
+    base, remainder = divmod(n, parts)
+    chunks: List[List] = []
+    start = 0
+    for idx in range(parts):
+        size = base + (1 if idx < remainder else 0)
+        chunks.append(list(items[start:start + size]))
+        start += size
+    return chunks
+
+
 def _sanitize_visible_text(text: str) -> str:
     """Elimina residuos de markdown que no deben verse en la diapositiva.
 
@@ -2618,7 +2672,9 @@ def _build_content_slide_budget(
     max_slides = max(target_slides, max_slides)
     image_slide_target = 0
     if image_count > 0 and target_slides > 0:
-        image_slide_target = min(image_count, max(1, math.ceil(target_slides * 0.45)))
+        # Use every generated image when it fits the lesson budget (roughly one image
+        # per development slide) instead of ~45%, so visuals are not orphaned.
+        image_slide_target = min(image_count, max(1, target_slides))
 
     return {
         'duration_minutes': duration_minutes,
@@ -3089,10 +3145,8 @@ class HTMLFirstGenerator:
             for idx, slide in enumerate(slides)
             if any(block.get('type') == 'image' for block in slide.get('content_blocks', []))
         ]
-        keep_image_count = min(
-            len(image_indices),
-            max(1, math.ceil(max_content_slides * 0.5)),
-        )
+        # Keep every image slide when clipping; otherwise generated visuals get dropped.
+        keep_image_count = len(image_indices)
         prioritized_indices = list(image_indices[:keep_image_count])
         prioritized_indices.extend(
             idx for idx in range(len(slides)) if idx not in prioritized_indices
@@ -3105,6 +3159,51 @@ class HTMLFirstGenerator:
             len(clipped),
         )
         return clipped
+
+    def _ensure_images_used(
+        self,
+        slides: List[Dict],
+        images: List[Dict],
+        lesson_title: str,
+    ) -> List[Dict]:
+        """Append a slide for any generated image the AI left unplaced.
+
+        The model does not always weave every available visual into its draft (and the
+        budget/clip step can drop some). This guarantees each generated image appears at
+        least once in the deck.
+        """
+        if not images:
+            return slides
+        used = set()
+        for s in slides:
+            for block in s.get('content_blocks') or []:
+                if isinstance(block, dict) and block.get('type') == 'image':
+                    ref = block.get('image_reference')
+                    if ref:
+                        used.add(ref)
+        missing = [
+            img for img in images
+            if img.get('alt_text') and img.get('alt_text') not in used
+        ]
+        if not missing:
+            return slides
+        for img in missing:
+            slides.append({
+                'title': lesson_title,
+                'subtitle': '',
+                'layout': 'image-left',
+                'content_blocks': [
+                    {'type': 'bullets', 'heading': '', 'items': ['Recurso visual de apoyo.']},
+                    {'type': 'image', 'image_reference': img['alt_text']},
+                ],
+                'notes': f"Visual de apoyo generado automáticamente ({img['alt_text']}).",
+            })
+        logger.info(
+            "🖼️  Placed %s previously unused image(s) for '%s'",
+            len(missing),
+            lesson_title,
+        )
+        return slides
 
     def generate_from_lesson(
         self,
@@ -3288,7 +3387,7 @@ OUTPUT JSON FORMAT:
             retry_reason = (
                 f"Your previous draft expanded to {len(final_slides)} development slides after layout validation. "
                 f"Regenerate this lesson within the range of {min_content_slides} to {max_content_slides} development slides and aim for about {target_content_slides}. "
-                "Compress adjacent concepts, shorten bullets further, and prefer one strong image with concise explanation instead of extra follow-up slides."
+                "Compress adjacent concepts and shorten bullets further, but keep every available image (each visual counts as a development slide) instead of dropping visuals."
             )
             try:
                 draft_slides = self._request_lesson_draft(
@@ -3308,6 +3407,7 @@ OUTPUT JSON FORMAT:
                 max_content_slides,
             )
 
+        final_slides = self._ensure_images_used(final_slides, images, lesson_title)
         return final_slides
 
     def _normalize_content_code_and_table(self, content: Dict) -> None:
@@ -3481,17 +3581,17 @@ OUTPUT JSON FORMAT:
             return [slide]
         headers = tbl.get('headers') or []
         notes = tbl.get('notes', '')
+        row_chunks = _balanced_chunks(rows, max_rows)
+        total = len(row_chunks)
         out: List[Dict] = []
-        for i in range(0, len(rows), max_rows):
+        for i, chunk in enumerate(row_chunks):
             s = copy.deepcopy(slide)
-            part = i // max_rows + 1
             s.setdefault('content', {})['table'] = {
                 'headers': headers,
-                'rows': rows[i : i + max_rows],
+                'rows': chunk,
                 'notes': notes,
             }
-            if part > 1:
-                s['title'] = f"{base_title} — parte {part}"
+            s['title'] = _part_title(base_title, i + 1, total)
             out.append(s)
         return out
 
@@ -3504,33 +3604,31 @@ OUTPUT JSON FORMAT:
             code_obj = {'language': 'text', 'code': '' if code_obj is None else str(code_obj)}
             content['code'] = code_obj
         lang = code_obj.get('language', 'text')
-        lines = (code_obj.get('code') or '').split('\n')
+        code_text = code_obj.get('code') or ''
+        lines = code_text.split('\n') if code_text.strip() else []
+
+        max_tb = LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets']
+        bullet_chunks = _balanced_chunks(expanded, max_tb)
+        code_chunks = _balanced_chunks(lines, max_lines) if max_lines > 0 else ([lines] if lines else [])
+        total = len(bullet_chunks) + len(code_chunks)
+        if total <= 1:
+            return [slide]
 
         out: List[Dict] = []
-        part_num = 0
-        max_tb = LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets']
-
-        bb = expanded[:]
-        while bb:
-            part_num += 1
+        part = 0
+        for chunk in bullet_chunks:
+            part += 1
             s = copy.deepcopy(slide)
             s['layout'] = 'text_only'
-            s['content'] = {'bullets': bb[:max_tb]}
-            bb = bb[max_tb:]
-            if part_num > 1:
-                s['title'] = f"{base_title} — parte {part_num}"
+            s['content'] = {'bullets': chunk}
+            s['title'] = _part_title(base_title, part, total)
             out.append(s)
-
-        li = lines[:]
-        while li:
-            part_num += 1
+        for chunk in code_chunks:
+            part += 1
             s = copy.deepcopy(slide)
             s['layout'] = 'code_only'
-            chunk = li[:max_lines]
-            li = li[max_lines:]
             s['content'] = {'code': {'language': lang, 'code': '\n'.join(chunk)}}
-            if part_num > 1:
-                s['title'] = f"{base_title} — parte {part_num}"
+            s['title'] = _part_title(base_title, part, total)
             out.append(s)
 
         return out if out else [slide]
@@ -3549,7 +3647,8 @@ OUTPUT JSON FORMAT:
             code_obj = {'language': 'text', 'code': ''}
             content['code'] = code_obj
         lang = code_obj.get('language', 'text')
-        all_lines = (code_obj.get('code') or '').split('\n')
+        code_text = code_obj.get('code') or ''
+        all_lines = code_text.split('\n') if code_text.strip() else []
 
         if not all_lines:
             return self._split_image_or_text_overflow(
@@ -3560,35 +3659,28 @@ OUTPUT JSON FORMAT:
                 base_title,
             )
 
+        bullet_chunks = _balanced_chunks(expanded, max_bt) if max_bt > 0 else ([expanded] if expanded else [])
+        code_chunks = _balanced_chunks(all_lines, max_ln) if max_ln > 0 else [all_lines]
+        total = max(len(bullet_chunks), len(code_chunks))
+        if total <= 1:
+            return [slide]
+
         out: List[Dict] = []
-        b_rem = expanded[:]
-        l_rem = all_lines[:]
-        part_num = 0
-
-        while l_rem:
-            part_num += 1
+        for i in range(total):
+            bl = bullet_chunks[i] if i < len(bullet_chunks) else []
+            ln = code_chunks[i] if i < len(code_chunks) else []
             s = copy.deepcopy(slide)
-            s['layout'] = 'text_and_code'
-            bl_take = min(max_bt, len(b_rem)) if b_rem else 0
-            ln_take = min(max_ln, len(l_rem))
+            if ln and bl:
+                s['layout'] = 'text_and_code'
+            elif ln:
+                s['layout'] = 'code_only'
+            else:
+                s['layout'] = 'text_only'
             s['content'] = {
-                'bullets': b_rem[:bl_take],
-                'code': {'language': lang, 'code': '\n'.join(l_rem[:ln_take])},
+                'bullets': bl,
+                'code': {'language': lang, 'code': '\n'.join(ln)},
             }
-            b_rem = b_rem[bl_take:]
-            l_rem = l_rem[ln_take:]
-            if part_num > 1:
-                s['title'] = f"{base_title} — parte {part_num}"
-            out.append(s)
-
-        max_tb = LayoutDefinitions.LAYOUTS['text_only']['containers'][0]['max_bullets']
-        while b_rem:
-            part_num += 1
-            s = copy.deepcopy(slide)
-            s['layout'] = 'text_only'
-            s['content'] = {'bullets': b_rem[:max_tb]}
-            b_rem = b_rem[max_tb:]
-            s['title'] = f"{base_title} — parte {part_num}"
+            s['title'] = _part_title(base_title, i + 1, total)
             out.append(s)
 
         return out if out else [slide]
@@ -3607,25 +3699,21 @@ OUTPUT JSON FORMAT:
         if not expanded:
             return [slide]
 
-        out: List[Dict] = []
-        idx = 0
-        part_num = 0
-        first = True
+        chunks = _balanced_chunks(expanded, max_text_bullets) if max_text_bullets > 0 else [expanded]
+        total = len(chunks)
+        if total <= 1:
+            return [slide]
 
-        while idx < len(expanded):
-            part_num += 1
-            chunk = expanded[idx : idx + max_text_bullets]
-            idx += max_text_bullets
+        out: List[Dict] = []
+        for i, chunk in enumerate(chunks):
             s = copy.deepcopy(slide)
-            if first and layout_key in ('image_left', 'image_right') and image_id:
+            if i == 0 and layout_key in ('image_left', 'image_right') and image_id:
                 s['layout'] = layout_key
                 s['content'] = {'image_id': image_id, 'bullets': chunk}
-                first = False
             else:
                 s['layout'] = 'text_only'
                 s['content'] = {'bullets': chunk}
-            if part_num > 1:
-                s['title'] = f"{base_title} — parte {part_num}"
+            s['title'] = _part_title(base_title, i + 1, total)
             out.append(s)
 
         return out if out else [slide]

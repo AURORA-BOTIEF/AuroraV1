@@ -61,6 +61,39 @@ def sanitize_for_execution_name(project_name: str, max_length: int = 45) -> str:
     return sanitized
 
 
+def find_running_orchestration(sanitized_project: str, max_pages: int = 3) -> Optional[str]:
+    """
+    Return the ARN of a RUNNING ppt orchestration for this project, if any.
+
+    Two concurrent orchestrations for the same project collide on the shared
+    ``infographic_structure.json``: the late one fails with an
+    ``incremental_merge_conflict`` (batch N cannot merge into a stale/complete
+    structure). This guard prevents that race at the trigger.
+    """
+    prefix = f"ppt-orchestration-{sanitized_project}-"
+    token = None
+    for _ in range(max_pages):
+        kwargs = {
+            'stateMachineArn': PPT_ORCHESTRATOR_STATE_MACHINE_ARN,
+            'statusFilter': 'RUNNING',
+            'maxResults': 100,
+        }
+        if token:
+            kwargs['nextToken'] = token
+        try:
+            resp = stepfunctions_client.list_executions(**kwargs)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not list running executions for concurrency guard: {e}")
+            return None
+        for ex in resp.get('executions', []):
+            if str(ex.get('name', '')).startswith(prefix):
+                return ex.get('executionArn')
+        token = resp.get('nextToken')
+        if not token:
+            break
+    return None
+
+
 def resolve_batch_size(requested_batch_size: Optional[int]) -> int:
     if requested_batch_size is None:
         return MAX_LESSONS_PER_BATCH_LIMIT
@@ -458,8 +491,33 @@ def lambda_handler(event, context):
         sanitized_project = sanitize_for_execution_name(project_folder, max_project_length)
         execution_name = f"ppt-orchestration-{sanitized_project}-{timestamp}"
         logger.info(f"Generated execution name: {execution_name} (from project: {project_folder})")
-        
-        
+
+        # Concurrency guard: never start a second orchestration for the same project
+        # while another one is RUNNING. Overlapping runs race on the shared
+        # infographic_structure.json and the loser fails with 'incremental_merge_conflict'.
+        # Pass "force": true to bypass (e.g. after confirming a run is hanging).
+        if not body.get('force'):
+            running_arn = find_running_orchestration(sanitized_project)
+            if running_arn:
+                logger.warning(
+                    f"⛔ Refusing to start: orchestration already RUNNING for {project_folder} ({running_arn})"
+                )
+                return {
+                    'statusCode': 409,
+                    'headers': {
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Headers': 'Content-Type',
+                        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                        'Content-Type': 'application/json'
+                    },
+                    'body': json.dumps({
+                        'error': 'An orchestration for this project is already running',
+                        'error_type': 'orchestration_in_progress',
+                        'running_execution_arn': running_arn,
+                        'message': 'Wait for the running orchestration to finish, or pass "force": true to start another one.'
+                    })
+                }
+
         try:
             sf_response = stepfunctions_client.start_execution(
                 stateMachineArn=PPT_ORCHESTRATOR_STATE_MACHINE_ARN,
