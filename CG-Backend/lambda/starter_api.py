@@ -304,9 +304,85 @@ def call_bedrock_ai(prompt: str) -> str:
         raise ValueError(f"AI Service unavailable: {e}")
 
 
+# Matches source lines that announce a practice/lab/demo item, e.g. "o Práctica: ..." or "Demo: ...".
+_SOURCE_LAB_MENTION_RE = re.compile(
+    r'(?im)^\s*(?:[oO•*\-–—]\s*)?'
+    r'(pr[áa]ctica|practica|laboratorio|\blab\b|hands[\s-]?on|ejercicio|exercise|demo|demostraci[óo]n)'
+    r'\s*[:.\-–—]'
+)
+
+
+def _count_source_lab_mentions(content: str) -> int:
+    """Count distinct practice/lab/demo items announced in the source document."""
+    if not content:
+        return 0
+    return len(_SOURCE_LAB_MENTION_RE.findall(content))
+
+
+def _count_outline_lab_activities(yaml_text: str) -> int:
+    """Total lab_activities across all modules of an outline YAML (-1 if unparseable)."""
+    try:
+        data = yaml.safe_load(yaml_text)
+    except Exception:
+        return -1
+    if not isinstance(data, dict):
+        return -1
+    course = data.get('course', data)
+    if not isinstance(course, dict):
+        return -1
+    total = 0
+    for module in course.get('modules') or []:
+        if isinstance(module, dict):
+            total += len(module.get('lab_activities') or module.get('labs') or [])
+    return total
+
+
+def _enforce_lab_activity_count(yaml_content: str, content: str) -> str:
+    """Guarantee one lab_activity per source practice/lab/demo.
+
+    The outline model sometimes collapses or absorbs nested practices (turning them
+    into topics), which silently drops lab guides. This retries once with an explicit
+    correction when the generated count does not match the source.
+    """
+    source_count = _count_source_lab_mentions(content)
+    if source_count <= 0:
+        return yaml_content
+    outline_count = _count_outline_lab_activities(yaml_content)
+    if outline_count == source_count:
+        return yaml_content
+
+    print(
+        f"⚠️ Lab count mismatch: source={source_count}, outline={outline_count}. "
+        f"Retrying outline conversion with explicit correction."
+    )
+    correction_prompt = (
+        "You are fixing a syllabus YAML. The SOURCE below contains EXACTLY "
+        f"{source_count} practice/lab/demo items. The CURRENT YAML has {outline_count} entries "
+        "in `lab_activities` in total. Add the missing ones as their OWN module-level "
+        "`lab_activities` entries (never as lessons, never as topics, never merged), preserving "
+        "their titles and durations from the SOURCE. Every practice/lab/demo in the SOURCE must "
+        f"appear exactly once, for a total of {source_count}. Return ONLY the corrected YAML.\n\n"
+        f"SOURCE:\n{content}\n\nCURRENT YAML:\n{yaml_content}"
+    )
+    try:
+        fixed_output = call_bedrock_ai(correction_prompt)
+        match = re.search(r'```(?:yaml)?\s*(.*?)\s*```', fixed_output, re.DOTALL | re.IGNORECASE)
+        fixed_yaml = match.group(1) if match else fixed_output.strip()
+        fixed_count = _count_outline_lab_activities(fixed_yaml)
+        if fixed_count == source_count or fixed_count > outline_count:
+            print(
+                f"✅ Outline lab_activities corrected: {outline_count} → {fixed_count} "
+                f"(source={source_count})"
+            )
+            return fixed_yaml
+        print(f"⚠️ Correction did not fix the count (got {fixed_count}); keeping original.")
+    except Exception as e:
+        print(f"⚠️ Lab count correction failed: {e}")
+    return yaml_content
+
+
 def convert_non_yaml_to_yaml(content: str, filename: str, course_duration_hours: float | None = None) -> str:
     """Use AI to align/convert text into a standard syllabus YAML string."""
-    duration_guidance = ""
     if course_duration_hours:
         duration_guidance = f"- If and ONLY IF no course or module durations are mentioned anywhere in the source document, use a target course duration of approximately {course_duration_hours} hours ({int(course_duration_hours * 60)} minutes)."
     else:
@@ -385,13 +461,19 @@ Important Alignment & Content Rules:
      - Durations are optional and do NOT determine hierarchy. A nested item without minutes is still a topic. A nested item with "(3 min)" is still a topic. A lesson-level item without minutes is still a lesson. NEVER use "has minutes" / "viñeta con minutos" as the rule for creating a lesson.
      - If the source is FLAT (module → a list of items with no further nesting), those items are lessons ONLY if they are theory. Practice/demo items in a flat list still go to `lab_activities`. Do not invent grouping headers. Do not invent topics the source did not list. If a lesson has no nested children, `topics` may be empty or a single topic matching the lesson title.
      - Do NOT treat every numbered sub-item (1.1, 1.2, "o Item") as a lesson. Numbered items nested under a lesson are topics.
+     - EXCEPCIÓN OBLIGATORIA: si un ítem anidado bajo una lección es una Práctica / Laboratorio / Lab / Ejercicio / Hands-on / Demo / Demostración (p. ej. una viñeta "o Práctica: ..." debajo de la lección), NO es un `topic`. La lección conserva sus topics de teoría Y ADEMÁS la práctica/demo se agrega como una entrada propia en `lab_activities` del módulo (ver regla 4). Nunca la omitas ni la fusiones con otra práctica.
      - Skip module-closing lines that are not instructional content: "Resumen", "Summary", "Recap".
-4. **Labs and instructor Demos are extracted for the Lab Guide — they are NOT lessons:**
-   Being listed inside a module does NOT make a practice a theory lesson. The lab planner searches `lab_activities` and writes the Lab Guide. The theory book must not contain a chapter for that practice.
-   - NEVER create a `lessons[]` entry for a Práctica / Lab / Demo. NEVER duplicate the same activity as both a lesson and a `lab_activities` item.
-   - Student hands-on ("Práctica", "Practica", "Laboratorio", "Lab", "Hands-on", "Exercise") → module-level `lab_activities` with `type: lab`.
-   - Instructor demonstrations ("Demo", "Demostración", "Demostracion", "instructor-led", "el instructor demostrará", "el instructor demuestra", "demostración realizada por el instructor") → module-level `lab_activities` with `type: demo`, even if the source prefixes them with "Práctica:". The title MUST start with "Demo: " (e.g. "Demo: Recuperación de acuerdos con Intelligent Recap").
-   - Demos follow the SAME laboratory procedure and MUST appear in the lab guide, clearly marked as instructor-led demos. Do not write them as theory lessons.
+4. **Labs / Prácticas / instructor Demos — SIEMPRE una entrada de laboratorio por cada ítem (guía de laboratorio obligatoria):**
+   Regla dura: **1 ítem de Práctica / Laboratorio / Lab / Hands-on / Exercise / Ejercicio / Demo / Demostración en el fuente = 1 entrada propia en `lab_activities`** del módulo que corresponda. El sistema genera UNA guía de laboratorio por cada `lab_activity`, por lo que:
+   - NUNCA consolides dos o más prácticas/demos en una sola entrada.
+   - NUNCA omitas una práctica/demo, aunque esté anidada dentro de una lección (p. ej. "o Práctica: ..."), aunque no tenga duración explícita, o aunque parezca un subtema.
+   - NUNCA coloques una práctica/demo como `topics` de una lección ni como `lessons[]`. Estar anidada NO la convierte en topic: la lección sigue siendo lección de teoría (con sus topics de teoría) y la práctica se agrega como `lab_activity` del módulo.
+   - Preserva la duración de cada práctica/demo cuando el fuente la indique.
+   - ANTES de responder, CUENTA las prácticas/demos del fuente y verifica que `Σ lab_activities` (sumando TODOS los módulos) sea EXACTAMENTE igual a ese número. Si no coincide, corrige el YAML antes de responder. Devolver menos prácticas de las que tiene el fuente es un error grave.
+   - Student hands-on ("Práctica", "Practica", "Laboratorio", "Lab", "Hands-on", "Exercise", "Ejercicio") → `type: lab`.
+   - Instructor demonstrations ("Demo", "Demostración", "Demostracion", "instructor-led", "el instructor demostrará", "el instructor demuestra", "demostración realizada por el instructor") → `type: demo`, con título que empiece con "Demo: " (aunque el fuente lo prefije con "Práctica:").
+   - Los demos siguen el MISMO procedimiento de laboratorio y SIEMPRE deben aparecer en la guía de laboratorio, claramente marcados como instructor-led. No se escriben como lecciones de teoría.
+   - El libro de teoría NO debe contener un capítulo para la práctica/demo, y no se debe duplicar la misma actividad como lección y como `lab_activity`.
 5. **No Chat text:** Return ONLY the raw YAML block inside a markdown code block (delimited by ```yaml ... ```) so it can be safely parsed, or return just the YAML text. Do not include any greeting, conversational text, or explanations.
 6. **YAML Safety:** Quote all plain scalar values containing colons, commas, or special characters (e.g., using double quotes for titles and descriptions) to avoid parsing issues.
 
@@ -408,7 +490,10 @@ Input Content:
         yaml_content = match.group(1)
     else:
         yaml_content = ai_output.strip()
-        
+
+    # Deterministic safeguard: one lab guide per practice/lab/demo in the source.
+    yaml_content = _enforce_lab_activity_count(yaml_content, content)
+
     return yaml_content
 
 
