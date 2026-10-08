@@ -1108,11 +1108,19 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         skipped_count = len(skipped_images)
         total_processed = processed_count
         
-        # Calculate remaining prompts (those not processed due to timeout)
+        # Prompts not processed yet: the tail skipped by the timeout PLUS any prompts
+        # beyond the per-model batch cap (effective_max). Returning both is required so the
+        # state machine auto-resume loop does not silently drop images.
         remaining_prompts = []
-        if stopped_due_to_timeout and processed_count < len(prompts_to_process):
-            remaining_prompts = prompts_to_process[processed_count:]
-            logger.warning(f"⏱️  TIMEOUT: {len(remaining_prompts)} prompts remaining for next batch")
+        if processed_count < len(prompts_from_input):
+            remaining_prompts = prompts_from_input[processed_count:]
+            if stopped_due_to_timeout:
+                logger.warning(f"⏱️  TIMEOUT: {len(remaining_prompts)} prompts remaining for next batch")
+            else:
+                logger.info(
+                    f"📦 Batch cap ({effective_max}) reached: {len(remaining_prompts)} prompts "
+                    f"remaining for next batch"
+                )
         
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 EXECUTION SUMMARY")
