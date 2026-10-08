@@ -3191,9 +3191,8 @@ class HTMLFirstGenerator:
             slides.append({
                 'title': lesson_title,
                 'subtitle': '',
-                'layout': 'image-left',
+                'layout': 'image-full',
                 'content_blocks': [
-                    {'type': 'bullets', 'heading': '', 'items': ['Recurso visual de apoyo.']},
                     {'type': 'image', 'image_reference': img['alt_text']},
                 ],
                 'notes': f"Visual de apoyo generado automáticamente ({img['alt_text']}).",

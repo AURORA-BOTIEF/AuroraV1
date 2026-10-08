@@ -40,7 +40,12 @@ def fix_image_only_slides(slides: List[Dict], is_spanish: bool) -> List[Dict]:
     
     for slide in slides:
         content_blocks = slide.get('content_blocks', [])
-        
+
+        # Full-bleed image slides are intentional (e.g. safety-net visuals) — leave as-is.
+        if slide.get('layout') == 'image-full':
+            fixed_slides.append(slide)
+            continue
+
         # Check if this is an image-only slide
         if len(content_blocks) == 1 and content_blocks[0].get('type') == 'image':
             image_block = content_blocks[0]
