@@ -1130,7 +1130,7 @@
             "Next": "GenerateBatchImages",
             "Parameters": {
               "accumulated_images.$": "States.Array($.accumulated_images, $.images_result.Payload.generated_images)",
-              "accumulated_mappings.$": "States.JsonMerge($.accumulated_mappings, $.images_result.Payload.image_mappings)",
+              "accumulated_mappings.$": "States.JsonMerge($.accumulated_mappings, $.images_result.Payload.image_mappings, false)",
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "remaining_prompts.$": "$.images_result.Payload.remaining_prompts",
