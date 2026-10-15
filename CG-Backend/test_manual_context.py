@@ -217,6 +217,108 @@ def test_las_tres_lambdas_usan_el_selector():
         assert "select_manual_context(" in codigo, f"{archivo} no usa el selector"
 
 
+def _cargar_writer_sin_aws():
+    """Importa strands_lab_writer con boto3 simulado: sin AWS, red ni credenciales."""
+    import types
+
+    nombres = ("boto3", "botocore", "botocore.config", "botocore.exceptions", "strands_lab_writer")
+    previos = {n: sys.modules.get(n) for n in nombres}
+
+    class _ClienteSimulado:
+        def __getattr__(self, _nombre):
+            return lambda *a, **k: None
+
+    class _ClientErrorSimulado(Exception):
+        pass
+
+    boto3_sim = types.ModuleType("boto3")
+    boto3_sim.client = lambda *a, **k: _ClienteSimulado()
+    botocore_sim = types.ModuleType("botocore")
+    config_sim = types.ModuleType("botocore.config")
+    config_sim.Config = lambda *a, **k: None
+    exceptions_sim = types.ModuleType("botocore.exceptions")
+    exceptions_sim.ClientError = _ClientErrorSimulado
+    botocore_sim.config = config_sim
+    botocore_sim.exceptions = exceptions_sim
+    sys.modules.update(
+        {
+            "boto3": boto3_sim,
+            "botocore": botocore_sim,
+            "botocore.config": config_sim,
+            "botocore.exceptions": exceptions_sim,
+        }
+    )
+    sys.modules.pop("strands_lab_writer", None)
+    try:
+        import strands_lab_writer as modulo
+
+        return modulo
+    finally:
+        for nombre, previo in previos.items():
+            if previo is None:
+                sys.modules.pop(nombre, None)
+            else:
+                sys.modules[nombre] = previo
+
+
+def test_el_prompt_vivo_del_writer_incluye_el_manual():
+    """El camino que el handler ejecuta de verdad debe llevar el manual al modelo.
+
+    Regresión detectada en producción: el handler llama SIEMPRE a
+    ``generate_all_labs_batch`` con un solo lab, así que el prompt real es
+    ``_compact_single_lab_prompt``. El selector se había colocado en
+    ``generate_lab_guide``, que no tiene llamadores: el manual no llegaba al
+    modelo por ninguna vía. Este test ejecuta el builder vivo y comprueba que el
+    contenido relevante (que está más allá del antiguo recorte por encabezado)
+    aparece en el prompt.
+    """
+    modulo = _cargar_writer_sin_aws()
+
+    lab_plan = {
+        "lab_id": "01-00-01",
+        "lab_title": "Configurar memoria swap persistente",
+        "objectives": ["crear swapfile con fallocate", "activarlo con swapon y mkswap"],
+        "scope": "gestion de memoria en Linux",
+        "estimated_duration": 45,
+        "complexity": "medium",
+        "bloom_level": "Apply",
+        "prerequisites": [],
+        "key_technologies": ["Linux"],
+    }
+    master_context = {
+        "target_language": "Spanish (Español)",
+        "manual_reference_text": _MANUAL,
+        "additional_requirements": "",
+        "hardware_requirements": [],
+        "software_requirements": [],
+        "special_considerations": [],
+        "overall_objectives": [],
+    }
+
+    prompt = modulo._compact_single_lab_prompt(lab_plan, master_context, "", "resumen del lab")
+
+    assert "REFERENCE MANUAL" in prompt, "el prompt vivo no declara el manual de referencia"
+    for termino in ("swapfile", "fallocate", "mkswap", "swapon"):
+        assert termino in prompt, f"'{termino}' no llega al prompt vivo (está más allá del recorte)"
+    # El fallo original era inyectar el manual por su encabezado: el prompt no debe
+    # arrastrar el principio del documento ni el manual completo.
+    assert _MANUAL[:2_000] not in prompt, "el prompt vivo arrastra el encabezado del manual"
+    assert len(prompt) < len(_MANUAL), "el prompt vivo mete el manual entero"
+
+
+def test_el_handler_del_writer_siempre_usa_el_prompt_compacto():
+    """Invariante del que depende el test anterior: el handler pasa UN lab por llamada."""
+    with open(
+        os.path.join(_HERE, "lambda", "strands_lab_writer", "strands_lab_writer.py"),
+        encoding="utf-8",
+    ) as fh:
+        codigo = fh.read()
+    assert "lab_plans=[lab_plan]," in codigo, (
+        "el handler ya no llama a generate_all_labs_batch con un solo lab: "
+        "revisa por qué builder pasa el manual"
+    )
+
+
 if __name__ == "__main__":
     pruebas = [
         (nombre, funcion)

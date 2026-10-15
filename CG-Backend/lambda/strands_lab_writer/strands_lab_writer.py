@@ -1287,6 +1287,31 @@ USER REQUIREMENTS (CRITICAL - MUST BE INCORPORATED):
         else ""
     )
 
+    # Paso 0 de calidad: este es el builder que el handler SIEMPRE usa (el handler
+    # llama a generate_all_labs_batch con UN solo lab, línea ~1946). Antes el manual
+    # llegaba aquí por accidente: el planner lo colaba en additional_requirements
+    # (primeros 10k caracteres, etiquetados como "USER REQUIREMENTS"). Ahora se
+    # seleccionan las secciones relevantes para ESTE laboratorio.
+    manual_excerpt = select_manual_context(
+        master_context.get("manual_reference_text", ""),
+        query_text=flatten_to_text(lab_plan),
+        title_text=title,
+        label=lid,
+    )
+    manual_section = (
+        f"""
+REFERENCE MANUAL (SOURCE OF TRUTH):
+CRITICAL: Base all instructions, data, entities, figures and expected outputs on the
+reference manual content below. Do not invent data, product names, funds, SKUs,
+deliverables or tools that are not present in it.
+=== REFERENCE MANUAL CONTENT ===
+{manual_excerpt}
+=== END REFERENCE MANUAL ===
+"""
+        if manual_excerpt and manual_excerpt.strip()
+        else ""
+    )
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1297,6 +1322,7 @@ COURSE CONTEXT (brief):
 - Typical software: {sw_line}
 - Notes: {spec_line}
 {add_req_section}
+{manual_section}
 LAB SPECIFICATION:
 {labs_summary_text}
 {previous_lab_context_section}
