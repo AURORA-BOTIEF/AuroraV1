@@ -22,6 +22,8 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from manual_context import select_manual_context, flatten_to_text
+
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
 # that boto3 does not abort a long generation and retry (which doubles wall time).
 _BEDROCK_READ_TIMEOUT = int(os.getenv("BEDROCK_READ_TIMEOUT", "860"))
@@ -549,15 +551,24 @@ def generate_lab_guide(
             sw_list.append(f"- {sw}")
     
     manual_ref_text = master_context.get('manual_reference_text', '')
+    # Paso 0 de calidad: antes se recortaba por encabezado (manual[:12000] ≈ 5% de un
+    # manual real de 230k caracteres) y el modelo rellenaba el resto inventando datos.
+    # Ahora se seleccionan las secciones relevantes para ESTE laboratorio.
+    manual_excerpt = select_manual_context(
+        manual_ref_text,
+        query_text=flatten_to_text(lab_plan),
+        title_text=lab_title,
+        label=lab_id,
+    )
     manual_directive = (
         f"""
 MANUAL ALIGNMENT REQUIREMENT:
 CRITICAL: Base all instructions, commands, verification steps, and expected outputs 100% strictly on the provided reference manual content below:
 === REFERENCE MANUAL CONTENT ===
-{manual_ref_text[:12000]}
+{manual_excerpt}
 === END REFERENCE MANUAL ===
 """
-        if manual_ref_text and manual_ref_text.strip()
+        if manual_excerpt and manual_excerpt.strip()
         else ""
     )
 

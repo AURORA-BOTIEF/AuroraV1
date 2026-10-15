@@ -19,6 +19,8 @@ from botocore.config import Config
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from manual_context import select_manual_context, flatten_to_text
+
 # AWS Clients with extended timeout for Bedrock (complex prompts can take 3-5 minutes)
 bedrock_config = Config(
     read_timeout=600,  # 10 minutes
@@ -335,6 +337,8 @@ def extract_all_labs(
                         'lab_id': f"{mod_idx:02d}-{les_idx:02d}-01",
                         'objectives': lesson.get('objectives', []),
                         'activities': [],
+                        'objective': lesson.get('objective', ''),
+                        'description': lesson.get('description', ''),
                         'is_demo': is_demo
                     }
                     labs.append(lab_info)
@@ -348,6 +352,8 @@ def extract_all_labs(
                         lab_bloom = lab.get('bloom_level', lesson_bloom)
                         lab_objectives = lab.get('objectives', [])
                         lab_activities_list = lab.get('activities', [])
+                        lab_description = lab.get('description', '')
+                        lab_objective = lab.get('objective', '')
                         lab_type = lab.get('type', '')
                     else:
                         lab_title = str(lab)
@@ -355,6 +361,8 @@ def extract_all_labs(
                         lab_bloom = lesson_bloom
                         lab_objectives = []
                         lab_activities_list = []
+                        lab_description = ''
+                        lab_objective = ''
                         lab_type = ''
                     
                     is_demo = is_demo_activity(lab_title, lab_type)
@@ -373,6 +381,8 @@ def extract_all_labs(
                         'lab_id': f"{mod_idx:02d}-{les_idx:02d}-{lab_idx:02d}",
                         'objectives': lab_objectives,
                         'activities': lab_activities_list,
+                        'objective': lab_objective,
+                        'description': lab_description,
                         'is_demo': is_demo
                     }
                     
@@ -405,6 +415,7 @@ def extract_all_labs(
                     lab_objectives = lab.get('objectives', [])
                     lab_activities_list = lab.get('activities', [])
                     lab_description = lab.get('description', '')
+                    lab_objective = lab.get('objective', '')
                     lab_type = lab.get('type', '')
                 else:
                     # String format (simple lab title)
@@ -415,6 +426,7 @@ def extract_all_labs(
                     lab_objectives = []
                     lab_activities_list = []
                     lab_description = ''
+                    lab_objective = ''
                     lab_type = ''
                 
                 is_demo = is_demo_activity(lab_title, lab_type)
@@ -434,6 +446,7 @@ def extract_all_labs(
                     'objectives': lab_objectives,
                     'activities': lab_activities_list,
                     'description': lab_description,
+                    'objective': lab_objective,
                     'is_demo': is_demo
                 }
                 
@@ -622,6 +635,7 @@ def generate_lab_master_plan(
     labs: List[Dict[str, Any]],
     course_info: dict,
     additional_requirements: Optional[str],
+    manual_reference_excerpt: Optional[str] = None,
     model_provider: str = "bedrock",
     batch_size: int = 5
 ) -> dict:
@@ -638,6 +652,7 @@ def generate_lab_master_plan(
         labs: List of lab dictionaries
         course_info: Course metadata
         additional_requirements: User-specified requirements
+        manual_reference_excerpt: Secciones relevantes del manual de referencia (fuente de verdad)
         model_provider: "bedrock" or "openai"
         batch_size: Number of labs to process per AI call (default 5)
     """
@@ -661,6 +676,20 @@ def generate_lab_master_plan(
 
     course_language = outline_language_code(course_info)
     BATCH_MAX_ATTEMPTS = 3
+
+    # Paso 0 de calidad: el manual es la fuente de verdad. Se incluye el extracto
+    # seleccionado por relevancia (antes se recortaba por encabezado y el modelo inventaba).
+    manual_block = (
+        "\nREFERENCE MANUAL (fuente de verdad para escenarios, datos, comandos y entregables):\n"
+        "=== REFERENCE MANUAL CONTENT ===\n"
+        f"{manual_reference_excerpt}\n"
+        "=== END REFERENCE MANUAL ===\n"
+        "CRITICAL: Base every lab scenario, dataset, tool, command and expected result 100% strictly "
+        "on the reference manual above. Do NOT invent entities, names, figures, deliverables or "
+        "procedures that are not present in the manual.\n"
+        if manual_reference_excerpt and manual_reference_excerpt.strip()
+        else ""
+    )
 
     all_lab_plans = []
     all_hardware_reqs = set()
@@ -711,7 +740,7 @@ LABS IN THIS BATCH ({len(batch_labs)} labs):
 {chr(10).join(labs_summary)}
 
 REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
-
+{manual_block}
 THOR ALIGNMENT & DEEP TECH SPEC:
 - Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
 - Licensing & Official Sources: For every software requirement provide the official source URL and the license type. If a value is not confirmed, use [ENLACE OFICIAL] / [LICENCIA POR VALIDAR]. Never invent versions, licenses, capabilities or availability; verify against official documentation.
@@ -944,16 +973,6 @@ def lambda_handler(event, context):
         model_provider = event.get('model_provider', 'bedrock')
         lab_requirements = event.get('lab_requirements')
         manual_text_s3_key = event.get('manual_text_s3_key')
-        if manual_text_s3_key:
-            try:
-                s3_client = boto3.client('s3')
-                man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
-                man_text = man_obj['Body'].read().decode('utf-8')
-                manual_rule = f"\n\n[REGLA DE ALINEACIÓN ESTRICTA AL MANUAL: Todas las actividades de laboratorio, comandos y escenarios DEBEN basarse 100% exclusivamente en el siguiente texto del manual de referencia]:\n{man_text[:10000]}"
-                lab_requirements = (lab_requirements or '') + manual_rule
-                print(f"📚 Manual reference text loaded in Lab Planner ({len(man_text):,} chars)")
-            except Exception as man_err:
-                print(f"⚠️ Could not load manual reference text in lab planner: {man_err}")
 
         # Support bedrock, openai, and google/gemini providers
         original_provider = event.get('model_provider', 'bedrock').lower()
@@ -1012,11 +1031,31 @@ def lambda_handler(event, context):
                 'message': 'No lab activities found in outline - skipping lab generation'
             }
         
+        # Step 2b: Selección del manual de referencia (paso 0 de calidad).
+        # Antes se recortaba por encabezado (man_text[:10000]) ANTES de conocer los
+        # labs, así que el planeador veía ~4% de un manual real y el resto lo inventaba.
+        # Ahora se seleccionan las secciones relevantes a los labs que se van a planificar.
+        manual_reference_excerpt = ''
+        if manual_text_s3_key:
+            try:
+                man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
+                man_text = man_obj['Body'].read().decode('utf-8')
+                manual_reference_excerpt = select_manual_context(
+                    man_text,
+                    query_text=f"{flatten_to_text(labs)} {flatten_to_text(course_info)}",
+                    title_text=course_info.get('title', ''),
+                    label='lab-planner',
+                )
+                print(f"📚 Manual reference text loaded in Lab Planner ({len(man_text):,} chars)")
+            except Exception as man_err:
+                print(f"⚠️ Could not load manual reference text in lab planner: {man_err}")
+        
         # Step 3: Generate master plan with AI (with retries + outline fallback if model yields nothing)
         master_plan = generate_lab_master_plan(
             labs=labs,
             course_info=course_info,
             additional_requirements=lab_requirements,
+            manual_reference_excerpt=manual_reference_excerpt,
             model_provider=model_provider
         )
 

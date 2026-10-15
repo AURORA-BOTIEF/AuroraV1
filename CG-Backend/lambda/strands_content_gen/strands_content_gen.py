@@ -29,6 +29,8 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from manual_context import select_manual_context, flatten_to_text
+
 # Configure boto3 with extended timeouts for long-running LLM calls
 boto_config = Config(
     read_timeout=600,  # 10 minutes read timeout
@@ -782,6 +784,16 @@ Begin generating now:
         else "Each lesson MUST follow this exact heading hierarchy."
     )
 
+    # Paso 0 de calidad: seleccionar del manual las secciones relevantes para ESTE
+    # lote de lecciones en lugar de recortar por encabezado (manual[:14000]), que
+    # dejaba fuera el contenido real y provocaba invención de datos.
+    manual_excerpt = select_manual_context(
+        manual_reference_text,
+        query_text=flatten_to_text(batch_lessons),
+        title_text=f"{course_data.get('title', '')} {module_title}",
+        label=f"mod {module_number} lecc {batch_start_idx + 1}-{batch_end_idx}",
+    )
+
     manual_alignment_directive = (
         f"""═══════════════════════════════════════════════════════════════════════════════
 REGLA MANDATORIA DE ALINEACIÓN 100% AL MANUAL DE REFERENCIA
@@ -792,10 +804,10 @@ CRÍTICO: El contenido de todas las lecciones DEBE estar 100% estrictamente alin
 - Si hay discrepancias con el conocimiento general de la IA, el MANUAL DE REFERENCIA TIENE PRIORIDAD ABSOLUTA.
 
 === CONTENIDO DEL MANUAL DE REFERENCIA ===
-{manual_reference_text[:14000]}
+{manual_excerpt}
 === FIN DEL MANUAL DE REFERENCIA ===
 """
-        if manual_reference_text and manual_reference_text.strip()
+        if manual_excerpt and manual_excerpt.strip()
         else ""
     )
 
