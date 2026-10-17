@@ -246,3 +246,45 @@ Pruebas: `CG-Backend/test_referent_check.py` (23 pruebas). Incluyen el **camino 
 expansor ejecutado con S3 simulado (la prueba que habría cazado la falta de propagación), el
 prompt compacto real y el handler completo del Writer con reintento correctivo observable.
 
+---
+
+## 12. Evidencia de fabricación: experimento natural (16/10/2026)
+
+El mismo curso (`outline-forecasting-aplicado-logistica`) existe en el bucket generado dos veces,
+en dos ejecuciones distintas. Cada ejecución inventa su propio juego de ficheros y carpetas, y
+**ninguno de los dos aparece en el temario (14.044 caracteres) ni en el manual (231.744)**:
+
+| Generación 260806 | Generación 261015 |
+|---|---|
+| `Practica1_Demanda_SKU.xlsx` | `Practica1_MAPE_SKU.xlsx` |
+| `Practica2_Demanda_Cruda.csv` | `Demanda_Historica.xlsx` |
+| `Practica2_Catalogo_Productos.xlsx` | `Catalogo_Productos.xlsx` |
+| `Practica3_Dashboard_Monitoreo.pbix` | `Inventario_Bodega.xlsx` |
+| `C:\ForecLog\Practicas\P1\` … `P4\` | `C:\Forecasting_Logistica\` |
+
+**Nombres de fichero en común entre las dos ejecuciones: 0.** Es un experimento natural: la
+varianza demuestra que el dato no se deriva de las fuentes, se inventa. Y explica por sí solo por
+qué el instructor tiene que corregir más del 75 % de los laboratorios: cada curso llega con una
+ficción administrativa distinta.
+
+## 13. Calibración obligatoria antes de bloquear
+
+Medición sobre las 169 carpetas de curso del bucket: **solo 1 conserva el manual** extraído
+(`manuals/extracted_manual_text.txt`). Es decir, el caso normal en producción es **temario sin
+manual**, y en ese régimen el modelo *tiene* que nombrar ficheros que nadie declara si el
+ejercicio los necesita.
+
+Consecuencia práctica: con A1/B1 en modo informe el coste es aceptable; **en modo bloqueo, A1
+dispararía en casi todos los cursos** (en la muestra sin manual: 1.758 referentes marcados en 125
+de 163 proyectos; B1, 4.794 en 124 de 1.240 laboratorios), y buena parte podría ser legítima a
+juicio del instructor. Por eso:
+
+1. Antes de endurecer, hay que revisar una muestra de esas violaciones y separar «inventado» de
+   «razonable pero no declarado».
+2. La regla de tres niveles ya da la salida correcta para el caso legítimo: describir el fichero
+   funcionalmente o marcarlo `[POR CONFIRMAR]`, en vez de bautizarlo. El reintento correctivo
+   aplica exactamente eso.
+3. La decisión de pasar a ERROR sigue siendo **0 falsos positivos sobre ejecuciones reales**, no
+   una fecha.
+
+
