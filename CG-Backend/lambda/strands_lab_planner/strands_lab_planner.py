@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
+from referent_check import auditar_plan, mensaje_de_correccion
 
 # AWS Clients with extended timeout for Bedrock (complex prompts can take 3-5 minutes)
 bedrock_config = Config(
@@ -637,7 +638,8 @@ def generate_lab_master_plan(
     additional_requirements: Optional[str],
     manual_reference_excerpt: Optional[str] = None,
     model_provider: str = "bedrock",
-    batch_size: int = 5
+    batch_size: int = 5,
+    correction: str = ""
 ) -> dict:
     """
     Generate comprehensive master plan for all labs using AI with batching for large courses.
@@ -655,6 +657,7 @@ def generate_lab_master_plan(
         manual_reference_excerpt: Secciones relevantes del manual de referencia (fuente de verdad)
         model_provider: "bedrock" or "openai"
         batch_size: Number of labs to process per AI call (default 5)
+        correction: Instrucción de corrección para el reintento de integridad referencial (A1)
     """
     
     print(f"\n{'='*70}")
@@ -688,6 +691,18 @@ def generate_lab_master_plan(
         "on the reference manual above. Do NOT invent entities, names, figures, deliverables or "
         "procedures that are not present in the manual.\n"
         if manual_reference_excerpt and manual_reference_excerpt.strip()
+        else ""
+    )
+
+    # Reintento correctivo de A1: se le devuelven al modelo los referentes que no
+    # existen en ninguna fuente para que los elimine o los marque.
+    correction_block = (
+        "\nCORRECCIÓN OBLIGATORIA (integridad referencial):\n"
+        f"{correction}\n"
+        "Regla de tres niveles: solo puedes afirmar un dato si (a) está en el temario o en el "
+        "manual, o (b) el propio laboratorio lo crea antes de usarlo. Si no se cumple, omítelo o "
+        "escríbelo como [POR CONFIRMAR]. No inventes nombres de fichero, carpetas ni rutas.\n"
+        if correction and correction.strip()
         else ""
     )
 
@@ -740,7 +755,7 @@ LABS IN THIS BATCH ({len(batch_labs)} labs):
 {chr(10).join(labs_summary)}
 
 REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
-{manual_block}
+{manual_block}{correction_block}
 THOR ALIGNMENT & DEEP TECH SPEC:
 - Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
 - Licensing & Official Sources: For every software requirement provide the official source URL and the license type. If a value is not confirmed, use [ENLACE OFICIAL] / [LICENCIA POR VALIDAR]. Never invent versions, licenses, capabilities or availability; verify against official documentation.
@@ -936,6 +951,81 @@ def save_master_plan_to_s3(
         raise
 
 
+def guardar_informe_referencial(bucket: str, project_folder: str, informe: dict) -> str:
+    """Escribe el informe de integridad referencial del plan junto al resto de validaciones.
+
+    Se guarda en ``{project_folder}/validation/``, el mismo prefijo que usa
+    ``content_validator.save_validation_report``, para que ambos queden juntos.
+    """
+    try:
+        key = f"{project_folder}/validation/referential-integrity.json"
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(informe, indent=2, ensure_ascii=False),
+            ContentType='application/json',
+        )
+        print(f"📝 Informe de integridad referencial guardado: {key}")
+        return key
+    except Exception as e:
+        # Un fallo al guardar el informe no debe tumbar la generación del curso.
+        print(f"⚠️  No se pudo guardar el informe de integridad referencial: {e}")
+        return ""
+
+
+def auditar_y_corregir_plan(master_plan: dict, fuentes: str, regenerar, max_intentos: int = 2):
+    """Verificación A1 con reintento correctivo.
+
+    A1: todo referente de fichero que el plan afirma debe existir en las fuentes
+    (temario, manual, documentos). Los que no existen son datos inventados: el
+    plano donde nace el problema, porque el Writer los obedece después.
+
+    Si hay violaciones se le devuelve la lista al modelo y se regenera una vez.
+    Se conserva el plan con **menos** referentes sin declarar: un reintento que
+    empeora nunca sustituye al plan anterior.
+
+    Returns:
+        ``(master_plan, informe)``
+    """
+    informe = auditar_plan(master_plan, fuentes)
+    print(
+        f"\n🔎 A1 integridad referencial del plan: {informe['total']} referente(s) de fichero, "
+        f"{len(informe['violaciones'])} sin declarar en el temario ni en el manual"
+    )
+    for v in informe["violaciones"][:10]:
+        print(f"   ⚠️  {v['valor']}  (campo {v['campo']})")
+    if len(informe["violaciones"]) > 10:
+        print(f"   … y {len(informe['violaciones']) - 10} más")
+
+    intento = 1
+    while informe["violaciones"] and intento < max_intentos:
+        intento += 1
+        print(f"\n🔁 Reintento correctivo del plan ({intento}/{max_intentos})")
+        candidato = regenerar(mensaje_de_correccion(informe["violaciones"], "plan"))
+        if not candidato or not candidato.get("lab_plans"):
+            print("   ⚠️  El reintento no devolvió un plan utilizable; se conserva el anterior")
+            break
+        candidato_informe = auditar_plan(candidato, fuentes)
+        print(
+            f"   → reintento: {len(candidato_informe['violaciones'])} referente(s) sin declarar "
+            f"(anterior: {len(informe['violaciones'])})"
+        )
+        if len(candidato_informe["violaciones"]) < len(informe["violaciones"]):
+            master_plan, informe = candidato, candidato_informe
+        else:
+            print("   ⚠️  El reintento no mejora; se conserva el plan anterior")
+            break
+
+    if informe["violaciones"]:
+        print(
+            f"\n⚠️  A1: el plan conserva {len(informe['violaciones'])} referente(s) sin declarar "
+            f"tras {intento} intento(s). Queda registrado en el informe de validación."
+        )
+    else:
+        print("\n✅ A1: todos los referentes del plan están declarados en las fuentes")
+    return master_plan, informe
+
+
 def lambda_handler(event, context):
     """
     Lambda handler for Lab Planner (Agent 1).
@@ -1036,6 +1126,7 @@ def lambda_handler(event, context):
         # labs, así que el planeador veía ~4% de un manual real y el resto lo inventaba.
         # Ahora se seleccionan las secciones relevantes a los labs que se van a planificar.
         manual_reference_excerpt = ''
+        man_text = ''
         if manual_text_s3_key:
             try:
                 man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
@@ -1057,6 +1148,24 @@ def lambda_handler(event, context):
             additional_requirements=lab_requirements,
             manual_reference_excerpt=manual_reference_excerpt,
             model_provider=model_provider
+        )
+
+        # Step 3b (A1): integridad referencial del plan.
+        # Las fuentes son el temario completo + el manual completo (no el extracto):
+        # comprobar contra el extracto marcaría como inventado lo que el manual sí
+        # declara pero quedó fuera de la selección por relevancia.
+        referential_sources = flatten_to_text(outline_data) + "\n" + man_text
+        master_plan, referential_report = auditar_y_corregir_plan(
+            master_plan,
+            fuentes=referential_sources,
+            regenerar=lambda correccion: generate_lab_master_plan(
+                labs=labs,
+                course_info=course_info,
+                additional_requirements=lab_requirements,
+                manual_reference_excerpt=manual_reference_excerpt,
+                model_provider=model_provider,
+                correction=correccion,
+            ),
         )
 
         outline_fallback = master_plan.pop('_outline_fallback_used', False)
@@ -1095,6 +1204,10 @@ def lambda_handler(event, context):
                 f"{len(merged_plans)} total in master plan"
             )
 
+        # Reauditoría sobre el plan final (tras el merge parcial, si lo hubo): es el
+        # plan que realmente se guarda y el que el Writer va a obedecer.
+        referential_report = auditar_plan(master_plan, referential_sources)
+
         lab_plan_list = master_plan.get("lab_plans") or []
         duration_sum = sum(
             int(p.get("estimated_duration") or p.get("duration_minutes") or 30)
@@ -1117,7 +1230,15 @@ def lambda_handler(event, context):
             'additional_requirements': lab_requirements,
             'lab_plans_source': 'outline_fallback' if outline_fallback else 'ai',
             'lab_plans_count': len(lab_plan_list),
+            'referential_integrity': {
+                'check': 'A1',
+                'total_referentes': referential_report['total'],
+                'violaciones': referential_report['violaciones'],
+                'ok': referential_report['ok'],
+            },
         }
+
+        guardar_informe_referencial(course_bucket, project_folder, referential_report)
         
         # Step 4: Save to S3
         master_plan_key = save_master_plan_to_s3(

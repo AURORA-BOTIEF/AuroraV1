@@ -57,9 +57,18 @@ def lambda_handler(event, context):
         master_plan_key = event.get('master_plan_key')
         project_folder = event.get('project_folder')
         model_provider = event.get('model_provider', 'bedrock')
-        
+        # Contexto de verificación: sin estas dos claves el Writer no puede contrastar
+        # lo que escribe contra el temario ni contra el manual (verificación B1).
+        outline_s3_key = event.get('outline_s3_key')
+        manual_text_s3_key = event.get('manual_text_s3_key')
+
         if not all([course_bucket, master_plan_key, project_folder]):
             raise ValueError("Missing required parameters: course_bucket, master_plan_key, project_folder")
+
+        if not outline_s3_key:
+            print("⚠️  outline_s3_key missing: lab Writer will not receive the syllabus for referential checks")
+        if not manual_text_s3_key:
+            print("⚠️  manual_text_s3_key missing: lab Writer will not receive the reference manual")
         
         print(f"\n📥 Loading master plan from S3...")
         print(f"  Bucket: {course_bucket}")
@@ -156,6 +165,10 @@ def lambda_handler(event, context):
                 'master_plan_key': master_plan_key,
                 'project_folder': project_folder,
                 'model_provider': model_provider,
+                # Contexto para el Writer: manual de referencia (fuente de verdad) y
+                # temario (para la verificación de integridad referencial B1).
+                'outline_s3_key': outline_s3_key,
+                'manual_text_s3_key': manual_text_s3_key,
                 'additional_requirements': additional_requirements
             }
             

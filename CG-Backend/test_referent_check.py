@@ -1,0 +1,657 @@
+"""Pruebas de la verificación de integridad referencial (A1 en el plan, B1 en cada laboratorio).
+
+El fallo que fijan estas pruebas es concreto y medido (16/10/2026): el plan maestro
+generado afirmaba ``Demanda_Historica.xlsx``, ``Practica1_MAPE_SKU.xlsx`` y la carpeta
+``C:\\Forecasting_Logistica\\``, ausentes **por completo** del temario y del manual. El
+Writer, después, los obedecía letra por letra. Es decir: el dato inventado nace en el
+plan y se propaga hacia abajo.
+
+Regla de tres niveles que se verifica aquí:
+    1. declarado en una fuente (temario, manual, documentos)  -> se puede afirmar;
+    2. creado antes por el propio laboratorio                  -> se puede afirmar;
+    3. ni una cosa ni la otra                                  -> se omite o se marca.
+
+Disciplina de las pruebas: toda verificación nueva trae al menos una prueba que
+**ejecuta el camino vivo** (el expansor de lotes, el prompt compacto del Writer, el
+handler completo del Writer), no que busca texto en el fuente. Buscar texto no habría
+detectado el fallo de propagación que motivó estas pruebas.
+
+No requieren AWS, red, credenciales ni dependencias externas:
+
+    python test_referent_check.py     # ejecución directa
+    pytest test_referent_check.py     # si pytest está disponible
+"""
+
+import json
+import os
+import sys
+import types
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CARPETA_WRITER = os.path.join("lambda", "strands_lab_writer")
+_CARPETA_PLANNER = os.path.join("lambda", "strands_lab_planner")
+for _ruta in (_CARPETA_WRITER, _CARPETA_PLANNER, "lambda"):
+    sys.path.insert(0, os.path.join(_HERE, _ruta))
+
+from referent_check import (  # noqa: E402
+    auditar_laboratorio,
+    auditar_plan,
+    canonico,
+    extraer_referentes,
+    mensaje_de_correccion,
+)
+
+# --------------------------------------------------------------------------- #
+# Fixtures: fuentes reales (temario + manual) y referentes inventados reales
+# --------------------------------------------------------------------------- #
+
+# El temario declara el laboratorio y el archivo que entrega el instructor.
+_TEMARIO = """
+course:
+  title: "Analitica de inventario y demanda"
+modules:
+  - module_number: 1
+    lessons:
+      - lesson_number: 1
+        title: "Exploracion de datos"
+        lab_activities:
+          - title: "Analizar la demanda historica"
+            description: "Abrir el archivo datos_ventas.xlsx entregado por el instructor y calcular indicadores."
+            duration_minutes: 45
+"""
+
+# El manual declara dos archivos y una carpeta generica. Nombra el concepto
+# "demanda historica" en prosa, pero NO el fichero Demanda_Historica.xlsx.
+_MANUAL = """
+=== MANUAL: guia-analitica.pdf ===
+El curso trabaja con el archivo datos_ventas.xlsx que entrega el instructor.
+Guarde sus resultados en el archivo resultados.md.
+Trabaje siempre dentro de la carpeta de trabajo indicada por el instructor.
+La demanda historica se analiza por SKU en la segunda parte del curso.
+"""
+
+_FUENTES = _TEMARIO + "\n" + _MANUAL
+
+# Referentes que la evidencia real demostró inventados.
+_INVENTADOS = (
+    "C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx",
+    "Practica1_MAPE_SKU.xlsx",
+    "C:\\Forecasting_Logistica\\",
+)
+
+_LAB_PLAN = {
+    "lab_id": "01-01-01",
+    "lab_title": "Analizar la demanda historica",
+    "objectives": ["Calcular indicadores por SKU"],
+    "scope": "Analisis de la serie de demanda",
+    "estimated_duration": 45,
+    "bloom_level": "Apply",
+    "complexity": "medium",
+    "prerequisites": [],
+    "key_technologies": ["Excel"],
+}
+
+
+# --------------------------------------------------------------------------- #
+# Utilidades: cargar módulos Lambda sin AWS
+# --------------------------------------------------------------------------- #
+
+class _ClienteSimulado:
+    def __getattr__(self, _nombre):
+        return lambda *a, **k: None
+
+
+class _Cuerpo:
+    def __init__(self, texto):
+        self._texto = texto
+
+    def read(self):
+        return self._texto.encode("utf-8")
+
+
+class _S3Simulado:
+    """S3 en memoria: solo lo que usan el expansor y el handler del Writer."""
+
+    def __init__(self, objetos=None):
+        self.objetos = objetos or {}
+        self.puts = []
+
+    def get_object(self, Bucket=None, Key=None):  # noqa: N803 - firma de boto3
+        if Key not in self.objetos:
+            raise KeyError(f"objeto simulado inexistente: {Key}")
+        return {"Body": _Cuerpo(self.objetos[Key])}
+
+    def put_object(self, **kwargs):
+        self.puts.append(kwargs)
+        return {}
+
+
+def _cargar_modulo(nombre, carpeta):
+    """Importa un módulo Lambda con boto3 simulado: sin AWS ni credenciales."""
+    nombres = ("boto3", "botocore", "botocore.config", "botocore.exceptions", nombre)
+    previos = {n: sys.modules.get(n) for n in nombres}
+
+    class _ClientErrorSimulado(Exception):
+        pass
+
+    boto3_sim = types.ModuleType("boto3")
+    boto3_sim.client = lambda *a, **k: _ClienteSimulado()
+    botocore_sim = types.ModuleType("botocore")
+    config_sim = types.ModuleType("botocore.config")
+    config_sim.Config = lambda *a, **k: None
+    exceptions_sim = types.ModuleType("botocore.exceptions")
+    exceptions_sim.ClientError = _ClientErrorSimulado
+    botocore_sim.config = config_sim
+    botocore_sim.exceptions = exceptions_sim
+    sys.modules.update(
+        {
+            "boto3": boto3_sim,
+            "botocore": botocore_sim,
+            "botocore.config": config_sim,
+            "botocore.exceptions": exceptions_sim,
+        }
+    )
+    sys.modules.pop(nombre, None)
+
+    ruta = os.path.join(_HERE, carpeta)
+    if ruta not in sys.path:
+        sys.path.insert(0, ruta)
+    try:
+        import importlib
+
+        modulo = importlib.import_module(nombre)
+        return modulo
+    finally:
+        for clave, previo in previos.items():
+            if previo is None:
+                sys.modules.pop(clave, None)
+            else:
+                sys.modules[clave] = previo
+
+
+# --------------------------------------------------------------------------- #
+# Extracción de referentes
+# --------------------------------------------------------------------------- #
+
+def test_extrae_rutas_y_ficheros_ignorando_la_prosa():
+    texto = (
+        "Abre C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx y guarda "
+        "Practica1_MAPE_SKU.xlsx. La demanda historica en general es estable."
+    )
+    valores = [r["valor"] for r in extraer_referentes(texto)]
+    assert "C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx" in valores
+    assert "Practica1_MAPE_SKU.xlsx" in valores
+    assert all("demanda historica" not in v for v in valores), (
+        "la prosa no debe confundirse con un referente de fichero"
+    )
+
+
+def test_el_nombre_de_fichero_no_se_confunde_con_su_descripcion():
+    """«Demanda_Historica.xlsx» no está declarado porque el manual diga «demanda historica»."""
+    assert canonico("Demanda_Historica.xlsx") == "demanda_historica.xlsx"
+    referentes = extraer_referentes("Demanda_Historica.xlsx")
+    assert len(referentes) == 1
+
+
+def test_los_marcadores_no_son_referentes():
+    """Un dato marcado como no declarado ya cumple la regla: no se le exige fuente."""
+    assert extraer_referentes("[POR CONFIRMAR] el archivo de entrada") == []
+    assert extraer_referentes("Trabaje en [RUTA DE TRABAJO POR CONFIRMAR]") == []
+
+
+def test_las_url_no_son_referentes_de_fichero():
+    """Medido sobre el plan real: las colas de URL se colaban como rutas locales.
+
+    ``/support.microsoft.com/es-es/office/pronostico-lineal`` no es una ruta del
+    equipo del alumno. Las URL pertenecen a la verificación C1 (que estén vivas),
+    no a la trazabilidad contra el temario.
+    """
+    texto = (
+        "Documentación: https://support.microsoft.com/es-es/office/pronostico-lineal "
+        "y https://www.microsoft.com/es-mx/download/details.aspx"
+    )
+    assert extraer_referentes(texto) == []
+
+    plan = {
+        "software_requirements": [
+            {"name": "Excel", "source": "https://www.microsoft.com/es-mx/download/details.aspx"}
+        ]
+    }
+    assert auditar_plan(plan, _FUENTES)["ok"]
+
+
+def test_la_puntuacion_de_la_frase_no_forma_parte_del_referente():
+    """Medido sobre el plan real: «C:\\Forecasting_Logistica\\.» arrastraba el punto final."""
+    referentes = extraer_referentes(r"Directorio de trabajo: C:\Datos\.")
+    assert [r["valor"] for r in referentes] == ["C:\\Datos\\"]
+
+
+# --------------------------------------------------------------------------- #
+# A1: integridad referencial del plan
+# --------------------------------------------------------------------------- #
+
+def test_a1_detecta_los_referentes_inventados_de_la_evidencia_real():
+    plan = {
+        "overall_objectives": ["Analizar la demanda historica"],
+        "lab_plans": [
+            {
+                **_LAB_PLAN,
+                "scope": "Abrir C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx y calcular el MAPE.",
+            }
+        ],
+        "special_considerations": ["Directorio de trabajo: C:\\Forecasting_Logistica\\"],
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    valores = {v["valor"] for v in informe["violaciones"]}
+
+    assert "C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx" in valores
+    assert "C:\\Forecasting_Logistica\\" in valores
+    assert not informe["ok"]
+
+
+def test_a1_no_marca_lo_que_declaran_las_fuentes():
+    plan = {
+        "lab_plans": [{**_LAB_PLAN, "scope": "Abrir datos_ventas.xlsx y volcar en resultados.md"}],
+        "special_considerations": ["Guarde los entregables segun el manual"],
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    assert informe["ok"], informe["violaciones"]
+    assert informe["total"] >= 2
+
+
+def test_a1_indica_el_campo_donde_esta_el_referente():
+    plan = {"special_considerations": ["Trabaje en Practica1_MAPE_SKU.xlsx"]}
+    informe = auditar_plan(plan, _FUENTES)
+    assert informe["violaciones"], "el referente inventado debe detectarse"
+    assert informe["violaciones"][0]["campo"] == "special_considerations[0]"
+
+
+def test_a1_una_ruta_se_declara_por_el_nombre_de_su_fichero():
+    """La carpeta puede describirse en prosa; el fichero es lo que identifica la ruta."""
+    plan = {"lab_plans": [{**_LAB_PLAN, "scope": "Abra el fichero datos_ventas.xlsx del directorio de trabajo"}]}
+    assert auditar_plan(plan, _FUENTES)["ok"]
+
+
+# --------------------------------------------------------------------------- #
+# B1: integridad referencial de un laboratorio
+# --------------------------------------------------------------------------- #
+
+_LAB_QUE_CREA = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Analice los datos entregados.
+
+### Paso 1: Crear el libro de trabajo
+**Objective:** Preparar el libro de resultados.
+**Instructions:**
+1. Cree en Excel el archivo resultados.md y guarde una copia.
+**Verification:** El libro existe.
+
+### Paso 2: Volcar el analisis
+**Instructions:**
+1. Escriba el analisis en resultados.md.
+"""
+
+_LAB_QUE_USA_SIN_CREAR = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Analice los datos entregados.
+
+### Paso 1: Preparar el analisis
+**Objective:** Abrir el conjunto de datos.
+**Instructions:**
+1. Abra el archivo Demanda_Historica.xlsx y revise las columnas.
+**Expected output:** El conjunto de datos abierto.
+**Verification:** El archivo se abre sin errores.
+"""
+
+
+def test_b1_el_laboratorio_que_crea_y_luego_usa_no_viola():
+    informe = auditar_laboratorio(_LAB_QUE_CREA, _FUENTES, plan="")
+    assert informe["ok"], informe["violaciones"]
+
+
+def test_b1_el_laboratorio_que_usa_sin_crear_viola():
+    informe = auditar_laboratorio(_LAB_QUE_USA_SIN_CREAR, _FUENTES, plan="")
+    valores = {v["valor"] for v in informe["violaciones"]}
+    assert "Demanda_Historica.xlsx" in valores
+
+
+def test_b1_lo_declarado_en_el_plan_esta_permitido():
+    """El plan es una fuente para el Writer: si el plan lo declara, el laboratorio puede usarlo."""
+    plan = "Entregable obligatorio: Practica1_MAPE_SKU.xlsx"
+    informe = auditar_laboratorio(_LAB_QUE_USA_SIN_CREAR, _FUENTES, plan=plan)
+    valores = {v["valor"] for v in informe["violaciones"]}
+    assert "Demanda_Historica.xlsx" in valores
+    assert "Practica1_MAPE_SKU.xlsx" not in valores
+
+
+def test_b1_es_determinista():
+    primero = auditar_laboratorio(_LAB_QUE_USA_SIN_CREAR, _FUENTES, plan="")
+    segundo = auditar_laboratorio(_LAB_QUE_USA_SIN_CREAR, _FUENTES, plan="")
+    assert primero == segundo
+
+
+def test_el_mensaje_de_correccion_cita_los_referentes():
+    informe = auditar_laboratorio(_LAB_QUE_USA_SIN_CREAR, _FUENTES, plan="")
+    mensaje = mensaje_de_correccion(informe["violaciones"], "lab")
+    assert "Demanda_Historica.xlsx" in mensaje
+    assert "POR CONFIRMAR" in mensaje
+    assert mensaje_de_correccion([], "lab") == ""
+
+
+def test_las_dos_copias_del_modulo_son_identicas():
+    """El módulo se replica en el planner y el writer: debe estar byte a byte idéntico."""
+    rutas = [
+        os.path.join(_HERE, _CARPETA_PLANNER, "referent_check.py"),
+        os.path.join(_HERE, _CARPETA_WRITER, "referent_check.py"),
+    ]
+    with open(rutas[0], "rb") as f0, open(rutas[1], "rb") as f1:
+        assert f0.read() == f1.read(), "las copias de referent_check.py se han desincronizado"
+
+
+# --------------------------------------------------------------------------- #
+# Camino vivo 1: el expansor de lotes debe propagar el contexto
+# --------------------------------------------------------------------------- #
+
+def test_el_expansor_de_lotes_propaga_temario_y_manual():
+    """Regresión real: el lote de laboratorios no llevaba el temario ni el manual.
+
+    Consecuencia medida: ``LabBatchExpander`` no los recibía, así que el Writer no
+    podía contrastar nada contra las fuentes y el manual solo llegaba (recortado y
+    mal etiquetado) por el atajo de ``additional_requirements`` del plan.
+    """
+    modulo = _cargar_modulo("lab_batch_expander", "lambda")
+    plan = {"lab_plans": [{"lab_id": "01-01-01", "lab_title": "Lab uno"}]}
+    modulo.s3_client = _S3Simulado(
+        {"p/labguide/lab-master-plan.json": json.dumps(plan)}
+    )
+    modulo.list_lesson_files = lambda *a, **k: []
+
+    salida = modulo.lambda_handler(
+        {
+            "course_bucket": "bucket",
+            "master_plan_key": "p/labguide/lab-master-plan.json",
+            "project_folder": "p",
+            "model_provider": "bedrock",
+            "outline_s3_key": "p/outline.yaml",
+            "manual_text_s3_key": "p/manual.txt",
+        },
+        None,
+    )
+
+    assert salida["statusCode"] == 200, salida
+    lote = salida["batches"][0]
+    assert lote["outline_s3_key"] == "p/outline.yaml", "el lote no lleva el temario"
+    assert lote["manual_text_s3_key"] == "p/manual.txt", "el lote no lleva el manual"
+
+
+def test_la_state_machine_pasa_el_contexto_al_expansor_de_lotes():
+    with open(os.path.join(_HERE, "current_state_machine.json"), encoding="utf-8") as fh:
+        definicion = json.load(fh)
+
+    encontrados = 0
+    for nombre, estado in definicion["States"].items():
+        parametros = estado.get("Parameters") or {}
+        if not str(parametros.get("FunctionName", "")).endswith(":function:LabBatchExpander"):
+            continue
+        encontrados += 1
+        payload = parametros.get("Payload") or {}
+        assert "outline_s3_key.$" in payload, f"{nombre} no pasa el temario al expansor"
+        assert "manual_text_s3_key.$" in payload, f"{nombre} no pasa el manual al expansor"
+
+    assert encontrados >= 2, "se esperaban dos invocaciones (solo labs y teoría+labs)"
+
+
+# --------------------------------------------------------------------------- #
+# Camino vivo 2: el prompt compacto del Writer
+# --------------------------------------------------------------------------- #
+
+def test_el_prompt_vivo_del_writer_incluye_la_correccion():
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    correccion = mensaje_de_correccion(
+        [{"valor": "Demanda_Historica.xlsx", "tipo": "fichero", "inicio": 0}], "lab"
+    )
+    contexto = {
+        "target_language": "Spanish (Español)",
+        "referential_correction": correccion,
+    }
+    prompt = modulo._compact_single_lab_prompt(_LAB_PLAN, contexto, "", "resumen del lab")
+    assert "CORRECCIÓN OBLIGATORIA" in prompt
+    assert "Demanda_Historica.xlsx" in prompt
+
+
+# --------------------------------------------------------------------------- #
+# Camino vivo 3: el handler del Writer reintenta y corrige
+# --------------------------------------------------------------------------- #
+
+_LAB_CON_INVENTO = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Analice los datos entregados.
+
+### Paso 1: Preparar el analisis
+**Objective:** Abrir el conjunto de datos.
+**Instructions:**
+1. Abra el archivo Demanda_Historica.xlsx y revise las columnas.
+**Expected output:** El conjunto de datos abierto.
+**Verification:** El archivo se abre sin errores.
+"""
+
+_LAB_CORREGIDO = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Analice los datos entregados.
+
+### Paso 1: Preparar el analisis
+**Objective:** Abrir el conjunto de datos.
+**Instructions:**
+1. Abra el archivo datos_ventas.xlsx y revise las columnas.
+**Expected output:** El conjunto de datos abierto.
+**Verification:** El archivo se abre sin errores.
+"""
+
+
+def _ejecutar_writer(plan, contenidos, max_intentos=1):
+    """Ejecuta el handler real del Writer con S3 y el modelo simulados.
+
+    ``contenidos`` es la lista de respuestas del modelo simulado: la primera llamada
+    devuelve la primera, la segunda la segunda, y así sucesivamente.
+    """
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+
+    s3 = _S3Simulado({"p/outline.yaml": _TEMARIO, "p/manual.txt": _MANUAL})
+    modulo.s3_client = s3
+    modulo.MAX_LAB_GENERATION_ATTEMPTS = max_intentos
+    contextos = []
+
+    def _generador_falso(lab_plans, master_context, model_provider="bedrock",
+                         lesson_content="", previous_lab_context=""):
+        contextos.append(dict(master_context))
+        indice = min(len(contextos), len(contenidos)) - 1
+        return {lab_plans[0]["lab_id"]: contenidos[indice]}
+
+    modulo.generate_all_labs_batch = _generador_falso
+    modulo._verify_and_refine_lab_guide = lambda guide, plan_, ctx, model_provider="bedrock": guide
+    modulo._finalize_lab_markdown = lambda markdown, is_demo, is_spanish=True: markdown
+    modulo.load_master_plan_from_s3 = lambda bucket, key: plan
+    modulo.save_lab_guide_to_s3 = lambda **kw: f"p/labguide/lab-{kw['lab_id']}.md"
+    modulo._lab_skip_if_exists_enabled = lambda: False
+    modulo._find_existing_lab_guide_key = lambda *a, **k: None
+
+    resultado = modulo.lambda_handler(
+        {
+            "course_bucket": "bucket",
+            "master_plan_key": "p/labguide/lab-master-plan.json",
+            "project_folder": "p",
+            "outline_s3_key": "p/outline.yaml",
+            "manual_text_s3_key": "p/manual.txt",
+            "lab_ids": ["01-01-01"],
+            "lab_lesson_keys": {},
+        },
+        None,
+    )
+    informes = [
+        json.loads(p["Body"])
+        for p in s3.puts
+        if p["Key"].endswith("labs-referential-integrity.json")
+    ]
+    return resultado, informes, contextos
+
+
+def test_el_writer_reintenta_y_corrige_referentes_inventados():
+    """Camino vivo: el handler genera, detecta un referente inventado, reintenta
+    con la lista de corrección y acepta el segundo intento."""
+    plan = {"lab_plans": [_LAB_PLAN]}
+    resultado, informes, contextos = _ejecutar_writer(
+        plan,
+        [_LAB_CON_INVENTO, _LAB_CORREGIDO],
+        max_intentos=3,
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 2, "el Writer debió reintentar tras detectar el referente inventado"
+    assert not contextos[0].get("referential_correction"), (
+        "el primer intento no debe llevar corrección"
+    )
+    correccion = contextos[1].get("referential_correction") or ""
+    assert "Demanda_Historica.xlsx" in correccion, (
+        "el reintento debe citar el referente inventado que hay que eliminar"
+    )
+    assert informes, "no se escribió el informe B1"
+    assert informes[0]["ok"] is True, informes[0]
+
+
+_LAB_QUE_USA_LA_CARPETA_INVENTADA = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Localice los datos de partida.
+
+### Paso 1: Preparar el analisis
+**Objective:** Localizar el conjunto de datos.
+**Instructions:**
+1. Abra el explorador de archivos en C:\\Forecasting_Logistica\\ y localice los datos.
+"""
+
+_LAB_QUE_CALCULA_EL_ENTREGABLE = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Elabore el informe de resultados.
+
+### Paso 1: Analizar la serie
+**Objective:** Obtener el error del pronostico.
+**Instructions:**
+1. Abra el libro Practica1_MAPE_SKU.xlsx y revise la hoja de calculos.
+"""
+
+
+def test_b1_no_acepta_como_fuente_un_referente_que_a1_declaro_inventado():
+    """Composición de las dos capas: A1 marca el referente inventado en el plan y B1
+    no lo acepta después como fuente. Sin esto, el laboratorio podría repetir el dato
+    inventado del plan y B1 lo daría por declarado."""
+    plan = {
+        "lab_plans": [_LAB_PLAN],
+        "special_considerations": ["Directorio de trabajo: C:\\Forecasting_Logistica\\"],
+        "metadata": {
+            "referential_integrity": {
+                "check": "A1",
+                "total_referentes": 1,
+                "violaciones": [
+                    {"campo": "special_considerations[0]", "valor": "C:\\Forecasting_Logistica\\"}
+                ],
+                "ok": False,
+            }
+        },
+    }
+    resultado, informes, _ = _ejecutar_writer(
+        plan, [_LAB_QUE_USA_LA_CARPETA_INVENTADA], max_intentos=1
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    assert informes, "no se escribió el informe B1"
+    violaciones = [
+        v["valor"]
+        for informe in informes
+        for r in informe["por_laboratorio"].values()
+        for v in r["violaciones"]
+    ]
+    assert any("Forecasting_Logistica" in v for v in violaciones), (
+        f"B1 aceptó como declarada una carpeta que A1 marcó como inventada: {violaciones}"
+    )
+
+
+def test_b1_si_acepta_lo_que_el_plan_declara_y_a1_no_marco():
+    plan = {
+        "lab_plans": [_LAB_PLAN],
+        "special_considerations": ["Entregable obligatorio: Practica1_MAPE_SKU.xlsx"],
+        "metadata": {"referential_integrity": {"check": "A1", "violaciones": [], "ok": True}},
+    }
+    resultado, informes, _ = _ejecutar_writer(
+        plan, [_LAB_QUE_CALCULA_EL_ENTREGABLE], max_intentos=1
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    assert informes[0]["ok"] is True, informes[0]
+
+
+# --------------------------------------------------------------------------- #
+# Camino vivo 4: A1 con reintento correctivo en el planner
+# --------------------------------------------------------------------------- #
+
+def test_el_planner_conserva_el_plan_con_menos_referentes_sin_declarar():
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+
+    plan_malo = {
+        "lab_plans": [{**_LAB_PLAN, "scope": "Abrir C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx"}],
+        "special_considerations": ["Directorio de trabajo: C:\\Forecasting_Logistica\\"],
+    }
+    plan_bueno = {
+        "lab_plans": [{**_LAB_PLAN, "scope": "Abrir datos_ventas.xlsx y volcar en resultados.md"}],
+        "special_considerations": [],
+    }
+
+    correcciones = []
+
+    def _regenerar(correccion):
+        correcciones.append(correccion)
+        return plan_bueno
+
+    plan, informe = modulo.auditar_y_corregir_plan(plan_malo, _FUENTES, _regenerar)
+
+    assert correcciones, "no se pidió el reintento correctivo"
+    assert "Demanda_Historica.xlsx" in correcciones[0]
+    assert informe["ok"], informe["violaciones"]
+    assert plan is plan_bueno
+
+
+def test_el_planner_no_sustituye_el_plan_si_el_reintento_empeora():
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+
+    plan_malo = {"lab_plans": [{**_LAB_PLAN, "scope": "Abrir Demanda_Historica.xlsx"}]}
+    plan_peor = {"lab_plans": [{**_LAB_PLAN, "scope": "Abrir Demanda_Historica.xlsx y Practica1_MAPE_SKU.xlsx"}]}
+
+    plan, informe = modulo.auditar_y_corregir_plan(
+        plan_malo, _FUENTES, lambda correccion: plan_peor
+    )
+
+    assert plan is plan_malo, "un reintento que empeora no debe sustituir al plan anterior"
+    assert not informe["ok"]
+
+
+if __name__ == "__main__":
+    pruebas = [
+        (nombre, funcion)
+        for nombre, funcion in sorted(globals().items())
+        if nombre.startswith("test_") and callable(funcion)
+    ]
+    fallos = []
+    for nombre, funcion in pruebas:
+        try:
+            funcion()
+        except Exception as exc:  # noqa: BLE001 - informe de test
+            fallos.append((nombre, exc))
+            print(f"FALLO  {nombre}: {exc}")
+        else:
+            print(f"ok     {nombre}")
+    print(f"\n{len(pruebas) - len(fallos)}/{len(pruebas)} pruebas correctas")
+    sys.exit(1 if fallos else 0)

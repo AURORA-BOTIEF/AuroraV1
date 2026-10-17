@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
+from referent_check import auditar_laboratorio, mensaje_de_correccion
 
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
 # that boto3 does not abort a long generation and retry (which doubles wall time).
@@ -1312,6 +1313,21 @@ deliverables or tools that are not present in it.
         else ""
     )
 
+    # Reintento correctivo de B1: se le devuelven al modelo los ficheros y rutas que
+    # no están en ninguna fuente y que ningún paso anterior crea.
+    correction = master_context.get("referential_correction", "")
+    correction_section = (
+        f"""
+CORRECCIÓN OBLIGATORIA (integridad referencial):
+{correction}
+Regla de tres niveles: solo puedes afirmar un dato si (a) está en el temario, el manual o el
+plan de prácticas, o (b) un paso anterior de este mismo laboratorio lo crea. Si no se cumple,
+omítelo o escríbelo como [POR CONFIRMAR]. No introduzcas nombres de fichero ni rutas nuevas.
+"""
+        if correction and correction.strip()
+        else ""
+    )
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1323,6 +1339,7 @@ COURSE CONTEXT (brief):
 - Notes: {spec_line}
 {add_req_section}
 {manual_section}
+{correction_section}
 LAB SPECIFICATION:
 {labs_summary_text}
 {previous_lab_context_section}
@@ -1808,6 +1825,37 @@ Generate ALL {len(lab_plans)} labs now:
         raise
 
 
+def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict[str, Any]) -> str:
+    """Escribe el informe B1 de integridad referencial de los laboratorios generados.
+
+    Se guarda junto a las validaciones de contenido (``{project_folder}/validation/``),
+    en la misma convención que ``content_validator.save_validation_report``.
+    """
+    if not informes:
+        return ""
+    try:
+        key = f"{project_folder}/validation/labs-referential-integrity.json"
+        total = sum(len(r.get("violaciones", [])) for r in informes.values())
+        payload = {
+            "check": "B1",
+            "labs": len(informes),
+            "total_violaciones": total,
+            "ok": total == 0,
+            "por_laboratorio": informes,
+        }
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(payload, indent=2, ensure_ascii=False),
+            ContentType='application/json',
+        )
+        print(f"📝 Informe B1 de integridad referencial guardado: {key}")
+        return key
+    except Exception as e:
+        print(f"⚠️  No se pudo guardar el informe B1 de integridad referencial: {e}")
+        return ""
+
+
 def lambda_handler(event, context):
     """
     Lambda handler for Lab Writer (Agent 2).
@@ -1892,12 +1940,52 @@ def lambda_handler(event, context):
         manual_reference_text = ''
         if manual_text_s3_key:
             try:
-                s3_client = boto3.client('s3')
                 man_obj = s3_client.get_object(Bucket=course_bucket, Key=manual_text_s3_key)
                 manual_reference_text = man_obj['Body'].read().decode('utf-8')
                 print(f"📚 Loaded manual reference text in Lab Writer ({len(manual_reference_text):,} chars)")
             except Exception as man_err:
                 print(f"⚠️ Could not load manual reference text in lab writer: {man_err}")
+
+        # Contexto para la verificación B1 (integridad referencial): el temario es la
+        # fuente primaria. Sin él, la comprobación no puede distinguir un fichero
+        # declarado de uno inventado, y marcaría todo como violación.
+        outline_reference_text = ''
+        outline_s3_key = event.get('outline_s3_key')
+        if outline_s3_key:
+            try:
+                out_obj = s3_client.get_object(Bucket=course_bucket, Key=outline_s3_key)
+                outline_reference_text = out_obj['Body'].read().decode('utf-8')
+                print(f"📄 Loaded syllabus in Lab Writer ({len(outline_reference_text):,} chars)")
+            except Exception as out_err:
+                print(f"⚠️ Could not load syllabus in lab writer: {out_err}")
+        else:
+            print("⚠️  outline_s3_key not received: referential check B1 will run without the syllabus")
+
+        referential_sources = outline_reference_text + "\n" + manual_reference_text
+
+        # El plan es fuente para B1… pero solo para sus referentes VERIFICADOS.
+        # A1 ya dejó por escrito qué referentes del plan no existen en ninguna fuente;
+        # si se usasen como fuente, el laboratorio podría repetir el dato inventado y
+        # B1 lo daría por bueno. Por eso se excluye el propio informe y se eliminan
+        # del texto del plan los referentes que A1 marcó como no trazables.
+        plan_metadata = master_plan.get("metadata") or {}
+        plan_trazable = {k: v for k, v in master_plan.items() if k != "metadata"}
+        plan_trazable["metadata"] = {
+            k: v for k, v in plan_metadata.items() if k != "referential_integrity"
+        }
+        referential_plan_text = flatten_to_text(plan_trazable)
+        violaciones_a1 = (plan_metadata.get("referential_integrity") or {}).get("violaciones") or []
+        for violacion in violaciones_a1:
+            valor = violacion.get("valor") if isinstance(violacion, dict) else None
+            if valor:
+                referential_plan_text = referential_plan_text.replace(valor, " ")
+        if violaciones_a1:
+            print(
+                f"🔗 Se excluyen {len(violaciones_a1)} referente(s) del plan marcados por A1 "
+                f"como no declarados: no cuentan como fuente para B1"
+            )
+
+        referential_reports: Dict[str, Any] = {}
 
         # Build master context for all labs (including language)
         additional_requirements = (
@@ -1930,6 +2018,10 @@ def lambda_handler(event, context):
         for idx, lab_plan in enumerate(lab_plans, start=1):
             lab_id = lab_plan['lab_id']
             print(f"\n📦 Lab {idx}/{len(lab_plans)}: Generating {lab_id}...")
+
+            # La corrección de integridad referencial es específica del laboratorio en
+            # curso: no debe arrastrarse al siguiente.
+            master_context.pop("referential_correction", None)
 
             if _lab_skip_if_exists_enabled():
                 existing_key = _find_existing_lab_guide_key(
@@ -1990,6 +2082,34 @@ def lambda_handler(event, context):
                             is_demo=is_demo,
                             is_spanish=course_language.startswith('es')
                         )
+
+                        # Verificación B1: todo fichero o ruta que el laboratorio
+                        # referencia debe estar declarado en el temario, el manual o el
+                        # plan, o haberse creado en un paso anterior de este laboratorio.
+                        referential_report = auditar_laboratorio(
+                            verified_guide,
+                            fuentes=referential_sources,
+                            plan=referential_plan_text,
+                        )
+                        referential_reports[lab_id] = referential_report
+                        print(
+                            f"  🔎 B1 integridad referencial de {lab_id}: "
+                            f"{len(referential_report['violaciones'])} referente(s) sin declarar"
+                        )
+                        for v in referential_report["violaciones"][:10]:
+                            print(f"     ⚠️  {v['valor']}")
+
+                        if referential_report["violaciones"] and attempt < MAX_LAB_GENERATION_ATTEMPTS:
+                            # Reintento correctivo: se devuelve la lista al modelo para
+                            # que elimine o marque los referentes inventados.
+                            master_context["referential_correction"] = mensaje_de_correccion(
+                                referential_report["violaciones"], "lab"
+                            )
+                            raise RuntimeError(
+                                f"B1 referential check failed for {lab_id}: "
+                                f"{len(referential_report['violaciones'])} undeclared file reference(s)"
+                            )
+
                         labs_markdown[lab_id] = verified_guide
                         print(f"  ✅ Lab {lab_id} generated & verified (Demo={is_demo}) (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
                         break
@@ -2042,6 +2162,8 @@ def lambda_handler(event, context):
             raise RuntimeError(
                 f"Expected {len(lab_plans)} lab files saved, got {len(lab_guide_keys)}"
             )
+
+        guardar_informe_referencial(course_bucket, project_folder, referential_reports)
 
         print(f"\n{'='*70}")
         print(f"✅ LAB WRITING COMPLETED")
