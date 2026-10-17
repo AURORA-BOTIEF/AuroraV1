@@ -287,4 +287,113 @@ juicio del instructor. Por eso:
 3. La decisión de pasar a ERROR sigue siendo **0 falsos positivos sobre ejecuciones reales**, no
    una fecha.
 
+---
+
+## 14. Calibración ejecutada (16/10/2026): por qué A1/B1 **no** pasan a ERROR
+
+Se ejecutó el punto 1 de §13 sobre el corpus real. La respuesta es que **la mayoría de lo que
+marcan A1 y B1 no son defectos del curso: son artefactos del propio detector**. Por eso se
+mantiene el modo reintento + registro y no se endurece.
+
+### 14.1 Método
+
+- **Censo** sobre `corpus_a1_b1.json` (164 proyectos, 1.244 laboratorios ya generados), aplicando
+  el módulo desplegado. Artefacto auditado: los laboratorios y planes **reales** del bucket.
+- **Revisión con contexto** de una muestra aleatoria (semilla fija 20261016) de **80 marcados**
+  (60 de B1 + 20 de A1): para cada uno se trajo de S3 el laboratorio o el plan y se leyó ±300
+  caracteres alrededor del referente. El valor suelto no basta para juzgar; el contexto sí.
+
+### 14.2 Censo
+
+| Métrica | Valor |
+|---|---|
+| Proyectos en el corpus | 164 (solo **1** con manual) |
+| Laboratorios revisados | 1.244 |
+| Referentes marcados | **6.567** (A1 1.773, B1 4.794) |
+| Proyectos con ≥1 marcado | **160 / 164 (97,6 %)** |
+| Laboratorios con ≥1 marcado | **847 / 1.244 (68,1 %)** |
+
+Si A1/B1 fuesen ERROR hoy, **bloquearían el 97,6 % de los cursos reales**. Eso, por sí solo,
+descarta el modo bloqueo con la heurística actual.
+
+### 14.3 Revisión con contexto: 78 de 80 son falso positivo
+
+| Origen | Revisados | Falso positivo | Real (fichero de entrada no aportado) |
+|---|---|---|---|
+| B1 (laboratorios) | 60 | **60** | 0 |
+| A1 (plan) | 20 | **18** | 2 |
+| **Total** | **80** | **78 (97,5 %)** | **2 (2,5 %)** |
+
+Los 2 casos reales son de la clase que la verificación sí busca: un fichero de **entrada** que el
+alumno debe aportar y que ninguna fuente declara (`perfiles_roles_planta.docx`, «disponible en
+OneDrive»; `mensajes_bancarios.csv`, «archivo de entrada por defecto»).
+
+### 14.4 Taxonomía del falso positivo (con ejemplo real verificado)
+
+**① La extensión no está anclada a fin de palabra** (defecto del regex, reproducible sobre el
+módulo desplegado). Cualquier expresión con puntos cuya última pieza empiece por una extensión
+conocida genera un «fichero» que no existe:
+
+| Texto real del laboratorio | Referente extraído |
+|---|---|
+| `df.shape[0]` | `df.sh` |
+| `matplotlib.pyplot` | `matplotlib.py` |
+| `kpis.show(truncate=False)` | `kpis.sh` |
+| `X_val_prep.shape` | `X_val_prep.sh` |
+| `robot.language-server.python` | `robot.language-server.py` |
+| `transaction.state.log.replication.factor` | `transaction.state.log` |
+| `parse.key=true` | `parse.key` |
+| `hashlib.md5(...)` | `hashlib.md` |
+| `Object.keys(...)` | `Object.key` |
+
+**② Identificadores punteados y claves de configuración tratados como fichas.** `math.log`,
+`android.util.Log`, `pyspark.sql`, `wwv_flow.show`, `process.env.DB`, `APEX_ESCAPE.HTML`,
+`/_cat/count` (API de Elasticsearch), `/components/schemas/ErrorResponse` (fragmento OpenAPI),
+`/subscriptions/…/resourceGroups/…` (ID de recurso de Azure). El `re.IGNORECASE` lo agrava:
+`.Log`, `.Sh`, `.JSON` casan como extensiones.
+
+**③ Rutas de sistema y de plataforma** que existen en el entorno: `/dev/null` (240 apariciones),
+`/bin/bash`, `/etc/*`, `/usr/*`, `/var/*`, `/lib/systemd/*`, `/mnt/*`, `/data/data/…`, sitios de
+SharePoint, propiedades de Kafka. Representan ≥25 % del total y **no son material del curso**.
+
+**④ Creación no detectada.** El laboratorio sí crea el fichero, pero por una vía que la ventana de
+contexto no ve: `tee`, redirección `>`, `BACKUP … TO DISK`, `--report`/`--output` de Robot,
+`Out-File`, `SPOOL`, `hostPath: DirectoryOrCreate`, `initContainer … > /html/index.html`,
+`adb pull`, o un listado de «evidencias esperadas». Además, la lista de verbos omite conjugaciones
+y sinónimos frecuentes: **«guarde», «creado», «almacena», «conserva»** no están, así que pasos que
+claramente crean el fichero no lo blanquean.
+
+**⑤ Ausencia deliberada.** Hay referentes que el laboratorio menciona justamente para decir que
+**no** existen: `archivo_inexistente.json` (fixture para probar el manejo de errores),
+`tailwind.config.js` («sin archivo `tailwind.config.js` clásico»), `secretos.db` (ejemplo de
+*ruta de ataque*).
+
+### 14.5 Decisión
+
+- **No se pasa a ERROR.** La precisión medida es ~2,5 %; el criterio de §13 (0 falsos positivos)
+  queda muy lejos. A1/B1 siguen en **reintento correctivo + registro**.
+- El censo mecánico (42,9 % de falso positivo *evidente*) es un **límite inferior**: la revisión
+  con contexto, que es la medida válida, lo eleva al 97,5 %.
+
+### 14.6 Correcciones necesarias antes de reconsiderar el bloqueo
+
+Ninguna cambia el temario ni el flujo de carga. Todas con prueba de camino vivo (M1) y
+declaración de artefacto y contexto (M2):
+
+1. **Anclar la extensión** a un límite de palabra (fin de token: no seguida de letra), para que
+   `df.shape` deje de producir `df.sh`.
+2. **Excluir identificadores punteados y claves de configuración**: exigir extensión en minúscula
+   en el original y descartar tokens que sean rutas de namespace (`a.b.c` sin `/` ni `\` y sin
+   verbo de fichero alrededor) o propiedades (`clave=valor`).
+3. **Neutralizar rutas de sistema y de plataforma** (lista de prefijos: `/etc/`, `/usr/`, `/dev/`,
+   `/bin/`, `/var/`, `/lib/`, `/opt/`, `/mnt/`, `/data/`, `C:\Users\`, …) y rutas que no son
+   locales (ID de recurso, ruta de API).
+4. **Ampliar la detección de creación**: más verbos y conjugaciones, y aceptar el contexto de todo
+   el paso (con las salvaguardas para que no quede vacua).
+5. **Reconocer la mención de ausencia** («no existe», «sin archivo», «si falta»).
+
+Mientras esas cinco correcciones no estén hechas y **re-medidas sobre el corpus con 0 falsos
+positivos**, el bloqueo no aporta: cambiaría un aviso ignorable por un atasco en casi todos los
+cursos.
+
 
