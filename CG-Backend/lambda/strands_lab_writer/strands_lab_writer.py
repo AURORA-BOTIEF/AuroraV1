@@ -23,7 +23,13 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
-from referent_check import auditar_laboratorio, mensaje_de_correccion
+from referent_check import (
+    auditar_laboratorio,
+    mensaje_de_correccion,
+    referencias_a_labs_posteriores,
+    referentes_creados,
+    salidas_de_laboratorios,
+)
 
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
 # that boto3 does not abort a long generation and retry (which doubles wall time).
@@ -1097,6 +1103,33 @@ Use specific commands, configurations, and concepts from this lesson where appli
 """
 
 
+def _referentes_creados_en_labs_anteriores(
+    bucket: str, project_folder: str, lab_ids_anteriores: list[str]
+) -> set[str]:
+    """Claves de los ficheros que crearon los laboratorios previos (verificación B3c).
+
+    Es el contexto que le faltaba a B1: un fichero creado en el laboratorio 2 es
+    legítimo en el 3. Se leen de S3, no del plan, porque lo que cuenta es lo que se
+    **escribió**, no lo que el plan prometió. Los lotes se ejecutan en secuencia y de
+    uno en uno (``MaxConcurrency: 1``), así que los laboratorios previos ya están
+    guardados cuando se escribe el actual.
+    """
+    creados: set[str] = set()
+    for lab_id in lab_ids_anteriores or ():
+        key = _find_existing_lab_guide_key(bucket, project_folder, lab_id)
+        if not key:
+            continue
+        try:
+            cuerpo = (
+                s3_client.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
+            )
+        except Exception as e:
+            print(f"⚠️  No se pudo leer el laboratorio anterior {lab_id} para B3c: {e}")
+            continue
+        creados |= referentes_creados(cuerpo)
+    return creados
+
+
 def _get_previous_lab_context(bucket: str, project_folder: str, prev_lab_id: str) -> str:
     """Fetch previous lab markdown from S3 and extract code blocks/context for sequential continuity."""
     if not prev_lab_id:
@@ -1843,10 +1876,27 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
     try:
         key = f"{project_folder}/validation/labs-referential-integrity.json"
         total = sum(len(r.get("violaciones", [])) for r in informes.values())
+        b2 = sum(
+            1
+            for r in informes.values()
+            for v in r.get("violaciones", [])
+            if v.get("verificacion") == "B2"
+        )
         payload = {
-            "check": "B1",
+            "check": "B1+B2",
             "labs": len(informes),
             "total_violaciones": total,
+            "total_b1": total - b2,
+            "total_b2": b2,
+            "total_alta_confianza": sum(
+                1
+                for r in informes.values()
+                for v in r.get("violaciones", [])
+                if v.get("confianza") == "alta"
+            ),
+            "total_menciones_posteriores": sum(
+                len(r.get("menciones_posteriores", [])) for r in informes.values()
+            ),
             "ok": total == 0,
             "por_laboratorio": informes,
         }
@@ -1856,10 +1906,10 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             Body=json.dumps(payload, indent=2, ensure_ascii=False),
             ContentType='application/json',
         )
-        print(f"📝 Informe B1 de integridad referencial guardado: {key}")
+        print(f"📝 Informe B1/B2 de integridad referencial guardado: {key}")
         return key
     except Exception as e:
-        print(f"⚠️  No se pudo guardar el informe B1 de integridad referencial: {e}")
+        print(f"⚠️  No se pudo guardar el informe B1/B2 de integridad referencial: {e}")
         return ""
 
 
@@ -1999,6 +2049,28 @@ def lambda_handler(event, context):
 
         referential_reports: Dict[str, Any] = {}
 
+        # Contexto de conjunto para B2/B3c. En modo lote `lab_plans` viene filtrado a
+        # un solo laboratorio, así que la posición se calcula sobre el plan COMPLETO;
+        # usar `idx` del bucle daba 1 siempre y desactivaba la continuidad.
+        orden_labs = [
+            p.get("lab_id") for p in master_plan.get("lab_plans", []) if p.get("lab_id")
+        ]
+        salidas_por_lab = salidas_de_laboratorios(master_plan)
+        creados_antes: set[str] = set()
+        if orden_labs and lab_plans:
+            primera = next(
+                (i for i, otro in enumerate(orden_labs) if otro == lab_plans[0]["lab_id"]),
+                0,
+            )
+            creados_antes = _referentes_creados_en_labs_anteriores(
+                course_bucket, project_folder, orden_labs[:primera]
+            )
+            if creados_antes:
+                print(
+                    f"🔗 B3c: {len(creados_antes)} referente(s) creados en laboratorios "
+                    f"anteriores se aceptan como legítimos"
+                )
+
         # Build master context for all labs (including language)
         additional_requirements = (
             event.get('additional_requirements')
@@ -2046,6 +2118,7 @@ def lambda_handler(event, context):
                         )["Body"].read().decode("utf-8")
                         if body.strip():
                             labs_markdown[lab_id] = body
+                            creados_antes |= referentes_creados(body)
                             print(
                                 f"  ⏭️  Skipping generation; using existing s3://{course_bucket}/{existing_key}"
                             )
@@ -2059,15 +2132,14 @@ def lambda_handler(event, context):
                 lesson_key = lab_lesson_keys[lab_id]
                 lesson_content = load_lesson_content(course_bucket, lesson_key)
 
+            # Posición en el plan completo (no en el lote): B2 y B3c dependen de ella.
+            posicion = orden_labs.index(lab_id) if lab_id in orden_labs else 0
+
             # Load previous lab context for sequential continuity
             previous_lab_context = ""
-            if idx > 1:
-                all_plans = master_plan.get('lab_plans', [])
-                # Find lab plan before current lab_id
-                current_pos = next((i for i, p in enumerate(all_plans) if p.get('lab_id') == lab_id), None)
-                if current_pos is not None and current_pos > 0:
-                    prev_id = all_plans[current_pos - 1].get('lab_id')
-                    previous_lab_context = _get_previous_lab_context(course_bucket, project_folder, prev_id)
+            if posicion > 0:
+                prev_id = orden_labs[posicion - 1]
+                previous_lab_context = _get_previous_lab_context(course_bucket, project_folder, prev_id)
 
             last_error: Optional[Exception] = None
             for attempt in range(1, MAX_LAB_GENERATION_ATTEMPTS + 1):
@@ -2095,13 +2167,24 @@ def lambda_handler(event, context):
                             is_spanish=course_language.startswith('es')
                         )
 
-                        # Verificación B1: todo fichero o ruta que el laboratorio
+                        # Verificación B1/B2/B3c: todo fichero o ruta que el laboratorio
                         # referencia debe estar declarado en el temario, el manual o el
-                        # plan, o haberse creado en un paso anterior de este laboratorio.
+                        # plan, haberse creado en un paso anterior de este laboratorio,
+                        # haberse creado en un laboratorio ANTERIOR (B3c), y no puede ser
+                        # la salida de un laboratorio POSTERIOR (B2).
+                        posteriores = {
+                            otro: salidas_por_lab.get(otro) or []
+                            for otro in orden_labs[posicion + 1:]
+                        }
                         referential_report = auditar_laboratorio(
                             verified_guide,
                             fuentes=referential_sources,
                             plan=referential_plan_text,
+                            creados_antes=creados_antes,
+                            salidas_posteriores=posteriores,
+                            referencias_posteriores=referencias_a_labs_posteriores(
+                                verified_guide, posicion, orden_labs
+                            ),
                         )
                         referential_reports[lab_id] = referential_report
                         altas = [
@@ -2110,12 +2193,17 @@ def lambda_handler(event, context):
                             if v.get("confianza") == "alta"
                         ]
                         print(
-                            f"  🔎 B1 integridad referencial de {lab_id}: "
+                            f"  🔎 B1/B2 integridad referencial de {lab_id}: "
                             f"{len(referential_report['violaciones'])} referente(s) sin declarar "
                             f"({len(altas)} de alta confianza)"
                         )
                         for v in referential_report["violaciones"][:10]:
-                            print(f"     ⚠️  {v['valor']}")
+                            print(f"     ⚠️  {v['valor']} [{v.get('verificacion', 'B1')}]")
+                        if referential_report.get("menciones_posteriores"):
+                            print(
+                                f"     ℹ️  {len(referential_report['menciones_posteriores'])} "
+                                f"mencion(es) de hoja de ruta a laboratorios posteriores"
+                            )
 
                         if (
                             altas
@@ -2131,10 +2219,13 @@ def lambda_handler(event, context):
                                 altas, "lab"
                             )
                             raise RuntimeError(
-                                f"B1 referential check failed for {lab_id}: "
+                                f"B1/B2 referential check failed for {lab_id}: "
                                 f"{len(altas)} undeclared file reference(s) of high confidence"
                             )
 
+                        # Solo el laboratorio aceptado aporta referentes creados para el
+                        # siguiente: un intento rechazado no debe legitimar nada.
+                        creados_antes.update(referential_report.get("creados") or ())
                         labs_markdown[lab_id] = verified_guide
                         print(f"  ✅ Lab {lab_id} generated & verified (Demo={is_demo}) (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
                         break

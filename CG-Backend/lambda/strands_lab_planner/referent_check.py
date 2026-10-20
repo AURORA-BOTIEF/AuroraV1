@@ -1,4 +1,4 @@
-"""Trazabilidad de referentes de fichero (verificaciones A1 y B1).
+"""Trazabilidad de referentes de fichero (verificaciones A1, B1, B2 y B3c).
 
 Regla de tres niveles
 ---------------------
@@ -18,6 +18,23 @@ Solo **referentes de fichero** (rutas y nombres con extensión). Las URL quedan
 fuera a propósito: una URL inventada se combate comprobando que esté viva, no
 buscándola en el temario, así que pertenece a la verificación C1. Las versiones y
 las entidades con nombre llegan en la fase 3.
+
+Alcance de la fase 2
+--------------------
+B1 solo veía un laboratorio aislado, así que no podía distinguir tres cosas:
+
+- un fichero **creado en un laboratorio anterior** (legítimo) de uno inventado
+  (verificación B3, cierre entre laboratorios de B1);
+- una entrada que solo existe como **salida de un laboratorio posterior**
+  (verificación B2, dependencia hacia delante);
+- una mención de hoja de ruta («en el laboratorio 5 verás…»), que se registra
+  pero no dispara reintento.
+
+Para B3 basta con la unión de :func:`referentes_creados` de los laboratorios
+anteriores. Para B2 se usan las salidas declaradas en el plan
+(``expected_outcomes``) de los laboratorios posteriores: si el actual referencia
+una de ellas sin que esté en las fuentes ni la cree él mismo, depende de algo que
+aún no ha ocurrido.
 
 Precisión (calibración del 16/10/2026)
 --------------------------------------
@@ -286,6 +303,32 @@ _REDIRECCION_RE = re.compile(r">\s*[\"']?~?$")
 
 _VENTANA_CONTEXTO = 260
 
+# Referencias a un laboratorio por número, para la parte débil de B2: una mención
+# de hoja de ruta («en el laboratorio 5 verás…») se registra aparte, pero no cuenta
+# como violación ni dispara reintento. Solo se comparan unidades que son
+# laboratorios: un «módulo 2» no se corresponde con la posición de un laboratorio.
+_NUMEROS_PALABRA = {
+    "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6,
+    "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11, "doce": 12,
+}
+_NUMEROS_ROMANOS = {
+    "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7,
+    "viii": 8, "ix": 9, "x": 10, "xi": 11, "xii": 12,
+}
+_UNIDADES_LAB = "laboratorio|lab|practica|ejercicio"
+_UNIDAD_NUMERO_RE = re.compile(
+    r"\b(?:" + _UNIDADES_LAB + r")"
+    r"\s*(?:n[umero.º]*\s*)?"
+    r"(\d{1,2}|" + "|".join(_NUMEROS_PALABRA) + r"|[ivx]{1,4})"
+    r"(?![\w-]|\s*-\s*\d)"
+)
+_UNIDAD_SIGUIENTE_RE = re.compile(
+    r"\b(?:(?:siguiente|proximo|proxima|posterior|posteriores)\s+"
+    r"(?:" + _UNIDADES_LAB + r")"
+    r"|(?:" + _UNIDADES_LAB + r")\s+"
+    r"(?:siguiente|proximo|proxima|posterior|posteriores))\b"
+)
+
 
 # --------------------------------------------------------------------------- #
 # Normalización
@@ -448,6 +491,104 @@ def claves_de(referente: dict) -> list[str]:
     return [c for c in claves if c]
 
 
+def referentes_creados(texto: str) -> set[str]:
+    """Claves de los referentes que el texto **crea**, no los que consume.
+
+    Es el contexto que le faltaba a B1 entre laboratorios: un fichero creado en un
+    laboratorio anterior es legítimo en el actual. Solo cuenta la creación
+    explícita (verbo, opción de salida, redirección, andamiaje); una mención suelta
+    no legitima nada.
+    """
+    creados: set[str] = set()
+    for referente in extraer_referentes(texto or "", deduplicar=False):
+        if _es_creacion(texto, referente):
+            creados.update(claves_de(referente))
+    return creados
+
+
+def salidas_de_laboratorios(plan: dict) -> dict[str, list[str]]:
+    """Entregables que el plan declara producir en cada laboratorio.
+
+    ``expected_outcomes`` es una salida **por definición**: A1 lo marca siempre con
+    confianza baja porque no es una entrada aportada por el curso. Aquí se usa para
+    lo contrario: si un laboratorio anterior lo referencia, está usando como entrada
+    algo que todavía no existe (verificación B2).
+    """
+    salidas: dict[str, list[str]] = {}
+    for laboratorio in (plan or {}).get("lab_plans") or []:
+        lab_id = laboratorio.get("lab_id")
+        if not lab_id:
+            continue
+        valores: list[str] = []
+        esperados = laboratorio.get("expected_outcomes") or []
+        if isinstance(esperados, str):
+            esperados = [esperados]
+        for texto in esperados:
+            if isinstance(texto, str):
+                valores.extend(r["valor"] for r in extraer_referentes(texto))
+        salidas[lab_id] = valores
+    return salidas
+
+
+def _numero_de(token: str) -> int:
+    """Número de laboratorio a partir de un dígito, una palabra o un romano."""
+    token = (token or "").strip().lower()
+    if token.isdigit():
+        return int(token)
+    if token in _NUMEROS_PALABRA:
+        return _NUMEROS_PALABRA[token]
+    return _NUMEROS_ROMANOS.get(token, 0)
+
+
+def referencias_a_labs_posteriores(
+    texto: str, posicion: int, orden: list[str]
+) -> list[dict]:
+    """Menciones explícitas a un laboratorio **posterior** al actual.
+
+    Es la forma débil de B2: una hoja de ruta («en el laboratorio 5 verás…») no es
+    una dependencia. Por eso se devuelve **aparte** de las violaciones: el Writer la
+    deja en el informe, pero no cuenta para ``ok`` ni dispara reintento. La forma
+    fuerte (usar como entrada una salida de un laboratorio posterior) la resuelve
+    :func:`auditar_laboratorio` con ``salidas_posteriores``.
+
+    Args:
+        texto: markdown del laboratorio.
+        posicion: índice **0-based** del laboratorio actual dentro de ``orden``.
+        orden: identificadores de laboratorio en el orden del plan.
+    """
+    if not texto or not orden:
+        return []
+    actual = posicion + 1
+    normalizado = normalizar(texto)
+    hallados: list[dict] = []
+    vistos: set[str] = set()
+
+    def anadir(valor: str, destino: str) -> None:
+        clave = valor.strip().lower()
+        if not clave or clave in vistos:
+            return
+        vistos.add(clave)
+        hallados.append(
+            {
+                "valor": valor.strip(),
+                "laboratorio_posterior": destino,
+                "confianza": "baja",
+            }
+        )
+
+    for coincidencia in _UNIDAD_NUMERO_RE.finditer(normalizado):
+        numero = _numero_de(coincidencia.group(1))
+        if not numero or numero <= actual or numero > len(orden):
+            continue
+        anadir(coincidencia.group(0), orden[numero - 1])
+
+    if posicion + 1 < len(orden):
+        for coincidencia in _UNIDAD_SIGUIENTE_RE.finditer(normalizado):
+            anadir(coincidencia.group(0), orden[posicion + 1])
+
+    return hallados
+
+
 # --------------------------------------------------------------------------- #
 # Auditoría del plan (A1)
 # --------------------------------------------------------------------------- #
@@ -542,15 +683,20 @@ def _linea_de(texto: str, posicion: int) -> str:
 
 
 def _contexto_de(texto: str, referente: dict) -> str:
-    """Contexto normalizado: encabezado del paso + ventana alrededor del referente."""
-    inicio_paso, _ = _limites_de_paso(texto, referente["inicio"])
+    """Contexto normalizado: encabezado del paso + ventana alrededor del referente.
+
+    La ventana se recorta a los límites del paso. Sin ese recorte, un «guarde el
+    resultado» del paso siguiente exculpaba un «abra el archivo» del paso actual, y
+    la comprobación se volvía vacua justo en los laboratorios con varios pasos.
+    """
+    inicio_paso, fin_paso = _limites_de_paso(texto, referente["inicio"])
     fin_encabezado = texto.find("\n", inicio_paso)
     if fin_encabezado == -1:
         fin_encabezado = len(texto)
     encabezado = texto[inicio_paso:fin_encabezado]
 
-    desde = max(0, referente["inicio"] - _VENTANA_CONTEXTO)
-    hasta = min(len(texto), referente["inicio"] + len(referente["valor"]) + _VENTANA_CONTEXTO)
+    desde = max(inicio_paso, referente["inicio"] - _VENTANA_CONTEXTO)
+    hasta = min(fin_paso, referente["inicio"] + len(referente["valor"]) + _VENTANA_CONTEXTO)
     return normalizar(encabezado + " " + texto[desde:hasta])
 
 
@@ -617,20 +763,63 @@ def _es_entrada(texto: str, referente: dict) -> bool:
     return bool(_VERBOS_ENTRADA_RE.search(contexto))
 
 
-def auditar_laboratorio(laboratorio_md: str, fuentes: str, plan: str = "") -> dict:
-    """B1: todo fichero referenciado debe estar declarado o haberse creado antes.
+def _indice_de_salidas(salidas_posteriores) -> dict[str, str]:
+    """``{clave_canonica: lab_id}`` de los entregables de laboratorios posteriores."""
+    indice: dict[str, str] = {}
+    if isinstance(salidas_posteriores, dict):
+        entradas = salidas_posteriores.items()
+    else:
+        entradas = (
+            ((e or {}).get("lab_id", ""), (e or {}).get("valores") or ())
+            for e in (salidas_posteriores or ())
+        )
+    for lab_id, valores in entradas:
+        for valor in valores or ():
+            clave = canonico(valor)
+            if clave:
+                indice.setdefault(clave, lab_id)
+    return indice
+
+
+def auditar_laboratorio(
+    laboratorio_md: str,
+    fuentes: str,
+    plan: str = "",
+    creados_antes=None,
+    salidas_posteriores=None,
+    referencias_posteriores=None,
+) -> dict:
+    """B1/B2/B3: todo fichero referenciado debe estar declarado o haberse creado antes.
 
     Recorre las apariciones **en orden**. Una aparición es válida si el referente
     ya se introdujo antes en el propio laboratorio, si está declarado en las
-    fuentes o en el plan, o si la aparición está en un contexto de creación.
+    fuentes o en el plan, si lo creó un laboratorio **anterior** (``creados_antes``,
+    B3) o si la aparición está en un contexto de creación.
 
-    No cubre las referencias a laboratorios **posteriores** (verificación B2) ni
-    los ficheros introducidos en laboratorios **anteriores**: eso necesita el
-    conjunto completo y pertenece a la fase 2.
+    Una aparición es una dependencia hacia delante (B2) si el referente es una
+    salida declarada de un laboratorio **posterior**, no está en las fuentes y este
+    laboratorio no lo crea. Esas se marcan con ``verificacion="B2"``.
+
+    Args:
+        laboratorio_md: markdown del laboratorio.
+        fuentes: temario + manual + documentos, concatenados.
+        plan: plan maestro ya filtrado (sin los referentes que A1 marcó de alta).
+        creados_antes: claves canónicas de lo que crearon los laboratorios previos.
+        salidas_posteriores: ``{lab_id: [valores]}`` de los laboratorios posteriores.
+        referencias_posteriores: salida de :func:`referencias_a_labs_posteriores`.
+
+    Returns:
+        ``{"total", "creados", "violaciones", "menciones_posteriores", "ok"}``.
+        Cada violación lleva ``verificacion`` (``B1`` o ``B2``) y ``confianza``
+        (``alta`` solo si el contexto presenta el referente como **aportado por el
+        curso**, o si es una dependencia hacia delante). Las menciones de hoja de
+        ruta van aparte y no afectan a ``ok``.
     """
     fuentes_norm = canonico(fuentes)
     plan_norm = canonico(plan)
-    conocidos: set[str] = set()
+    conocidos: set[str] = set(creados_antes or ())
+    posteriores = _indice_de_salidas(salidas_posteriores)
+    creados: set[str] = set()
     candidatos: list[dict] = []
 
     # Se recorren **todas** las apariciones (no solo la primera): un fichero puede
@@ -643,10 +832,20 @@ def auditar_laboratorio(laboratorio_md: str, fuentes: str, plan: str = "") -> di
         if any(clave in conocidos for clave in claves):
             conocidos.update(claves)
             continue
+        creacion = _es_creacion(laboratorio_md, referente)
+        if creacion:
+            creados.update(claves)
+        # B2: la salida de un laboratorio posterior no puede ser la entrada de este.
+        # Se comprueba antes que «declarado en el plan», porque el plan contiene
+        # precisamente los ``expected_outcomes`` del laboratorio posterior.
+        origen = next((posteriores[c] for c in claves if c in posteriores), "")
+        if origen and not any(clave in fuentes_norm for clave in claves) and not creacion:
+            candidatos.append(dict(referente, _posterior=origen))
+            continue
         declarado = any(
             clave and (clave in fuentes_norm or clave in plan_norm) for clave in claves
         )
-        if declarado or _es_creacion(laboratorio_md, referente):
+        if declarado or creacion:
             conocidos.update(claves)
             continue
         candidatos.append(referente)
@@ -661,18 +860,30 @@ def auditar_laboratorio(laboratorio_md: str, fuentes: str, plan: str = "") -> di
         if clave in violados:
             continue
         violados.add(clave)
-        violaciones.append(
-            {
-                "valor": referente["valor"],
-                "tipo": referente["tipo"],
-                "inicio": referente["inicio"],
-                "confianza": (
-                    "alta" if _es_entrada(laboratorio_md, referente) else "baja"
-                ),
-            }
-        )
+        posterior = referente.get("_posterior") or ""
+        alta = _es_entrada(laboratorio_md, referente)
+        violacion = {
+            "valor": referente["valor"],
+            "tipo": referente["tipo"],
+            "inicio": referente["inicio"],
+            "confianza": "alta" if alta else "baja",
+            "verificacion": "B2" if posterior else "B1",
+        }
+        if posterior:
+            violacion["laboratorio_posterior"] = posterior
+        violaciones.append(violacion)
 
-    return {"total": len(conocidos), "violaciones": violaciones, "ok": not violaciones}
+    # Forma débil de B2: menciones explícitas a un laboratorio posterior. No son
+    # violaciones (una hoja de ruta es normal): van en su propia clave del informe.
+    menciones_posteriores = list(referencias_posteriores or ())
+
+    return {
+        "total": len(conocidos),
+        "creados": sorted(creados),
+        "violaciones": violaciones,
+        "menciones_posteriores": menciones_posteriores,
+        "ok": not violaciones,
+    }
 
 
 def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
@@ -695,8 +906,13 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "- si sobra, sustitúyelo por una descripción funcional sin nombre de fichero.\n"
             "No inventes nombres de fichero y no elimines entregables que produce el estudiante."
         )
-    else:
-        lineas = [f"- «{v['valor']}»" for v in violaciones[:20]]
+        return intro + "\n" + "\n".join(lineas)
+
+    bloques: list[str] = []
+
+    b1 = [v for v in violaciones if v.get("verificacion", "B1") == "B1"]
+    if b1:
+        lineas = [f"- «{v['valor']}»" for v in b1[:20]]
         intro = (
             "El laboratorio presenta estos ficheros o rutas como aportados por el curso, pero no "
             "están en el temario, ni en el manual, ni en el plan, y no se crean en ningún paso "
@@ -707,4 +923,25 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "No elimines ficheros que el estudiante produce ni nombres de fichero que el temario "
             "declare."
         )
-    return intro + "\n" + "\n".join(lineas)
+        bloques.append(intro + "\n" + "\n".join(lineas))
+
+    b2 = [v for v in violaciones if v.get("verificacion") == "B2"]
+    if b2:
+        lineas = [
+            f"- «{v['valor']}» (solo aparece en el laboratorio posterior "
+            f"{v.get('laboratorio_posterior') or 'siguiente'})"
+            for v in b2[:20]
+        ]
+        intro = (
+            "Este laboratorio usa como entrada algo que solo existe en un laboratorio POSTERIOR. "
+            "Un laboratorio no puede depender de uno que aún no ha ocurrido:\n"
+            "- si este laboratorio puede producirlo, añade antes el paso que lo crea;\n"
+            "- si el curso debe aportarlo, escribe «[POR CONFIRMAR]» junto a su mención;\n"
+            "- si sobra, sustitúyelo por una descripción funcional sin nombre de fichero.\n"
+            "No adelantes contenido del laboratorio posterior ni elimines entregables de este "
+            "laboratorio."
+        )
+        bloques.append(intro + "\n" + "\n".join(lineas))
+
+    return "\n\n".join(bloques)
+

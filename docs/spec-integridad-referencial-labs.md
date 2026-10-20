@@ -491,4 +491,102 @@ Batería de pruebas: `CG-Backend/test_referent_check.py`, **49/49 en verde**, in
 vivos del planner y del writer, controles negativos e identidad byte a byte de las dos copias del
 módulo.
 
+---
+
+## 16. Fase 2 (20/10/2026): B2 y el cierre entre laboratorios
+
+### 16.1 Qué se añadió
+
+Todo vive en `referent_check.py` (misma copia byte a byte en planner y writer) y se ejecuta en el
+**Writer**, que es el único punto donde ya existen los laboratorios anteriores:
+
+| Pieza | Qué hace |
+|---|---|
+| `referentes_creados(texto)` | Claves de los referentes que el texto **crea** (verbo, opción de salida, redirección, andamiaje). No legitima una mera mención. |
+| `salidas_de_laboratorios(plan)` | `expected_outcomes` de cada laboratorio, extraídos como referentes. Es la definición de «salida» que usa B2. |
+| `referencias_a_labs_posteriores(texto, posición, orden)` | Menciones explícitas a un laboratorio posterior, por número o como «siguiente/próxima práctica». |
+| `auditar_laboratorio(..., creados_antes, salidas_posteriores, referencias_posteriores)` | B1 + B2 + B3c en una pasada, con el orden del plan y los referentes creados por los laboratorios previos. |
+| `_referentes_creados_en_labs_anteriores(...)` (Writer) | Lee de S3 los laboratorios ya escritos. Es viable porque los lotes son secuenciales y de un laboratorio (`MaxConcurrency: 1`). |
+
+Además:
+
+- El **contexto se recorta al paso**. Antes, la ventana de ±260 caracteres cruzaba al paso siguiente
+  y un «guarde el resultado» exculpaba un «abra el archivo» del paso actual: la comprobación se
+  volvía vacua justo en los laboratorios con varios pasos. Es un requisito de B3c, porque
+  `referentes_creados` hereda la misma detección de creación.
+- Se corrigió un fallo latente: el Writer decidía la continuidad con `idx > 1` sobre la lista
+  **filtrada por lote**. Como el lote trae un solo laboratorio, `idx` valía siempre 1 y
+  `previous_lab_context` nunca se cargaba. Ahora la posición se calcula sobre el plan completo.
+
+### 16.2 Nomenclatura
+
+La tabla de §4 llama **B3** a «todo entregable declarado en el plan aparece producido en su
+laboratorio». Lo implementado aquí es la **mitad entre laboratorios de B1**: un fichero creado en un
+laboratorio anterior es legítimo en el actual. Para no colisionar, este documento llama:
+
+- **B3c** (cierre) a lo implementado;
+- **B3p** (producido) a lo de §4, que sigue pendiente.
+
+### 16.3 Medición sobre el corpus real (169 proyectos, 1.236 laboratorios)
+
+Medición con el **flujo de producción**: el plan se filtra como en el Writer (se quitan los
+referentes que A1 marcó de alta), los laboratorios se recorren en el orden del plan y se acumulan
+los creados. La columna «efecto de B3c» es el contrafactual sin `creados_antes`.
+
+| Clase | Fase 1 | Fase 2 | Comentario |
+|---|---|---|---|
+| A1 marcados | 1.313 | 1.313 | sin cambios |
+| B1 marcados | 565 | **601** | +74 por el recorte al paso; −38 que evita B3c |
+| B1 de alta | 29 | **33** | el recorte añade 6; dos desaparecen |
+| B2 marcados | — | **10** | dependencia de una salida posterior |
+| B2 de alta | — | **0** | ninguno dispara reintento |
+| Menciones de hoja de ruta | — | 858 | van aparte; no cuentan para `ok` |
+
+La clase de reintento queda en **155** (122 de A1 + 33 de B1). B2 no aporta ninguno.
+
+### 16.4 Lo que la medición desmiente
+
+La hipótesis de §15.5 era que los falsos positivos residuales de B1 se resolverían con el contexto
+del conjunto. **No es así.** B3c evita 38 marcas, pero **ninguna de alta confianza**: los 33 que
+disparan reintento no los creó ningún laboratorio anterior. Al revisarlos, siguen siendo las mismas
+tres familias:
+
+- **artefactos de herramientas** (`product-list.component.ts`, `main-a1b2c3d4.js`, `plotly.js`,
+  `todo.flaky.spec.ts`, `values.yaml`);
+- **rutas de plataforma o de API** (`/Library/Android/...`, `/datastore/...`, `/products/p-1`,
+  `/../etc/passwd`, `/auth/login`);
+- **entregables con nombre propio** que el laboratorio produce con una frase que el extractor no
+  reconoce como creación (`Lab04_Plan_Cierre_Fiscal.xlsx`).
+
+Las dos primeras familias no se separan por contexto entre laboratorios: se separan **por
+estructura** (prefijos de build, extensiones generadas, espacios de nombres de API). La tercera
+necesita más verbos o más formas de nombrar un entregable. Es una corrección de extractor, no de
+arquitectura.
+
+### 16.5 Decisión
+
+1. **B2 no dispara reintento.** De los 10 casos, la revisión manual da ~7 plausibles y 3 falsos
+   positivos (`Node.js`, `/auth/login`, `values.yaml`). El criterio para pasar a `ERROR` es 0 falsos
+   positivos sobre cursos reales, y no se cumple.
+2. Las **menciones de hoja de ruta** no son violaciones: se guardan en
+   `menciones_posteriores` dentro del mismo informe y no afectan a `ok`. Sin esa separación, B2
+   habría añadido 858 «violaciones» que en su mayoría son frases pedagógicas normales.
+3. **B3c se queda**: reduce ruido sin coste de precisión y deja el informe más cerca de la realidad
+   del curso.
+4. **A1 y B1 siguen sin ser `ERROR`.** Fase 2 no cambió la clase de reintento; solo la explicó
+   mejor.
+5. Lo que queda de la fase 2 original: **B5/B6** (duración y coherencia del conjunto), que viven en
+   el planner, y **B3p** (entregable producido). La familia «artefacto de herramienta» merece una
+   regla propia antes que B5/B6 si el objetivo es bajar los falsos positivos.
+
+### 16.6 Reproducibilidad
+
+- `medir_corpus_fase2.py` — mismo corpus, flujo de producción, contrafactual de B3c y listado de
+  B2. Escribe `corpus_fase2.json`.
+- Batería: `CG-Backend/test_referent_check.py`, **62/62 en verde**, con caminos vivos nuevos:
+  el Writer acepta un fichero creado en el laboratorio anterior (B3c), reintenta cuando el
+  laboratorio depende de la salida de uno posterior (B2) y registra sin reintentar con
+  `REFERENTIAL_RETRY=0`.
+
+
 

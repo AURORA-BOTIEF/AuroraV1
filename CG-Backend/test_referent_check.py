@@ -39,6 +39,9 @@ from referent_check import (  # noqa: E402
     canonico,
     extraer_referentes,
     mensaje_de_correccion,
+    referencias_a_labs_posteriores,
+    referentes_creados,
+    salidas_de_laboratorios,
 )
 
 # --------------------------------------------------------------------------- #
@@ -452,15 +455,25 @@ Analice los datos entregados.
 """
 
 
-def _ejecutar_writer(plan, contenidos, max_intentos=1):
+def _ejecutar_writer(
+    plan,
+    contenidos,
+    max_intentos=1,
+    lab_ids=None,
+    objetos=None,
+    existentes=None,
+):
     """Ejecuta el handler real del Writer con S3 y el modelo simulados.
 
     ``contenidos`` es la lista de respuestas del modelo simulado: la primera llamada
     devuelve la primera, la segunda la segunda, y así sucesivamente.
+    ``existentes`` mapea ``lab_id`` → clave S3 de un laboratorio ya escrito (B3).
     """
     modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
 
-    s3 = _S3Simulado({"p/outline.yaml": _TEMARIO, "p/manual.txt": _MANUAL})
+    s3 = _S3Simulado(
+        {"p/outline.yaml": _TEMARIO, "p/manual.txt": _MANUAL, **(objetos or {})}
+    )
     modulo.s3_client = s3
     modulo.MAX_LAB_GENERATION_ATTEMPTS = max_intentos
     contextos = []
@@ -477,7 +490,9 @@ def _ejecutar_writer(plan, contenidos, max_intentos=1):
     modulo.load_master_plan_from_s3 = lambda bucket, key: plan
     modulo.save_lab_guide_to_s3 = lambda **kw: f"p/labguide/lab-{kw['lab_id']}.md"
     modulo._lab_skip_if_exists_enabled = lambda: False
-    modulo._find_existing_lab_guide_key = lambda *a, **k: None
+    modulo._find_existing_lab_guide_key = lambda bucket, project, lab_id: (
+        (existentes or {}).get(lab_id)
+    )
 
     resultado = modulo.lambda_handler(
         {
@@ -486,7 +501,7 @@ def _ejecutar_writer(plan, contenidos, max_intentos=1):
             "project_folder": "p",
             "outline_s3_key": "p/outline.yaml",
             "manual_text_s3_key": "p/manual.txt",
-            "lab_ids": ["01-01-01"],
+            "lab_ids": lab_ids or ["01-01-01"],
             "lab_lesson_keys": {},
         },
         None,
@@ -1154,6 +1169,220 @@ def test_el_writer_con_reintento_desactivado_no_regenera_el_lab():
     assert resultado["statusCode"] == 200, resultado
     assert len(contextos) == 1, "REFERENTIAL_RETRY=0 no debe regenerar el laboratorio"
     assert informes and informes[0]["ok"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Fase 2: B3 (creado en un laboratorio anterior) y B2 (salida de uno posterior)
+# --------------------------------------------------------------------------- #
+
+_LAB_QUE_CREA_LA_ENTRADA = """# Lab 01-01-01: Preparar el conjunto de datos
+
+### Paso 1: Crear el conjunto limpio
+cat > C:\\Curso\\ventas_limpias.csv
+"""
+
+_LAB_QUE_ABRE_LO_DEL_LAB_ANTERIOR = """# Lab 01-01-02: Analizar la demanda
+
+### Paso 1: Abrir el conjunto de datos
+Abra el archivo ventas_limpias.csv y calcule el MAPE del pronostico.
+"""
+
+_LAB_QUE_USA_LA_SALIDA_POSTERIOR = """# Lab 01-01-01: Preparar el analisis
+
+### Paso 1: Revisar el entregable
+Abra el libro Practica1_MAPE_SKU.xlsx y revise los calculos por SKU.
+"""
+
+_PLAN_DOS_LABS = {
+    "lab_plans": [
+        {**_LAB_PLAN, "expected_outcomes": []},
+        {
+            **_LAB_PLAN,
+            "lab_id": "01-01-02",
+            "lab_title": "Calcular el MAPE",
+            "expected_outcomes": ["Practica1_MAPE_SKU.xlsx"],
+        },
+    ]
+}
+
+
+def test_b3_lo_creado_en_un_laboratorio_anterior_es_legitimo():
+    creados = referentes_creados(_LAB_QUE_CREA_LA_ENTRADA)
+    informe = auditar_laboratorio(
+        _LAB_QUE_ABRE_LO_DEL_LAB_ANTERIOR, fuentes=_FUENTES, creados_antes=creados
+    )
+    assert informe["ok"] is True, informe["violaciones"]
+    assert informe["violaciones"] == []
+
+
+def test_b3_control_sin_el_laboratorio_anterior_el_fichero_sigue_marcandose():
+    informe = auditar_laboratorio(_LAB_QUE_ABRE_LO_DEL_LAB_ANTERIOR, fuentes=_FUENTES)
+    valores = [v["valor"] for v in informe["violaciones"]]
+    assert "ventas_limpias.csv" in valores, informe["violaciones"]
+    alta = [v for v in informe["violaciones"] if v["valor"] == "ventas_limpias.csv"][0]
+    assert alta["confianza"] == "alta"
+    assert alta["verificacion"] == "B1"
+
+
+def test_b3_una_mencion_sin_creacion_no_legitima():
+    """El laboratorio anterior solo *abre* el fichero: no lo crea, así que no puede
+    servir de coartada para el siguiente."""
+    solo_menciona = (
+        "# Lab 01-01-01: Preparar\n\n### Paso 1: Abrir\n"
+        "Abra el archivo ventas_limpias.csv y revise las columnas.\n"
+    )
+    assert referentes_creados(solo_menciona) == set()
+    informe = auditar_laboratorio(
+        _LAB_QUE_ABRE_LO_DEL_LAB_ANTERIOR,
+        fuentes=_FUENTES,
+        creados_antes=referentes_creados(solo_menciona),
+    )
+    assert informe["ok"] is False, "una mención no es una creación"
+
+
+def test_salidas_de_laboratorios_usa_los_expected_outcomes():
+    salidas = salidas_de_laboratorios(_PLAN_DOS_LABS)
+    assert salidas["01-01-01"] == []
+    assert salidas["01-01-02"] == ["Practica1_MAPE_SKU.xlsx"]
+
+
+def test_b2_usar_una_salida_del_laboratorio_posterior_es_violacion():
+    informe = auditar_laboratorio(
+        _LAB_QUE_USA_LA_SALIDA_POSTERIOR,
+        fuentes=_FUENTES,
+        salidas_posteriores={"01-01-02": ["Practica1_MAPE_SKU.xlsx"]},
+    )
+    assert len(informe["violaciones"]) == 1, informe["violaciones"]
+    violacion = informe["violaciones"][0]
+    assert violacion["valor"] == "Practica1_MAPE_SKU.xlsx"
+    assert violacion["verificacion"] == "B2"
+    assert violacion["laboratorio_posterior"] == "01-01-02"
+    assert violacion["confianza"] == "alta"
+
+
+def test_b2_el_plan_no_blanquea_una_salida_posterior():
+    """El plan contiene el ``expected_outcome`` del laboratorio posterior. Si el plan
+    se usara como fuente antes de comprobar B2, la dependencia hacia delante quedaría
+    invisible: es justo el fallo que esta prueba fija."""
+    informe = auditar_laboratorio(
+        _LAB_QUE_USA_LA_SALIDA_POSTERIOR,
+        fuentes=_FUENTES,
+        plan="Entregable del laboratorio 2: Practica1_MAPE_SKU.xlsx",
+        salidas_posteriores={"01-01-02": ["Practica1_MAPE_SKU.xlsx"]},
+    )
+    assert [v["verificacion"] for v in informe["violaciones"]] == ["B2"]
+
+
+def test_b2_control_si_esta_en_el_temario_no_es_dependencia():
+    informe = auditar_laboratorio(
+        _LAB_QUE_USA_LA_SALIDA_POSTERIOR,
+        fuentes=_FUENTES + "\nEl instructor entrega Practica1_MAPE_SKU.xlsx",
+        salidas_posteriores={"01-01-02": ["Practica1_MAPE_SKU.xlsx"]},
+    )
+    assert informe["ok"] is True, informe["violaciones"]
+
+
+def test_b2_control_si_lo_crea_este_laboratorio_no_es_dependencia():
+    lo_crea = (
+        "# Lab 01-01-01: Preparar\n\n### Paso 1: Generar el entregable\n"
+        "cat > Practica1_MAPE_SKU.xlsx\n"
+    )
+    informe = auditar_laboratorio(
+        lo_crea,
+        fuentes=_FUENTES,
+        salidas_posteriores={"01-01-02": ["Practica1_MAPE_SKU.xlsx"]},
+    )
+    assert informe["ok"] is True, informe["violaciones"]
+
+
+def test_b2_una_mencion_de_hoja_de_ruta_se_registra_pero_no_es_violacion():
+    texto = (
+        "# Lab 01-01-01: Preparar\n\n### Paso 1: Resumen\n"
+        "Como veras en el laboratorio 2, aplicaras el modelo.\n"
+    )
+    referencias = referencias_a_labs_posteriores(
+        texto, 0, ["01-01-01", "01-01-02", "01-01-03"]
+    )
+    assert referencias and referencias[0]["laboratorio_posterior"] == "01-01-02"
+    informe = auditar_laboratorio(
+        texto, fuentes=_FUENTES, referencias_posteriores=referencias
+    )
+    assert informe["ok"] is True, "una hoja de ruta no es una dependencia"
+    assert informe["violaciones"] == []
+    assert [m["laboratorio_posterior"] for m in informe["menciones_posteriores"]] == [
+        "01-01-02"
+    ]
+
+
+def test_b2_control_un_laboratorio_anterior_o_el_propio_no_es_posterior():
+    assert referencias_a_labs_posteriores(
+        "En el laboratorio 1 y en el laboratorio 2.", 1, ["a", "b", "c"]
+    ) == []
+    # Un identificador de laboratorio no es una referencia cruzada.
+    assert referencias_a_labs_posteriores(
+        "Configura el lab-03-01 ahora.", 0, ["a", "b", "c"]
+    ) == []
+    # Un módulo no se corresponde con la posición de un laboratorio.
+    assert referencias_a_labs_posteriores(
+        "En el modulo 5 y en el capitulo 3.", 0, ["a", "b", "c"]
+    ) == []
+
+
+def test_el_writer_acepta_un_fichero_creado_en_el_laboratorio_anterior():
+    """Camino vivo de B3: el lote escribe el lab 2 y lee del S3 el lab 1 ya generado."""
+    resultado, informes, contextos = _ejecutar_writer(
+        _PLAN_DOS_LABS,
+        [_LAB_QUE_ABRE_LO_DEL_LAB_ANTERIOR],
+        max_intentos=3,
+        lab_ids=["01-01-02"],
+        objetos={
+            "p/labguide/lab-01-01-01-preparar.md": _LAB_QUE_CREA_LA_ENTRADA,
+        },
+        existentes={"01-01-01": "p/labguide/lab-01-01-01-preparar.md"},
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "B3 debe evitar el reintento: el fichero lo creó el lab 1"
+    assert informes and informes[0]["ok"] is True, informes
+
+
+def test_el_writer_reintenta_si_depende_de_la_salida_del_laboratorio_posterior():
+    """Camino vivo de B2: el lab 1 usa un entregable que solo declara el lab 2."""
+    resultado, informes, contextos = _ejecutar_writer(
+        _PLAN_DOS_LABS,
+        [_LAB_QUE_USA_LA_SALIDA_POSTERIOR, _LAB_CORREGIDO],
+        max_intentos=3,
+        lab_ids=["01-01-01"],
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 2, "debe reintentar por dependencia hacia delante"
+    correccion = contextos[1].get("referential_correction") or ""
+    assert "POSTERIOR" in correccion
+    assert "Practica1_MAPE_SKU.xlsx" in correccion
+    assert informes and informes[0]["ok"] is True, informes
+    assert informes[0]["total_b2"] == 0
+
+
+def test_el_writer_registra_b2_sin_reintentar_si_el_interruptor_esta_apagado():
+    anterior = os.environ.get("REFERENTIAL_RETRY")
+    os.environ["REFERENTIAL_RETRY"] = "0"
+    try:
+        resultado, informes, contextos = _ejecutar_writer(
+            _PLAN_DOS_LABS,
+            [_LAB_QUE_USA_LA_SALIDA_POSTERIOR],
+            max_intentos=3,
+            lab_ids=["01-01-01"],
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("REFERENTIAL_RETRY", None)
+        else:
+            os.environ["REFERENTIAL_RETRY"] = anterior
+
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "REFERENTIAL_RETRY=0 no debe regenerar"
+    assert informes and informes[0]["total_b2"] == 1, informes
 
 
 if __name__ == "__main__":
