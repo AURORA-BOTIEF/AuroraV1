@@ -396,4 +396,99 @@ Mientras esas cinco correcciones no estén hechas y **re-medidas sobre el corpus
 positivos**, el bloqueo no aporta: cambiaría un aviso ignorable por un atasco en casi todos los
 cursos.
 
+## 15. Segunda calibración (19/10/2026): separar «entrada del curso» de «salida del laboratorio»
+
+Las cinco correcciones de §14.6 se implementaron y se midieron. La reducción de ruido fue grande,
+pero al revisar la muestra con contexto apareció un hecho que cambia el diseño: **la mayoría de lo
+que queda no son datos inventados, son ficheros que el propio laboratorio crea o que pertenecen al
+proyecto**. Un detector que no distingue «el curso aporta este fichero» de «el estudiante produce
+este fichero» no puede bloquear, y tampoco debería reintentar sobre todo.
+
+### 15.1 Correcciones añadidas en esta iteración
+
+Ninguna toca el temario, el flujo de carga ni los documentos opcionales.
+
+| # | Corrección | Qué falsos positivos elimina |
+|---|---|---|
+| 6 | **Neutralizar URIs de nube** (`gs://`, `s3://`, `dbfs:/`) antes de extraer rutas | rutas de almacenamiento que no son del alumno |
+| 7 | **Marcadores de API/plataforma** (`/aws/`, `/_snapshot/`, `/_slm/`, `/_security/`, `/_ilm/`, `/_ingest/`, `/_nodes/`, `/actuator/`, `/users/v1/`, `/me/`, `/drive/`) | endpoints de Elasticsearch, Spring, VAmPI y Graph |
+| 8 | **Creación por redirección u opción**: `>` / `>>` / `cat >` / `\| tee`, `--output`, `--log`, `--report`, `-OutFile`, `-DestinationPath`, `SPOOL`, `TO DISK`, `Expand-Archive`, `to_csv`, `makedirs`, `-out`, `-outform` | comandos que crean el fichero y se leían como «uso» |
+| 9 | **Todas las apariciones** de un referente (`deduplicar=False` en la auditoría de laboratorio) | un fichero nombrado antes en una tabla y creado después |
+| 10 | **Reglas estructurales**: árboles de entregables (`├──`), líneas de `import`/`require`/`href`/`Resource`, claves YAML al inicio de línea, andamiaje (`ng new`, `ng generate`, `dotnet new`, `git clone`…), citas (`[Fuente …]`), bloques de **salida esperada**, marcadores en mayúsculas con punto (`[PEGAR_AQUÍ_…XLSX]`), secuencias de escape (`\\nVariance`) | ficheros del proyecto, del andamiaje, de herramientas y listados de salida |
+| 11 | **`expected_outcomes` nunca dispara reintento**: ese campo describe lo que el estudiante **produce** | entregables declarados como resultado |
+
+### 15.2 Resultado sobre el corpus (164 proyectos, 1.244 laboratorios)
+
+| Ámbito | Antes | Ahora | Variación |
+|---|---:|---:|---:|
+| Referentes marcados (A1+B1) | 6.567 | **1.878** | −71,4 % |
+| A1 (plan) | 1.773 | 1.313 | −26 % |
+| B1 (laboratorio) | 4.794 | **565** | −88 % |
+| **Alta confianza** (dispara reintento) | 6.567 | **151** | **−97,7 %** |
+
+El curso que **sí conserva el manual** —la única medición justa, porque el manual declara los
+ficheros que el temario no nombra— mantiene sus **15 referentes A1**, de los cuales **4 son de alta
+confianza**: los inventos reales siguen detectándose, no se han perdido verdaderos positivos.
+
+### 15.3 La clase de alta confianza
+
+`confianza = "alta"` significa: el contexto presenta el fichero como **aportado por el curso**
+(«archivos de práctica proporcionados por el instructor», «cargados en OneDrive», «almacenados en
+SharePoint», «el estudiante recibe el dataset», «descargados desde…», «asegúrate de tener…»,
+«abre el archivo X»), **y** no hay un verbo de edición que indique que el fichero ya existe en el
+proyecto («reemplace», «modifique», «actualice»).
+
+Precisión medida sobre una muestra aleatoria de 25 A1 + 25 B1 de alta confianza, revisada con el
+texto real de S3:
+
+| Ámbito | Aciertos reales | Precisión |
+|---|---:|---:|
+| A1 alta | 19–21 de 25 | **≈ 80 %** |
+| B1 alta | 5–6 de 25 | **≈ 20 %** |
+
+Los falsos positivos residuales de A1 son casi todos entregables (`El producto final es…`,
+`generados en este laboratorio`) y ya se excluyen. Los de B1 son ficheros del proyecto, artefactos
+de herramientas y rutas de entorno: **no se pueden separar por el nombre del fichero**, hace falta
+el contexto de conjunto (Fase 2).
+
+### 15.4 Decisión
+
+1. **A1 y B1 no pasan a `ERROR`.** El criterio era 0 falsos positivos sobre cursos reales y no se
+   cumple.
+2. El **reintento correctivo se limita a la clase de alta confianza** y el informe sigue
+   registrando **todas** las violaciones, con su confianza, en
+   `{project_folder}/validation/referential-integrity.json` y
+   `{project_folder}/validation/labs-referential-integrity.json`.
+3. El **mensaje correctivo es no destructivo**: pide marcar `[POR CONFIRMAR]`, definir el paso que
+   crea el fichero o sustituirlo por una descripción funcional, y prohíbe explícitamente eliminar
+   entregables del estudiante. Así, un falso positivo no puede borrar contenido legítimo.
+4. Existe un **interruptor operativo** `REFERENTIAL_RETRY=0` que deja la verificación en solo
+   registro, sin reintento ni cambio de contenido, sin necesidad de desplegar código.
+5. El plan es fuente para B1 **solo para sus referentes verificados**: se excluyen los marcados por
+   A1 como de alta confianza; los de baja confianza siguen contando como fuente porque son
+   entregables o directorios que el plan introduce legítimamente.
+
+### 15.5 Lo que no se puede resolver con nombres de fichero
+
+La muestra lo deja claro. Para bajar de ≈ 80 % / ≈ 20 % a 0 falsos positivos hacen falta las
+verificaciones de la Fase 2, que necesitan el **conjunto** de laboratorios y el contexto del curso:
+
+- **B2** (referencias a laboratorios posteriores) y **B3** (ficheros creados en laboratorios
+  anteriores) — hoy B1 solo ve un laboratorio aislado.
+- **B5/B6** (duración y coherencia del conjunto).
+- **C1** (liveness de enlaces) para las URL, hoy fuera de alcance.
+
+### 15.6 Reproducibilidad
+
+Las mediciones se ejecutan con el módulo real del planner (no con una copia):
+
+- `medir_corpus.py` — recorre los 164 proyectos del bucket, separa con/sin manual y desglosa por
+  confianza.
+- `revisar_muestra.py` — muestra aleatoria de violaciones con el texto real alrededor.
+- `revisar_alta.py` — lo mismo, restringido a la clase de alta confianza (la que dispara reintento).
+
+Batería de pruebas: `CG-Backend/test_referent_check.py`, **49/49 en verde**, incluyendo caminos
+vivos del planner y del writer, controles negativos e identidad byte a byte de las dos copias del
+módulo.
+
 

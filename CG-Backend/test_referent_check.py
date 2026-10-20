@@ -638,6 +638,524 @@ def test_el_planner_no_sustituye_el_plan_si_el_reintento_empeora():
     assert not informe["ok"]
 
 
+# --------------------------------------------------------------------------- #
+# Calibración 16/10/2026: las cinco correcciones del extractor
+#
+# Cada corrección se prueba sobre el módulo que corre en producción
+# (``extraer_referentes`` / ``auditar_laboratorio``), no sobre su fuente. Los
+# controles aseguran que la corrección no se lleva por delante un referente real.
+# --------------------------------------------------------------------------- #
+
+def test_c1_la_extension_se_ancla_a_fin_de_palabra():
+    """``df.shape`` ya no produce el «fichero» ``df.sh``; ``pyplot`` no produce ``.py``."""
+    for codigo in (
+        "df.shape[0]",
+        "matplotlib.pyplot",
+        "kpis.show(truncate=False)",
+        "X_val_prep.shape",
+        "hashlib.md5('x')",
+        "Object.keys(x)",
+        "robot.language-server.python",
+    ):
+        assert extraer_referentes(codigo) == [], f"{codigo!r} no debe producir referente"
+
+    # Control: un fichero real, incluso al final de la frase, se sigue extrayendo.
+    assert [r["valor"] for r in extraer_referentes("Guarde Practica1_MAPE_SKU.xlsx.")] == [
+        "Practica1_MAPE_SKU.xlsx"
+    ]
+
+
+def test_c2_los_identificadores_y_claves_de_configuracion_no_son_ficheros():
+    for codigo in (
+        "math.log(2)",
+        "pyspark.sql",
+        "transaction.state.log.replication.factor",
+        "parse.key=true",
+        "android.util.Log",
+        "json.JSON",
+        "console.log('x')",
+    ):
+        assert extraer_referentes(codigo) == [], f"{codigo!r} no debe producir referente"
+
+    # Control: nombres de fichero reales con un único punto se conservan.
+    for fichero in ("response.json", "data1.csv", "informe_final.xlsx"):
+        valores = [r["valor"] for r in extraer_referentes(fichero)]
+        assert valores == [fichero], f"{fichero!r} debe seguir siendo un referente"
+
+
+def test_c3_las_rutas_de_sistema_y_de_api_no_son_material_del_curso():
+    for ruta in (
+        "/etc/hosts",
+        "/dev/null",
+        "/usr/share/nginx/html",
+        "C:\\Users\\",
+        "/subscriptions/xxxx/resourceGroups/rg-lab-contenedores",
+        "/_cat/count",
+        "/components/schemas/ErrorResponse",
+    ):
+        assert extraer_referentes(ruta) == [], f"{ruta!r} no debe producir referente"
+
+    # Control: la ruta inventada de la evidencia real sigue detectándose.
+    ruta_real = "C:\\Forecasting_Logistica\\Datos\\Demanda_Historica.xlsx"
+    assert [r["valor"] for r in extraer_referentes(ruta_real)] == [ruta_real]
+
+
+_LAB_TEE = """# Lab
+### Paso 1: Listar los nodos
+```bash
+kubectl get nodes -o wide | tee ~/k8s-intro/analisis/nodos-wide.txt
+```
+"""
+
+_LAB_BACKUP = """# Lab
+### Paso 1: Respaldo completo
+```sql
+BACKUP DATABASE Sql2025Lab
+TO DISK = N'C:\\SQLLab2025\\Backups\\Sql2025Lab_TDE_FULL.bak'
+```
+"""
+
+_LAB_OUT_FILE = """# Lab
+### Paso 1: Exportar la muestra
+```powershell
+Invoke-Sqlcmd -Query "SELECT 1" | Out-File -Encoding utf8 "C:\\DAF\\Batch_01\\02_quality\\02_muestra_ids_repetidos.txt"
+```
+"""
+
+
+def test_c4_la_creacion_por_tee_redireccion_backup_y_out_file_exime():
+    """Medido en el corpus: el laboratorio crea el fichero y aun así se marcaba."""
+    for lab in (_LAB_TEE, _LAB_BACKUP, _LAB_OUT_FILE):
+        informe = auditar_laboratorio(lab, "", plan="")
+        assert informe["ok"], informe["violaciones"]
+
+
+def test_c4_control_sin_creacion_el_fichero_sigue_marcandose():
+    lab = "### Paso 1: Abrir\nAbra el archivo C:\\DAF\\Batch_01\\02_quality\\02_muestra_ids_repetidos.txt"
+    informe = auditar_laboratorio(lab, "", plan="")
+    assert not informe["ok"]
+
+
+_LAB_ABSURDO = """# Lab
+### Paso 4: Archivo que no existe
+```
+ERROR | Archivo no encontrado: data/archivo_inexistente.json
+```
+"""
+
+_LAB_SIN_CONFIG = """# Lab
+### Paso 3: Configurar Tailwind
+Implementar Tailwind CSS v4 sin archivo tailwind.config.js clasico.
+"""
+
+
+def test_c5_la_mencion_de_ausencia_exime():
+    for lab in (_LAB_ABSURDO, _LAB_SIN_CONFIG):
+        informe = auditar_laboratorio(lab, "", plan="")
+        assert informe["ok"], informe["violaciones"]
+
+
+def test_c5_control_sin_ausencia_el_fichero_sigue_marcandose():
+    lab = "### Paso 1: Editar\nEdite el archivo tailwind.config.js con la configuracion del curso."
+    informe = auditar_laboratorio(lab, "", plan="")
+    assert not informe["ok"]
+
+
+_LAB_REDIRECCION = """# Lab
+### Paso 1: Crear el script de validación
+```bash
+cat > ~/lab-01-00-01/validate.sh << 'EOF'
+#!/bin/bash
+echo ok
+EOF
+```
+### Paso 2: Ejecutar
+```bash
+bash ~/lab-01-00-01/validate.sh
+```
+"""
+
+_LAB_ECHO_REDIRECCION = """# Lab
+### Paso 1: Guardar la evidencia
+```bash
+kubectl get pods -A > ~/evidencias/lab-06/pods.txt
+```
+"""
+
+_LAB_OPCIONES = """# Lab
+### Paso 1: Ejecutar las pruebas
+```bash
+pytest --log log_final.html --report reporte_final.html
+```
+### Paso 2: Exportar la tubería
+```powershell
+python pipeline.py --output output_pipeline.xml
+```
+"""
+
+_LAB_DESTINATION = """# Lab
+### Paso 1: Instalar los plugins
+```powershell
+Expand-Archive -Path plugins.zip -DestinationPath "C:\\kubectl-plugins\\"
+```
+"""
+
+
+def test_c4b_la_redireccion_y_las_opciones_eximen():
+    """Medido en la muestra: ``cat >``, ``> ~/…``, ``--log``, ``--output`` y
+    ``-DestinationPath`` crean el fichero, pero se marcaba como no declarado."""
+    for lab, fuentes in (
+        (_LAB_REDIRECCION, ""),
+        (_LAB_ECHO_REDIRECCION, ""),
+        (_LAB_OPCIONES, ""),
+        (_LAB_DESTINATION, "plugins.zip"),
+    ):
+        informe = auditar_laboratorio(lab, fuentes, plan="")
+        assert informe["ok"], informe["violaciones"]
+
+
+_LAB_MENCION_PREVIA = """# Lab
+### Paso 1: Entregables
+El entregable final es `resultado_final.json`.
+### Paso 2: Generar el resultado
+```bash
+cat > resultado_final.json << 'EOF'
+{"ok": true}
+EOF
+```
+"""
+
+_LAB_MENCION_PREVIA_SIN_CREAR = """# Lab
+### Paso 1: Entregables
+El entregable final es `resultado_final.json`.
+### Paso 2: Publicar
+Publique el contenido de resultado_final.json en el portal del curso.
+"""
+
+
+def test_c4c_la_creacion_posterior_exime_la_mencion_previa():
+    """Un fichero puede nombrarse antes (tabla, árbol de directorios) y crearse
+    después. Se recorren todas las apariciones, no solo la primera."""
+    informe = auditar_laboratorio(_LAB_MENCION_PREVIA, "", plan="")
+    assert informe["ok"], informe["violaciones"]
+
+
+def test_c4c_control_sin_creacion_la_mencion_previa_sigue_marcandose():
+    informe = auditar_laboratorio(_LAB_MENCION_PREVIA_SIN_CREAR, "", plan="")
+    assert not informe["ok"]
+
+
+_LAB_ARBOL = """# Lab
+### Paso 1: Entregables
+```text
+data/
+├── duplicated_code.py
+├── hardcoded_secret.py
+└── sql_injection.py
+```
+"""
+
+_LAB_IMPORT = """# Lab
+### Paso 1: Rutas
+```js
+import ReportsView from '@/views/ReportsView.vue'
+```
+"""
+
+_LAB_CLAVE_YAML = """# Lab
+### Paso 1: Configurar TLS
+```yaml
+xpack.security.http.ssl.key: certs/es01.key
+dashboardproviders.yaml:
+  apiVersion: 1
+```
+"""
+
+_LAB_ANDAMIAJE = """# Lab
+### Paso 1: Generar el componente
+```bash
+ng generate component components/task-list
+```
+### Paso 2: Verificar
+```bash
+cat src/app/components/task-list/task-list.component.ts
+```
+"""
+
+_LAB_CITA = """# Lab
+### Paso 1: Analizar
+[Fuente 1: Reporte_Sectorial_Enero_2024.pdf - Editor: McKinsey & Co]
+"""
+
+_LAB_TO_CSV = """# Lab
+### Paso 1: Exportar los errores
+```python
+errores_test.to_csv(RUTA_REPORTES / "errores_clasificacion_test.csv", index=False)
+```
+"""
+
+_LAB_BORRAR = """# Lab
+### Paso 1: Limpieza
+Elimine los archivos de prueba restantes, por ejemplo `zz_quality_warn.csv`.
+"""
+
+
+def test_c6_las_reglas_estructurales_no_marcan_ficheros_del_proyecto():
+    """Árboles de entregables, imports, claves YAML, andamiaje, citas, salidas
+    ``to_csv`` y ficheros que se piden borrar: ninguno es una entrada inventada."""
+    for lab in (
+        _LAB_ARBOL,
+        _LAB_IMPORT,
+        _LAB_CLAVE_YAML,
+        _LAB_ANDAMIAJE,
+        _LAB_CITA,
+        _LAB_TO_CSV,
+        _LAB_BORRAR,
+    ):
+        informe = auditar_laboratorio(lab, "", plan="")
+        assert informe["ok"], (lab[:40], informe["violaciones"])
+
+
+def test_c6_las_claves_yaml_y_las_secuencias_de_escape_no_se_extraen():
+    for texto in (
+        "xpack.security.http.ssl.key: certs/es01.key",
+        "dashboardproviders.yaml:",
+        "'Untagged\\\\nSpend', 'Budget\\\\nVariance'",
+    ):
+        assert extraer_referentes(texto) == [], texto
+
+
+def test_c6_control_una_entrada_citada_sin_contexto_sigue_marcandose():
+    lab = "### Paso 1: Abrir\nAbra el archivo datos_inventados_2024.xlsx"
+    informe = auditar_laboratorio(lab, "", plan="")
+    assert not informe["ok"]
+
+
+_LAB_PYTHON_REAL = """# Lab
+### Paso 1: Cargar y graficar
+```python
+import matplotlib.pyplot as plt
+import math
+df = pd.read_csv("ventas.csv")
+print(df.shape[0])
+print(math.log(2))
+plt.show()
+```
+"""
+
+
+def test_integracion_un_laboratorio_de_python_no_produce_falsos_positivos():
+    """El caso que dominaba el corpus: código Python con ``shape``, ``pyplot`` y
+    ``math.log``. Con el fichero de datos declarado, no debe quedar violación."""
+    informe = auditar_laboratorio(_LAB_PYTHON_REAL, "ventas.csv", plan="")
+    assert informe["ok"], informe["violaciones"]
+
+
+_LAB_ENTREGABLE_NO_APORTADO = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Revise el informe de resultados.
+
+### Paso 1: Revisar el informe
+**Objective:** Revisar los resultados.
+**Instructions:**
+1. El informe Datos_Inventados.xlsx contiene los resultados del analisis.
+"""
+
+
+def test_la_confianza_alta_aisla_los_ficheros_que_aporta_el_curso():
+    plan = {
+        "lab_plans": [
+            {
+                **_LAB_PLAN,
+                "scope": "Archivos proporcionados por el instructor: Datos_Inventados.xlsx.",
+            }
+        ]
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    assert informe["violaciones"]
+    assert informe["violaciones"][0]["confianza"] == "alta"
+
+
+def test_la_confianza_alta_reconoce_onedrive_sharepoint_y_descargas():
+    for texto in (
+        "Documentos de laboratorio cargados en OneDrive for Business: LAB05_Datos.xlsx",
+        "Archivos de práctica proporcionados por el instructor: M4_Datos.xlsx",
+        "Verifica que tienes los siguientes archivos descargados desde SharePoint: caso.pdf",
+    ):
+        informe = auditar_laboratorio(f"### Paso 1: Preparar\n{texto}", "")
+        assert informe["violaciones"], texto
+        assert informe["violaciones"][0]["confianza"] == "alta", texto
+
+
+def test_la_confianza_baja_marca_los_entregables_que_crea_el_laboratorio():
+    plan = {
+        "lab_plans": [
+            {**_LAB_PLAN, "scope": "El informe Datos_Inventados.xlsx contiene los resultados."}
+        ]
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    assert informe["violaciones"]
+    assert informe["violaciones"][0]["confianza"] == "baja"
+
+
+def test_el_planner_no_reintenta_si_solo_hay_referentes_de_baja_confianza():
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    plan = {
+        "lab_plans": [
+            {**_LAB_PLAN, "scope": "El informe Datos_Inventados.xlsx contiene los resultados."}
+        ]
+    }
+    llamadas = []
+    plan_final, informe = modulo.auditar_y_corregir_plan(
+        plan, _FUENTES, lambda correccion: llamadas.append(correccion) or plan
+    )
+
+    assert llamadas == [], "un entregable de baja confianza no debe provocar reintento"
+    assert informe["violaciones"], "la violación debe quedar registrada"
+    assert plan_final is plan
+
+
+def test_el_writer_no_reintenta_si_solo_hay_referentes_de_baja_confianza():
+    plan = {"lab_plans": [_LAB_PLAN]}
+    resultado, informes, contextos = _ejecutar_writer(
+        plan, [_LAB_ENTREGABLE_NO_APORTADO], max_intentos=3
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "no debe reintentar sobre un entregable de baja confianza"
+    assert informes and informes[0]["ok"] is False, informes[0]
+    assert any(
+        v.get("confianza") == "baja"
+        for r in informes[0]["por_laboratorio"].values()
+        for v in r["violaciones"]
+    )
+
+
+def test_la_edicion_de_un_fichero_del_proyecto_baja_la_confianza():
+    """«Abra `vite.config.js` y reemplace su contenido»: es un fichero del proyecto
+    (lo crea el andamiaje), no una entrada que aporte el curso."""
+    lab = (
+        "### Paso 1: Configurar Vite\n"
+        "Abra el archivo de configuración de Vite `vite.config.js` en la raíz del proyecto. "
+        "Reemplace su contenido para importar el plugin de Tailwind.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["violaciones"], "debe seguir registrándose"
+    assert informe["violaciones"][0]["confianza"] == "baja"
+
+
+def test_una_marca_de_entrada_gana_al_verbo_de_edicion():
+    lab = (
+        "### Paso 1: Preparar\n"
+        "Abra el archivo `datos_curso.xlsx` proporcionado por el instructor y reemplace los valores.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["violaciones"][0]["confianza"] == "alta"
+
+
+_LAB_BLOQUE_SALIDA = """# Lab
+### Paso 1: Crear la tabla
+```python
+spark.sql("CREATE TABLE ecommerce.productos (id INT)")
+```
+**Salida esperada:**
+```
+Archivos en _delta_log:
+  - 00000000000000000000.json (1234 bytes)
+  - 00000000000000000001.json (987 bytes)
+```
+### Paso 2: Compilar
+```bash
+ng serve --open
+```
+Verás una salida similar a:
+```
+Initial chunk files | Names
+main.js             | main
+polyfills.js        | polyfills
+```
+"""
+
+_LAB_MARCADOR_MAYUSCULAS = """# Lab
+### Paso 1: Instrucciones
+Debes referenciar los documentos fuente que están en mi OneDrive:
+- Estructura del proceso actual: [PEGAR_AQUÍ_URL_DE_PROCESO_ACTUAL.MD]
+- Cuellos de botella: [PEGAR_AQUÍ_URL_DE_ANALISIS_PROCESO.MD]
+"""
+
+
+def test_c7_los_bloques_de_salida_esperada_no_son_entradas():
+    """Los listados rotulados «Salida esperada» o «Verás una salida similar a»
+    muestran lo que produce el laboratorio; no exigen un fichero aportado."""
+    informe = auditar_laboratorio(_LAB_BLOQUE_SALIDA, "", plan="")
+    assert informe["ok"], informe["violaciones"]
+
+
+def test_c7_los_marcadores_en_mayusculas_con_punto_no_se_extraen():
+    informe = auditar_laboratorio(_LAB_MARCADOR_MAYUSCULAS, "", plan="")
+    assert informe["ok"], informe["violaciones"]
+
+
+def test_un_expected_outcome_nunca_dispara_reintento():
+    """``expected_outcomes`` describe lo que el estudiante produce: es salida por
+    definición, aunque el texto diga «recibe» o «proporcionado»."""
+    plan = {
+        "lab_plans": [
+            {
+                **_LAB_PLAN,
+                "expected_outcomes": [
+                    "Script main.py que importa y ejecuta funcionalidad de múltiples módulos"
+                ],
+            }
+        ]
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    del_entregable = [v for v in informe["violaciones"] if v["valor"] == "main.py"]
+    assert del_entregable, "debe registrarse"
+    assert del_entregable[0]["confianza"] == "baja"
+
+
+def test_el_reintento_se_puede_desactivar_sin_cambiar_el_plan():
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    plan = {"lab_plans": [{**_LAB_PLAN, "scope": "Abrir Demanda_Historica.xlsx"}]}
+    llamadas = []
+    anterior = os.environ.get("REFERENTIAL_RETRY")
+    os.environ["REFERENTIAL_RETRY"] = "0"
+    try:
+        plan_final, informe = modulo.auditar_y_corregir_plan(
+            plan, _FUENTES, lambda correccion: llamadas.append(correccion) or plan
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("REFERENTIAL_RETRY", None)
+        else:
+            os.environ["REFERENTIAL_RETRY"] = anterior
+
+    assert llamadas == [], "REFERENTIAL_RETRY=0 debe dejar solo registro"
+    assert plan_final is plan
+    assert informe["violaciones"], "el informe se sigue generando"
+
+
+def test_el_writer_con_reintento_desactivado_no_regenera_el_lab():
+    plan = {"lab_plans": [_LAB_PLAN]}
+    anterior = os.environ.get("REFERENTIAL_RETRY")
+    os.environ["REFERENTIAL_RETRY"] = "0"
+    try:
+        resultado, informes, contextos = _ejecutar_writer(
+            plan, [_LAB_CON_INVENTO], max_intentos=3
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("REFERENTIAL_RETRY", None)
+        else:
+            os.environ["REFERENTIAL_RETRY"] = anterior
+
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "REFERENTIAL_RETRY=0 no debe regenerar el laboratorio"
+    assert informes and informes[0]["ok"] is False
+
+
 if __name__ == "__main__":
     pruebas = [
         (nombre, funcion)

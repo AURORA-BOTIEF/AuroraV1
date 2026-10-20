@@ -50,6 +50,13 @@ DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
 # Retries per lab before failing the batch (Step Functions should not succeed with partial labs)
 MAX_LAB_GENERATION_ATTEMPTS = int(os.getenv("MAX_LAB_GENERATION_ATTEMPTS", "3"))
 
+
+def _reintento_referencial_habilitado() -> bool:
+    """Interruptor operativo: ``REFERENTIAL_RETRY=0`` deja B1 en solo registro."""
+    return os.getenv("REFERENTIAL_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
 # App-level Bedrock invoke retries inside call_bedrock_agent
 BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
 
@@ -1966,23 +1973,28 @@ def lambda_handler(event, context):
         # El plan es fuente para B1… pero solo para sus referentes VERIFICADOS.
         # A1 ya dejó por escrito qué referentes del plan no existen en ninguna fuente;
         # si se usasen como fuente, el laboratorio podría repetir el dato inventado y
-        # B1 lo daría por bueno. Por eso se excluye el propio informe y se eliminan
-        # del texto del plan los referentes que A1 marcó como no trazables.
+        # B1 lo daría por bueno. Se excluyen únicamente los de **alta confianza** (los
+        # que el curso dice aportar): los de baja son entregables o directorios que el
+        # propio plan introduce legítimamente y deben seguir contando como fuente.
         plan_metadata = master_plan.get("metadata") or {}
         plan_trazable = {k: v for k, v in master_plan.items() if k != "metadata"}
         plan_trazable["metadata"] = {
             k: v for k, v in plan_metadata.items() if k != "referential_integrity"
         }
         referential_plan_text = flatten_to_text(plan_trazable)
-        violaciones_a1 = (plan_metadata.get("referential_integrity") or {}).get("violaciones") or []
+        violaciones_a1 = [
+            v
+            for v in ((plan_metadata.get("referential_integrity") or {}).get("violaciones") or [])
+            if isinstance(v, dict) and v.get("confianza", "alta") == "alta"
+        ]
         for violacion in violaciones_a1:
-            valor = violacion.get("valor") if isinstance(violacion, dict) else None
+            valor = violacion.get("valor")
             if valor:
                 referential_plan_text = referential_plan_text.replace(valor, " ")
         if violaciones_a1:
             print(
                 f"🔗 Se excluyen {len(violaciones_a1)} referente(s) del plan marcados por A1 "
-                f"como no declarados: no cuentan como fuente para B1"
+                f"como aportados por el curso y no declarados: no cuentan como fuente para B1"
             )
 
         referential_reports: Dict[str, Any] = {}
@@ -2092,22 +2104,35 @@ def lambda_handler(event, context):
                             plan=referential_plan_text,
                         )
                         referential_reports[lab_id] = referential_report
+                        altas = [
+                            v
+                            for v in referential_report["violaciones"]
+                            if v.get("confianza") == "alta"
+                        ]
                         print(
                             f"  🔎 B1 integridad referencial de {lab_id}: "
-                            f"{len(referential_report['violaciones'])} referente(s) sin declarar"
+                            f"{len(referential_report['violaciones'])} referente(s) sin declarar "
+                            f"({len(altas)} de alta confianza)"
                         )
                         for v in referential_report["violaciones"][:10]:
                             print(f"     ⚠️  {v['valor']}")
 
-                        if referential_report["violaciones"] and attempt < MAX_LAB_GENERATION_ATTEMPTS:
-                            # Reintento correctivo: se devuelve la lista al modelo para
-                            # que elimine o marque los referentes inventados.
+                        if (
+                            altas
+                            and attempt < MAX_LAB_GENERATION_ATTEMPTS
+                            and _reintento_referencial_habilitado()
+                        ):
+                            # Reintento correctivo solo con lo que el curso dice aportar.
+                            # El resto (ficheros creados por el propio laboratorio, del
+                            # proyecto o salidas esperadas) queda solo registrado: la
+                            # calibración mostró que reintentar sobre ellos borra
+                            # entregables legítimos.
                             master_context["referential_correction"] = mensaje_de_correccion(
-                                referential_report["violaciones"], "lab"
+                                altas, "lab"
                             )
                             raise RuntimeError(
                                 f"B1 referential check failed for {lab_id}: "
-                                f"{len(referential_report['violaciones'])} undeclared file reference(s)"
+                                f"{len(altas)} undeclared file reference(s) of high confidence"
                             )
 
                         labs_markdown[lab_id] = verified_guide

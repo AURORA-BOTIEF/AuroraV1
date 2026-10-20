@@ -973,53 +973,91 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informe: dict)
         return ""
 
 
+def _reintento_habilitado() -> bool:
+    """Interruptor operativo: ``REFERENTIAL_RETRY=0`` deja la verificación en solo
+    registro (informe), sin reintento correctivo ni cambio de contenido."""
+    return os.getenv("REFERENTIAL_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
 def auditar_y_corregir_plan(master_plan: dict, fuentes: str, regenerar, max_intentos: int = 2):
-    """Verificación A1 con reintento correctivo.
+    """Verificación A1 con reintento correctivo **solo sobre lo que aporta el curso**.
 
-    A1: todo referente de fichero que el plan afirma debe existir en las fuentes
-    (temario, manual, documentos). Los que no existen son datos inventados: el
-    plano donde nace el problema, porque el Writer los obedece después.
+    A1: todo referente de fichero que el plan presenta como **entrada aportada por
+    el curso** debe existir en las fuentes (temario, manual, documentos). Los que
+    no existen son datos inventados: el plano donde nace el problema, porque el
+    Writer los obedece después.
 
-    Si hay violaciones se le devuelve la lista al modelo y se regenera una vez.
-    Se conserva el plan con **menos** referentes sin declarar: un reintento que
-    empeora nunca sustituye al plan anterior.
+    El informe registra **todas** las violaciones, pero el reintento correctivo se
+    dispara únicamente con las de ``confianza == "alta"`` (el contexto dice que el
+    fichero lo proporciona el curso). La calibración del 19/10/2026 midió que el
+    ~90 % de los marcados son ficheros que el propio laboratorio crea, que
+    pertenecen al proyecto o que son salidas esperadas: reintentar sobre ellos
+    haría que el modelo borrase entregables legítimos.
+
+    Se conserva el plan con **menos** referentes de alta confianza sin declarar:
+    un reintento que empeora nunca sustituye al plan anterior.
 
     Returns:
         ``(master_plan, informe)``
     """
     informe = auditar_plan(master_plan, fuentes)
+    altas = [v for v in informe["violaciones"] if v.get("confianza") == "alta"]
     print(
         f"\n🔎 A1 integridad referencial del plan: {informe['total']} referente(s) de fichero, "
-        f"{len(informe['violaciones'])} sin declarar en el temario ni en el manual"
+        f"{len(informe['violaciones'])} sin declarar "
+        f"({len(altas)} de alta confianza: aportados por el curso)"
     )
     for v in informe["violaciones"][:10]:
-        print(f"   ⚠️  {v['valor']}  (campo {v['campo']})")
+        print(f"   ⚠️  {v['valor']}  (campo {v['campo']}, confianza {v.get('confianza', 'baja')})")
     if len(informe["violaciones"]) > 10:
         print(f"   … y {len(informe['violaciones']) - 10} más")
 
     intento = 1
-    while informe["violaciones"] and intento < max_intentos:
+    retry_altas = list(altas)
+    if retry_altas and not _reintento_habilitado():
+        print(
+            "\nℹ️  A1: REFERENTIAL_RETRY=0 — sin reintento correctivo; "
+            f"{len(retry_altas)} referente(s) de alta confianza quedan solo registrados."
+        )
+        retry_altas = []
+    while retry_altas and intento < max_intentos:
         intento += 1
         print(f"\n🔁 Reintento correctivo del plan ({intento}/{max_intentos})")
-        candidato = regenerar(mensaje_de_correccion(informe["violaciones"], "plan"))
+        candidato = regenerar(mensaje_de_correccion(altas, "plan"))
         if not candidato or not candidato.get("lab_plans"):
             print("   ⚠️  El reintento no devolvió un plan utilizable; se conserva el anterior")
             break
         candidato_informe = auditar_plan(candidato, fuentes)
+        altas_candidato = [
+            v for v in candidato_informe["violaciones"] if v.get("confianza") == "alta"
+        ]
         print(
-            f"   → reintento: {len(candidato_informe['violaciones'])} referente(s) sin declarar "
-            f"(anterior: {len(informe['violaciones'])})"
+            f"   → reintento: {len(altas_candidato)} referente(s) de alta confianza sin declarar "
+            f"(anterior: {len(altas)})"
         )
-        if len(candidato_informe["violaciones"]) < len(informe["violaciones"]):
-            master_plan, informe = candidato, candidato_informe
+        if len(altas_candidato) < len(altas):
+            master_plan, informe, altas = candidato, candidato_informe, altas_candidato
+            retry_altas = altas
         else:
             print("   ⚠️  El reintento no mejora; se conserva el plan anterior")
             break
 
-    if informe["violaciones"]:
+    if altas and not _reintento_habilitado():
         print(
-            f"\n⚠️  A1: el plan conserva {len(informe['violaciones'])} referente(s) sin declarar "
+            f"\nℹ️  A1: {len(altas)} referente(s) de alta confianza sin declarar; "
+            f"registrados sin reintento (REFERENTIAL_RETRY=0)."
+        )
+    elif altas:
+        print(
+            f"\n⚠️  A1: el plan conserva {len(altas)} referente(s) de alta confianza sin declarar "
             f"tras {intento} intento(s). Queda registrado en el informe de validación."
+        )
+    elif informe["violaciones"]:
+        print(
+            f"\nℹ️  A1: {len(informe['violaciones'])} referente(s) sin declarar, todos de baja "
+            f"confianza (creados o existentes en el laboratorio). Solo se registran."
         )
     else:
         print("\n✅ A1: todos los referentes del plan están declarados en las fuentes")
