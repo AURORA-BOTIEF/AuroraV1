@@ -1,4 +1,4 @@
-"""Trazabilidad de referentes de fichero (verificaciones A1, B1, B2, B3c, B5 y B6).
+"""Trazabilidad de referentes de fichero (A1, B1, B2, B3c, B3p, B5 y B6).
 
 Regla de tres niveles
 ---------------------
@@ -37,6 +37,17 @@ anteriores. Para B2 se usan las salidas declaradas en el plan
 (``expected_outcomes``) de los laboratorios posteriores: si el actual referencia
 una de ellas sin que esté en las fuentes ni la cree él mismo, depende de algo que
 aún no ha ocurrido.
+
+Alcance de B3p (entregable producido)
+-------------------------------------
+El plan declara sus entregables en ``expected_outcomes``, casi siempre como prosa
+(«Archivo ``data_transform.py`` con al menos 6 funciones»). B3p solo puede ser
+determinista sobre los que **nombran un fichero**, y distingue tres estados:
+creado, **mencionado sin creación reconocida** (hueco de extractor, baja) y **no
+mencionado** (omisión, alta). Las alternativas («``deploy.sh`` o ``deploy.ps1``»)
+son un solo requisito y los ficheros que el plan presenta como **entrada** del
+curso no son entregables. Medición del 21/10/2026: 142 laboratorios con omisión;
+por eso se registra y **no reintenta** salvo que se encienda ``DELIVERABLES_RETRY``.
 
 Precisión (calibración del 16/10/2026)
 --------------------------------------
@@ -1143,6 +1154,89 @@ def _magnitudes(texto: str) -> set[tuple[str, str]]:
     return salida
 
 
+# --------------------------------------------------------------------------- #
+# Entregables declarados en el plan (B3p)
+# --------------------------------------------------------------------------- #
+
+# El plan declara el entregable como una entrada que aporta el curso, no como algo
+# que produzca el alumno. Citarlo en un comando no lo convierte en entregable.
+_ENTREGABLE_ENTRADA = (
+    "entrada", "input", "proporcionad", "entregad por el instructor",
+    "recibid", "--variable", "aportad por el curso",
+)
+_ALTERNATIVA = ("o", "u", "or", "/")
+
+
+def entregables_declarados(expected_outcomes) -> list[list[str]]:
+    """Grupos de entregables que el plan declara **producidos** por el alumno.
+
+    Cada grupo es una lista de alternativas: «``deploy.sh`` o ``deploy.ps1``» es un
+    solo requisito, no dos. Una frase que presenta el fichero como **entrada** del
+    curso se descarta: no es un entregable.
+    """
+    grupos: list[list[str]] = []
+    for salida in expected_outcomes or ():
+        if not isinstance(salida, str):
+            continue
+        if any(marca in normalizar(salida) for marca in _ENTREGABLE_ENTRADA):
+            continue
+        referentes = extraer_referentes(salida, deduplicar=False)
+        if not referentes:
+            continue
+        actual = [referentes[0]["valor"]]
+        for anterior, siguiente in zip(referentes, referentes[1:]):
+            entre = salida[
+                anterior["inicio"] + len(anterior["valor"]):siguiente["inicio"]
+            ].strip().lower()
+            if entre in _ALTERNATIVA:
+                actual.append(siguiente["valor"])
+            else:
+                grupos.append(actual)
+                actual = [siguiente["valor"]]
+        grupos.append(actual)
+    return grupos
+
+
+def auditar_entregables(laboratorio_md: str, expected_outcomes) -> dict:
+    """B3p: ¿todo entregable que el plan declara producido aparece en el laboratorio?
+
+    Tres estados, y solo uno es una omisión:
+
+    - **creado**: la detección de creación de B1 lo ve (``cat >``, andamiaje, opción
+      de salida…);
+    - **mencionado sin creación reconocida** (``baja``): aparece en el texto, pero
+      la frase de creación no se reconoce. Es el mismo hueco de extractor que B1,
+      no una omisión;
+    - **no mencionado** (``alta``): el nombre no aparece ni una vez. El laboratorio
+      no produce el entregable que el plan declara.
+
+    Medición del 21/10/2026 sobre 1.294 laboratorios: 145 con alguna omisión y 12
+    solo con menciones sin creación. Por eso **no reintenta por defecto**
+    (``DELIVERABLES_RETRY=0``).
+    """
+    grupos = entregables_declarados(expected_outcomes)
+    informe = {"ok": True, "declarados": len(grupos), "omitidos": [], "mencionados": []}
+    if not grupos:
+        return informe
+    creados = referentes_creados(laboratorio_md or "")
+    texto = (laboratorio_md or "").lower()
+
+    for grupo in grupos:
+        claves = set()
+        for valor in grupo:
+            claves.add(canonico(valor))
+            claves.add(canonico(valor.replace("\\", "/").split("/")[-1]))
+        if claves & creados:
+            continue
+        if any(valor.replace("\\", "/").split("/")[-1].lower() in texto for valor in grupo):
+            informe["mencionados"].extend(grupo)
+        else:
+            informe["omitidos"].extend(grupo)
+
+    informe["ok"] = not informe["omitidos"] and not informe["mencionados"]
+    return informe
+
+
 def _versiones_declaradas(declarado: str, herramienta: str) -> list[str]:
     return [
         m.group(1)
@@ -1261,6 +1355,7 @@ def auditar_laboratorio(
     referencias_posteriores=None,
     duracion_min=None,
     requisitos_texto=None,
+    expected_outcomes=None,
 ) -> dict:
     """B1/B2/B3/B6: cierre de referentes y de duración.
 
@@ -1289,15 +1384,19 @@ def auditar_laboratorio(
             que el propio laboratorio declara en sus metadatos.
         requisitos_texto: requisitos de software y hardware del plan, ya normalizados
             con :func:`requisitos_declarados`.
+        expected_outcomes: salidas esperadas del laboratorio según el plan. Si se
+            pasan, se comprueba B3p.
 
     Returns:
         ``{"total", "creados", "violaciones", "menciones_posteriores", "duracion",
-        "requisitos", "ok"}``. Cada violación lleva ``verificacion`` (``B1``, ``B2``,
-        ``B5`` o ``B6``) y ``confianza`` (``alta`` si el contexto presenta el
-        referente como **aportado por el curso**, si es una dependencia hacia
-        delante, si es una duración imposible o si contradice al plan; ``baja`` si
-        el laboratorio amplía un requisito). Las menciones de hoja de ruta van
-        aparte y no afectan a ``ok``.
+        "requisitos", "entregables", "ok"}``. Cada violación lleva ``verificacion``
+        (``B1``, ``B2``, ``B3p``, ``B5`` o ``B6``) y ``confianza`` (``alta`` si el
+        contexto presenta el referente como **aportado por el curso**, si es una
+        dependencia hacia delante, si es una duración imposible, si contradice al
+        plan o si el plan declara un entregable que el laboratorio ni menciona;
+        ``baja`` si el laboratorio amplía un requisito o menciona un entregable sin
+        una creación reconocible). Las menciones de hoja de ruta van aparte y no
+        afectan a ``ok``.
     """
     if duracion_min is None:
         duracion_min = duracion_declarada(laboratorio_md or "")
@@ -1404,6 +1503,31 @@ def auditar_laboratorio(
             }
         )
 
+    # B3p: entregables que el plan declara producidos. La omisión (no se menciona
+    # ni una vez) es de alta confianza; la mención sin creación reconocida es el
+    # hueco de extractor de B1 y se registra con baja.
+    entregables = auditar_entregables(laboratorio_md or "", expected_outcomes)
+    for valor in entregables["omitidos"]:
+        violaciones.append(
+            {
+                "valor": valor,
+                "tipo": "entregable",
+                "inicio": 0,
+                "confianza": "alta",
+                "verificacion": "B3p",
+            }
+        )
+    for valor in entregables["mencionados"]:
+        violaciones.append(
+            {
+                "valor": valor,
+                "tipo": "entregable",
+                "inicio": 0,
+                "confianza": "baja",
+                "verificacion": "B3p",
+            }
+        )
+
     # Forma débil de B2: menciones explícitas a un laboratorio posterior. No son
     # violaciones (una hoja de ruta es normal): van en su propia clave del informe.
     menciones_posteriores = list(referencias_posteriores or ())
@@ -1415,6 +1539,7 @@ def auditar_laboratorio(
         "menciones_posteriores": menciones_posteriores,
         "duracion": duracion,
         "requisitos": requisitos,
+        "entregables": entregables,
         "ok": not violaciones,
     }
 
@@ -1473,6 +1598,18 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "- si sobra, sustitúyelo por una descripción funcional sin nombre de fichero.\n"
             "No adelantes contenido del laboratorio posterior ni elimines entregables de este "
             "laboratorio."
+        )
+        bloques.append(intro + "\n" + "\n".join(lineas))
+
+    b3p = [v for v in violaciones if v.get("verificacion") == "B3p"]
+    if b3p:
+        lineas = [f"- `{v['valor']}`" for v in b3p[:20]]
+        intro = (
+            "El plan declara estos entregables y este laboratorio no los menciona ni una vez. "
+            "Añade el paso que los produce:\n"
+            "- intégralo en el paso que ya construye esa parte, sin crear un laboratorio aparte;\n"
+            "- el entregable debe quedar nombrado con el mismo nombre que usa el plan;\n"
+            "- no elimines ningún entregable que ya produzca el laboratorio."
         )
         bloques.append(intro + "\n" + "\n".join(lineas))
 

@@ -857,9 +857,92 @@ que una ampliación de hardware no haga parecer roto un curso.
   reproduce las cifras de §18.2 y §18.3 sobre los 1.294 laboratorios.
 - `ver_pasos.py` — volcado de los pasos y bloques de un laboratorio concreto (usado para revisar los
   14 de B6).
-- Batería: **92/92 en verde**, con caminos vivos nuevos: el Writer reintenta por una duración
+- Batería: **99/99 en verde**, con caminos vivos nuevos: el Writer reintenta por una duración
   imposible y por una contradicción de requisito, no reintenta por una ampliación de hardware, y
   ninguno de los dos reintentos ocurre con su interruptor apagado.
+
+## 19. Fase 2.3 (21/10/2026): B3p, el entregable declarado que aparece producido
+
+### 19.1 Qué se puede comprobar de verdad
+
+`expected_outcomes` es **prosa**, no una lista de ficheros. En la muestra real conviven tres formas:
+
+| Forma | Ejemplo | ¿Comprobable? |
+|---|---|---|
+| Nombra un fichero | «Archivo `data_transform.py` con al menos 6 funciones» | **sí**, determinista |
+| Nombra un formato suelto | «Diagrama en formato `.drawio/.png`» | no: no hay nombre que buscar |
+| Describe un resultado | «Scorecard funcional en Excel con 8 criterios ponderados» | no sin modelo (fase 3) |
+
+B3p se limita a la primera forma. No es una limitación de implementación: cualquier otra exige
+juzgar semántica, y eso pertenece a la fase 3 (entidades con nombre), no a un verificador
+determinista.
+
+### 19.2 Tres estados, no dos
+
+La primera medición trataba «no lo veo crear» como «no lo produce» y marcaba el **50,5 %** de los
+laboratorios (157 de 311). Al mirar los casos, la mitad eran frases de creación que el extractor no
+reconoce — el mismo hueco que B1 documenta en §14. Se separan:
+
+| Estado | Significado | Confianza |
+|---|---|---|
+| **Creado** | la detección de creación de B1 lo ve (`cat >`, andamiaje, opción de salida…) | — |
+| **Mencionado, sin creación reconocida** | el nombre aparece en el texto; la frase no se reconoce | `baja` |
+| **No mencionado** | el nombre no aparece ni una vez | `alta` |
+
+Con esa separación, las menciones sin creación son **29 entregables en 12 laboratorios**: ruido de
+extractor, se registra y no se reintenta.
+
+### 19.3 Dos familias de falso positivo, corregidas antes de medir
+
+1. **Alternativas** del plan: «Script de despliegue (`deploy.sh` o `deploy.ps1`)». Es **un**
+   requisito, no dos. Se agrupan por el conector que hay entre los referentes (`o`, `u`, `/`); el
+   grupo se satisface si se produce cualquiera.
+2. **Entradas del curso**: «ejecutable con `robot --variable INPUT_FILE:orders.xlsx rpa.robot`» cita
+   un fichero que el alumno **recibe**, no que produce. Una frase con marcadores de entrada
+   (`entrada`, `input`, `--variable`, `proporcionad`, `recibida`) no declara entregables.
+
+### 19.4 Medición sobre 1.294 laboratorios
+
+| | Valor |
+|---|---|
+| Laboratorios con algún entregable nombrado | 311 |
+| Entregables nombrados | 626 |
+| Laboratorios con **omisión** (no mencionado) | **142 (11,0 %)** |
+| Entregables omitidos | **211** |
+| Entregables mencionados sin creación reconocida (baja) | 29 en 12 laboratorios |
+
+Por extensión de lo omitido: `.py` 37, `.md` 29, `.docx` 29, `.txt` 17, `.png` 14, `.xlsx` 13,
+`.json` 9, `.yaml` 8, `.sql` 8, `.ipynb` 7, `.pptx` 7.
+
+Las dos familias de falso positivo que **quedan** y hay que resolver antes de encender el reintento:
+
+- **salidas de herramienta** declaradas como entregable (`log.html`, `_web_verification.png`,
+  capturas embebidas): el alumno no las produce a mano;
+- **ficheros implícitos** (`README.md`): el plan los declara y el laboratorio los omite, pero no son
+  el objeto de la práctica.
+
+### 19.5 Decisión
+
+1. **B3p se registra, no se reintenta**: `DELIVERABLES_RETRY` está **apagado por defecto** (al revés
+   que B5/B6). El criterio es el de §14: 0 falsos positivos sobre cursos reales. Con 142 laboratorios
+   y dos familias de FP sin resolver, no se cumple.
+2. La omisión (alta) se informa como **alta** en el artefacto para poder medirla, pero no regenera.
+   Así nadie paga una regeneración por un `README.md` implícito.
+3. El mensaje correctivo, cuando se encienda, es **aditivo**: añade el paso que produce el entregable
+   con el nombre exacto del plan y **no elimina** nada.
+4. Para encenderlo: revisar los 211 omitidos, excluir las dos familias y volver a medir hasta 0 FP.
+
+### 19.6 Reproducibilidad
+
+- `calibrar_b3p.py` — primera pasada (50,5 % de ruido): enseñó que el detector de creación no basta.
+- `calibrar_b3p_docs.py` — restringido a entregables documentales (40,1 %).
+- `calibrar_b3p_split.py` — separa «no mencionado» de «mencionado sin creación».
+- `ver_b3p.py` y `ver_b3p_frases.py` — contexto del laboratorio y frase del plan para cada caso.
+- `calibrar_b3p_final.py` — **llama al módulo real** (`entregables_declarados`, `auditar_entregables`)
+  y reproduce las cifras de §19.4.
+- Batería: **99/99 en verde**, con caminos vivos nuevos: entregable declarado y no mencionado
+  (alta), entregable creado (sin marca), entregable mencionado sin creación (baja), alternativa del
+  plan y entrada del curso. El Writer no reintenta por defecto y sí con `DELIVERABLES_RETRY=1`.
 
 
 

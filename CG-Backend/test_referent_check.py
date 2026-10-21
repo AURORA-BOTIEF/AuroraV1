@@ -1187,6 +1187,9 @@ _LAB_QUE_ABRE_LO_DEL_LAB_ANTERIOR = """# Lab 01-01-02: Analizar la demanda
 
 ### Paso 1: Abrir el conjunto de datos
 Abra el archivo ventas_limpias.csv y calcule el MAPE del pronostico.
+
+### Paso 2: Guardar el entregable
+cat > Practica1_MAPE_SKU.xlsx
 """
 
 _LAB_QUE_USA_LA_SALIDA_POSTERIOR = """# Lab 01-01-01: Preparar el analisis
@@ -1738,6 +1741,98 @@ def test_el_writer_no_reintenta_por_requisito_con_el_interruptor_apagado():
     assert resultado["statusCode"] == 200, resultado
     assert len(contextos) == 1, "REQUIREMENTS_RETRY=0 debe dejar solo registro"
     assert informes and informes[0]["total_b5"] == 1
+
+
+def test_b3p_marca_un_entregable_que_el_laboratorio_no_menciona():
+    lab = "### Paso 1: Preparar\n```bash\necho hola\n```\n"
+    informe = auditar_laboratorio(
+        lab,
+        fuentes="temario",
+        expected_outcomes=["Archivo 'data_transform.py' con al menos 6 funciones"],
+    )
+    b3p = [v for v in informe["violaciones"] if v["verificacion"] == "B3p"]
+    assert [v["valor"] for v in b3p] == ["data_transform.py"]
+    assert b3p[0]["confianza"] == "alta"
+
+
+def test_b3p_no_marca_el_entregable_que_el_laboratorio_crea():
+    lab = "### Paso 1: Crear el módulo\n```bash\ncat > data_transform.py << 'EOF'\nEOF\n```\n"
+    informe = auditar_laboratorio(
+        lab,
+        fuentes="temario",
+        expected_outcomes=["Archivo 'data_transform.py' con al menos 6 funciones"],
+    )
+    assert not [v for v in informe["violaciones"] if v["verificacion"] == "B3p"]
+
+
+def test_b3p_registra_como_baja_el_entregable_mencionado_sin_creacion():
+    lab = "### Paso 1: Revisar\nAbra `data_transform.py` y observe las funciones.\n"
+    informe = auditar_laboratorio(
+        lab,
+        fuentes="temario",
+        expected_outcomes=["Archivo 'data_transform.py' con al menos 6 funciones"],
+    )
+    b3p = [v for v in informe["violaciones"] if v["verificacion"] == "B3p"]
+    assert b3p and all(v["confianza"] == "baja" for v in b3p), b3p
+
+
+def test_b3p_acepta_una_alternativa_del_plan():
+    lab = "### Paso 1: Crear el script\n```bash\ncat > deploy.ps1 << 'EOF'\nEOF\n```\n"
+    informe = auditar_laboratorio(
+        lab,
+        fuentes="temario",
+        expected_outcomes=["Script de despliegue (deploy.sh o deploy.ps1) que importa la aplicación"],
+    )
+    assert not [v for v in informe["violaciones"] if v["verificacion"] == "B3p"]
+
+
+def test_b3p_ignora_un_fichero_que_es_entrada_del_curso():
+    lab = "### Paso 1: Ejecutar\n```bash\necho ok\n```\n"
+    informe = auditar_laboratorio(
+        lab,
+        fuentes="temario",
+        expected_outcomes=["Proceso ejecutable con 'robot --variable INPUT_FILE:orders.xlsx rpa.robot'"],
+    )
+    assert not [v for v in informe["violaciones"] if v["verificacion"] == "B3p"]
+
+
+def test_el_writer_no_reintenta_por_entregable_omitido_por_defecto():
+    plan = {
+        "lab_plans": [
+            {**_LAB_PLAN, "expected_outcomes": ["Archivo 'data_transform.py' con 6 funciones"]}
+        ]
+    }
+    lab = "### Paso 1: Preparar\n```bash\necho ok\n```\n"
+    resultado, informes, contextos = _ejecutar_writer(plan, [lab], max_intentos=3)
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "B3p no debe reintentar por defecto"
+    assert informes and informes[0]["total_b3p"] == 1
+
+
+def test_el_writer_reintenta_por_entregable_omitido_si_se_enciende():
+    anterior = os.environ.get("DELIVERABLES_RETRY")
+    os.environ["DELIVERABLES_RETRY"] = "1"
+    try:
+        plan = {
+            "lab_plans": [
+                {**_LAB_PLAN, "expected_outcomes": ["Archivo 'data_transform.py' con 6 funciones"]}
+            ]
+        }
+        lab = "### Paso 1: Preparar\n```bash\necho ok\n```\n"
+        corregido = (
+            "### Paso 1: Crear el módulo\n```bash\ncat > data_transform.py << 'EOF'\nEOF\n```\n"
+        )
+        resultado, _informes, contextos = _ejecutar_writer(
+            plan, [lab, corregido], max_intentos=3
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("DELIVERABLES_RETRY", None)
+        else:
+            os.environ["DELIVERABLES_RETRY"] = anterior
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 2, "con DELIVERABLES_RETRY=1 debe regenerar"
+    assert "no los menciona ni una vez" in contextos[1]["referential_correction"]
 
 
 def _lab_con_bloques(pasos, bloques_por_paso, duracion, lenguaje="bash"):

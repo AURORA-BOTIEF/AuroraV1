@@ -79,6 +79,19 @@ def _reintento_requisitos_habilitado() -> bool:
         "0", "false", "no", "off",
     )
 
+
+def _reintento_entregables_habilitado() -> bool:
+    """Interruptor operativo propio de B3p: **apagado por defecto**.
+
+    La clase de omisión de entregables todavía no ha demostrado 0 falsos positivos
+    sobre cursos reales (medición 21/10/2026: 145 laboratorios con omisión, sin
+    revisar uno a uno). Se registra; el reintento se enciende con
+    ``DELIVERABLES_RETRY=1`` cuando la calibración lo respalde.
+    """
+    return os.getenv("DELIVERABLES_RETRY", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
 # App-level Bedrock invoke retries inside call_bedrock_agent
 BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
 
@@ -1910,6 +1923,12 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             for v in r.get("violaciones", [])
             if v.get("verificacion") == "B5"
         )
+        b3p = sum(
+            1
+            for r in informes.values()
+            for v in r.get("violaciones", [])
+            if v.get("verificacion") == "B3p"
+        )
         altas = sum(
             1
             for r in informes.values()
@@ -1917,11 +1936,12 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             if v.get("confianza") == "alta"
         )
         payload = {
-            "check": "B1+B2+B5+B6",
+            "check": "B1+B2+B3p+B5+B6",
             "labs": len(informes),
             "total_violaciones": total,
-            "total_b1": total - b2 - b5 - b6,
+            "total_b1": total - b2 - b3p - b5 - b6,
             "total_b2": b2,
+            "total_b3p": b3p,
             "total_b5": b5,
             "total_b6": b6,
             "total_alta_confianza": altas,
@@ -2229,6 +2249,7 @@ def lambda_handler(event, context):
                                 master_context.get("software_requirements"),
                                 master_context.get("hardware_requirements"),
                             ),
+                            expected_outcomes=lab_plan.get("expected_outcomes"),
                         )
                         referential_reports[lab_id] = referential_report
                         altas = [
@@ -2242,6 +2263,10 @@ def lambda_handler(event, context):
                             and (
                                 v.get("verificacion") != "B5"
                                 or _reintento_requisitos_habilitado()
+                            )
+                            and (
+                                v.get("verificacion") != "B3p"
+                                or _reintento_entregables_habilitado()
                             )
                         ]
                         print(
