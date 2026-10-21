@@ -581,12 +581,142 @@ arquitectura.
 
 ### 16.6 Reproducibilidad
 
-- `medir_corpus_fase2.py` — mismo corpus, flujo de producción, contrafactual de B3c y listado de
-  B2. Escribe `corpus_fase2.json`.
+- `medir_y_contexto.py` — mismo corpus, flujo de producción y volcado del contexto (±220
+  caracteres) de cada B1 de alta confianza. Escribe `corpus.json` y `contexto_alta.txt`.
+  **Sustituye** al `medir_corpus_fase2.py` de esta sección, que vivía en un directorio temporal
+  que se vació; el «antes» se mide con `medir_antes.py`, que importa el módulo de `HEAD` y escribe
+  `corpus_antes.json`. Así la comparación es sobre el mismo flujo, no sobre scripts distintos.
+- `revisar_proyecto.py <proyecto>` — auditoría de un proyecto concreto; sirve para verificar un
+  caso sin repetir el corpus.
 - Batería: `CG-Backend/test_referent_check.py`, **62/62 en verde**, con caminos vivos nuevos:
   el Writer acepta un fichero creado en el laboratorio anterior (B3c), reintenta cuando el
   laboratorio depende de la salida de uno posterior (B2) y registra sin reintentar con
   `REFERENTIAL_RETRY=0`.
+
+
+## 17. Fase 2.1 (21/10/2026): artefactos de herramienta y rutas relativas
+
+### 17.1 El diagnóstico de §16.4 era incompleto
+
+Se revisaron los 33 casos de alta confianza **con su contexto real** (±220 caracteres del
+laboratorio escrito, no del prompt ni del fuente). El resultado desmintió la hipótesis de trabajo:
+la mayoría no eran «artefactos de herramienta» sino **rutas relativas con directorio** que el
+extractor no veía:
+
+```
+cat > assets/mock.json                 → no se extraía «assets/mock.json»
+src/app/…/product-list.component.ts    → no se extraía la ruta
+tests/e2e/todo.flaky.spec.ts           → ídem
+```
+
+La causa es concreta: `_FICHERO_RE` no admite `/` en el nombre y `_RUTA_UNIX_RE` exige `/` inicial.
+Una ruta relativa con directorio no la capturaba ninguna regla. Consecuencia: **el paso que crea el
+fichero era invisible**, y solo quedaba la mención posterior, que parecía un fichero inventado.
+
+Es la diferencia entre medir el prompt y medir la salida: sobre el texto del plan el diagnóstico
+«artefacto» era plausible; sobre el laboratorio generado, la causa dominante era otra.
+
+### 17.2 Qué se añadió
+
+1. **`_RUTA_RELATIVA_RE`** (dos o más segmentos y extensión) → tipo `ruta`. Es la corrección de
+   causa raíz. También permite que un paso `ng generate component …` o `mkdir -p js assets` se
+   relacione con la mención posterior del mismo fichero.
+2. **`_es_artefacto_de_herramienta`**, aplicada en la extracción:
+   - directorios de build (`dist/`, `build/`, `out/`, `target/`, `node_modules/`, `.angular/`,
+     `.next/`, `.nuxt/`, `coverage/`, `__pycache__/`, `.venv/`, `.gradle/`, `vendor/`, `obj/`);
+   - andamiaje de framework (`resources/js/`, `resources/css/`, `resources/views/`);
+   - sufijos que añade un generador (`.component.ts`, `.service.ts`, `.module.ts`, `.spec.ts`,
+     `.d.ts`, `.guard.ts`, `.directive.ts`, `.pipe.ts`, `.resolver.ts`, `.routes.ts`, `.g.dart`,
+     `.generated.ts`, `.designer.cs`, `.pb.go`, `.pb.ts`, `.min.js`, `.min.css`, `.map`,
+     `.report.json`, `.report.html`);
+   - **logs y temporales** (`.log`, `.tmp`): los produce la ejecución, nunca los aporta el curso;
+   - bundle con hash de contenido (`main-a1b2c3d4.js`);
+   - bibliotecas citadas por su nombre de fichero (`plotly.js`, `Node.js`, `jquery.js`…);
+   - ficheros de un chart de Helm (`Chart.yaml`, `values.yaml`, `chart.lock`);
+   - traversal de directorios (`/../`).
+3. **`_es_ejemplo`**: un nombre citado como ejemplo («ej: tests/Login.robot», «normalmente
+   `src/router/index.ts`») no afirma que el curso lo aporte. Se mira solo lo inmediatamente
+   anterior (40 caracteres) y, para las alternativas («`a` o `b`»), hasta 120 caracteres con la
+   condición de que entre la marca y el nombre no haya un verbo de entrada: «por ejemplo, abra el
+   archivo X» sigue contando como entrada.
+4. **Retro-referencias de creación en pasado** («la copia que creaste en la configuración
+   inicial», «el informe que generaste»): el fichero existe porque un paso anterior lo produjo.
+5. **Rutas de plataforma**: se añaden `/Library/`, `/System/`, `/Applications/`, `/datastore/`,
+   `/shared_prefs/` a los prefijos excluidos y `/products/` a los segmentos de API.
+6. **Script con shebang**: un bloque que abre con `#!` define el script que nombra su comentario
+   de cabecera (`# monitor_rebalance.sh`), aunque el laboratorio no use `cat >`.
+7. **Clave de configuración YAML/INI** (`ssl.key: certs/es01.key`): el valor de una clave no es
+   una entrada del curso.
+
+### 17.3 Medición A/B sobre el mismo flujo y el mismo corpus
+
+168 proyectos, 1.244 laboratorios, 1 con manual extraído. «Antes» = módulo de `HEAD` importado por
+`medir_antes.py`; «después» = el módulo actual. Mismo corpus, misma iteración, mismo orden.
+
+| Clase | Antes | Después |
+|---|---|---|
+| A1 marcados | 1.332 | 1.449 |
+| A1 de alta | 122 | 119 |
+| B1 marcados | 636 | 610 |
+| **B1 de alta** | **34** | **17** |
+| B2 marcados | 10 | 8 |
+| B2 de alta | 0 | 0 |
+| **Clase de reintento (alta)** | **156** | **136** |
+| Menciones de hoja de ruta | 862 | 862 |
+
+Lectura:
+
+- **B1 de alta baja a la mitad** (34 → 17). La clase de reintento baja 20 marcas (−12,8 %).
+- A1 **sube 117 marcas** porque ahora ve rutas relativas que antes no existían para el extractor;
+  de alta baja 3. Es el efecto esperado: más cobertura, misma precisión.
+- B1 total baja aunque se extraen más referentes: las exclusiones quitan más de lo que la nueva
+  extracción añade. El recorte al paso y B3c siguen aplicándose.
+
+### 17.4 Qué queda en los 17
+
+Revisados uno a uno con contexto:
+
+- **11 son señal correcta**: material que el laboratorio dice aportar y el temario no declara.
+  `licenses.txt` («proporcionado por el instructor»), `Politica_Vacaciones.pdf` (SharePoint del
+  curso), `M2_DatosAuditoria_Ficticios.docx` («preparado por el instructor»),
+  `Ventas_MultiRegional_2024.xlsx` («repositorio del taller»), `/Modulo1/Normativos/…`,
+  `BA_05-00-01_…docx` («carpeta de fuentes»), `lab_02_02_trend_analysis.ipynb` («notebook
+  pre-estructurado»), `Lab02_Claves_Respuesta.pdf`, `REFERENCIA-NORMAS-EHS.docx`,
+  `Lab04_Plan_Cierre_Fiscal.xlsx` y `Lab02_Reporte_Automatizado.xlsx` (entregable posterior citado
+  al final del laboratorio 1 como si ya existiera).
+  Es el hallazgo del informe: **el temario no declara los materiales**. No se exculpan: si se
+  exculpa «lo proporciona el instructor», B1 deja de detectar el material inventado, porque el
+  propio modelo puede escribir esa frase.
+- **6 son residuales**: `politica_vacaciones_parte1.txt` y `…parte2.txt` (bloque que ilustra un
+  «divídalo en secciones»), `C:\users.txt` y `./openai_key.txt` (entradas de un script de ejemplo),
+  `D:\vcsa-ui-installer\win32\` (medio de instalación montado desde el ISO) y
+  `Datos_Financieros_Q4.xlsx` («que está en mi OneDrive», nota de resolución de problemas).
+  Los seis comparten que el fichero lo pone el **entorno o el alumno**, no el curso.
+
+### 17.5 Decisión
+
+1. **Se mantiene reintento + registro**, no bloqueo. Seis residuales sobre 1.244 laboratorios no
+   cumplen el criterio de 0 falsos positivos, pero ya no son la familia dominante: 11 de 17 son
+   señal que el informe pide corregir en el temario.
+2. **No se exculpa «proporcionado por el instructor».** Es exactamente el dato que el informe
+   señala como ausente en el temario.
+3. La familia «entorno/medio de instalación» se abordará, si vuelve a aparecer, con el contexto de
+   montaje (ISO, unidad virtual), no con una lista de rutas.
+4. Siguiente: **B5/B6** (duración y coherencia del conjunto) en el planner y **B3p** (entregable
+   declarado que aparece producido).
+
+### 17.6 Reproducibilidad
+
+- `medir_y_contexto.py`, `medir_antes.py`, `revisar_proyecto.py` y `corpus*.json` descritos en
+  §16.6.
+- Batería: **77/77 en verde**, con pruebas nuevas de camino vivo para: ruta relativa que se crea en
+  el propio laboratorio, ruta relativa sin creación que sí se marca, artefactos de build con hash,
+  sufijos generados, logs e informes de herramienta, andamiaje de Laravel, nombres de ejemplo
+  (incluida la alternativa «`a` o `b`»), shebang y retro-referencia en pasado.
+- Verificación puntual sobre el corpus: `260623-COP_CHAT_CONTR-Priv-` pasa de marcar
+  `M1_Catalogo_Cuentas_TRABAJO.xlsx` a no marcar nada, y `260820-vue-intermedio` deja de marcar
+  `src/router/index.ts`.
+
 
 
 

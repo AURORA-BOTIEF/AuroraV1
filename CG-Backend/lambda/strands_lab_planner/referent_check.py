@@ -86,6 +86,19 @@ _RUTA_WINDOWS_RE = re.compile(r"(?<![\w])[A-Za-z]:\\[^\s`\"'<>|*?]+")
 _RUTA_UNC_RE = re.compile(r"\\\\[^\s`\"'<>|*?]+")
 _RUTA_UNIX_RE = re.compile(r"(?<![\w])/(?:[\w.\-]+/)+[\w.\-]+")
 
+# Rutas **relativas** con directorio y extensión (``assets/mock.json``,
+# ``src/app/components/product-list/product-list.component.ts``). Faltaban: la
+# extracción solo veía nombres sueltos y rutas absolutas, así que el paso que crea
+# el fichero (``cat > assets/mock.json``, ``ng generate component ...``) no existía
+# para la comprobación y la mención posterior quedaba como referente inventado.
+# Es la causa de la mayoría de los falsos positivos de alta confianza medidos el
+# 20/10/2026.
+_RUTA_RELATIVA_RE = re.compile(
+    r"(?<![\w./\\-])"
+    r"((?:[\w.\-]+/)+[\w.\-]+\.[A-Za-z][A-Za-z0-9]{0,7})"
+    r"(?![\w])"
+)
+
 # Las URL quedan FUERA a propósito de la fase 1. Una URL inventada se combate
 # comprobando que esté viva (verificación C1), no buscándola en el temario. Si no se
 # neutralizan antes de extraer, su cola («/support.microsoft.com/es-es/office/...»)
@@ -106,8 +119,70 @@ _PREFIJOS_EXCLUIDOS = (
     "/proc/", "/sys/", "/opt/", "/root/", "/home/", "/mnt/", "/media/", "/srv/",
     "/tmp/", "/boot/", "/run/", "/data/data/", "/workspace/", "/dbfs/",
     "/filestore/", "/databricks-datasets/", "/volumes/",
+    # Directorios de sistema de macOS y almacenamiento interno de una app Android.
+    "/library/", "/system/", "/applications/", "/datastore/", "/shared_prefs/",
     "C:\\Users\\", "C:\\Windows\\", "C:\\Program Files", "C:\\ProgramData\\",
 )
+
+# Artefactos de una herramienta: lo que produce un build, un generador de código o
+# un empaquetador no lo aporta el curso. Se comparan como segmento, no como prefijo,
+# porque suelen aparecer al final de una ruta (``dist/main.js``).
+_DIRECTORIOS_ARTEFACTO = (
+    "/dist/", "/build/", "/out/", "/target/", "/node_modules/", "/.angular/",
+    "/.next/", "/.nuxt/", "/coverage/", "/__pycache__/", "/.venv/", "/venv/",
+    "/.gradle/", "/vendor/", "/obj/",
+    # Andamiaje de un framework: el proyecto ya los trae (Laravel).
+    "/resources/js/", "/resources/css/", "/resources/views/",
+)
+
+# Extensiones y sufijos que un generador añade al nombre del fichero.
+_SUFIJOS_GENERADOS = (
+    ".component.ts", ".service.ts", ".module.ts", ".spec.ts", ".d.ts",
+    ".guard.ts", ".directive.ts", ".pipe.ts", ".resolver.ts", ".routes.ts",
+    ".g.dart", ".generated.ts", ".designer.cs", ".pb.go", ".pb.ts",
+    ".min.js", ".min.css", ".map",
+    # Informes que produce una herramienta de medición (Lighthouse).
+    ".report.json", ".report.html",
+    # Un log o un temporal lo produce la ejecución, nunca lo aporta el curso.
+    ".log", ".tmp",
+)
+
+# Bibliotecas que se referencian por su nombre de fichero (``plotly.js``,
+# ``Node.js``). No son material que el alumno deba tener en disco.
+_BIBLIOTECAS_JS = frozenset(
+    {
+        "plotly", "jquery", "bootstrap", "d3", "chart", "react", "vue",
+        "angular", "lodash", "moment", "three", "leaflet", "axios", "node",
+        "socket.io", "font-awesome",
+    }
+)
+
+# Bundle con hash de contenido: ``main-a1b2c3d4.js``, ``styles-1a2b3c4d.css``.
+_HASH_DE_BUILD_RE = re.compile(r"-[0-9a-f]{8,}\.[a-z0-9]+$", re.IGNORECASE)
+
+# Ficheros de un chart de Helm, que crea ``helm create``.
+_FICHEROS_DE_CHART = frozenset({"chart.yaml", "values.yaml", "chart.lock"})
+
+
+def _es_artefacto_de_herramienta(valor: str) -> bool:
+    """¿El referente lo produce una herramienta (build, generador, empaquetador)?"""
+    v = valor.replace("\\", "/").lower()
+    if "/../" in v or v.startswith("../"):
+        return True
+    # Las rutas relativas no empiezan por ``/``: se normalizan para que
+    # ``dist/app.js`` y ``/dist/app.js`` caigan en la misma regla.
+    if not v.startswith("/"):
+        v = "/" + v
+    if any(segmento in v for segmento in _DIRECTORIOS_ARTEFACTO):
+        return True
+    nombre = v.rsplit("/", 1)[-1]
+    if _HASH_DE_BUILD_RE.search(nombre):
+        return True
+    if any(nombre.endswith(sufijo) for sufijo in _SUFIJOS_GENERADOS):
+        return True
+    if nombre.endswith((".js", ".css")) and nombre[:-3] in _BIBLIOTECAS_JS:
+        return True
+    return nombre in _FICHEROS_DE_CHART
 
 # Rutas que no son del sistema de ficheros del alumno sino de una API o de un
 # proveedor cloud (Elasticsearch, OpenAPI, Azure, SharePoint). Tampoco se exigen.
@@ -124,6 +199,8 @@ _SEGMENTOS_API = (
     # Rutas de API de aplicaciones que el laboratorio levanta: Spring Actuator,
     # VAmPI (``/users/v1/…``) y Microsoft Graph (``/me/…``, ``/drive/…``).
     "/actuator/", "/users/v1/", "/me/", "/drive/",
+    # Recurso REST de un catálogo de ejemplo (``/products/p-1`` en una aserción).
+    "/products/",
 )
 
 # Corrección 2 (calibración 16/10/2026): espacios de nombres de código. Un
@@ -260,6 +337,17 @@ _MARCAS_CREACION = (
     # Entregables declarados como tales.
     "el producto final", "archivo generado", "archivos generados",
     "generado en este laboratorio", "generados en este laboratorio",
+    # Capturas de pantalla: el alumno las produce, no las recibe.
+    "captura de pantalla", "capturas de pantalla", "screenshot", "pantallazo",
+    "tome una captura", "toma una captura", "guarda la captura",
+    # Retro-referencia de creación en pasado: «la copia que creaste en la
+    # configuración inicial», «el informe que generaste en el paso 2». El fichero
+    # existe porque un paso anterior (de este curso) lo produjo.
+    "que creaste", "creaste en", "creaste el", "creaste la", "creaste un",
+    "has creado", "que has creado", "generaste", "has generado", "que generaste",
+    "creado en el paso", "creado en el laboratorio", "creado anteriormente",
+    "se creo en", "que creo el", "que creo la", "definiste", "has definido",
+    "que definiste",
 )
 
 # Andamiaje: si el paso ejecuta un generador, los ficheros que menciona los crea
@@ -297,9 +385,47 @@ _MARCADORES_SALIDA = (
 # o ``dashboardproviders.yaml:``. Se detecta en la extracción, no en la auditoría.
 _CLAVE_YAML_RE = re.compile(r"\s*:")
 
+# Valor de una clave de configuración: ``ssl.key: certs/es01.key``. La parte de la
+# línea anterior al valor es solo una clave que termina en dos puntos.
+_CLAVE_VALOR_RE = re.compile(r"^\s*[\w.\-]+\s*:\s*$")
+
 # Destino de una redirección de shell: ``… > archivo``, ``… >> archivo``,
 # ``… > "archivo"``, ``… > ~/archivo`` (la ruta empieza tras ``~/``).
 _REDIRECCION_RE = re.compile(r">\s*[\"']?~?$")
+
+# Nombre puesto como **ejemplo** justo antes del referente: «(ej: tests/Login.robot)»,
+# «normalmente `src/router/index.ts`». Es ilustrativo: no afirma que el curso lo
+# aporte ni que el alumno lo tenga. Se mira solo el texto inmediatamente anterior,
+# para no confundirlo con un «abra X» del mismo paso (que sí es una entrada).
+_EJEMPLO_PREVIO_RE = re.compile(
+    r"(?:\bej\s*\.?\s*(?::|,)?\s*"
+    r"|\bejemplo\s*(?::|,)?\s*"
+    r"|\bp\s*\.\s*ej\s*\.?\s*(?::|,)?\s*"
+    r"|\be\s*\.\s*g\s*\.?\s*(?::|,)?\s*"
+    r"|\bnormalmente\s+"
+    r"|\bt[ií]picamente\s+"
+    r"|\bsuele(?:n)? ser\s+"
+    r"|\bdel tipo\s+)(?:[\"'`(«]\s*)*$",
+    re.IGNORECASE,
+)
+
+# Un ejemplo puede enunciar **varias alternativas**: «el archivo de rutas,
+# normalmente `src/router/index.js` o `src/router/index.ts`». La segunda no lleva
+# la marca delante, así que se busca la marca hasta 120 caracteres antes y se
+# exige que entre ambas solo haya conectores, comillas y el nombre anterior. Si
+# aparece un verbo de entrada («por ejemplo, abra el archivo X»), manda el verbo.
+_EJEMPLO_LEJANO_RE = re.compile(
+    r"(?:\bej\s*\.?\s*(?::|,)|"
+    r"\bejemplo\s*(?::|,)|"
+    r"\bp\s*\.\s*ej\s*\.?\s*(?::|,)|"
+    r"\be\s*\.\s*g\s*\.?\s*(?::|,)|"
+    r"\bnormalmente|"
+    r"\bt[ií]picamente|"
+    r"\bsuele(?:n)? ser|"
+    r"\bdel tipo)\s*",
+    re.IGNORECASE,
+)
+_SOLO_CONECTORES_RE = re.compile(r"[\w./\\\-`\"'«»(),;:\s]*")
 
 _VENTANA_CONTEXTO = 260
 
@@ -405,6 +531,20 @@ def _es_codigo(valor: str, texto: str, fin: int) -> bool:
     return segmentos[0].lower() in _NAMESPACIOS
 
 
+def _es_ejemplo(texto: str, inicio: int) -> bool:
+    """¿El nombre está puesto como ejemplo (``ej: …``, ``normalmente …``)?"""
+    if _EJEMPLO_PREVIO_RE.search(texto[max(0, inicio - 40):inicio]):
+        return True
+    largo = texto[max(0, inicio - 120):inicio]
+    marca = _EJEMPLO_LEJANO_RE.search(largo)
+    if not marca:
+        return False
+    entre = largo[marca.end():]
+    if _VERBOS_ENTRADA_RE.search(entre):
+        return False
+    return bool(_SOLO_CONECTORES_RE.fullmatch(entre))
+
+
 def extraer_referentes(texto: str, deduplicar: bool = True) -> list[dict]:
     """Referentes de fichero de ``texto``, en orden de aparición.
 
@@ -441,6 +581,13 @@ def extraer_referentes(texto: str, deduplicar: bool = True) -> list[dict]:
         # Metacaracteres de regex/plantilla: no es una ruta real.
         if any(c in valor for c in _METACARACTERES):
             return
+        # Artefacto de una herramienta (build, generador, biblioteca): no es una
+        # entrada que el curso deba aportar.
+        if _es_artefacto_de_herramienta(valor):
+            return
+        # Nombre citado como ejemplo («ej: …», «normalmente …»): ilustra, no exige.
+        if _es_ejemplo(limpio, inicio):
+            return
         if tipo == "ruta":
             # Secuencias de escape literales (``\\nVariance`` dentro de una cadena
             # Python) que la regla de rutas UNC confunde con una ruta.
@@ -456,6 +603,12 @@ def extraer_referentes(texto: str, deduplicar: bool = True) -> list[dict]:
             if not limpio[inicio_linea:inicio].strip():
                 if _CLAVE_YAML_RE.match(limpio[fin:fin + 3] or ""):
                     return
+        if tipo == "ruta":
+            # Valor de una clave YAML/INI (``ssl.key: certs/es01.key``): es
+            # configuración del proyecto, no un fichero que el curso aporte.
+            inicio_linea = limpio.rfind("\n", 0, inicio) + 1
+            if _CLAVE_VALOR_RE.match(limpio[inicio_linea:inicio]):
+                return
         posiciones.add((valor, inicio))
         vistos.add(clave)
         hallados.append({"tipo": tipo, "valor": valor, "inicio": inicio})
@@ -464,6 +617,7 @@ def extraer_referentes(texto: str, deduplicar: bool = True) -> list[dict]:
         (_RUTA_WINDOWS_RE, "ruta"),
         (_RUTA_UNC_RE, "ruta"),
         (_RUTA_UNIX_RE, "ruta"),
+        (_RUTA_RELATIVA_RE, "ruta"),
     ):
         for m in patron.finditer(limpio):
             anadir(tipo, m.group(0), m.start(), m.end())
@@ -742,6 +896,15 @@ def _es_creacion(texto: str, referente: dict) -> bool:
     antes = texto[max(0, referente["inicio"] - 8):referente["inicio"]]
     if _REDIRECCION_RE.search(antes):
         return True
+    # Un bloque que abre con ``#!`` define un script, y su nombre en el comentario
+    # de cabecera (``#!/bin/bash`` / ``# monitor_rebalance.sh``) es el del fichero
+    # que el propio laboratorio crea.
+    inicio_linea = texto.rfind("\n", 0, referente["inicio"]) + 1
+    linea = _linea_de(texto, referente["inicio"])
+    if linea.lstrip().startswith("#") and inicio_linea > 1:
+        anterior = _linea_de(texto, inicio_linea - 2)
+        if anterior.lstrip().startswith("#!"):
+            return True
     # Corrección 5: la mención de ausencia también exime (el fichero no debe existir).
     return bool(_MARCADORES_AUSENCIA_RE.search(contexto))
 

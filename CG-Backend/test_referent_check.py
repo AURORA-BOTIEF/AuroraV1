@@ -1385,6 +1385,184 @@ def test_el_writer_registra_b2_sin_reintentar_si_el_interruptor_esta_apagado():
     assert informes and informes[0]["total_b2"] == 1, informes
 
 
+# --------------------------------------------------------------------------- #
+# Artefactos de herramientas y rutas relativas con directorio
+# --------------------------------------------------------------------------- #
+
+def test_la_ruta_relativa_con_directorio_se_extrae():
+    texto = "Crea el fichero en src/main/resources/data/empleados.csv"
+    valores = [r["valor"] for r in extraer_referentes(texto)]
+    assert "src/main/resources/data/empleados.csv" in valores
+
+
+def test_la_ruta_relativa_permite_ver_el_paso_que_crea():
+    """El fallo real: `cat > assets/mock.json` no se extraía, así que la mención
+    posterior parecía un fichero inventado. Ahora la creación se ve."""
+    lab = """# Lab
+### Paso 1: Crear el mock
+```bash
+cat > assets/mock.json << 'EOF'
+[{"id": 1}]
+EOF
+```
+
+### Paso 2: Consumirlo
+La aplicacion hace fetch de assets/mock.json al arrancar.
+"""
+    informe = auditar_laboratorio(lab, fuentes="temario base")
+    assert informe["ok"] is True, informe["violaciones"]
+
+
+def test_la_ruta_relativa_sin_creacion_sigue_marcandose():
+    lab = """# Lab
+### Paso 1: Consumirlo
+La aplicacion hace fetch de assets/mock.json al arrancar.
+"""
+    informe = auditar_laboratorio(lab, fuentes="temario base")
+    valores = [v["valor"] for v in informe["violaciones"]]
+    assert "assets/mock.json" in valores, informe["violaciones"]
+
+
+def test_los_artefactos_de_build_no_son_referentes():
+    for texto in (
+        "El bundle queda en dist/app.js",
+        "Los nombres incluyen un hash (ej. main-a1b2c3d4.js)",
+        "styles-1a2b3c4d.css cambia en cada build",
+        "El chart define values.yaml y Chart.yaml",
+        "Incluye plotly.js embebido",
+        "Requisito: Node.js 20 o superior",
+    ):
+        assert extraer_referentes(texto) == [], texto
+
+
+def test_los_sufijos_generados_no_son_referentes():
+    for texto in (
+        "Edita src/app/components/product-list/product-list.component.ts",
+        "Crea tests/e2e/todo.flaky.spec.ts",
+        "El bundle app.min.js se sirve comprimido",
+        "El fichero app.d.ts declara los tipos",
+    ):
+        assert extraer_referentes(texto) == [], texto
+
+
+def test_los_ficheros_normales_con_guion_o_numero_no_se_confunden_con_un_hash():
+    """Control negativo: la regla del hash no puede comerse ficheros reales."""
+    valores = [r["valor"] for r in extraer_referentes("Abre datos-2024.xlsx")]
+    assert valores == ["datos-2024.xlsx"]
+
+    valores = [r["valor"] for r in extraer_referentes("Ejecuta monitor_rebalance.sh")]
+    assert valores == ["monitor_rebalance.sh"]
+
+
+def test_las_rutas_de_plataforma_o_de_prueba_no_son_referentes():
+    for texto in (
+        "Ejecuta ~/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager",
+        "Revisa /datastore/settings_datastore.preferences_pb",
+        "Prueba con el valor ../../etc/passwd",
+        "La asercion espera /products/p-1",
+    ):
+        assert extraer_referentes(texto) == [], texto
+
+
+def test_los_nombres_citados_como_ejemplo_no_son_referentes():
+    for texto in (
+        "Selecciona la suite cuyo nombre sea Login (ej: tests/Login.robot)",
+        "El archivo de rutas, normalmente src/router/index.ts",
+        "Un bundle con hash (p. ej. main-a1b2c3d4.js)",
+    ):
+        assert extraer_referentes(texto) == [], texto
+
+
+def test_una_alternativa_heredan_la_marca_de_ejemplo():
+    """«normalmente `a` o `b`»: la segunda también es ilustrativa."""
+    texto = "El archivo de rutas, normalmente `src/router/index.js` o `src/router/index.ts`."
+    assert extraer_referentes(texto) == []
+
+
+def test_un_verbo_de_entrada_sobre_un_ejemplo_sigue_contando():
+    """Control negativo: «abra X» manda sobre la marca de ejemplo si van juntos."""
+    texto = "Por ejemplo, abra el archivo datos_ventas.xlsx de la carpeta del curso"
+    valores = [r["valor"] for r in extraer_referentes(texto)]
+    assert valores == ["datos_ventas.xlsx"], valores
+
+
+def test_los_logs_y_los_informes_de_herramienta_no_son_referentes():
+    for texto in (
+        "Abre logs/snowflake_pipeline.log y verifica la traza",
+        "El informe queda en docs/performance-artifacts/report.report.json",
+        "Queda un temporal en disco.tmp",
+    ):
+        assert extraer_referentes(texto) == [], texto
+
+
+def test_el_andamiaje_de_laravel_no_es_un_fichero_del_curso():
+    assert extraer_referentes("@vite(['resources/js/app.js'])") == []
+    # Control negativo: un fichero del proyecto que sí es del alumno.
+    valores = [r["valor"] for r in extraer_referentes("Edita src/views/CatalogView.vue")]
+    assert valores == ["src/views/CatalogView.vue"]
+
+
+def test_un_script_definido_con_shebang_es_creacion():
+    """Camino vivo: el bloque que abre con `#!` define el script que luego se cita."""
+    lab = """# Lab 08-01-01: Rebalanceo
+
+### Paso 1: Crear el monitor
+```bash
+#!/bin/bash
+# monitor_rebalance.sh
+echo "Iniciando monitoreo"
+```
+
+### Paso 2: Ejecutarlo
+```bash
+bash monitor_rebalance.sh
+```
+"""
+    informe = auditar_laboratorio(lab, fuentes="temario base")
+    assert informe["ok"] is True, informe["violaciones"]
+
+
+def test_una_retro_referencia_de_creacion_exime_el_fichero():
+    """«copia de trabajo que creaste en la configuración inicial»: ya existe."""
+    lab = """# Lab 01-00-01: Configuracion
+
+### Paso 1: Crear la copia de trabajo
+Copie el libro y guardelo como M1_Catalogo_Cuentas_TRABAJO.xlsx.
+
+### Paso 2: Abrirlo
+1. Abre el archivo M1_Catalogo_Cuentas_TRABAJO.xlsx (copia de trabajo que creaste
+   en la configuracion inicial).
+2. Observa la estructura.
+"""
+    informe = auditar_laboratorio(lab, fuentes="temario base")
+    assert informe["ok"] is True, informe["violaciones"]
+
+
+def test_el_writer_no_reintenta_por_un_fichero_que_crea_el_propio_lab():
+    """Camino vivo: el lab crea `assets/mock.json` y lo menciona después."""
+    lab = """# Lab 01-01-01: Analizar la demanda historica
+
+## Descripcion General
+Analice los datos entregados.
+
+### Paso 1: Crear el mock
+```bash
+cat > assets/mock.json << 'EOF'
+[{"id": 1}]
+EOF
+```
+
+### Paso 2: Consumirlo
+La aplicacion hace fetch de assets/mock.json al arrancar.
+"""
+    resultado, informes, contextos = _ejecutar_writer(
+        {"lab_plans": [_LAB_PLAN]}, [lab], max_intentos=3
+    )
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, informes
+    assert informes and informes[0]["ok"] is True, informes
+
+
 if __name__ == "__main__":
     pruebas = [
         (nombre, funcion)
