@@ -1,4 +1,4 @@
-"""Trazabilidad de referentes de fichero (verificaciones A1, B1, B2 y B3c).
+"""Trazabilidad de referentes de fichero (verificaciones A1, B1, B2, B3c, B5 y B6).
 
 Regla de tres niveles
 ---------------------
@@ -17,7 +17,9 @@ Alcance de la fase 1
 Solo **referentes de fichero** (rutas y nombres con extensión). Las URL quedan
 fuera a propósito: una URL inventada se combate comprobando que esté viva, no
 buscándola en el temario, así que pertenece a la verificación C1. Las versiones y
-las entidades con nombre llegan en la fase 3.
+las entidades con nombre llegan en la fase 3; de momento **B5** solo compara los
+requisitos técnicos que el laboratorio exige con los que declara el plan, sin
+juzgar si el plan acertó al declararlos (eso es A1/A2).
 
 Alcance de la fase 2
 --------------------
@@ -56,6 +58,7 @@ eran del curso sino del extractor, y se corrigen aquí:
 Sin dependencias externas: solo biblioteca estándar.
 """
 
+import json
 import os
 import re
 import unicodedata
@@ -926,6 +929,311 @@ def _es_entrada(texto: str, referente: dict) -> bool:
     return bool(_VERBOS_ENTRADA_RE.search(contexto))
 
 
+# --------------------------------------------------------------------------- #
+# Duración declarada contra trabajo real (B6)
+# --------------------------------------------------------------------------- #
+
+_PASO_RE = re.compile(r"^###\s+(?:Paso|Step)\s+\d+.*$", re.MULTILINE)
+_BLOQUE_RE = re.compile(r"```([\w+-]*)\n(.*?)```", re.DOTALL)
+_DURACION_LAB_RE = re.compile(
+    r"(?:\|\s*(?:Duraci[oó]n|Duration)\s*\|\s*(\d+)\s*(?:minutos?|minutes?|min)\b"
+    r"|(?:Duraci[oó]n|Duration)\s*:\s*\**\s*(\d+)\s*(?:minutos?|minutes?|min)\b)",
+    re.IGNORECASE,
+)
+
+_LENGUAJES_SHELL = frozenset(
+    {"bash", "sh", "shell", "powershell", "ps1", "cmd", "bat", "zsh", "console", "terminal"}
+)
+# Bloques que el alumno **ejecuta o escribe**. Los de salida (``text``, ``log``,
+# ``diff``, ``csv``) no cuestan tiempo de acción: contarlos inflaba la carga.
+_LENGUAJES_ACCION = _LENGUAJES_SHELL | frozenset(
+    {
+        "python", "py", "javascript", "js", "typescript", "ts", "java", "csharp",
+        "cs", "go", "sql", "yaml", "yml", "json", "xml", "html", "css", "vue",
+        "php", "ruby", "rb", "kotlin", "swift", "dockerfile", "ini", "toml",
+        "properties", "tf", "hcl", "psql", "plsql",
+    }
+)
+
+# Umbrales medidos sobre el corpus (1.018 laboratorios con duración en el plan):
+# p05 de minutos por paso con acción = 2,5; p05 de minutos por bloque = 0,4. Se
+# marca solo lo que incumple **las dos** condiciones: menos de 2 minutos por paso
+# con acción y menos de 45 segundos por bloque. Medido: 15 casos en 1.018, todos
+# imposibles (instalar Kali en 15 min; `ng new` + 77 líneas de CSS en 12 min).
+_MINUTOS_POR_PASO_ACCION = 2.0
+_MINUTOS_POR_BLOQUE = 0.75
+_PASOS_ACCION_MINIMOS = 3
+
+
+def duracion_declarada(laboratorio_md: str) -> int | None:
+    """Minutos que declara el propio laboratorio en sus metadatos, si los trae."""
+    coincidencia = _DURACION_LAB_RE.search(laboratorio_md or "")
+    if not coincidencia:
+        return None
+    valor = coincidencia.group(1) or coincidencia.group(2)
+    return int(valor) if valor else None
+
+
+def carga_de_laboratorio(laboratorio_md: str) -> dict:
+    """Pasos y bloques de acción del laboratorio escrito.
+
+    Un **paso con acción** es un ``### Paso`` que contiene al menos un bloque de
+    shell o de un lenguaje que el alumno escribe. Los bloques de salida no cuentan.
+    """
+    cortes = [m.start() for m in _PASO_RE.finditer(laboratorio_md or "")]
+    if not cortes:
+        return {"pasos": 0, "con_accion": 0, "shell": 0, "codigo": 0, "bloques": 0}
+    cortes.append(len(laboratorio_md))
+    shell = codigo = con_accion = 0
+    for i in range(len(cortes) - 1):
+        tramo = laboratorio_md[cortes[i]:cortes[i + 1]]
+        tiene = False
+        for lenguaje, _cuerpo in _BLOQUE_RE.findall(tramo):
+            lenguaje = (lenguaje or "").strip().lower()
+            if lenguaje in _LENGUAJES_SHELL:
+                shell += 1
+                tiene = True
+            elif lenguaje in _LENGUAJES_ACCION:
+                codigo += 1
+                tiene = True
+        if tiene:
+            con_accion += 1
+    return {
+        "pasos": len(cortes) - 1,
+        "con_accion": con_accion,
+        "shell": shell,
+        "codigo": codigo,
+        "bloques": shell + codigo,
+    }
+
+
+def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
+    """B6: ¿la duración declarada es compatible con el trabajo que pide el laboratorio?
+
+    Solo se pronuncia cuando hay duración y al menos tres pasos con acción: por
+    debajo de eso, la proporción no significa nada. Es determinista y se calcula
+    sobre el laboratorio escrito, que es donde existen los pasos.
+    """
+    unidades = carga_de_laboratorio(laboratorio_md)
+    try:
+        duracion = int(duracion_min or 0)
+    except (TypeError, ValueError):
+        duracion = 0
+    informe = {"ok": True, "duracion": duracion, "motivo": "", **unidades}
+    if duracion <= 0:
+        informe["motivo"] = "sin duración declarada"
+        return informe
+    if unidades["con_accion"] < _PASOS_ACCION_MINIMOS or unidades["bloques"] < 1:
+        informe["motivo"] = "sin pasos de acción suficientes para comparar"
+        return informe
+    minutos_paso = duracion / unidades["con_accion"]
+    minutos_bloque = duracion / unidades["bloques"]
+    informe["minutos_por_paso"] = round(minutos_paso, 2)
+    informe["minutos_por_bloque"] = round(minutos_bloque, 2)
+    if (
+        minutos_paso < _MINUTOS_POR_PASO_ACCION
+        and minutos_bloque < _MINUTOS_POR_BLOQUE
+    ):
+        informe["ok"] = False
+        informe["motivo"] = (
+            f"{duracion} minutos para {unidades['con_accion']} pasos con accion y "
+            f"{unidades['bloques']} bloques de comando o codigo "
+            f"({minutos_paso:.1f} min/paso, {minutos_bloque:.2f} min/bloque)"
+        )
+    return informe
+
+
+# --------------------------------------------------------------------------- #
+# Requisitos técnicos del laboratorio contra los del plan (B5)
+# --------------------------------------------------------------------------- #
+
+_PROSA_RE = re.compile(r"```.*?```", re.DOTALL)
+
+_OS_RE = re.compile(
+    r"\b(Windows(?: Server)?|macOS|Apple iOS|Ubuntu|Debian|CentOS|RHEL|Fedora|Rocky|Android|Linux)\b",
+    re.IGNORECASE,
+)
+_OS_PLAN_RE = re.compile(
+    r"\b(windows(?: server)?|macos|apple ios|ubuntu|debian|centos|rhel|"
+    r"red hat enterprise linux|fedora|rocky|android|linux)\b"
+)
+# Familias: pedir Ubuntu cuando el plan declara Linux no es contradecirlo, y
+# Windows Server es Windows. ``IOS`` a secas se deja fuera a propósito: en este
+# corpus casi siempre es el IOS de Cisco, no el de Apple.
+_FAMILIA_OS = {
+    "windows": "windows",
+    "windows server": "windows",
+    "linux": "linux",
+    "ubuntu": "linux",
+    "debian": "linux",
+    "centos": "linux",
+    "rhel": "linux",
+    "red hat enterprise linux": "linux",
+    "fedora": "linux",
+    "rocky": "linux",
+    "oracle linux": "linux",
+    "amazon linux": "linux",
+    "macos": "macos",
+    "apple ios": "apple-ios",
+    "android": "android",
+}
+_VERSION_RE = re.compile(
+    r"\b(Node(?:\.js)?|Python|Java|\.NET|Angular|Vue|React|Docker|Kubernetes|"
+    r"Chrome|Firefox|Edge|PowerShell|npm|pnpm|yarn|PostgreSQL|MySQL|SQL Server|"
+    r"Oracle)\s+v?(\d+(?:\.\d+){1,3})\b",
+    re.IGNORECASE,
+)
+_HW_RE = re.compile(
+    r"\b(\d+(?:[.,]\d+)?)\s*(GB|TB|MB)\s*(?:de\s+)?(?:RAM|memoria|disco|almacenamiento)\b"
+    r"|\b(\d+(?:[.,]\d+)?)\s*(GHz|n[uú]cleos|cores)\b",
+    re.IGNORECASE,
+)
+# Solo se mira la prosa: una salida de `free -h` no es un requisito del alumno.
+_PRESCRIPTIVO = (
+    "requiere", "requerira", "requerido", "necesita", "necesitara", "debe tener",
+    "debes tener", "debera tener", "asegurate de tener", "asegurese de tener",
+    "instale", "instala", "instalar", "descargue e instale", "su equipo",
+    "su maquina", "su pc", "su computadora", "su ordenador", "el participante debe",
+    "el alumno debe", "el estudiante debe", "verifique que tiene", "hardware",
+    "requisito", "minimo", "minima",
+)
+# Una especificación de la VM, el contenedor o la instancia del ejercicio no es un
+# requisito del equipo del alumno: no cuenta como B5.
+_EXCLUYENTE = (
+    "maquina virtual", "virtualbox", "vmware", "hyper-v", "contenedor",
+    "docker", "cluster", "nodo", "servidor", "instancia", "iso", "kubernetes",
+    "pod", "namespace", " vm ", " vms ", "pdb", "cdb", "srv1", "srv2", "invitado",
+)
+
+
+def requisitos_declarados(software=None, hardware=None) -> str:
+    """Texto normalizado de los requisitos que declara el plan."""
+    return normalizar(
+        json.dumps(software or [], ensure_ascii=False)
+        + "\n"
+        + json.dumps(hardware or [], ensure_ascii=False)
+    )
+
+
+def _es_ilustrativo(prosa: str, inicio: int, fin: int) -> bool:
+    """¿La mención es un ejemplo, una alternativa o una etiqueta de interfaz?
+
+    Tres falsos positivos medidos el 21/10/2026 en 1.294 laboratorios reales:
+
+    - «un cliente ssh (como Putty o terminal de **macOS/Linux**)» → alternativa;
+    - «`c:/...` (**Windows**) o `~/...` (**macOS**)» → rutas alternativas;
+    - «View -> Tool **Windows** -> AI Assistant» → etiqueta de la interfaz, no un
+      sistema operativo.
+    """
+    antes = prosa[max(0, inicio - 16):inicio]
+    despues = prosa[fin:fin + 16]
+    if antes.rstrip().endswith("(") or antes.rstrip().endswith("/"):
+        return True
+    if despues.lstrip().startswith("/"):
+        return True
+    if normalizar(antes).rstrip().endswith("tool"):
+        return True
+    return False
+
+
+def _magnitudes(texto: str) -> set[tuple[str, str]]:
+    salida = set()
+    for m in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|mb|ghz|nucleos|cores)\b", texto):
+        salida.add((m.group(1).replace(",", "."), m.group(2)))
+    return salida
+
+
+def _versiones_declaradas(declarado: str, herramienta: str) -> list[str]:
+    return [
+        m.group(1)
+        for m in re.finditer(re.escape(herramienta) + r"[^\n]{0,80}?(\d+(?:\.\d+){1,3})", declarado)
+    ]
+
+
+def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
+    """B5: ¿el laboratorio exige algo que el plan no declara?
+
+    Se separan dos cosas que no valen lo mismo:
+
+    - **Contradicción** (``alta``): el plan declara un sistema operativo o una
+      versión para una herramienta y el laboratorio dice otro. Es inequívoco.
+    - **Ampliación** (``baja``): el laboratorio exige una magnitud de hardware o una
+      versión que el plan no menciona. Es una señal, pero también puede ser la
+      sección de entorno del propio laboratorio; se registra y no se reintenta.
+
+    Medición del 21/10/2026 sobre 1.294 laboratorios reales: 0 contradicciones y
+    59 laboratorios (4,6 %) con ampliaciones, todas de hardware.
+    """
+    declarado = requisitos_texto or ""
+    informe = {"ok": True, "contradicciones": [], "ampliaciones": []}
+    if not declarado.strip():
+        return informe
+
+    prosa_original = _PROSA_RE.sub(lambda m: " " * len(m.group(0)), laboratorio_md or "")
+    familias_plan = {
+        _FAMILIA_OS.get(normalizar(m.group(1)), normalizar(m.group(1)))
+        for m in _OS_PLAN_RE.finditer(declarado)
+    }
+    magnitudes_plan = _magnitudes(declarado)
+
+    def contexto(inicio: int, fin: int) -> str:
+        # El contexto se normaliza solo para decidir; el valor conserva su forma.
+        return normalizar(prosa_original[max(0, inicio - 160):fin + 160])
+
+    for m in _OS_RE.finditer(prosa_original):
+        ctx = contexto(m.start(), m.end())
+        if not any(p in ctx for p in _PRESCRIPTIVO) or any(x in ctx for x in _EXCLUYENTE):
+            continue
+        if _es_ilustrativo(prosa_original, m.start(), m.end()):
+            continue
+        familia = _FAMILIA_OS.get(normalizar(m.group(1)), normalizar(m.group(1)))
+        if familia in familias_plan:
+            continue
+        if familias_plan:
+            informe["contradicciones"].append(
+                {"tipo": "os", "valor": m.group(1), "declarado": sorted(familias_plan)}
+            )
+        else:
+            informe["ampliaciones"].append({"tipo": "os", "valor": m.group(1)})
+
+    for m in _VERSION_RE.finditer(prosa_original):
+        ctx = contexto(m.start(), m.end())
+        if not any(p in ctx for p in _PRESCRIPTIVO) or any(x in ctx for x in _EXCLUYENTE):
+            continue
+        if _es_ilustrativo(prosa_original, m.start(), m.end()):
+            continue
+        herramienta, version = normalizar(m.group(1)), m.group(2)
+        declaradas = _versiones_declaradas(declarado, herramienta)
+        if not declaradas:
+            if herramienta in declarado:
+                informe["ampliaciones"].append(
+                    {"tipo": "version", "valor": f"{m.group(1)} {version}"}
+                )
+            continue
+        if version.split(".")[0] not in {v.split(".")[0] for v in declaradas}:
+            informe["contradicciones"].append(
+                {
+                    "tipo": "version",
+                    "valor": f"{m.group(1)} {version}",
+                    "declarado": declaradas,
+                }
+            )
+
+    for m in _HW_RE.finditer(prosa_original):
+        ctx = contexto(m.start(), m.end())
+        if not any(p in ctx for p in _PRESCRIPTIVO) or any(x in ctx for x in _EXCLUYENTE):
+            continue
+        if _es_ilustrativo(prosa_original, m.start(), m.end()):
+            continue
+        numero = (m.group(1) or m.group(3)).replace(",", ".")
+        unidad = normalizar(m.group(2) or m.group(4))
+        if (numero, unidad) not in magnitudes_plan:
+            informe["ampliaciones"].append({"tipo": "hardware", "valor": f"{numero} {unidad}"})
+
+    informe["ok"] = not informe["contradicciones"] and not informe["ampliaciones"]
+    return informe
+
+
 def _indice_de_salidas(salidas_posteriores) -> dict[str, str]:
     """``{clave_canonica: lab_id}`` de los entregables de laboratorios posteriores."""
     indice: dict[str, str] = {}
@@ -951,8 +1259,10 @@ def auditar_laboratorio(
     creados_antes=None,
     salidas_posteriores=None,
     referencias_posteriores=None,
+    duracion_min=None,
+    requisitos_texto=None,
 ) -> dict:
-    """B1/B2/B3: todo fichero referenciado debe estar declarado o haberse creado antes.
+    """B1/B2/B3/B6: cierre de referentes y de duración.
 
     Recorre las apariciones **en orden**. Una aparición es válida si el referente
     ya se introdujo antes en el propio laboratorio, si está declarado en las
@@ -963,6 +1273,11 @@ def auditar_laboratorio(
     salida declarada de un laboratorio **posterior**, no está en las fuentes y este
     laboratorio no lo crea. Esas se marcan con ``verificacion="B2"``.
 
+    B6 es independiente de los referentes: compara la duración declarada con los
+    pasos con acción y los bloques de comando o código del propio laboratorio.
+    B5 compara los requisitos técnicos que el laboratorio exige con los que declara
+    el plan.
+
     Args:
         laboratorio_md: markdown del laboratorio.
         fuentes: temario + manual + documentos, concatenados.
@@ -970,14 +1285,22 @@ def auditar_laboratorio(
         creados_antes: claves canónicas de lo que crearon los laboratorios previos.
         salidas_posteriores: ``{lab_id: [valores]}`` de los laboratorios posteriores.
         referencias_posteriores: salida de :func:`referencias_a_labs_posteriores`.
+        duracion_min: minutos del laboratorio. Si es ``None`` se toma la duración
+            que el propio laboratorio declara en sus metadatos.
+        requisitos_texto: requisitos de software y hardware del plan, ya normalizados
+            con :func:`requisitos_declarados`.
 
     Returns:
-        ``{"total", "creados", "violaciones", "menciones_posteriores", "ok"}``.
-        Cada violación lleva ``verificacion`` (``B1`` o ``B2``) y ``confianza``
-        (``alta`` solo si el contexto presenta el referente como **aportado por el
-        curso**, o si es una dependencia hacia delante). Las menciones de hoja de
-        ruta van aparte y no afectan a ``ok``.
+        ``{"total", "creados", "violaciones", "menciones_posteriores", "duracion",
+        "requisitos", "ok"}``. Cada violación lleva ``verificacion`` (``B1``, ``B2``,
+        ``B5`` o ``B6``) y ``confianza`` (``alta`` si el contexto presenta el
+        referente como **aportado por el curso**, si es una dependencia hacia
+        delante, si es una duración imposible o si contradice al plan; ``baja`` si
+        el laboratorio amplía un requisito). Las menciones de hoja de ruta van
+        aparte y no afectan a ``ok``.
     """
+    if duracion_min is None:
+        duracion_min = duracion_declarada(laboratorio_md or "")
     fuentes_norm = canonico(fuentes)
     plan_norm = canonico(plan)
     conocidos: set[str] = set(creados_antes or ())
@@ -1036,6 +1359,51 @@ def auditar_laboratorio(
             violacion["laboratorio_posterior"] = posterior
         violaciones.append(violacion)
 
+    # B6: la duración declarada contra el trabajo real del laboratorio. Se comprueba
+    # sobre el texto escrito (ahí están los pasos), no sobre el plan: el plan no
+    # tiene pasos y una comprobación ahí sería vacua.
+    duracion = auditar_duracion(laboratorio_md or "", duracion_min)
+    if not duracion["ok"]:
+        violaciones.append(
+            {
+                "valor": duracion["motivo"],
+                "tipo": "duracion",
+                "inicio": 0,
+                "confianza": "alta",
+                "verificacion": "B6",
+                "duracion": duracion["duracion"],
+                "pasos": duracion["con_accion"],
+                "bloques": duracion["bloques"],
+            }
+        )
+
+    # B5: requisitos técnicos que el laboratorio exige y el plan no declara. La
+    # contradicción es de alta confianza; la ampliación se registra con baja.
+    requisitos = auditar_requisitos(laboratorio_md or "", requisitos_texto or "")
+    for hallazgo in requisitos["contradicciones"]:
+        violaciones.append(
+            {
+                "valor": hallazgo["valor"],
+                "tipo": "requisito",
+                "inicio": 0,
+                "confianza": "alta",
+                "verificacion": "B5",
+                "declarado": hallazgo.get("declarado"),
+                "detalle": hallazgo["tipo"],
+            }
+        )
+    for hallazgo in requisitos["ampliaciones"]:
+        violaciones.append(
+            {
+                "valor": hallazgo["valor"],
+                "tipo": "requisito",
+                "inicio": 0,
+                "confianza": "baja",
+                "verificacion": "B5",
+                "detalle": hallazgo["tipo"],
+            }
+        )
+
     # Forma débil de B2: menciones explícitas a un laboratorio posterior. No son
     # violaciones (una hoja de ruta es normal): van en su propia clave del informe.
     menciones_posteriores = list(referencias_posteriores or ())
@@ -1045,6 +1413,8 @@ def auditar_laboratorio(
         "creados": sorted(creados),
         "violaciones": violaciones,
         "menciones_posteriores": menciones_posteriores,
+        "duracion": duracion,
+        "requisitos": requisitos,
         "ok": not violaciones,
     }
 
@@ -1103,6 +1473,37 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "- si sobra, sustitúyelo por una descripción funcional sin nombre de fichero.\n"
             "No adelantes contenido del laboratorio posterior ni elimines entregables de este "
             "laboratorio."
+        )
+        bloques.append(intro + "\n" + "\n".join(lineas))
+
+    b5 = [v for v in violaciones if v.get("verificacion") == "B5"]
+    if b5:
+        lineas = [
+            f"- «{v['valor']}» (el plan declara: {', '.join(v.get('declarado') or []) or 'nada'})"
+            for v in b5[:20]
+        ]
+        intro = (
+            "Este laboratorio exige un requisito técnico que contradice al plan del curso. "
+            "Alinealo con el plan:\n"
+            "- si el laboratorio puede hacerse con lo que declara el plan, corrige la mención;\n"
+            "- si de verdad necesita ese sistema o esa versión, no la cambies aquí: el plan es "
+            "el contrato y debe declararla antes;\n"
+            "- no elimines entregables ni pasos por este motivo."
+        )
+        bloques.append(intro + "\n" + "\n".join(lineas))
+
+    b6 = [v for v in violaciones if v.get("verificacion") == "B6"]
+    if b6:
+        lineas = [f"- {v['valor']}" for v in b6]
+        intro = (
+            "La duración declarada no es compatible con el trabajo que pide el laboratorio. "
+            "Corrige el volumen, no la duración del plan:\n"
+            "- reduce los pasos de exploración o repetitivos y los bloques de comando o código "
+            "que no sean imprescindibles;\n"
+            "- conserva todos los entregables que produce el estudiante y los pasos de "
+            "verificación;\n"
+            "- no cambies la duración del plan ni el número de laboratorio.\n"
+            "Cada paso con acción debe tener al menos 3 minutos y cada bloque, al menos 1."
         )
         bloques.append(intro + "\n" + "\n".join(lineas))
 

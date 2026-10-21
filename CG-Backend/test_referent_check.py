@@ -37,10 +37,12 @@ from referent_check import (  # noqa: E402
     auditar_laboratorio,
     auditar_plan,
     canonico,
+    duracion_declarada,
     extraer_referentes,
     mensaje_de_correccion,
     referencias_a_labs_posteriores,
     referentes_creados,
+    requisitos_declarados,
     salidas_de_laboratorios,
 )
 
@@ -1561,6 +1563,194 @@ La aplicacion hace fetch de assets/mock.json al arrancar.
     assert resultado["statusCode"] == 200, resultado
     assert len(contextos) == 1, informes
     assert informes and informes[0]["ok"] is True, informes
+
+
+def test_b6_marca_un_laboratorio_imposible_de_terminar():
+    """15 minutos para 4 pasos con 12 bloques es 1,25 min por paso: imposible."""
+    lab = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=None)
+    informe = auditar_laboratorio(lab, fuentes="temario base", duracion_min=5)
+    assert informe["ok"] is False
+    b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
+    assert len(b6) == 1, informe["violaciones"]
+    assert b6[0]["confianza"] == "alta"
+
+
+def test_b6_no_marca_un_laboratorio_con_tiempo_suficiente():
+    lab = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=None)
+    informe = auditar_laboratorio(lab, fuentes="temario base", duracion_min=45)
+    assert informe["ok"] is True, informe["violaciones"]
+    assert informe["duracion"]["minutos_por_paso"] == 11.25
+
+
+def test_b6_no_cuenta_los_bloques_de_salida():
+    """Una salida esperada en un bloque `text` no es trabajo del alumno."""
+    lab = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=None, lenguaje="text")
+    informe = auditar_laboratorio(lab, fuentes="temario base", duracion_min=5)
+    assert informe["ok"] is True
+    assert informe["duracion"]["bloques"] == 0
+
+
+def test_b6_lee_la_duracion_declarada_en_el_laboratorio():
+    lab = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=5)
+    assert duracion_declarada(lab) == 5
+    informe = auditar_laboratorio(lab, fuentes="temario base")
+    assert any(v["verificacion"] == "B6" for v in informe["violaciones"])
+
+
+def test_b6_sin_duracion_no_se_pronuncia():
+    lab = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=None)
+    assert duracion_declarada(lab) is None
+    informe = auditar_laboratorio(lab, fuentes="temario base")
+    assert informe["ok"] is True
+
+
+def test_el_writer_reintenta_por_una_duracion_imposible():
+    """Camino vivo: el plan declara 5 minutos para un laboratorio de 12 bloques."""
+    plan = {"lab_plans": [{**_LAB_PLAN, "estimated_duration": 5}]}
+    imposible = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=None)
+    plausible = _lab_con_bloques(pasos=2, bloques_por_paso=1, duracion=None)
+    resultado, informes, contextos = _ejecutar_writer(
+        plan, [imposible, plausible], max_intentos=3
+    )
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 2, "debe regenerar el laboratorio"
+    assert "duración declarada" in contextos[1]["referential_correction"]
+    # El artefacto recoge el laboratorio **aceptado** (el segundo), no el rechazado.
+    assert informes and informes[0]["por_laboratorio"]["01-01-01"]["duracion"]["duracion"] == 5
+
+
+def test_el_writer_no_reintenta_por_duracion_con_el_interruptor_apagado():
+    anterior = os.environ.get("DURATION_RETRY")
+    os.environ["DURATION_RETRY"] = "0"
+    try:
+        plan = {"lab_plans": [{**_LAB_PLAN, "estimated_duration": 5}]}
+        imposible = _lab_con_bloques(pasos=4, bloques_por_paso=3, duracion=None)
+        resultado, informes, contextos = _ejecutar_writer(
+            plan, [imposible], max_intentos=3
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("DURATION_RETRY", None)
+        else:
+            os.environ["DURATION_RETRY"] = anterior
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "DURATION_RETRY=0 debe dejar solo registro"
+    assert informes and informes[0]["total_b6"] == 1
+    assert informes[0]["por_laboratorio"]["01-01-01"]["duracion"]["ok"] is False
+
+
+def test_b5_contradice_el_sistema_operativo_del_plan():
+    lab = "## Descripción\nEste laboratorio requiere Windows 11 para ejecutar las herramientas.\n"
+    requisitos = requisitos_declarados(
+        [{"name": "Sistema operativo", "version": "Ubuntu 24.04 LTS", "purpose": "entorno"}],
+        [],
+    )
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto=requisitos)
+    b5 = [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+    assert [v["valor"] for v in b5] == ["Windows"]
+    assert b5[0]["confianza"] == "alta"
+
+def test_b5_contradice_la_version_de_una_herramienta():
+    lab = "## Descripción\nEl entorno requiere Node 22.14.0 para ejecutar las pruebas.\n"
+    requisitos = requisitos_declarados(
+        [{"name": "Node.js", "version": "18.20.4", "purpose": "runtime"}], []
+    )
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto=requisitos)
+    b5 = [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+    assert any(v["valor"] == "Node 22.14.0" and v["confianza"] == "alta" for v in b5), b5
+
+
+def test_b5_registra_el_hardware_ampliado_sin_reintentar():
+    lab = "## Requisitos\nHardware: 8 GB RAM mínimo para ejecutar el entorno.\n"
+    requisitos = requisitos_declarados([{"name": "Python", "version": "3.12"}], [])
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto=requisitos)
+    b5 = [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+    assert b5 and all(v["confianza"] == "baja" for v in b5), b5
+
+
+def test_b5_no_cuenta_la_especificacion_de_una_maquina_virtual():
+    lab = "## Entorno\nLa VM srv1 requiere 2 GB de RAM y 2 núcleos.\n"
+    requisitos = requisitos_declarados([{"name": "Ubuntu", "version": "24.04"}], [])
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto=requisitos)
+    assert not [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+
+
+def test_b5_no_comprueba_si_el_plan_no_declara_requisitos():
+    lab = "## Descripción\nRequiere Windows 11 y 16 GB de RAM.\n"
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto="")
+    assert not [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+
+
+def test_el_writer_reintenta_por_una_contradiccion_de_requisito():
+    plan = {
+        "lab_plans": [_LAB_PLAN],
+        "software_requirements": [{"name": "Node.js", "version": "18.20.4", "purpose": "runtime"}],
+    }
+    contradictorio = (
+        "## Descripción\nEl entorno requiere Node 22.14.0 o superior.\n\n"
+        "### Paso 1: Ejecutar\n```bash\necho ok\n```\n"
+    )
+    alineado = (
+        "## Descripción\nEl entorno usa Node 18.20.4, el declarado por el curso.\n\n"
+        "### Paso 1: Ejecutar\n```bash\necho ok\n```\n"
+    )
+    resultado, _informes, contextos = _ejecutar_writer(
+        plan, [contradictorio, alineado], max_intentos=3
+    )
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 2, "debe regenerar el laboratorio"
+    assert "Alinealo con el plan" in contextos[1]["referential_correction"]
+
+
+def test_el_writer_no_reintenta_por_hardware_ampliado():
+    plan = {"lab_plans": [_LAB_PLAN], "software_requirements": [{"name": "Python", "version": "3.12"}]}
+    ampliado = (
+        "## Requisitos\nHardware: 16 GB RAM mínimo.\n\n"
+        "### Paso 1: Ejecutar\n```bash\necho ok\n```\n"
+    )
+    resultado, informes, contextos = _ejecutar_writer(plan, [ampliado], max_intentos=3)
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "una ampliación de baja confianza no debe regenerar"
+    assert informes and informes[0]["total_b5"] >= 1
+    assert informes[0]["total_alta_confianza"] == 0
+
+
+def test_el_writer_no_reintenta_por_requisito_con_el_interruptor_apagado():
+    anterior = os.environ.get("REQUIREMENTS_RETRY")
+    os.environ["REQUIREMENTS_RETRY"] = "0"
+    try:
+        plan = {
+            "lab_plans": [_LAB_PLAN],
+            "software_requirements": [{"name": "Node.js", "version": "18.20.4"}],
+        }
+        contradictorio = (
+            "## Descripción\nEl entorno requiere Node 22.14.0 o superior.\n\n"
+            "### Paso 1: Ejecutar\n```bash\necho ok\n```\n"
+        )
+        resultado, informes, contextos = _ejecutar_writer(
+            plan, [contradictorio], max_intentos=3
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("REQUIREMENTS_RETRY", None)
+        else:
+            os.environ["REQUIREMENTS_RETRY"] = anterior
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 1, "REQUIREMENTS_RETRY=0 debe dejar solo registro"
+    assert informes and informes[0]["total_b5"] == 1
+
+
+def _lab_con_bloques(pasos, bloques_por_paso, duracion, lenguaje="bash"):
+    """Laboratorio sintético con pasos y bloques, sin referentes de fichero."""
+    cabecera = "# Lab 01-01-01: Analizar la demanda historica\n\n"
+    if duracion:
+        cabecera += f"| Duración | {duracion} minutos |\n\n"
+    cuerpo = []
+    for paso in range(1, pasos + 1):
+        cuerpo.append(f"### Paso {paso}: Ejecutar la comprobacion {paso}\n")
+        for bloque in range(1, bloques_por_paso + 1):
+            cuerpo.append(f"```{lenguaje}\necho paso {paso} bloque {bloque}\n```\n")
+    return cabecera + "\n".join(cuerpo)
 
 
 if __name__ == "__main__":

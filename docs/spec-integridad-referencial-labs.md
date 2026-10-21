@@ -719,4 +719,149 @@ Revisados uno a uno con contexto:
 
 
 
+## 18. Fase 2.2 (21/10/2026): B6 (duración) y B5 (requisitos técnicos)
+
+### 18.1 Dónde vive cada verificación: el plan no tiene pasos
+
+§16.5 daba por supuesto que B5/B6 vivirían «en el planner». La comprobación del esquema real lo
+desmiente: `lab_plans` trae `estimated_duration`, `objectives`, `scope` y `key_technologies`, pero
+**no trae pasos**. Comprobar B6 en el planner sería comprobar una duración contra un plan de pasos
+que no existe: una verificación vacua, justo lo que M1 prohíbe.
+
+Las dos verificaciones se implementan en el **Writer**, que es el único artefacto donde conviven el
+laboratorio escrito, sus pasos y los requisitos del plan:
+
+| Verificación | Artefacto sobre el que corre | Contexto que necesita |
+|---|---|---|
+| **B6** | el laboratorio escrito | `estimated_duration` del plan, o la duración que el propio laboratorio declara |
+| **B5** | el laboratorio escrito | `software_requirements` y `hardware_requirements` del plan |
+
+Las dos son **deterministas y de stdlib**: no hay modelo en el bucle.
+
+### 18.2 B6: duración declarada contra trabajo real
+
+Unidad de medida robusta, medida en lugar de supuesta. Contar **líneas** dentro de bloques de código
+infla la carga porque mezcla comandos con salidas (`1678` «comandos» en un laboratorio de 45 minutos
+eran, en su mayoría, volcados de pantalla). La unidad que se usa es:
+
+- **paso con acción**: un `### Paso` que contiene al menos un bloque de shell o de un lenguaje que el
+  alumno escribe;
+- **bloque de acción**: un bloque de shell o de un lenguaje de escritura. Los de salida (`text`,
+  `log`, `diff`, `csv`) **no cuentan**: no cuestan tiempo de acción.
+
+Un bloque de 40 líneas cuenta como uno: mide trabajo de ejecución, no de tecleo, y evita depender de
+una estimación de velocidad de escritura.
+
+Se marca cuando se incumplen **las dos** condiciones: `duración / pasos_con_acción < 2` **y**
+`duración / bloques < 0,75` (un bloque cada 80 segundos). El doble umbral es lo que hace que la
+señal sea limpia: la primera condición sola marca laboratorios cortos legítimos; la segunda sola,
+laboratorios con muchos bloques pequeños.
+
+Calibración sobre **1.294 laboratorios reales** (todos con plan; 1.259 con duración usable; 226 la
+declaran en sus metadatos y 223 coinciden con el plan, el 98,7 %):
+
+| | Valor |
+|---|---|
+| p05 de minutos por paso con acción | 2,5 |
+| p05 de minutos por bloque | 0,4 |
+| Marcados por la regla | **14 (1,08 %)** |
+
+Los 14 se revisaron uno a uno; ninguno es un falso positivo:
+
+- `260924-Temario-fortinet-…-cybersecurity` instala **Kali Linux en una máquina virtual** en 15
+  minutos (8 pasos, 71 bloques: 12,6 s por bloque);
+- `260728-angular-essentials` crea el proyecto con `ng new`, genera componentes y escribe **35 líneas
+  de HTML y 77 de CSS** en 12 minutos;
+- `261008-LFS158` declara 5 minutos para 4 pasos con acción y **31 bloques**;
+- `260617-TPRACT-DES-COPCHAT` hace escribir ~150 líneas de Python en 10 minutos.
+
+**Corrección: no destructiva y sin tocar la duración.** El mensaje pide reducir pasos de exploración
+y bloques prescindibles, conservar **todos** los entregables y los pasos de verificación, y no
+cambiar la duración del plan ni el número de laboratorio. La duración es contrato (A3 la suma); lo
+que se corrige es el volumen.
+
+### 18.3 B5: requisitos que el laboratorio exige y el plan no declara
+
+Se comprueban tres familias —sistema operativo, herramienta con versión y magnitud de hardware— y
+solo en **prosa**: una salida de `free -h` o un `docker run -m 4g` no es un requisito del alumno. La
+ventana de decisión excluye, además, las especificaciones de la máquina virtual, el contenedor, la
+PDB o la instancia del ejercicio, y las menciones ilustrativas o de interfaz.
+
+La distinción que importa es entre dos cosas que la primera medición confundía:
+
+- **Contradicción** (`confianza: alta`, reintenta): el plan declara un sistema operativo o una
+  versión para una herramienta y el laboratorio dice **otro**.
+- **Ampliación** (`confianza: baja`, solo registro): el laboratorio exige una magnitud o un sistema
+  que el plan no menciona en absoluto.
+
+Medición de la primera versión (comparación literal de la frase declarada): **74 laboratorios**
+marcados y prácticamente todos de la sección de entorno del propio laboratorio — ruido. Se
+corrigieron tres causas:
+
+1. **Magnitud, no frase**: «Memoria: 16 GB» cubre «16 GB de RAM»; se compara número + unidad.
+2. **Familias de sistema operativo**: pedir Ubuntu cuando el plan declara Linux **no** lo contradice,
+   y Windows Server es Windows.
+3. **Homónimos y etiquetas**: `IOS` a secas suele ser el IOS de Cisco, y «Tool Windows» es una
+   etiqueta de interfaz, no un sistema operativo. La exclusión de menciones ilustrativas cubre
+   además «un cliente ssh (como Putty o terminal de macOS/Linux)» y «`c:/...` (Windows) o `~/...`
+   (macOS)».
+
+Resultado sobre los mismos 1.294 laboratorios:
+
+| Clase | Antes (literal) | Después |
+|---|---|---|
+| Contradicciones (alta, reintenta) | 20 con 3 falsos positivos | **0** |
+| Ampliaciones (baja, solo registro) | — | **63 (4,87 %)**: 56 de hardware, 23 de sistema operativo |
+
+Las tres contradicciones que quedaban eran todas falsas: dos alternativas ilustrativas y una
+etiqueta de interfaz. Tras la corrección no queda **ninguna**, así que la clase de reintento de B5 no
+tiene falsos positivos observados; aun así, al no haber tampoco ningún caso real, la clase está
+**sin validar en producción**: su primer caso real hay que mirarlo antes de confiar en ella.
+
+La ampliación es, en cambio, señal de plantilla: 56 de los 63 son laboratorios que piden una cantidad
+de RAM, disco o núcleos que el plan no declara. No se reintenta porque la sección de entorno es
+legítima en muchos contextos; se registra para medirla.
+
+### 18.4 Interruptores y artefacto
+
+| Interruptor | Efecto |
+|---|---|
+| `REFERENTIAL_RETRY=0` | B1/B2 quedan en solo registro |
+| `DURATION_RETRY=0` | B6 queda en solo registro |
+| `REQUIREMENTS_RETRY=0` | B5 (contradicciones) queda en solo registro |
+
+`{project_folder}/validation/labs-referential-integrity.json` pasa a `check: "B1+B2+B5+B6"` e
+incluye `total_b5`, `total_b6`, `total_alta_confianza` y `ok_alta_confianza`. `ok` sigue significando
+«ninguna violación de ninguna clase»; `ok_alta_confianza` separa la clase que dispara reintento, para
+que una ampliación de hardware no haga parecer roto un curso.
+
+### 18.5 Decisión
+
+1. **B6 se queda con reintento**: 14 casos en 1.294, los 14 revisados y ninguno falso. Cumple el
+   criterio de «0 falsos positivos sobre cursos reales» que §14 exige para actuar.
+2. **B5 no aporta casos de contradicción hoy.** Se deja en el código con `alta` porque la regla es
+   inequívoca cuando aparece, pero no hay evidencia real que la respalde; la ampliación se registra
+   con `baja` y no toca el contenido.
+3. **La corrección de B6 no puede borrar entregables** ni cambiar la duración del plan: el mensaje lo
+   prohíbe explícitamente, igual que en B1.
+4. Siguiente: **B3p** (entregable declarado que aparece producido) y, después, la fase 3 (versiones
+   y entidades con nombre) y **C1** (liveness de enlaces).
+
+### 18.6 Reproducibilidad
+
+- `calibrar_b6_plan.py` — distribución de unidades de trabajo y comparación del umbral simple con el
+  doble.
+- `calibrar_b5_unidades.py` y `calibrar_b5_tipos.py` — B5 por frase y por familias, con el contexto
+  real de cada mención.
+- `calibrar_b5b6_final.py` — **llama al módulo real** (`auditar_duracion`, `auditar_requisitos`) y
+  reproduce las cifras de §18.2 y §18.3 sobre los 1.294 laboratorios.
+- `ver_pasos.py` — volcado de los pasos y bloques de un laboratorio concreto (usado para revisar los
+  14 de B6).
+- Batería: **92/92 en verde**, con caminos vivos nuevos: el Writer reintenta por una duración
+  imposible y por una contradicción de requisito, no reintenta por una ampliación de hardware, y
+  ninguno de los dos reintentos ocurre con su interruptor apagado.
+
+
+
+
 

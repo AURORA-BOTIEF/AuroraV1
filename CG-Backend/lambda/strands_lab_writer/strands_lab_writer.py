@@ -25,9 +25,11 @@ from typing import Dict, List, Any, Optional
 from manual_context import select_manual_context, flatten_to_text
 from referent_check import (
     auditar_laboratorio,
+    duracion_declarada,
     mensaje_de_correccion,
     referencias_a_labs_posteriores,
     referentes_creados,
+    requisitos_declarados,
     salidas_de_laboratorios,
 )
 
@@ -60,6 +62,20 @@ MAX_LAB_GENERATION_ATTEMPTS = int(os.getenv("MAX_LAB_GENERATION_ATTEMPTS", "3"))
 def _reintento_referencial_habilitado() -> bool:
     """Interruptor operativo: ``REFERENTIAL_RETRY=0`` deja B1 en solo registro."""
     return os.getenv("REFERENTIAL_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _reintento_duracion_habilitado() -> bool:
+    """Interruptor operativo propio de B6: ``DURATION_RETRY=0`` deja solo registro."""
+    return os.getenv("DURATION_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _reintento_requisitos_habilitado() -> bool:
+    """Interruptor operativo propio de B5: ``REQUIREMENTS_RETRY=0`` deja solo registro."""
+    return os.getenv("REQUIREMENTS_RETRY", "1").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -1882,22 +1898,38 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             for v in r.get("violaciones", [])
             if v.get("verificacion") == "B2"
         )
+        b6 = sum(
+            1
+            for r in informes.values()
+            for v in r.get("violaciones", [])
+            if v.get("verificacion") == "B6"
+        )
+        b5 = sum(
+            1
+            for r in informes.values()
+            for v in r.get("violaciones", [])
+            if v.get("verificacion") == "B5"
+        )
+        altas = sum(
+            1
+            for r in informes.values()
+            for v in r.get("violaciones", [])
+            if v.get("confianza") == "alta"
+        )
         payload = {
-            "check": "B1+B2",
+            "check": "B1+B2+B5+B6",
             "labs": len(informes),
             "total_violaciones": total,
-            "total_b1": total - b2,
+            "total_b1": total - b2 - b5 - b6,
             "total_b2": b2,
-            "total_alta_confianza": sum(
-                1
-                for r in informes.values()
-                for v in r.get("violaciones", [])
-                if v.get("confianza") == "alta"
-            ),
+            "total_b5": b5,
+            "total_b6": b6,
+            "total_alta_confianza": altas,
             "total_menciones_posteriores": sum(
                 len(r.get("menciones_posteriores", [])) for r in informes.values()
             ),
             "ok": total == 0,
+            "ok_alta_confianza": altas == 0,
             "por_laboratorio": informes,
         }
         s3_client.put_object(
@@ -2185,16 +2217,36 @@ def lambda_handler(event, context):
                             referencias_posteriores=referencias_a_labs_posteriores(
                                 verified_guide, posicion, orden_labs
                             ),
+                            # B6: la duración que declara el propio laboratorio manda;
+                            # si no la declara, se usa la del plan (coinciden en 176 de
+                            # los 179 laboratorios que la declaran).
+                            duracion_min=(
+                                duracion_declarada(verified_guide)
+                                or lab_plan.get("estimated_duration")
+                                or lab_plan.get("duration_minutes")
+                            ),
+                            requisitos_texto=requisitos_declarados(
+                                master_context.get("software_requirements"),
+                                master_context.get("hardware_requirements"),
+                            ),
                         )
                         referential_reports[lab_id] = referential_report
                         altas = [
                             v
                             for v in referential_report["violaciones"]
                             if v.get("confianza") == "alta"
+                            and (
+                                v.get("verificacion") != "B6"
+                                or _reintento_duracion_habilitado()
+                            )
+                            and (
+                                v.get("verificacion") != "B5"
+                                or _reintento_requisitos_habilitado()
+                            )
                         ]
                         print(
-                            f"  🔎 B1/B2 integridad referencial de {lab_id}: "
-                            f"{len(referential_report['violaciones'])} referente(s) sin declarar "
+                            f"  🔎 Integridad referencial y duración de {lab_id}: "
+                            f"{len(referential_report['violaciones'])} hallazgo(s) "
                             f"({len(altas)} de alta confianza)"
                         )
                         for v in referential_report["violaciones"][:10]:
@@ -2219,8 +2271,8 @@ def lambda_handler(event, context):
                                 altas, "lab"
                             )
                             raise RuntimeError(
-                                f"B1/B2 referential check failed for {lab_id}: "
-                                f"{len(altas)} undeclared file reference(s) of high confidence"
+                                f"B1/B2/B6 check failed for {lab_id}: "
+                                f"{len(altas)} high-confidence finding(s)"
                             )
 
                         # Solo el laboratorio aceptado aporta referentes creados para el
