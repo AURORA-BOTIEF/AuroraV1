@@ -20,7 +20,12 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
-from referent_check import auditar_plan, mensaje_de_correccion
+from referent_check import (
+    auditar_duraciones_curso,
+    auditar_plan,
+    mensaje_de_correccion,
+    reconciliar_duraciones,
+)
 
 # AWS Clients with extended timeout for Bedrock (complex prompts can take 3-5 minutes)
 bedrock_config = Config(
@@ -951,14 +956,16 @@ def save_master_plan_to_s3(
         raise
 
 
-def guardar_informe_referencial(bucket: str, project_folder: str, informe: dict) -> str:
+def guardar_informe_referencial(
+    bucket: str, project_folder: str, informe: dict, nombre: str = "referential-integrity.json"
+) -> str:
     """Escribe el informe de integridad referencial del plan junto al resto de validaciones.
 
     Se guarda en ``{project_folder}/validation/``, el mismo prefijo que usa
     ``content_validator.save_validation_report``, para que ambos queden juntos.
     """
     try:
-        key = f"{project_folder}/validation/referential-integrity.json"
+        key = f"{project_folder}/validation/{nombre}"
         s3_client.put_object(
             Bucket=bucket,
             Key=key,
@@ -1242,6 +1249,25 @@ def lambda_handler(event, context):
                 f"{len(merged_plans)} total in master plan"
             )
 
+        # A3: el temario es el contrato de duración. Se fija antes de auditar para
+        # que lo que se guarda (y lo que el Writer obedece) sea lo declarado.
+        duraciones = reconciliar_duraciones(master_plan, labs)
+        if duraciones["corregidos"]:
+            print(
+                f"⏱️  A3: {len(duraciones['corregidos'])} duración(es) del plan "
+                f"ajustadas a lo que declara el temario"
+            )
+        duraciones_curso = auditar_duraciones_curso(
+            master_plan, labs, course_info.get("total_duration_minutes")
+        )
+        if not duraciones_curso["ok"]:
+            print(
+                f"⏱️  A3: plan de {duraciones_curso['suma_plan']} min sobre un curso de "
+                f"{duraciones_curso['total_curso']} min; "
+                f"{duraciones_curso['labs_plan']} laboratorio(s) frente a "
+                f"{duraciones_curso['labs_temario']} práctica(s) del temario"
+            )
+
         # Reauditoría sobre el plan final (tras el merge parcial, si lo hubo): es el
         # plan que realmente se guarda y el que el Writer va a obedecer.
         referential_report = auditar_plan(master_plan, referential_sources)
@@ -1274,9 +1300,22 @@ def lambda_handler(event, context):
                 'violaciones': referential_report['violaciones'],
                 'ok': referential_report['ok'],
             },
+            'duration_integrity': {
+                'check': 'A3',
+                **duraciones_curso,
+                'corregidos': duraciones['corregidos'],
+                'con_contrato': duraciones['con_contrato'],
+                'sin_contrato': duraciones['sin_contrato'],
+            },
         }
 
         guardar_informe_referencial(course_bucket, project_folder, referential_report)
+        guardar_informe_referencial(
+            course_bucket,
+            project_folder,
+            {**duraciones_curso, "corregidos": duraciones["corregidos"]},
+            nombre="duration-integrity.json",
+        )
         
         # Step 4: Save to S3
         master_plan_key = save_master_plan_to_s3(

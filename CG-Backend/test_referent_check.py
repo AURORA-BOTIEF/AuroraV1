@@ -34,12 +34,14 @@ for _ruta in (_CARPETA_WRITER, _CARPETA_PLANNER, "lambda"):
     sys.path.insert(0, os.path.join(_HERE, _ruta))
 
 from referent_check import (  # noqa: E402
+    auditar_duraciones_curso,
     auditar_laboratorio,
     auditar_plan,
     canonico,
     duracion_declarada,
     extraer_referentes,
     mensaje_de_correccion,
+    reconciliar_duraciones,
     referencias_a_labs_posteriores,
     referentes_creados,
     requisitos_declarados,
@@ -1833,6 +1835,127 @@ def test_el_writer_reintenta_por_entregable_omitido_si_se_enciende():
     assert resultado["statusCode"] == 200, resultado
     assert len(contextos) == 2, "con DELIVERABLES_RETRY=1 debe regenerar"
     assert "no los menciona ni una vez" in contextos[1]["referential_correction"]
+
+
+def test_a3_fija_la_duracion_que_declara_el_temario():
+    """Caso real: el temario declara 18 minutos y el plan puso 40."""
+    plan = {"lab_plans": [{"lab_id": "01-00-01", "estimated_duration": 40}]}
+    labs = [{"lab_id": "01-00-01", "duration_minutes": 18}]
+    informe = reconciliar_duraciones(plan, labs)
+    assert plan["lab_plans"][0]["estimated_duration"] == 18
+    assert informe["corregidos"] == [{"lab_id": "01-00-01", "antes": 40, "despues": 18}]
+
+
+def test_a3_no_toca_lo_que_ya_coincide():
+    plan = {"lab_plans": [{"lab_id": "01-00-01", "estimated_duration": 45}]}
+    informe = reconciliar_duraciones(plan, [{"lab_id": "01-00-01", "duration_minutes": 45}])
+    assert informe["corregidos"] == []
+    assert plan["lab_plans"][0]["estimated_duration"] == 45
+
+
+def test_a3_no_inventa_duracion_para_un_lab_sin_contrato():
+    plan = {"lab_plans": [{"lab_id": "09-00-01", "estimated_duration": 30}]}
+    informe = reconciliar_duraciones(plan, [{"lab_id": "01-00-01", "duration_minutes": 45}])
+    assert informe["corregidos"] == []
+    assert informe["sin_contrato"] == 1
+    assert plan["lab_plans"][0]["estimated_duration"] == 30
+
+
+def test_a3_detecta_que_el_plan_excede_el_curso():
+    plan = {"lab_plans": [{"estimated_duration": 120}, {"estimated_duration": 90}]}
+    informe = auditar_duraciones_curso(plan, [], total_curso=180)
+    assert informe["suma_plan"] == 210
+    assert informe["excede_total"] is True
+    assert informe["ok"] is False
+
+
+def test_a3_detecta_el_numero_de_practicas():
+    plan = {"lab_plans": [{"estimated_duration": 20}]}
+    labs = [{"lab_id": "01"}, {"lab_id": "02"}, {"lab_id": "03"}]
+    informe = auditar_duraciones_curso(plan, labs, total_curso=180)
+    assert informe["faltan"] == 2
+    assert informe["ok"] is False
+
+
+def test_a3_con_todo_cuadrado():
+    plan = {"lab_plans": [{"estimated_duration": 45}, {"estimated_duration": 45}]}
+    labs = [{"lab_id": "01"}, {"lab_id": "02"}]
+    informe = auditar_duraciones_curso(plan, labs, total_curso=180)
+    assert informe["ok"] is True
+
+
+def test_a3_sobre_un_caso_real_del_corpus():
+    """El caso de 260627-COP-CHAT-LEGAL: el temario declara 50 y el plan puso 90."""
+    plan = {
+        "lab_plans": [
+            {"lab_id": "01-00-01", "estimated_duration": 60},
+            {"lab_id": "02-00-01", "estimated_duration": 90},
+            {"lab_id": "03-00-01", "estimated_duration": 90},
+            {"lab_id": "04-00-01", "estimated_duration": 60},
+        ]
+    }
+    labs = [
+        {"lab_id": "01-00-01", "duration_minutes": 50},
+        {"lab_id": "02-00-01", "duration_minutes": 50},
+        {"lab_id": "03-00-01", "duration_minutes": 50},
+        {"lab_id": "04-00-01", "duration_minutes": 50},
+    ]
+    reconciliar_duraciones(plan, labs)
+    informe = auditar_duraciones_curso(plan, labs, total_curso=240)
+    assert [p["estimated_duration"] for p in plan["lab_plans"]] == [50, 50, 50, 50]
+    assert informe["suma_plan"] == 200
+    assert informe["ok"] is True
+
+
+def test_el_planner_aplica_a3_antes_de_guardar():
+    """Camino vivo: el plan guardado lleva la duración del temario, no la del modelo."""
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    outline = {
+        "course": {
+            "title": "Curso de prueba",
+            "total_duration_minutes": 120,
+            "modules": [
+                {
+                    "title": "Modulo 1",
+                    "lab_activities": [
+                        {"title": "Practica uno", "duration_minutes": 18},
+                        {"title": "Practica dos", "duration_minutes": 22},
+                    ],
+                }
+            ],
+        }
+    }
+    guardado = {}
+    modulo.load_outline_from_s3 = lambda *a, **k: outline
+    modulo.generate_lab_master_plan = lambda **k: {
+        "lab_plans": [
+            {"lab_id": "01-00-01", "lab_title": "Practica uno", "estimated_duration": 40,
+             "objectives": ["a"], "scope": "b", "expected_outcomes": ["c"]},
+            {"lab_id": "01-00-02", "lab_title": "Practica dos", "estimated_duration": 30,
+             "objectives": ["a"], "scope": "b", "expected_outcomes": ["c"]},
+        ]
+    }
+    modulo.auditar_y_corregir_plan = lambda plan, **k: (plan, {"total": 0, "violaciones": [], "ok": True})
+    modulo.save_master_plan_to_s3 = lambda bucket, project_folder, master_plan: (
+        guardado.update({"plan": master_plan}) or "p/labguide/lab-master-plan.json"
+    )
+    modulo.s3_client = _S3Simulado({})
+
+    resultado = modulo.lambda_handler(
+        {
+            "course_bucket": "bucket",
+            "outline_s3_key": "p/outline/curso.yaml",
+            "project_folder": "p",
+            "model_provider": "bedrock",
+        },
+        None,
+    )
+
+    assert resultado["statusCode"] == 200, resultado
+    plan = guardado["plan"]
+    assert [p["estimated_duration"] for p in plan["lab_plans"]] == [18, 22]
+    assert plan["metadata"]["duration_integrity"]["suma_plan"] == 40
+    assert plan["metadata"]["duration_integrity"]["corregidos"][0]["antes"] == 40
 
 
 def _lab_con_bloques(pasos, bloques_por_paso, duracion, lenguaje="bash"):

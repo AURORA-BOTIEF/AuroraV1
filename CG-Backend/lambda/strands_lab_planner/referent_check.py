@@ -1646,3 +1646,87 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
 
     return "\n\n".join(bloques)
 
+
+# --------------------------------------------------------------------------- #
+# Duración del curso (A3): el temario es el contrato
+# --------------------------------------------------------------------------- #
+
+
+def _minutos(valor) -> int | None:
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        return None
+    return numero if numero > 0 else None
+
+
+def reconciliar_duraciones(master_plan: dict, labs) -> dict:
+    """A3: fija ``estimated_duration`` a la duración que declara el temario.
+
+    No es un reintento: es una corrección determinista. El planificador ya recibe
+    la duración de cada ``lab_activity`` en ``labs``; cuando el modelo la cambia
+    («el temario dice 18 minutos y el plan pone 40»), el valor del temario manda.
+
+    Devuelve ``{"corregidos": [...], "con_contrato": n, "sin_contrato": n}``.
+    """
+    contrato = {}
+    for lab in labs or ():
+        lab_id = (lab or {}).get("lab_id")
+        minutos = _minutos((lab or {}).get("duration_minutes"))
+        if lab_id and minutos:
+            contrato[lab_id] = minutos
+
+    corregidos = []
+    sin_contrato = 0
+    for lab_plan in master_plan.get("lab_plans") or ():
+        esperado = contrato.get(lab_plan.get("lab_id"))
+        if esperado is None:
+            sin_contrato += 1
+            continue
+        actual = lab_plan.get("estimated_duration")
+        if _minutos(actual) != esperado:
+            corregidos.append(
+                {
+                    "lab_id": lab_plan.get("lab_id"),
+                    "antes": actual,
+                    "despues": esperado,
+                }
+            )
+            lab_plan["estimated_duration"] = esperado
+    return {
+        "corregidos": corregidos,
+        "con_contrato": len(contrato),
+        "sin_contrato": sin_contrato,
+    }
+
+
+def auditar_duraciones_curso(master_plan: dict, labs=None, total_curso=None) -> dict:
+    """A3: la suma de los laboratorios cabe en el curso y su número cuadra.
+
+    Dos comprobaciones independientes:
+
+    - ``suma_plan <= total_duration_minutes`` del temario;
+    - el plan tiene un laboratorio por cada ``lab_activity`` declarada.
+
+    Medición del 21/10/2026 (164 proyectos con temario y plan): el total se excede
+    en 1 proyecto (3 minutos) y el número de prácticas no cuadra en 10. Se registra;
+    no dispara reintento, porque el arreglo del total no es determinista (habría que
+    decidir qué práctica se recorta).
+    """
+    labs = list(labs or ())
+    lab_plans = list(master_plan.get("lab_plans") or ())
+    suma = sum(_minutos(p.get("estimated_duration")) or 30 for p in lab_plans)
+    total = _minutos(total_curso)
+    informe = {
+        "suma_plan": suma,
+        "total_curso": total,
+        "excede_total": bool(total and suma > total),
+        "labs_temario": len(labs),
+        "labs_plan": len(lab_plans),
+        "faltan": max(0, len(labs) - len(lab_plans)),
+        "sobran": max(0, len(lab_plans) - len(labs)),
+        "ok": True,
+    }
+    informe["ok"] = not informe["excede_total"] and not informe["faltan"] and not informe["sobran"]
+    return informe
+

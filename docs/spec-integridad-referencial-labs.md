@@ -944,6 +944,90 @@ Las dos familias de falso positivo que **quedan** y hay que resolver antes de en
   (alta), entregable creado (sin marca), entregable mencionado sin creación (baja), alternativa del
   plan y entrada del curso. El Writer no reintenta por defecto y sí con `DELIVERABLES_RETRY=1`.
 
+## 20. Fase 3.1 (21/10/2026): A3, la duración que declara el temario
+
+### 20.1 El contrato existe y se estaba perdiendo
+
+Hasta aquí la duración del curso era «la que dijera el plan». No es así: el temario
+**declara** la duración. En el 99 % de los temarios reales hay `course.total_duration_minutes`, y
+cada `lab_activity` trae su `duration_minutes`:
+
+```yaml
+course:
+  total_duration_minutes: 120
+  modules:
+    - title: Conmutación y Enrutamiento Básico
+      lab_activities:
+        - title: Inter-VLAN routing (router-on-a-stick) en Packet Tracer
+          duration_minutes: 20
+```
+
+El planificador ya leía ese dato (`extract_all_labs` lo copia a `duration_minutes`), pero el
+modelo podía reescribir `estimated_duration` en el plan y nadie lo contradecía. Es exactamente la
+queja del informe: «si se indica en el temario que son 4 min debería aplicarse en consecuencia».
+
+### 20.2 La corrección es determinista, no un reintento
+
+`reconciliar_duraciones(plan, labs)` fija `estimated_duration` al valor del temario para cada
+`lab_id` con contrato. No llama al modelo, no cuesta una regeneración y no puede inventar: si el
+temario no declara la duración de un laboratorio, no se toca (`sin_contrato`).
+
+Se ejecuta **antes de guardar** el plan, justo antes de la reauditoría de A1, para que lo que se
+guarda —y lo que el Writer obedece— sea el contrato. `total_duration_minutes` se recalcula después,
+así que el metadato y la suma quedan coherentes.
+
+### 20.3 Medición sobre 164 proyectos con temario y plan
+
+Con el extractor real (`extract_all_labs`), comparando en el mismo orden:
+
+| Comprobación | Resultado |
+|---|---|
+| Proyectos cuyo plan **excede** el total del temario | **1** (180 vs 183 min, +1,7 %) |
+| Proyectos con **número de prácticas** distinto | **10** |
+| Pares temario/plan con **duración distinta** | **29 de 1.203 (2,4 %)** |
+
+Los 29 se concentran en 9 proyectos y son desviaciones reales, no ruido:
+
+- `260627-COP-CHAT-LEGAL`: temario 50/50/50/50 → plan 60/90/90/60 (inflado hasta +80 %);
+- `260924-Temario-fortinet-…`: temario 18 → plan 40;
+- `260226-Temario-desarrollo-con-oracle-apex`: temario 36/51/59/59/59 → plan 30 en todos;
+- `260302 LINUX-ESSENTIALS LPI-010`: temario 168 → plan 252;
+- los tres `…sql…snowflake`: temario 23/27/39/39 → plan 30.
+
+Los 10 desajustes de número de prácticas son otra cosa: el plan agrupa actividades
+(20 → 10, 15 → 7, 11 → 1). Es una decisión de alcance, no un error de dato, y recortar o duplicar
+laboratorios no es determinista. Se **registra**, no se corrige.
+
+### 20.4 Qué se guarda
+
+- `metadata.duration_integrity` del plan: `suma_plan`, `total_curso`, `excede_total`,
+  `labs_temario`, `labs_plan`, `faltan`, `sobran`, `ok`, `corregidos`, `con_contrato`,
+  `sin_contrato`.
+- `{project_folder}/validation/duration-integrity.json` con el mismo contenido, junto al informe
+  de A1.
+
+### 20.5 Decisión
+
+1. **A3 se corrige, no se reintenta.** La duración del temario es un dato, no una opinión: se
+   aplica. Es la primera verificación de la serie que pasa a corrección determinista en lugar de
+   reintento correctivo.
+2. **El número de prácticas se registra**, porque la corrección exigiría decidir alcance.
+3. El `ok` de A3 queda en falso cuando el plan excede el curso o cuando faltan/sobran prácticas; hoy
+   eso ocurre en 1 y 10 proyectos respectivamente, y se ve en el artefacto sin bloquear nada.
+4. Siguiente: **A4** (los entregables del plan son los del temario) y **B4** (cifras y entidades
+   estables entre laboratorios), que ya son semánticas y necesitan el mismo tratamiento de medición
+   antes de actuar.
+
+### 20.6 Reproducibilidad
+
+- `calibrar_a3.py` — primera pasada con extracción propia (mostró el fallo: las actividades dentro
+  de `lessons` no se contaban).
+- `calibrar_a3_extractor.py` — **llama a `extract_all_labs`**, el extractor real, y compara en el
+  mismo orden. Reproduce las cifras de §20.3.
+- Batería: **107/107 en verde**, con siete pruebas nuevas de A3 y un camino vivo del planner: un
+  temario de 18/22 minutos y un plan de 40/30 se guardan como 18/22, y
+  `metadata.duration_integrity` recoge la corrección.
+
 
 
 
