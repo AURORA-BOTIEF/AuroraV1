@@ -1431,6 +1431,77 @@ Do not wrap the delimiters in code fences. No preamble before ---LAB_START---.
 """
 
 
+def _sin_marcas(texto: str) -> str:
+    """Texto comparable: sin markdown, sin espacios de más, en minúsculas."""
+    limpio = re.sub(r"[*_`#>\[\]()]", " ", str(texto or ""))
+    return " ".join(limpio.split()).strip().lower()
+
+
+def asegurar_objetivo_declarado(markdown: str, lab_plan: dict, is_spanish: bool = True):
+    """A5: deja el objetivo del temario en la guía, literal, como primer objetivo.
+
+    El plan ya lo trae en ``objectives[0]`` y el prompt lo pide literal, pero el modelo
+    lo reescribe: medido el 22/10/2026 sobre un curso real (``251128-python-intro``), el
+    objetivo declarado no aparecía en la sección de objetivos de la guía generada.
+
+    Se inserta de forma determinista **solo si falta**, para no duplicar cuando el
+    modelo sí lo respetó. Si la guía no tiene sección de objetivos, no se inventa
+    estructura: se deja como está y lo dirá la puerta.
+    """
+    objetivo = " ".join(str((lab_plan or {}).get("outline_objective") or "").split())
+    if not objetivo:
+        return markdown, False
+    if _sin_marcas(objetivo) in _sin_marcas(markdown):
+        return markdown, False
+
+    separador = "\r\n" if "\r\n" in markdown else "\n"
+    lineas = markdown.splitlines()
+    titulos = ("Objetivos de Aprendizaje", "Learning Objectives")
+
+    for indice, linea in enumerate(lineas):
+        if not linea.strip().startswith("## "):
+            continue
+        if not any(titulo.lower() in linea.lower() for titulo in titulos):
+            continue
+
+        for posicion in range(indice + 1, min(indice + 10, len(lineas))):
+            es_item = re.match(r"^\s*[-*]\s+", lineas[posicion])
+            if es_item:
+                lineas.insert(posicion, f"- [ ] {objetivo}")
+                return separador.join(lineas), True
+        lineas.insert(indice + 1, f"- [ ] {objetivo}")
+        return separador.join(lineas), True
+
+    return markdown, False
+
+
+def _contrato_declarado(lab_plan: dict) -> str:
+    """A5: lo que el instructor declaró en el temario, tal cual, para el prompt.
+
+    El plan ya trae copiado el objetivo del temario en ``objectives[0]``; aquí se le
+    recuerda al modelo que ese texto es el contrato aprobado y que no puede
+    reescribirlo. Devuelve ``""`` cuando el temario no declaró nada, que es el caso
+    mayoritario del corpus: el temario no gana campos obligatorios.
+    """
+    objetivo = lab_plan.get("outline_objective")
+    descripcion = lab_plan.get("outline_description")
+    if not objetivo and not descripcion:
+        return ""
+    lineas = [
+        "CONTRACT - DECLARED BY THE INSTRUCTOR IN THE COURSE OUTLINE "
+        "(deliver exactly this; copy the objective verbatim and do not reword or contradict it):"
+    ]
+    if objetivo:
+        lineas.append(f"- Declared objective (verbatim): {objetivo}")
+        lineas.append(
+            "- The FIRST bullet of the objectives section MUST be exactly this text, "
+            f"unchanged: `- [ ] {objetivo}`. Further objectives may be added after it."
+        )
+    if descripcion:
+        lineas.append(f"- Declared description (verbatim): {descripcion}")
+    return "\n".join(lineas) + "\n"
+
+
 def generate_all_labs_batch(
     lab_plans: List[Dict[str, Any]],
     master_context: dict,
@@ -1461,7 +1532,7 @@ def generate_all_labs_batch(
 - Scope: {lab['scope']}
 - Prerequisites: {', '.join(lab.get('prerequisites', []))}
 - Technologies: {', '.join(lab.get('key_technologies', []))}
-""")
+{_contrato_declarado(lab)}""")
     labs_summary_text = "".join(labs_summary)
 
     if len(lab_plans) == 1:
@@ -1883,6 +1954,14 @@ Generate ALL {len(lab_plans)} labs now:
             plan = next((p for p in lab_plans if p.get('lab_id') == lid), None)
             is_demo = is_demo_plan(plan) if plan else False
             labs_dict[lid] = _finalize_lab_markdown(labs_dict[lid], is_demo=is_demo, is_spanish=is_spanish)
+            # A5: el objetivo que aprobó el instructor no se queda fuera de la guía porque
+            # el modelo lo haya parafraseado. Se inserta solo si falta.
+            if plan:
+                labs_dict[lid], insertado = asegurar_objetivo_declarado(
+                    labs_dict[lid], plan, is_spanish=is_spanish
+                )
+                if insertado:
+                    print(f"  📌 A5: objetivo del temario insertado en la guía {lid}")
 
         print(f"✅ Successfully generated {len(labs_dict)} lab guides")
         return labs_dict

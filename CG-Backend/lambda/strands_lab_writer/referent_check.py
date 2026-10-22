@@ -1730,3 +1730,186 @@ def auditar_duraciones_curso(master_plan: dict, labs=None, total_curso=None) -> 
     informe["ok"] = not informe["excede_total"] and not informe["faltan"] and not informe["sobran"]
     return informe
 
+
+# ---------------------------------------------------------------------------- #
+# A5: el temario como contrato
+# ---------------------------------------------------------------------------- #
+
+
+def _texto_contrato(valor) -> str:
+    """Espacios colapsados; el resto se compara literal (acentos incluidos)."""
+    return " ".join(str(valor or "").split())
+
+
+def declaraciones_del_temario(labs) -> dict:
+    """Lo que el temario declara de cada laboratorio, por ``lab_id``."""
+    declarado = {}
+    for lab in labs or ():
+        if not isinstance(lab, dict):
+            continue
+        lab_id = lab.get("lab_id")
+        if not lab_id:
+            continue
+        declarado[lab_id] = {
+            "lab_title": _texto_contrato(lab.get("lab_title")),
+            "duration_minutes": lab.get("duration_minutes"),
+            "objective": _texto_contrato(lab.get("objective")),
+            "description": _texto_contrato(lab.get("description")),
+        }
+    return declarado
+
+
+def reconciliar_contrato(master_plan: dict, labs) -> dict:
+    """A5: lo que el temario declara se copia; lo que no, se complementa.
+
+    El planificador recibía del temario el título, la duración y los temas, pero **no**
+    ``objective`` ni ``description``. En el corpus real (22/10/2026) 857 de 1.279
+    laboratorios declaran ``objective`` y 972 declaran ``description``: el modelo
+    nunca los veía, así que el objetivo del plan era una paráfrasis y, en la cola de
+    casos, otro objetivo distinto del aprobado.
+
+    Corrección determinista, sin reintento:
+
+    - ``objective`` declarado pasa a ``objectives[0]`` literal, y los objetivos que
+      añada la IA se conservan detrás;
+    - ``description`` declarada pasa a ``outline_description`` literal;
+    - ambos se guardan también como ``outline_objective`` / ``outline_description``
+      para que el contrato quede inspeccionable en el plan.
+
+    No exige campos nuevos al temario: si no declara, aquí no se toca nada.
+
+    Devuelve ``{"labs", "con_declaracion", "anadidos", "reordenados"}``.
+    """
+    declarado = declaraciones_del_temario(labs)
+    anadidos = []
+    reordenados = []
+    con_declaracion = 0
+
+    for lab_plan in master_plan.get("lab_plans") or ():
+        if not isinstance(lab_plan, dict):
+            continue
+        fuente = declarado.get(lab_plan.get("lab_id"))
+        if not fuente or not (fuente["objective"] or fuente["description"]):
+            continue
+        con_declaracion += 1
+
+        if fuente["objective"]:
+            lab_plan["outline_objective"] = fuente["objective"]
+            objetivos = [
+                _texto_contrato(objetivo)
+                for objetivo in (lab_plan.get("objectives") or ())
+                if _texto_contrato(objetivo)
+            ]
+            if fuente["objective"] not in objetivos:
+                objetivos.insert(0, fuente["objective"])
+                anadidos.append({"lab_id": lab_plan.get("lab_id"), "campo": "objectives"})
+            elif objetivos[0] != fuente["objective"]:
+                objetivos = [fuente["objective"]] + [
+                    objetivo for objetivo in objetivos if objetivo != fuente["objective"]
+                ]
+                reordenados.append(lab_plan.get("lab_id"))
+            lab_plan["objectives"] = objetivos
+
+        if fuente["description"]:
+            lab_plan["outline_description"] = fuente["description"]
+
+    return {
+        "labs": len(master_plan.get("lab_plans") or ()),
+        "con_declaracion": con_declaracion,
+        "anadidos": anadidos,
+        "reordenados": reordenados,
+    }
+
+
+def auditar_contrato(master_plan: dict, labs) -> dict:
+    """A5: el plan final reproduce lo que el temario declara del laboratorio.
+
+    Es una post-condición de :func:`reconciliar_contrato`: si aparece un conflicto, la
+    corrección determinista no llegó a aplicarse (por ejemplo, un ``lab_id`` que no
+    cuadra con el temario), no es una opinión del modelo sobre el temario.
+
+    Comprueba cuatro campos, y solo los que el temario declara:
+
+    - ``lab_title`` y ``duration_minutes``: siempre;
+    - ``objective``: debe ser ``objectives[0]`` literal;
+    - ``description``: debe estar íntegra en ``outline_description``.
+
+    Línea base del corpus (22/10/2026, 1.206 planes): título idéntico al temario en
+    1.177 y duración en 1.196. Los desajustes son planes anteriores a la corrección
+    del título y a A3.
+    """
+    declarado = declaraciones_del_temario(labs)
+    conflictos = []
+    con_declaracion = 0
+    sin_declaracion = 0
+    fuera_del_temario = []
+    comparados = 0
+
+    for lab_plan in master_plan.get("lab_plans") or ():
+        if not isinstance(lab_plan, dict):
+            continue
+        lab_id = lab_plan.get("lab_id")
+        fuente = declarado.get(lab_id)
+        if not fuente:
+            fuera_del_temario.append(lab_id)
+            continue
+        comparados += 1
+
+        if _texto_contrato(lab_plan.get("lab_title")) != fuente["lab_title"]:
+            conflictos.append(
+                {
+                    "lab_id": lab_id,
+                    "campo": "lab_title",
+                    "temario": fuente["lab_title"],
+                    "plan": _texto_contrato(lab_plan.get("lab_title")),
+                }
+            )
+
+        esperado = _minutos(fuente["duration_minutes"])
+        if esperado and _minutos(lab_plan.get("estimated_duration")) != esperado:
+            conflictos.append(
+                {
+                    "lab_id": lab_id,
+                    "campo": "duration_minutes",
+                    "temario": esperado,
+                    "plan": lab_plan.get("estimated_duration"),
+                }
+            )
+
+        if fuente["objective"]:
+            con_declaracion += 1
+            objetivos = [_texto_contrato(o) for o in (lab_plan.get("objectives") or ())]
+            if not objetivos or objetivos[0] != fuente["objective"]:
+                conflictos.append(
+                    {
+                        "lab_id": lab_id,
+                        "campo": "objective",
+                        "temario": fuente["objective"],
+                        "plan": objetivos[0] if objetivos else "",
+                    }
+                )
+
+        if fuente["description"]:
+            if _texto_contrato(lab_plan.get("outline_description")) != fuente["description"]:
+                conflictos.append(
+                    {
+                        "lab_id": lab_id,
+                        "campo": "description",
+                        "temario": fuente["description"],
+                        "plan": _texto_contrato(lab_plan.get("outline_description")),
+                    }
+                )
+
+        if not (fuente["objective"] or fuente["description"]):
+            sin_declaracion += 1
+
+    return {
+        "check": "A5",
+        "labs": comparados,
+        "con_declaracion": con_declaracion,
+        "sin_declaracion": sin_declaracion,
+        "fuera_del_temario": fuera_del_temario,
+        "conflictos": conflictos,
+        "ok": not conflictos,
+    }
+

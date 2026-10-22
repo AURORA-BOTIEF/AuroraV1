@@ -1317,4 +1317,145 @@ Baterías al cerrar este apartado: `test_content_validator.py` **15/15**, `test_
 
 
 
+## 23. El temario como contrato (22/10/2026): lo que el instructor declara, el plan lo copia
+
+§22 dejó una conclusión incómoda: la reproducibilidad no se arregla en el Writer, se arregla en el
+temario. Este apartado ataca esa raíz, y al medirla apareció algo más simple y más grave que la
+reproducibilidad: **el planificador no leía del temario lo que el temario sí declara**.
+
+### 23.1 Medición sobre el corpus (179 temarios, 1.279 laboratorios)
+
+Se pasó `extract_all_labs` (la función real del planner, no una copia) sobre los 179 temarios de S3 y
+se contó qué declara cada laboratorio:
+
+| Campo del temario | Laboratorios que lo declaran | ¿Llegaba al modelo? |
+|---|---|---|
+| `lab_title` | 1.279 (100 %) | Sí, y se sobrescribe con el del temario |
+| `duration_minutes` | 1.279 (100 %) | Sí (A3 lo fija) |
+| `description` | 972 (76 %) | **No** |
+| `objective` | 857 (67 %) | **No** |
+| `objectives` (plural) | 0 (0 %) | — |
+| `activities` | 0 (0 %) | — |
+
+El resumen que el planner enviaba al modelo por lote (`labs_summary`) contenía **solo** `lab_id`,
+módulo/lección, título, duración, nivel de Bloom y temas de contexto. Ni `objective` ni
+`description`, que son justo los dos campos donde el instructor escribe qué debe hacer el
+laboratorio. Consecuencia medible: para los 792 laboratorios con declaración específica (excluidos
+159 de plantilla, es decir, textos repetidos ≥3 veces en su propio curso), la cobertura media de las
+palabras del temario en el texto del plan era **57 %**, y solo el **2 %** llegaba al 90 % de
+cobertura. La cola no era cosmética: 59 laboratorios quedaban por debajo del 30 %, y en los casos
+revisados uno a uno el plan no parafraseaba el objetivo, hacía otra tarea (p. ej. el temario pide
+«crear informe final con insights usando información de la Web» y el plan describe generar borradores
+en Word).
+
+Nota de método: las declaraciones **de plantilla** («Aplicar los conceptos del módulo a un caso
+real») no son contrato, porque no dicen nada que copiar; en esas, derivar es correcto. La
+clasificación se hizo por repetición dentro del mismo curso (≥3 laboratorios con el mismo texto), no
+por una lista de frases.
+
+### 23.2 Decisión: copiar lo declarado, complementar lo demás
+
+Se mantiene la regla del proyecto —el temario **no** gana campos obligatorios, y la IA **no** cambia
+lo que el temario define— con tres niveles explícitos:
+
+1. **Declarado**: `lab_title`, `duration_minutes`, `objective` y `description` se copian literalmente.
+   Es corrección determinista, no reintento.
+2. **Derivable**: lo que el temario no dice (alcance, artefactos, pasos) lo decide el planificador y
+   se conserva. Si el modelo añade objetivos, se quedan **detrás** del declarado.
+3. **No declarado**: los 422 laboratorios sin `objective` siguen exactamente como antes. A5 no
+   inventa contrato donde no lo hay.
+
+### 23.3 Qué se implementó
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| A5 en el prompt | `strands_lab_planner.py`, `labs_summary` | Entrega al modelo `DECLARED OBJECTIVE` y `DECLARED DESCRIPTION` literales, con la regla «cópialo, no lo reformules» |
+| `reconciliar_contrato` | `referent_check.py` (copia idéntica en planner y writer) | Pone el objetivo declarado en `objectives[0]`, guarda `outline_objective` y `outline_description` |
+| `auditar_contrato` (A5) | `referent_check.py` | Post-condición sobre el plan final: título, duración, `objectives[0]` y descripción |
+| Artefacto | `validation/contract-integrity.json` + `metadata.contract_integrity` | Deja el contrato inspeccionable por laboratorio |
+| Bloque de contrato | `strands_lab_writer.py`, `_contrato_declarado` | El Writer ve lo que escribió el instructor, no solo la paráfrasis del plan |
+| `asegurar_objetivo_declarado` | `strands_lab_writer.py` | Si el modelo reescribe el objetivo, se inserta el declarado como primer ítem (solo si falta) |
+
+`auditar_contrato` es una **post-condición**, no una medida de calidad: como la reconciliación es
+determinista, en planes nuevos debe dar siempre `ok: true`. Si aparece un conflicto, el fallo está en
+la reconciliación (por ejemplo, un `lab_id` que no cuadra con el temario), no en el modelo. La
+evidencia de que sirve es la medición de 23.4, no su propio `ok`.
+
+### 23.4 Medición sobre la salida real
+
+**Curso real con declaración en los 4 laboratorios** (`251128-python-intro/outline/python_intro.yaml`):
+
+| | Objetivos literales | Descripciones literales | Cobertura del vocabulario declarado |
+|---|---|---|---|
+| Plan guardado antes de A5 | 0/4 | 0/4 | 52 % |
+| Planner desplegado, ejecución 1 | **4/4** | **4/4** | 83 % |
+| Planner desplegado, ejecución 2 | **4/4** | **4/4** | 94 % |
+
+Las dos ejecuciones dan `contract_integrity.ok: true`, `con_declaracion: 4`, `labs: 4`,
+`conflictos: []`. La parte determinista (el texto declarado) es idéntica entre ejecuciones; lo que
+varía es solo el complemento del modelo (83 % vs 94 %).
+
+**Camino completo hasta la guía** (`261022-A5-medida-2`, lab 01-00-01, mismo plan, antes y después):
+
+| | Objetivo declarado en la guía | Posición |
+|---|---|---|
+| Guía generada antes del arreglo | 0 ocurrencias | — |
+| Guía regenerada después | 1 ocurrencia, literal | Primera viñeta |
+
+Antes, el plan ya traía el objetivo correcto en `objectives[0]` y el modelo lo reescribía igualmente:
+la fidelidad del plan no basta, el Writer también tiene que verse obligado.
+
+### 23.5 Pruebas (camino vivo, no búsqueda de texto)
+
+`test_referent_check.py`: **117/117** (9 nuevas).
+
+- `test_el_planner_copia_al_plan_el_objetivo_del_temario` — ejecuta `lambda_handler` con temario y
+  respuesta del modelo simuladas; el plan guardado lleva el objetivo literal y el informe cuadra.
+- `test_el_contrato_no_obliga_al_temario_a_declarar_nada` — sin `objective`/`description` el plan no
+  cambia y `con_declaracion` es 0.
+- `test_el_contrato_detecta_un_objetivo_reescrito` — el auditor ve el defecto previo (no es vacuo).
+- `test_reconciliar_contrato_deja_el_plan_auditable` — reconciliar + auditar componen.
+- `test_el_planificador_entrega_al_modelo_lo_que_declara_el_temario` — ejecuta
+  `generate_lab_master_plan` con el cliente Bedrock sustituido y comprueba el **prompt construido**.
+- `test_el_writer_recibe_el_contrato_declarado_en_el_temario` y
+  `test_el_writer_no_inventa_contrato_si_el_temario_no_declaro` — el prompt del Writer (constructor
+  compacto, el que usa el handler con un laboratorio por invocación).
+- `test_la_guia_recibe_el_objetivo_del_temario_si_el_modelo_lo_reescribe` — ejecuta
+  `generate_all_labs_batch` con respuesta simulada que parafrasea y comprueba la guía devuelta: una
+  sola ocurrencia y en primera posición.
+- `test_asegurar_objetivo_declarado_no_duplica_ni_inventa` — idempotencia y caso sin contrato.
+
+No vacuidad comprobada desactivando `reconciliar_contrato` en el planner: el test del handler falla,
+el objetivo del temario no llega al plan y el auditor reporta 2 conflictos (objetivo y descripción).
+
+### 23.6 Límites y decisiones abiertas
+
+1. **A5 no arregla los 422 laboratorios sin declaración** (33 %). Ahí el contrato es el título, y el
+   título no basta para que dos ejecuciones coincidan (§22.5). Ese frente sigue abierto: o el
+   instructor nombra los ficheros (sin obligación), o el plan los fija una sola vez y el Writer los
+   copia.
+2. **A5 no juzga la calidad del complemento.** Si el modelo añade objetivos que contradicen el
+   declarado, A5 no lo detecta: `objectives[0]` está bien y el resto no se compara. Detectar
+   contradicción semántica exige otra regla y otra medición.
+3. **El `objective` de 159 laboratorios es plantilla.** Copiarlo literal sería ruido; hoy se copia
+   igual (es lo declarado) y no se distingue en el informe. Si molesta en la salida, la mejora es
+   marcar la plantilla en el artefacto, no dejar de copiarla.
+4. **La inserción en la guía es aditiva.** No borra ni reordena lo que escribió el modelo; solo añade
+   la viñeta que falta. Si el modelo ya la respetó, no toca nada.
+
+### 23.7 Reproducibilidad de este apartado
+
+- `medir_contrato_temario.py` — qué declara cada laboratorio del corpus y cuánto se reproduce.
+- `medir_fuga_clases.py` — cobertura del vocabulario declarado, separando plantilla de específico.
+- `medir_a5.py` — antes/después por curso: literalidad del objetivo y la descripción, cobertura.
+- `invocar_planner.py` — ejecuta el planner desplegado sobre un temario real en una carpeta de
+  medición (`261022-A5-medida-1`, `-2`).
+
+Baterías al cerrar el apartado: `test_referent_check.py` **117/117**,
+`test_content_validator.py` **15/15**, `test_state_machine.py` **5/5**, `test_manual_context.py`
+**17/17**.
+
+
+
+
 

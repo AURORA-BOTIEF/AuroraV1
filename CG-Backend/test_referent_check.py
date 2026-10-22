@@ -34,6 +34,7 @@ for _ruta in (_CARPETA_WRITER, _CARPETA_PLANNER, "lambda"):
     sys.path.insert(0, os.path.join(_HERE, _ruta))
 
 from referent_check import (  # noqa: E402
+    auditar_contrato,
     auditar_duraciones_curso,
     auditar_laboratorio,
     auditar_plan,
@@ -41,6 +42,7 @@ from referent_check import (  # noqa: E402
     duracion_declarada,
     extraer_referentes,
     mensaje_de_correccion,
+    reconciliar_contrato,
     reconciliar_duraciones,
     referencias_a_labs_posteriores,
     referentes_creados,
@@ -1997,6 +1999,396 @@ def test_el_planner_aplica_a3_antes_de_guardar():
     assert [p["estimated_duration"] for p in plan["lab_plans"]] == [18, 22]
     assert plan["metadata"]["duration_integrity"]["suma_plan"] == 40
     assert plan["metadata"]["duration_integrity"]["corregidos"][0]["antes"] == 40
+
+
+def _handler_de_planificador_con_temario(modulo, outline, plan_del_modelo):
+    """Ejecuta el handler real con el temario y el plan del modelo dados."""
+    guardado = {}
+    modulo.load_outline_from_s3 = lambda *a, **k: outline
+    modulo.generate_lab_master_plan = lambda **k: plan_del_modelo
+    modulo.auditar_y_corregir_plan = lambda plan, **k: (
+        plan,
+        {"total": 0, "violaciones": [], "ok": True},
+    )
+    modulo.save_master_plan_to_s3 = lambda bucket, project_folder, master_plan: (
+        guardado.update({"plan": master_plan}) or "p/labguide/lab-master-plan.json"
+    )
+    modulo.s3_client = _S3Simulado({})
+    resultado = modulo.lambda_handler(
+        {
+            "course_bucket": "bucket",
+            "outline_s3_key": "p/outline/curso.yaml",
+            "project_folder": "p",
+            "model_provider": "bedrock",
+        },
+        None,
+    )
+    assert resultado["statusCode"] == 200, resultado
+    return guardado["plan"]
+
+
+def test_el_planner_copia_al_plan_el_objetivo_del_temario():
+    """Camino vivo: el temario manda y el plan guardado lo reproduce literal."""
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    declarado = "Automatizar la conciliacion de inventario con un script de Python."
+    descripcion = "El alumno lee inventario.txt, calcula totales y escribe resumen.txt."
+    outline = {
+        "course": {
+            "title": "Curso de prueba",
+            "total_duration_minutes": 120,
+            "modules": [
+                {
+                    "title": "Modulo 1",
+                    "lab_activities": [
+                        {
+                            "title": "Practica uno",
+                            "duration_minutes": 30,
+                            "objective": declarado,
+                            "description": descripcion,
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    plan_del_modelo = {
+        "lab_plans": [
+            {
+                "lab_id": "01-00-01",
+                "lab_title": "Practica uno",
+                "estimated_duration": 30,
+                "objectives": ["Comprender la estructura de un fichero de texto"],
+                "scope": "Leer un fichero y escribir otro.",
+                "expected_outcomes": ["c"],
+            }
+        ]
+    }
+
+    plan = _handler_de_planificador_con_temario(modulo, outline, plan_del_modelo)
+    lab = plan["lab_plans"][0]
+
+    assert lab["objectives"][0] == declarado
+    assert lab["objectives"][1] == "Comprender la estructura de un fichero de texto"
+    assert lab["outline_objective"] == declarado
+    assert lab["outline_description"] == descripcion
+
+    informe = plan["metadata"]["contract_integrity"]
+    assert informe["ok"] is True, informe["conflictos"]
+    assert informe["con_declaracion"] == 1
+    assert informe["labs"] == 1
+
+
+def test_el_contrato_no_obliga_al_temario_a_declarar_nada():
+    """Camino vivo: sin ``objective`` ni ``description`` el plan no cambia.
+
+    Es la garantía de que A5 no añade campos obligatorios al temario: 422 de 1.279
+    laboratorios reales no declaran objetivo.
+    """
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    outline = {
+        "course": {
+            "title": "Curso de prueba",
+            "total_duration_minutes": 120,
+            "modules": [
+                {
+                    "title": "Modulo 1",
+                    "lab_activities": [{"title": "Practica uno", "duration_minutes": 30}],
+                }
+            ],
+        }
+    }
+    plan_del_modelo = {
+        "lab_plans": [
+            {
+                "lab_id": "01-00-01",
+                "lab_title": "Practica uno",
+                "estimated_duration": 30,
+                "objectives": ["Comprender la estructura de un fichero de texto"],
+                "scope": "Leer un fichero y escribir otro.",
+                "expected_outcomes": ["c"],
+            }
+        ]
+    }
+
+    plan = _handler_de_planificador_con_temario(modulo, outline, plan_del_modelo)
+    lab = plan["lab_plans"][0]
+
+    assert lab["objectives"] == ["Comprender la estructura de un fichero de texto"]
+    assert "outline_objective" not in lab
+    assert "outline_description" not in lab
+    informe = plan["metadata"]["contract_integrity"]
+    assert informe["ok"] is True
+    assert informe["con_declaracion"] == 0
+    assert informe["sin_declaracion"] == 1
+
+
+def test_el_contrato_detecta_un_objetivo_reescrito():
+    """La comprobación no es vacua: ve el defecto que había antes de A5."""
+    declarado = "Automatizar la conciliacion de inventario con un script de Python."
+    labs = [
+        {
+            "lab_id": "01-00-01",
+            "lab_title": "Practica uno",
+            "duration_minutes": 30,
+            "objective": declarado,
+            "description": "",
+        }
+    ]
+    plan = {
+        "lab_plans": [
+            {
+                "lab_id": "01-00-01",
+                "lab_title": "Practica uno",
+                "estimated_duration": 30,
+                "objectives": ["Comprender la estructura de un fichero de texto"],
+            }
+        ]
+    }
+
+    informe = auditar_contrato(plan, labs)
+
+    assert informe["ok"] is False
+    assert [conflicto["campo"] for conflicto in informe["conflictos"]] == ["objective"]
+    assert informe["conflictos"][0]["temario"] == declarado
+
+
+def test_reconciliar_contrato_deja_el_plan_auditable():
+    """Reconciliar y auditar componen: después de copiar, no hay conflictos."""
+    declarado = "Automatizar la conciliacion de inventario."
+    labs = [
+        {
+            "lab_id": "01-00-01",
+            "lab_title": "Practica uno",
+            "duration_minutes": 30,
+            "objective": declarado,
+            "description": "Leer inventario.txt y escribir resumen.txt.",
+        }
+    ]
+    plan = {
+        "lab_plans": [
+            {
+                "lab_id": "01-00-01",
+                "lab_title": "Practica uno",
+                "estimated_duration": 30,
+                "objectives": ["Objetivo inventado por el modelo"],
+            }
+        ]
+    }
+
+    reconciliado = reconciliar_contrato(plan, labs)
+    informe = auditar_contrato(plan, labs)
+
+    assert reconciliado["anadidos"] == [{"lab_id": "01-00-01", "campo": "objectives"}]
+    assert plan["lab_plans"][0]["objectives"] == [declarado, "Objetivo inventado por el modelo"]
+    assert informe["ok"] is True, informe["conflictos"]
+
+
+def test_el_planificador_entrega_al_modelo_lo_que_declara_el_temario():
+    """Camino vivo del prompt: el modelo ve el objetivo declarado, no solo el título."""
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    prompts = []
+
+    def modelo_de_prueba(prompt, model_id):
+        prompts.append(prompt)
+        return json.dumps(
+            {
+                "overall_objectives": [],
+                "hardware_requirements": [],
+                "software_requirements": [],
+                "lab_plans": [
+                    {
+                        "lab_id": "01-00-01",
+                        "lab_title": "Practica uno",
+                        "objectives": ["y"],
+                        "scope": "z",
+                        "estimated_duration": 30,
+                        "bloom_level": "Apply",
+                        "prerequisites": [],
+                        "key_technologies": [],
+                        "expected_outcomes": [],
+                        "complexity": "easy",
+                    }
+                ],
+                "special_considerations": [],
+            }
+        )
+
+    modulo.call_bedrock_agent = modelo_de_prueba
+    labs = [
+        {
+            "lab_id": "01-00-01",
+            "module_number": 1,
+            "lesson_number": 0,
+            "lab_title": "Practica uno",
+            "duration_minutes": 30,
+            "bloom_level": "Apply",
+            "context_topics": ["ficheros"],
+            "objective": "Automatizar la conciliacion de inventario.",
+            "description": "El alumno lee inventario.txt y escribe resumen.txt.",
+        }
+    ]
+
+    modulo.generate_lab_master_plan(
+        labs=labs,
+        course_info={"title": "Curso", "language": "es"},
+        additional_requirements=None,
+        model_provider="bedrock",
+    )
+
+    assert prompts, "no se construyó ningún prompt"
+    assert "DECLARED OBJECTIVE (outline, verbatim): Automatizar la conciliacion" in prompts[0]
+    assert "DECLARED DESCRIPTION (outline, verbatim): El alumno lee inventario.txt" in prompts[0]
+    assert "Outline Contract (A5)" in prompts[0]
+
+
+def test_el_writer_recibe_el_contrato_declarado_en_el_temario():
+    """Camino vivo del prompt del Writer (lote de 1: el constructor compacto)."""
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    prompts = []
+
+    def modelo_de_prueba(prompt, model_id):
+        prompts.append(prompt)
+        return (
+            "---LAB_START---\nLAB_ID: 01-00-01\n---MARKDOWN---\n"
+            "# Lab 01-00-01: Practica uno\n\n## Descripcion General\n\nTexto.\n"
+            "---LAB_END---"
+        )
+
+    modulo.call_bedrock_agent = modelo_de_prueba
+    for nombre in ("call_openai_agent", "call_gemini_agent"):
+        setattr(modulo, nombre, lambda *a, **k: prompts.append("otro") or "")
+    plan_lab = {
+        "lab_id": "01-00-01",
+        "lab_title": "Practica uno",
+        "estimated_duration": 30,
+        "bloom_level": "Apply",
+        "objectives": ["Automatizar la conciliacion de inventario."],
+        "scope": "Leer inventario y escribir resumen.",
+        "prerequisites": [],
+        "key_technologies": [],
+        "expected_outcomes": [],
+        "outline_objective": "Automatizar la conciliacion de inventario.",
+        "outline_description": "El alumno lee inventario.txt y escribe resumen.txt.",
+    }
+    contexto = {
+        "target_language": "Spanish",
+        "hardware_requirements": [],
+        "software_requirements": [],
+        "special_considerations": [],
+        "overall_objectives": [],
+        "additional_requirements": "",
+    }
+
+    modulo.generate_all_labs_batch([plan_lab], contexto)
+
+    assert prompts, "no se construyó ningún prompt"
+    assert "copy the objective verbatim" in prompts[0]
+    assert "El alumno lee inventario.txt y escribe resumen.txt." in prompts[0]
+
+
+def test_el_writer_no_inventa_contrato_si_el_temario_no_declaro():
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    prompts = []
+
+    def modelo_de_prueba(prompt, model_id):
+        prompts.append(prompt)
+        return (
+            "---LAB_START---\nLAB_ID: 01-00-01\n---MARKDOWN---\n"
+            "# Lab 01-00-01: Practica uno\n\n## Descripcion General\n\nTexto.\n"
+            "---LAB_END---"
+        )
+
+    modulo.call_bedrock_agent = modelo_de_prueba
+    plan_lab = {
+        "lab_id": "01-00-01",
+        "lab_title": "Practica uno",
+        "estimated_duration": 30,
+        "bloom_level": "Apply",
+        "objectives": ["Comprender la estructura de un fichero de texto"],
+        "scope": "Leer inventario y escribir resumen.",
+        "prerequisites": [],
+        "key_technologies": [],
+        "expected_outcomes": [],
+    }
+    contexto = {
+        "target_language": "Spanish",
+        "hardware_requirements": [],
+        "software_requirements": [],
+        "special_considerations": [],
+        "overall_objectives": [],
+        "additional_requirements": "",
+    }
+
+    modulo.generate_all_labs_batch([plan_lab], contexto)
+
+    assert prompts
+    assert "DECLARED BY THE INSTRUCTOR" not in prompts[0]
+
+
+def test_la_guia_recibe_el_objetivo_del_temario_si_el_modelo_lo_reescribe():
+    """Camino vivo del Writer: el modelo parafrasea y la guía sale con el texto aprobado."""
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    declarado = "Instalar Python y VS Code, crear un entorno virtual y resolver ejercicios cortos."
+
+    def modelo_de_prueba(prompt, model_id):
+        return (
+            "---LAB_START---\nLAB_ID: 01-00-01\n---MARKDOWN---\n"
+            "# Lab 01-00-01: Practica uno\n\n"
+            "## Objetivos de Aprendizaje\n\n"
+            "- [ ] Verificar la instalacion de Python 3.12.3.\n"
+            "- [ ] Crear y activar un entorno virtual.\n\n"
+            "## Prerrequisitos\n\nNinguno.\n"
+            "---LAB_END---"
+        )
+
+    modulo.call_bedrock_agent = modelo_de_prueba
+    plan_lab = {
+        "lab_id": "01-00-01",
+        "lab_title": "Practica uno",
+        "estimated_duration": 30,
+        "bloom_level": "Apply",
+        "objectives": [declarado, "Verificar la instalacion de Python 3.12.3."],
+        "scope": "Instalar y probar.",
+        "prerequisites": [],
+        "key_technologies": [],
+        "expected_outcomes": [],
+        "outline_objective": declarado,
+    }
+    contexto = {
+        "target_language": "Spanish",
+        "hardware_requirements": [],
+        "software_requirements": [],
+        "special_considerations": [],
+        "overall_objectives": [],
+        "additional_requirements": "",
+    }
+
+    guias = modulo.generate_all_labs_batch([plan_lab], contexto)
+    guia = guias["01-00-01"]
+
+    assert f"- [ ] {declarado}" in guia
+    assert guia.count(declarado) == 1, "el objetivo declarado se duplicó"
+    posicion_declarado = guia.index(declarado)
+    posicion_parafrasis = guia.index("Verificar la instalacion de Python 3.12.3.")
+    assert posicion_declarado < posicion_parafrasis, "el objetivo del temario debe ir primero"
+
+
+def test_asegurar_objetivo_declarado_no_duplica_ni_inventa():
+    """Sin objetivo declarado no hace nada; si ya está en la guía, tampoco."""
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    markdown = (
+        "# Lab\n\n## Objetivos de Aprendizaje\n\n"
+        "- [ ] Automatizar la conciliacion de inventario.\n\n## Prerrequisitos\n"
+    )
+    plan = {"outline_objective": "Automatizar la conciliacion de inventario."}
+
+    salida, insertado = modulo.asegurar_objetivo_declarado(markdown, plan)
+    assert insertado is False
+    assert salida == markdown
+
+    salida, insertado = modulo.asegurar_objetivo_declarado(markdown, {})
+    assert insertado is False
+    assert salida == markdown
 
 
 def _lab_con_bloques(pasos, bloques_por_paso, duracion, lenguaje="bash"):

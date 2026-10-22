@@ -21,9 +21,11 @@ from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
 from referent_check import (
+    auditar_contrato,
     auditar_duraciones_curso,
     auditar_plan,
     mensaje_de_correccion,
+    reconciliar_contrato,
     reconciliar_duraciones,
 )
 
@@ -727,11 +729,19 @@ def generate_lab_master_plan(
         # Build labs summary for this batch
         labs_summary = []
         for lab in batch_labs:
-            labs_summary.append(
+            resumen = (
                 f"[{lab['lab_id']}] Module {lab['module_number']}.{lab['lesson_number']} - "
                 f"{lab['lab_title']} ({lab['duration_minutes']} min, {lab['bloom_level']})\n"
                 f"  Context Topics: {', '.join(lab['context_topics']) if lab['context_topics'] else 'N/A'}"
             )
+            # A5: lo que el temario declara del laboratorio se le entrega al modelo. Antes
+            # no se pasaba, así que el plan escribía su propio objetivo: en el corpus real
+            # 857 de 1.279 laboratorios declaran `objective` y 972 `description`.
+            if lab.get("objective"):
+                resumen += f"\n  DECLARED OBJECTIVE (outline, verbatim): {lab['objective']}"
+            if lab.get("description"):
+                resumen += f"\n  DECLARED DESCRIPTION (outline, verbatim): {lab['description']}"
+            labs_summary.append(resumen)
         
         # Build prompt for AI - OPTIMIZED with shorter instructions for batches
         if num_batches == 1:
@@ -766,6 +776,7 @@ THOR ALIGNMENT & DEEP TECH SPEC:
 - Licensing & Official Sources: For every software requirement provide the official source URL and the license type. If a value is not confirmed, use [ENLACE OFICIAL] / [LICENCIA POR VALIDAR]. Never invent versions, licenses, capabilities or availability; verify against official documentation.
 - Tool Separation: For courses about Copilot/assistants, distinguish Microsoft 365 Copilot, Copilot Chat, Designer, Planner and similar tools, each with its own license and configuration.
 - Environmental Constants: Explicitly predefine global environment defaults in special_considerations (e.g., default database name, container names, default ports, working directories).
+- Outline Contract (A5): when a lab carries a DECLARED OBJECTIVE or DECLARED DESCRIPTION, they are the instructor's approved contract. `objectives[0]` MUST be the DECLARED OBJECTIVE copied exactly as written — do not reword, summarise, translate or split it; you may add further objectives after it. `scope` must build on the DECLARED DESCRIPTION and must not contradict it. When the outline declares nothing, derive objectives and scope from the title and topics.
 - Continuity: Ensure each lab's scope builds logically on the outputs and state created by the previous lab.
 - Demos & Demostraciones: For any lab designated as a Demo or containing 'Demo' in its title, this activity is an INSTRUCTOR-LED DEMONSTRATION (performed live by the instructor while students observe and take notes, NOT an individual student lab). The lab_title MUST contain the word 'Demo' and its scope/objectives must explicitly specify that it is demonstrated by the instructor.
 
@@ -1268,6 +1279,23 @@ def lambda_handler(event, context):
                 f"{duraciones_curso['labs_temario']} práctica(s) del temario"
             )
 
+        # A5: el temario como contrato. Lo que el temario declara del laboratorio
+        # (objetivo y descripción) se copia al plan; la IA solo complementa. Va después
+        # de A3 para que la duración ya esté fijada y el informe no la cuente dos veces.
+        contrato = reconciliar_contrato(master_plan, labs)
+        if contrato["anadidos"] or contrato["reordenados"]:
+            print(
+                f"📌 A5: {len(contrato['anadidos'])} objetivo(s) del temario copiados al plan"
+                f"{f', {len(contrato['reordenados'])} reordenados' if contrato['reordenados'] else ''} "
+                f"sobre {contrato['con_declaracion']} laboratorio(s) con declaración"
+            )
+        contrato_informe = auditar_contrato(master_plan, labs)
+        if not contrato_informe["ok"]:
+            print(
+                f"📌 A5: {len(contrato_informe['conflictos'])} conflicto(s) entre el plan y el "
+                f"temario en {contrato_informe['labs']} laboratorio(s)"
+            )
+
         # Reauditoría sobre el plan final (tras el merge parcial, si lo hubo): es el
         # plan que realmente se guarda y el que el Writer va a obedecer.
         referential_report = auditar_plan(master_plan, referential_sources)
@@ -1307,6 +1335,7 @@ def lambda_handler(event, context):
                 'con_contrato': duraciones['con_contrato'],
                 'sin_contrato': duraciones['sin_contrato'],
             },
+            'contract_integrity': contrato_informe,
         }
 
         guardar_informe_referencial(course_bucket, project_folder, referential_report)
@@ -1315,6 +1344,12 @@ def lambda_handler(event, context):
             project_folder,
             {**duraciones_curso, "corregidos": duraciones["corregidos"]},
             nombre="duration-integrity.json",
+        )
+        guardar_informe_referencial(
+            course_bucket,
+            project_folder,
+            contrato_informe,
+            nombre="contract-integrity.json",
         )
         
         # Step 4: Save to S3
