@@ -1028,6 +1028,117 @@ laboratorios no es determinista. Se **registra**, no se corrige.
   temario de 18/22 minutos y un plan de 40/30 se guardan como 18/22, y
   `metadata.duration_integrity` recoge la corrección.
 
+## 21. Fase 4 (22/10/2026): la puerta que por fin cierra
+
+### 21.1 El diagnóstico
+
+`ValidateLabContent` invocaba al validador con `fail_on_error: false`, guardaba
+`$.lab_validation_result.all_valid` en el estado y **ningún `Choice` lo leía**. El paso siguiente
+era siempre `InvokeLabGuideBuilder`, así que un laboratorio roto llegaba al libro del instructor
+igual que uno bueno. Ese era el problema visible.
+
+El problema real apareció al medirlo. Sobre los **1.294 laboratorios publicados**, con las reglas
+tal como estaban:
+
+| | Valor |
+|---|---|
+| Laboratorios inválidos | **849 (65,6 %)** |
+| `heading_hierarchy` | 3.738 avisos en 550 laboratorios |
+| `required_section` | 837 avisos en 501 laboratorios |
+| `single_h1` | 620 avisos en 620 laboratorios |
+| `lab_steps` | 426 avisos en 426 laboratorios |
+
+Dos tercios del catálogo. Endurecer la puerta con esas reglas habría bloqueado cursos buenos, así
+que lo primero no era cerrar la puerta: era comprobar **si medía el formato que THOR produce**.
+
+### 21.2 Tres desalineaciones, cada una con su evidencia
+
+1. **Un `#` dentro de un bloque de código no es un título.** `H1_PATTERN = ^# (.+)$` y
+   `_get_all_headings` recorrían todas las líneas, incluidas las de una cerca de bash. En **620
+   laboratorios** había algún `#` de comentario; en **602** el único H1 real era el título y el
+   validador contaba dos o más. El 97 % de los errores de `single_h1` era esto.
+2. **Los pasos viven en H2, H3 y H4, no solo en H3.** `LAB_STEP_PATTERN` exigía `^### (Step|Paso)
+   N[:.]`. En el corpus hay 618 pasos en H2, 6.107 en H3 y **1.761 en H4**: 2.379 pasos invisibles.
+   Además los nombres varían: `Paso A1:`, `Paso A-1:`, `Paso A.1 —`, `PASO 1 —`, `Fase 1:`,
+   `Parte 1:`, `Ejercicio 1:`.
+3. **Las secciones obligatorias son una plantilla, no un contrato.** 503 laboratorios no tienen
+   alguna de las diez, casi siempre porque la titulan de otra forma: «Pasos del laboratorio»,
+   «Validación del laboratorio», «Configuración del entorno de laboratorio». Un nombre distinto no
+   es un laboratorio roto.
+
+### 21.3 Qué se cambió
+
+| Regla | Antes | Ahora |
+|---|---|---|
+| `single_h1` | cuentas los `#` de los bloques | solo encabezados fuera de cerca; **ERROR** si hay 0 o 2+ |
+| `lab_steps` | `### Paso N:` | H2–H4, `Paso/Step/Fase/Parte/Ejercicio/Actividad/Etapa`, id `A1`, `A-1`, `1.2`, `PASO 1 —`; **ERROR** si no hay ninguno |
+| `heading_hierarchy` | ERROR al saltar nivel | ERROR solo si no hay ningún encabezado; saltar nivel es **WARNING** |
+| `required_section` | ERROR | **WARNING** |
+| código, tablas, THOR | — | sin cambios |
+
+El aislamiento de las cercas se hace en `_strip_fenced_code`, que vacía el contenido pero **conserva
+las líneas**, para no desplazar los números de línea de los avisos.
+
+### 21.4 Medición después
+
+| | Antes | Después |
+|---|---|---|
+| Laboratorios inválidos | 849 (65,6 %) | **47 (3,6 %)** |
+| `lab_steps` | 426 | **30** |
+| `single_h1` | 620 | **18** |
+| `required_section` | 501 | 0 (aviso) |
+| `heading_hierarchy` | 550 | 0 como error (aviso) |
+
+Los 47 que quedan son defectos reales, revisados uno a uno:
+
+- **18** tienen más de un H1 de verdad, con títulos sueltos: `# Verificar estado del listener`,
+  `# Terminal 1`, `# 1. Archivos de resultados`.
+- **30** no tienen ningún encabezado de paso: sección «Instrucciones paso a paso» y después prosa.
+  Pertenecen a generadores anteriores; el Writer actual emite `### Paso N:` siempre.
+
+Y la comprobación que decide: los **40 laboratorios más recientes del catálogo pasan los 40**. El
+formato que produce hoy el Writer no dispara ninguna regla de error.
+
+### 21.5 El cierre en la máquina de estados
+
+```
+ValidateLabContent ──► CheckLabValidation ──► InvokeLabGuideBuilder   (todo válido)
+                              │
+                              └─ all_valid = false ──► NotifyFailure
+```
+
+- `ValidateLabContent` y `ValidateLabContentBoth` apuntan ahora a `CheckLabValidation`.
+- El `Choice` exige `IsPresent` **y** `BooleanEquals: false`, así que el camino de `Catch` (el
+  validador se cae) no bloquea nada: sin dato no hay veredicto.
+- **Modo sombra**: si el evento trae `lab_validation_shadow`, la puerta registra y deja pasar. Sirve
+  para volver atrás sin redeplegar la máquina.
+- `fail_on_error` sigue en `false` a propósito: el validador responde 200 con `all_valid`, y quien
+  decide es el `Choice`, no un código HTTP.
+
+### 21.6 Decisión
+
+1. **La puerta bloquea**, pero solo con tres reglas estructurales verificadas sobre el corpus:
+   sin H1, con varios H1, o sin ningún paso. Todo lo demás es aviso.
+2. **No se bloquea el libro de lecciones**: la medición y el cierre se hicieron sobre laboratorios,
+   que es donde el informe sitúa el problema. Las lecciones siguen en modo informativo.
+3. El criterio de §14 se cumple por construcción: las reglas que bloquean tienen 0 falsos positivos
+   sobre 40 laboratorios recientes y 47 casos reales sobre el catálogo histórico.
+
+### 21.7 Reproducibilidad
+
+- `calibrar_puerta.py` — primera medición (65,6 %) y reglas que disparan.
+- `medir_fps_puerta.py` — composición: 620 laboratorios con `#` en cerca, 602 con un solo H1 real;
+  2.379 pasos en H2/H4.
+- `ver_titulos_puerta.py` y `revisar_errores_puerta.py` — títulos reales de los marcados, para
+  separar variante de nombre de ausencia real.
+- `ver_formas_paso.py` — formas `Paso A1:`, `PASO 1 —`, `Paso A-1:`.
+- `calibrar_puerta2.py` — medición final (47, 3,6 %) con el validador real.
+- `puerta_salida_reciente.py` — 40/40 laboratorios recientes válidos.
+- Batería: **11/11** en `test_content_validator.py`, con camino vivo del handler (200/400 y
+  `all_valid`) y control del artefacto desplegado (`ValidateLabContent.Next`,
+  `CheckLabValidation`, rama de bloqueo y modo sombra), más **107/107** en
+  `test_referent_check.py`.
+
 
 
 

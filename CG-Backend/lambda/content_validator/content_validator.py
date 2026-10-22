@@ -82,7 +82,14 @@ class ContentValidator:
     
     # Lab patterns
     LAB_TITLE_PATTERN = re.compile(r'^# Lab (\d{2})-(\d{2})-(\d{2}): (.+)$', re.MULTILINE)
-    LAB_STEP_PATTERN = re.compile(r'^### (?:Step|Paso) (\d+)[:.]\s*(.+)$', re.MULTILINE)
+    # El formato de la casa usa los tres niveles (H2, H3 y H4) y varios nombres para
+    # el paso: «Paso 1:», «Fase 1:», «Paso A1:», «PASO 1 —». Aceptar solo
+    # `### Paso N:` marcaba 256 laboratorios que sí tienen procedimiento.
+    LAB_STEP_PATTERN = re.compile(
+        r'^(#{2,4})\s+(?:Step|Paso|Fase|Parte|Ejercicio|Actividad|Etapa)\s+'
+        r'([A-Za-z]?[\d.\-]+)\s*[:.—–-]?\s*(.+)$',
+        re.IGNORECASE | re.MULTILINE,
+    )
     
     # Visual tag pattern
     VISUAL_TAG_PATTERN = re.compile(r'\[VISUAL: (\d{2})-(\d{2})-(\d{4}) - ([^\]]{10,100})\]')
@@ -93,6 +100,9 @@ class ContentValidator:
         (re.compile(r'\[VISUAL: [^\d]'), "VISUAL tag must start with ID (MM-LL-XXXX)"),
     ]
     
+    # Fenced code: a `#` inside a fence is a comment, not a heading.
+    FENCE_PATTERN = re.compile(r'^\s*```')
+
     # Code block pattern
     CODE_BLOCK_PATTERN = re.compile(r'```(\w*)\n', re.MULTILINE)
     CODE_BLOCK_NO_LANG = re.compile(r'```\s*\n[^`]+\n```', re.MULTILINE)
@@ -186,6 +196,25 @@ class ContentValidator:
                 return i
         return None
     
+    def _strip_fenced_code(self, content: str) -> str:
+        """Devuelve el contenido sin los bloques cercados, conservando las líneas.
+
+        Un `# comentario` dentro de un bloque de bash no es un título de Markdown,
+        pero el análisis de encabezados contaba cada uno como H1: 620 de 1.294
+        laboratorios reales tenían alguno, y en 602 el único H1 real era el título.
+        Se vacía el contenido de la cerca, no las líneas, para no desplazar los
+        números de línea de los avisos.
+        """
+        lineas = []
+        dentro = False
+        for linea in content.split('\n'):
+            if self.FENCE_PATTERN.match(linea):
+                dentro = not dentro
+                lineas.append('')
+                continue
+            lineas.append('' if dentro else linea)
+        return '\n'.join(lineas)
+
     def _get_all_headings(self, content: str) -> List[Tuple[int, int, str]]:
         """Get all headings with their level and line number."""
         headings = []
@@ -213,9 +242,11 @@ class ContentValidator:
         prev_level = 0
         for line_num, level, title in headings:
             if level > prev_level + 1 and prev_level > 0:
+                # Saltarse un nivel es estilo, no rotura: el formato de la casa pone
+                # los pasos en H2-H4 bajo el título y eso produce H1 → H3 legítimos.
                 self._add_result(
                     "heading_hierarchy",
-                    ValidationSeverity.ERROR,
+                    ValidationSeverity.WARNING,
                     f"Heading level skipped: H{prev_level} → H{level} ('{title}')",
                     line_number=line_num,
                     suggestion=f"Add intermediate H{prev_level + 1} heading before this"
@@ -277,9 +308,13 @@ class ContentValidator:
             if not found:
                 section_name = section_variants[0] if isinstance(section, tuple) else section
                 alt_name = f" / {section_variants[1]}" if isinstance(section, tuple) and len(section_variants) > 1 else ""
+                # Medición 21/10/2026: 503 de 1.294 laboratorios (38,9 %) no tienen
+                # alguna de las diez secciones, casi siempre porque el curso las
+                # titula de otra forma («Pasos del laboratorio», «Validación del
+                # laboratorio»). Es una guía de formato, no una rotura: aviso.
                 self._add_result(
                     "required_section",
-                    ValidationSeverity.ERROR,
+                    ValidationSeverity.WARNING,
                     f"Required section missing: '{section_name}'{alt_name}",
                     suggestion=f"Add '## {section_name}' section (or equivalent in course language)"
                 )
@@ -443,15 +478,17 @@ class ContentValidator:
     def validate_lesson(self, content: str) -> ContentValidationReport:
         """Validate lesson content against schema."""
         self.results = []
-        
+
+        cuerpo = self._strip_fenced_code(content)
+
         # Validate heading hierarchy
-        self.validate_heading_hierarchy(content)
+        self.validate_heading_hierarchy(cuerpo)
         
         # Validate single H1 with correct format
-        self.validate_single_h1(content, self.LESSON_TITLE_PATTERN)
+        self.validate_single_h1(cuerpo, self.LESSON_TITLE_PATTERN)
         
         # Validate required sections
-        self.validate_required_sections(content, self.LESSON_REQUIRED_SECTIONS)
+        self.validate_required_sections(cuerpo, self.LESSON_REQUIRED_SECTIONS)
         
         # Validate visual tags
         self.validate_visual_tags(content)
@@ -570,15 +607,19 @@ class ContentValidator:
     def validate_lab(self, content: str) -> ContentValidationReport:
         """Validate lab guide content against schema."""
         self.results = []
-        
+
+        # Los encabezados se analizan sobre el texto sin bloques cercados: un `#`
+        # de un comando no es un título.
+        cuerpo = self._strip_fenced_code(content)
+
         # Validate heading hierarchy
-        self.validate_heading_hierarchy(content)
+        self.validate_heading_hierarchy(cuerpo)
         
         # Validate single H1 with correct format
-        self.validate_single_h1(content, self.LAB_TITLE_PATTERN)
+        self.validate_single_h1(cuerpo, self.LAB_TITLE_PATTERN)
         
         # Validate required sections
-        self.validate_required_sections(content, self.LAB_REQUIRED_SECTIONS)
+        self.validate_required_sections(cuerpo, self.LAB_REQUIRED_SECTIONS)
         
         # Validate code blocks
         self.validate_code_blocks(content)
@@ -590,7 +631,7 @@ class ContentValidator:
         self.validate_learning_objectives(content)
         
         # Validate lab steps
-        self.validate_lab_steps(content)
+        self.validate_lab_steps(cuerpo)
         
         # Validate troubleshooting
         self.validate_troubleshooting(content, min_issues=2)

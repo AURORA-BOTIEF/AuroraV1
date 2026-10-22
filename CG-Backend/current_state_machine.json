@@ -279,8 +279,8 @@
       "Type": "Pass"
     },
     "ValidateLabContent": {
-      "Comment": "Validate lab content against schema (non-blocking)",
-      "Next": "InvokeLabGuideBuilder",
+      "Comment": "Validate lab content against schema (structural errors block the build)",
+      "Next": "CheckLabValidation",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
         "Payload": {
@@ -339,8 +339,8 @@
       "Type": "Pass"
     },
     "ValidateLabContentBoth": {
-      "Comment": "Validate lab content against schema (non-blocking)",
-      "Next": "InvokeLabGuideBuilder",
+      "Comment": "Validate lab content against schema (structural errors block the build)",
+      "Next": "CheckLabValidation",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
         "Payload": {
@@ -380,6 +380,33 @@
         }
       ],
       "Type": "Task"
+    },
+    "CheckLabValidation": {
+      "Comment": "Puerta de calidad: un defecto estructural no llega al libro del instructor",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Comment": "Modo sombra: la validacion se registra pero no bloquea (lab_validation_shadow en el evento)",
+          "Variable": "$.lab_validation_shadow",
+          "IsPresent": true,
+          "Next": "InvokeLabGuideBuilder"
+        },
+        {
+          "Comment": "Errores estructurales: no hay H1, hay varios, o el laboratorio no tiene pasos",
+          "And": [
+            {
+              "Variable": "$.lab_validation_result.all_valid",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_validation_result.all_valid",
+              "BooleanEquals": false
+            }
+          ],
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Default": "InvokeLabGuideBuilder"
     },
     "CombineResultsAndBuildBook": {
       "Comment": "Flatten results from all batches for BookBuilder (theory-only, no master_lab_plan)",
