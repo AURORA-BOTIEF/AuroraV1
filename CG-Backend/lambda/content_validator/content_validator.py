@@ -345,19 +345,31 @@ class ContentValidator:
             )
     
     def validate_code_blocks(self, content: str) -> None:
-        """Validate code blocks have language specification."""
-        # Find code blocks without language
-        no_lang_matches = self.CODE_BLOCK_NO_LANG.findall(content)
-        
-        # Get all code block openings
-        all_blocks = self.CODE_BLOCK_PATTERN.findall(content)
-        blocks_without_lang = [b for b in all_blocks if not b.strip()]
-        
-        if blocks_without_lang:
+        """Validate code blocks have language specification.
+
+        Sólo cuentan las vallas de **apertura**. Antes se contaban también las de
+        cierre (no llevan lenguaje por definición), lo que inflaba el recuento: un
+        bloque sin lenguaje se informaba como dos. En 120 laboratorios reales el
+        mensaje decía 59-81 bloques cuando el número real era la mitad.
+        """
+        sin_lenguaje = 0
+        dentro = False
+        for linea in content.splitlines():
+            despojada = linea.lstrip()
+            if not despojada.startswith("```"):
+                continue
+            if dentro:
+                dentro = False
+                continue
+            dentro = True
+            if not despojada[3:].strip():
+                sin_lenguaje += 1
+
+        if sin_lenguaje:
             self._add_result(
                 "code_block_language",
                 ValidationSeverity.WARNING,
-                f"Found {len(blocks_without_lang)} code block(s) without language specification",
+                f"Found {sin_lenguaje} code block(s) without language specification",
                 suggestion="Add language after ``` (e.g., ```python, ```bash)"
             )
     
@@ -444,16 +456,26 @@ class ContentValidator:
         
         # Check each step for required elements
         step_sections = re.split(r'### (?:Step|Paso) \d+[:.]', content)
-        
-        required_in_step = ['**Objective:**', '**Instructions:**', '**Verification:**']
-        
+
+        # Las guías se generan en el idioma del curso: exigir las etiquetas en inglés
+        # marcaba como defectuosas todas las guías en español. Y la etiqueta aparece
+        # con los dos estilos reales del corpus: `**Objetivo:**` y `**Objetivo**:`.
+        # Medido sobre 120 laboratorios (22/10/2026): 1.459 de 1.657 avisos eran este
+        # falso positivo antes de aceptar ambos idiomas y ambos estilos.
+        required_in_step = [
+            ("Objective", ("Objective", "Objetivo")),
+            ("Instructions", ("Instructions", "Instrucciones")),
+            ("Verification", ("Verification", "Verificación", "Verificacion")),
+        ]
+
         for i, section in enumerate(step_sections[1:], 1):  # Skip content before first step
-            for req in required_in_step:
-                if req.lower() not in section.lower():
+            for etiqueta, variantes in required_in_step:
+                patron = "|".join(re.escape(v) for v in variantes)
+                if not re.search(rf"\*\*\s*(?:{patron})\s*:?\s*\*\*", section, re.IGNORECASE):
                     self._add_result(
                         "step_structure",
                         ValidationSeverity.WARNING,
-                        f"Step {i} missing '{req.strip('*:')}' section"
+                        f"Step {i} missing '{etiqueta}' section"
                     )
     
     def validate_troubleshooting(self, content: str, min_issues: int = 2) -> None:

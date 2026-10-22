@@ -130,6 +130,10 @@ class _S3Simulado:
 
     def put_object(self, **kwargs):
         self.puts.append(kwargs)
+        cuerpo = kwargs.get("Body", "")
+        if isinstance(cuerpo, bytes):
+            cuerpo = cuerpo.decode("utf-8")
+        self.objetos[kwargs.get("Key")] = cuerpo
         return {}
 
 
@@ -466,18 +470,24 @@ def _ejecutar_writer(
     lab_ids=None,
     objetos=None,
     existentes=None,
+    almacen=None,
 ):
     """Ejecuta el handler real del Writer con S3 y el modelo simulados.
 
     ``contenidos`` es la lista de respuestas del modelo simulado: la primera llamada
     devuelve la primera, la segunda la segunda, y así sucesivamente.
     ``existentes`` mapea ``lab_id`` → clave S3 de un laboratorio ya escrito (B3).
+    ``almacen`` permite compartir el mismo S3 entre invocaciones, como ocurre en
+    producción, donde cada lote del Writer es una invocación distinta.
     """
     modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
 
-    s3 = _S3Simulado(
-        {"p/outline.yaml": _TEMARIO, "p/manual.txt": _MANUAL, **(objetos or {})}
-    )
+    base = {"p/outline.yaml": _TEMARIO, "p/manual.txt": _MANUAL, **(objetos or {})}
+    if almacen is None:
+        s3 = _S3Simulado(base)
+    else:
+        almacen.objetos.update(base)
+        s3 = almacen
     modulo.s3_client = s3
     modulo.MAX_LAB_GENERATION_ATTEMPTS = max_intentos
     contextos = []
@@ -539,6 +549,37 @@ def test_el_writer_reintenta_y_corrige_referentes_inventados():
     )
     assert informes, "no se escribió el informe B1"
     assert informes[0]["ok"] is True, informes[0]
+
+
+def test_el_informe_referencial_conserva_todos_los_laboratorios_del_curso():
+    """Camino vivo: dos invocaciones del Writer (una por lote, como en producción)
+    deben dejar un único artefacto con los dos laboratorios.
+
+    Antes, cada invocación sobrescribía ``validation/labs-referential-integrity.json``
+    y un curso de dos laboratorios conservaba un solo informe: se perdía justo la
+    evidencia con la que se decide cuándo encender los interruptores como ERROR.
+    """
+    almacen = _S3Simulado({})
+
+    _ejecutar_writer(
+        {"lab_plans": [_LAB_PLAN]},
+        [_LAB_CORREGIDO],
+        almacen=almacen,
+        lab_ids=["01-01-01"],
+    )
+    _ejecutar_writer(
+        {"lab_plans": [{**_LAB_PLAN, "lab_id": "02-00-01",
+                        "lab_title": "Comparar los resultados"}]},
+        [_LAB_CORREGIDO],
+        almacen=almacen,
+        lab_ids=["02-00-01"],
+    )
+
+    clave = "p/validation/labs-referential-integrity.json"
+    assert clave in almacen.objetos, sorted(almacen.objetos)
+    informe = json.loads(almacen.objetos[clave])
+    assert informe["labs"] == 2, informe
+    assert sorted(informe["por_laboratorio"]) == ["01-01-01", "02-00-01"], informe
 
 
 _LAB_QUE_USA_LA_CARPETA_INVENTADA = """# Lab 01-01-01: Analizar la demanda historica

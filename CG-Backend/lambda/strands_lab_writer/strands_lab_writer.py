@@ -1894,16 +1894,45 @@ Generate ALL {len(lab_plans)} labs now:
         raise
 
 
+def cargar_informes_previos(bucket: str, key: str) -> Dict[str, Any]:
+    """Recupera los informes por laboratorio ya escritos en ejecuciones previas.
+
+    Cada invocación del Writer procesa un único laboratorio, así que el
+    artefacto se construye por acumulación. Un objeto ausente o ilegible no
+    debe impedir guardar el informe del lote actual: se degrada a ``{}``.
+    """
+    try:
+        cuerpo = s3_client.get_object(Bucket=bucket, Key=key)['Body'].read()
+        previo = json.loads(cuerpo.decode('utf-8'))
+    except ClientError as e:
+        codigo = e.response.get('Error', {}).get('Code', '')
+        if codigo not in ('NoSuchKey', '404'):
+            print(f"⚠️  No se pudo leer el informe referencial previo: {e}")
+        return {}
+    except Exception as e:
+        print(f"⚠️  Informe referencial previo ilegible, se regenera: {e}")
+        return {}
+
+    por_laboratorio = previo.get('por_laboratorio')
+    return por_laboratorio if isinstance(por_laboratorio, dict) else {}
+
+
 def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict[str, Any]) -> str:
     """Escribe el informe B1 de integridad referencial de los laboratorios generados.
 
     Se guarda junto a las validaciones de contenido (``{project_folder}/validation/``),
     en la misma convención que ``content_validator.save_validation_report``.
+
+    El Writer procesa un laboratorio por invocación (lotes de 1 con
+    ``MaxConcurrency: 1``), así que el informe se **acumula** sobre el que ya
+    existe: sin esta fusión cada lote sobrescribía el anterior y el artefacto
+    sólo conservaba el último laboratorio.
     """
     if not informes:
         return ""
     try:
         key = f"{project_folder}/validation/labs-referential-integrity.json"
+        informes = {**cargar_informes_previos(bucket, key), **informes}
         total = sum(len(r.get("violaciones", [])) for r in informes.values())
         b2 = sum(
             1

@@ -1140,6 +1140,181 @@ ValidateLabContent ──► CheckLabValidation ──► InvokeLabGuideBuilder 
   `test_referent_check.py`.
 
 
+## 22. Piloto sobre la salida real (22/10/2026): lo que la medición cambió
+
+Hasta aquí todo estaba calibrado contra el **catálogo histórico**. Este apartado mide el sistema
+sobre un curso **generado con el código actual**, de principio a fin, y anota lo que solo se ve
+cuando la salida es nueva: tres defectos de pipeline, un artefacto que no se acumulaba y un canal
+de avisos que no servía como señal.
+
+### 22.1 El curso de prueba
+
+| Dato | Valor |
+|---|---|
+| Proyecto | `261022-Prueba-PY-AUTOM-FICHEROS` |
+| Temario | `prueba_python_ficheros.yaml` — 2 módulos, 4 lecciones, 2 laboratorios, 180 min |
+| Tema | automatizar tareas repetitivas con Python: ficheros de texto y CSV |
+| Salida | 4 lecciones (54 KiB), libro de 275 KiB, 11 imágenes, 2 guías de laboratorio |
+| Ejecuciones | `course-gen-qa-thor-1792690652` (falló), `-1792691393` (reanudada, OK), `-1792693180` (regeneración saltada), `-1792693396` (lab 01 regenerado) |
+
+El temario **no nombra ficheros**: es el caso mayoritario del catálogo y el que más presión pone
+sobre el Writer.
+
+### 22.2 Tres defectos de pipeline que solo aparecen al ejecutar
+
+Ninguno se detectaba en las pruebas anteriores porque las tres rutas estaban cubiertas con eventos
+sintéticos que traían los campos que en producción se perdían.
+
+1. **`manual_text_s3_key` no se propagaba** (`CombineResultsAndBuildBook`,
+   `CombineResultsAndBuildBookBoth`, `ResumePostTheoryBranch`), regresión introducida en `f8354a0`.
+   La ejecución murió con `States.Runtime` **después** de pagar la teoría y las once imágenes: el
+   `Pass` descartaba el campo y el estado siguiente lo necesitaba como entrada obligatoria.
+2. **`manual_s3_keys` / `manual_text_s3_key` se perdían** en `PrepareNewCourseParams` y
+   `PrepareRegenerationParams`. El modo `content_type='theory'` no podía arrancar: la entrada
+   llegaba sin las claves que el escritor de lecciones exige.
+3. **El artefacto referencial se sobrescribía** en `guardar_informe_referencial`. El Writer procesa
+   **un laboratorio por invocación**, así que el curso de 2 laboratorios terminó con `labs: 1` y el
+   informe del último laboratorio pisando al del primero. Ahora `cargar_informes_previos` lee el
+   artefacto y fusiona por `por_laboratorio`. Es seguro porque el lote corre con
+   `MaxConcurrency: 1`; con concurrencia habría carrera de lectura-modificación-escritura.
+
+**Prueba nueva:** `test_state_machine.py`, **5/5**. No comprueba campos en el fuente: **simula el
+grafo** por modo (`theory`, `labs`, `both` y reanudado desde teoría) y verifica que cada `Pass`
+conserva los campos que el estado siguiente declara necesarios, más que el lote de laboratorios
+sigue en `MaxConcurrency: 1`. Se comprobó **no vacua**: reintroducido el defecto 1 y el del modo
+solo-teoría, la batería falla.
+
+### 22.3 Qué midieron las verificaciones sobre esa salida
+
+| Verificación | Lab 01 | Lab 02 | Lectura |
+|---|---|---|---|
+| **A1** (plan) | 1 referente, **0 de alta** (`/Documents/automatizacion-python`, baja) | — | el plan no inventó rutas |
+| **B1** (referente inexistente) | 0 violaciones | 0 | 0 FP; tampoco hubo TP porque no había nada inventado |
+| **B2** (cierre entre labs) | 2 menciones de baja (`siguiente laboratorio`, `próximo laboratorio`) | 0 | el lab 02 existe: clasificar como baja fue correcto |
+| **B3p** (entregable declarado) | `declarados: 0` | `declarados: 0` | estructuralmente inaplicable: el plan no nombra ficheros |
+| **B5** (requisitos) | 1 ampliación: `2 ghz`, hardware | 0 | el plan pide 1,5 GHz mínimo y la guía pone 2 GHz en la columna *Recomendado* |
+| **B6** (duración) | `ok` (5 pasos, 31 bloques, 1,61 min/bloque) | `ok` (6 pasos) | 0 reintentos |
+| **A3** (duración del temario) | `corregidos: []`, `suma_plan 100` vs 180 | | el temario declara 2 labs y el plan produce 2 |
+| **Puerta** | 0 errores, **17 → 2** avisos | 0 errores, **20 → 2** avisos | `all_valid: true` |
+
+El caso de B5 es el mejor argumento para la separación ampliación/contradicción de §18: `2 GHz` no
+contradice al plan (que fija 1,5 GHz como mínimo), lo **amplía**. Con la regla anterior —que
+comparaba contra el plan sin distinguir— habría disparado un reintento por un falso positivo.
+
+El artefacto definitivo queda con `total_alta_confianza: 0`, `ok_alta_confianza: true` y
+`ok: false`. **`ok` significa "cero hallazgos de cualquier tipo"**, no "curso defectuoso": para
+monitorizar hay que leer `ok_alta_confianza`. El piloto deja `ok: false` por una ampliación de
+baja confianza, que es exactamente lo que debe registrar sin bloquear.
+
+### 22.4 El canal de avisos de la puerta era ruido
+
+La puerta bloquea con tres reglas (§21), pero emite avisos. Sobre los dos laboratorios del piloto
+salieron 37 avisos y **ninguno era un defecto**. Para saber si eso era mala suerte, se pasó el
+validador actual sobre los **120 laboratorios más recientes** del catálogo (6/10 → 22/10):
+
+```
+labs con al menos un aviso: 120/120
+avisos totales: 1657      errores totales: 0
+
+step_structure           1459   (88,1 %)
+code_block_language       119   ( 7,2 %)
+vague_version              75   ( 4,5 %)
+unmeasurable_validation     4   ( 0,2 %)
+```
+
+Cuatro familias, todas mecánicas:
+
+1. **`step_structure`, 1.459 avisos.** La regla exigía `**Objective:**`, `**Instructions:**`,
+   `**Verification:**`; el corpus escribe `**Objetivo:**`. Es un validador **ciego al idioma del
+   curso** en un producto que genera en español. Además el corpus usa los dos estilos de negrita
+   (`**Objetivo:**` y `**Objetivo**:`), y la comprobación solo aceptaba el primero.
+2. **`code_block_language`, 119 avisos.** Contaba también las **vallas de cierre**, que por
+   definición no llevan lenguaje: un bloque sin lenguaje se informaba como dos, y el mensaje decía
+   59-81 bloques cuando el número real era la mitad.
+3. **`vague_version`, 75 avisos.** El filtro aceptaba cualquier línea con `|`, así que marcaba
+   «después de la última coma no hay valor» y las URL que acaban en `/latest/`.
+4. **`unmeasurable_validation`, 4 avisos.** Marcaba prosa explicativa («esto funciona correctamente
+   en Python en todos los sistemas operativos»).
+
+Se corrigieron **1 y 2** (defectos: la etiqueta existe y el recuento es falso), con prueba de camino
+vivo cada uno. Resultado sobre los mismos 120 laboratorios:
+
+```
+labs con al menos un aviso:  96/120   (antes 120/120)
+avisos totales: 389                   (antes 1657, −77 %)
+step_structure 291 · vague_version 75 · code_block_language 19 · unmeasurable_validation 4
+```
+
+Los **291** que quedan son otra cosa y **no se tocaron**: pasos con `**Objetivo:**` y una lista
+numerada, sin etiqueta `**Instrucciones:**`. La lista numerada *es* la instrucción, así que el aviso
+es formal, no de calidad. Decidir si esa etiqueta es obligatoria exige su propia medición; forzarla
+ahora sería cambiar el estándar para que el aviso desaparezca, que es lo contrario de medir.
+
+**3 y 4** siguen ahí, medidas y sin corregir: son problemas de contexto (una fila de tabla o una
+URL no son un requisito de versión), no de expresión regular. Su corrección necesita acotar el
+contexto y volver a medir; queda como trabajo con criterio propio.
+
+Sobre el piloto, el efecto es el mismo: **17 → 2** y **20 → 2** avisos, y los 2 que quedan por
+laboratorio son los 14 bloques de «salida esperada» (intencionales, sin lenguaje) y un
+`vague_version`/`unmeasurable_validation` de la familia 3/4.
+
+### 22.5 Lo que el piloto NO arregla: reproducibilidad
+
+Con el **mismo plan**, el laboratorio 01 se generó dos veces. Resultado:
+
+| | Ejecución 1 | Ejecución 2 |
+|---|---|---|
+| Pasos | 5 | 5 |
+| Ficheros nombrados | `inventario_oficina.txt`, `inventario_oficina_backup.txt`, `leer_inventario.py`, `resumen_inventario.txt`, `inventario_oficina.txt.txt` | `inventario.txt`, `leer_inventario.py`, `registrar_ejecucion.py`, `resumen_inventario.txt` |
+| En común | 2 de 5 | |
+
+Dos hechos:
+
+- **La fabricación está contenida, la estabilidad no.** B1 da 0 porque cada fichero que se nombra se
+  crea dentro del laboratorio. Pero *cuál* se nombra lo decide el Writer en cada ejecución, porque
+  el plan delegó el nombre en `[POR CONFIRMAR nombre definitivo del fichero de datos de entrada]`.
+  El curso no es reproducible aunque sea íntegro.
+- Apareció un nombre mal construido (`inventario_oficina.txt.txt`, `.txt.txt`), que no se repitió.
+  Medido sobre el corpus: **1 laboratorio de 120** tiene extensión duplicada. No da para regla; sí
+  para saber que existe y que no es sistémico.
+
+La conclusión es de diseño, no de implementación: **la reproducibilidad no se arregla en el Writer,
+se arregla en el temario**. Si el temario nombra los ficheros de trabajo, el plan los hereda, el
+Writer no decide nada y el nombre es estable entre ejecuciones. Es el mismo argumento de §5 sobre el
+temario como contrato, ahora con evidencia de salida: mientras el temario no nombre, cada
+regeneración produce un curso distinto y correcto.
+
+### 22.6 Decisión
+
+1. Los interruptores siguen como en §18/§19: `REFERENTIAL_RETRY`, `DURATION_RETRY` y
+   `REQUIREMENTS_RETRY` en `1`; `DELIVERABLES_RETRY` en `0`.
+2. **A1/B1 no pasan a `ERROR`.** El criterio de §14 es 0 falsos positivos sobre N cursos reales y
+   aquí hay 0 sobre 2 laboratorios: el numerador es bueno y la N todavía no.
+3. **B3p no se puede evaluar** mientras el plan no nombre ficheros. Encender `DELIVERABLES_RETRY`
+   antes de eso sería encender una regla que no corre.
+4. `ok` en el artefacto referencial es «cero hallazgos»; el indicador operativo es
+   `ok_alta_confianza`. Queda escrito para que nadie lea un `ok: false` como un curso defectuoso.
+
+### 22.7 Reproducibilidad de este apartado
+
+Los guiones viven en el espacio de análisis (`…\Temp\opencode\thor_manual\`), igual que los de
+§14/§21, y no se versionan:
+
+- `medir_prueba.py` — descarga el plan, los dos informes y las guías; cuenta laboratorios, ficheros
+  y hallazgos.
+- `revalidar_piloto.py` — invoca el `ContentValidator` **desplegado** sobre las guías del piloto y
+  lee los informes resultantes (es la medición de la tabla de §22.3, no una copia local).
+- `medir_avisos_puerta.py` — avisos por regla sobre los 120 laboratorios más recientes.
+- `diagnostico_etiquetas.py`, `diagnostico_instrucciones.py` — qué etiquetas tienen realmente los
+  pasos marcados, para separar variante de formato de ausencia real.
+- `medir_extension_duplicada.py` — nombres con extensión duplicada en la salida real.
+- `historial_ejecucion.py` — historial de una ejecución de Step Functions (recibe el nombre por
+  argumento).
+
+Baterías al cerrar este apartado: `test_content_validator.py` **15/15**, `test_referent_check.py`
+**108/108**, `test_state_machine.py` **5/5**.
+
+
 
 
 
