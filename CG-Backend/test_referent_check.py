@@ -2517,6 +2517,100 @@ def test_b6_no_marca_un_laboratorio_con_duracion_compuesta():
     assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
 
 
+def _lab_tipo_angular(duracion):
+    """Laboratorio con la forma medida en `260728-angular-essentials`/`06-00-01`.
+
+    Ocho pasos con acción y 27 bloques: `ng new`, tres `ng generate`, las
+    plantillas y los estilos de dos componentes y las comprobaciones. El caso
+    real declara **12 minutos**; el 23/10/2026 se leyó entero y se etiquetó como
+    imposible, no como falso positivo.
+    """
+    pasos = [
+        ("Crear el proyecto y entrar", [
+            ("bash", "ng new lab-componentes --routing=false --style=css"),
+            ("bash", "cd lab-componentes"),
+            ("bash", "ls -la src/app"),
+        ]),
+        ("Arrancar la aplicación", [
+            ("bash", "ng serve --open"),
+            ("bash", "curl -I http://localhost:4200"),
+        ]),
+        ("Generar los componentes", [
+            ("bash", "ng generate component tarjeta-producto"),
+            ("bash", "ng generate component lista-productos"),
+            ("bash", "ng generate component detalle-producto"),
+            ("bash", "tree src/app"),
+        ]),
+        ("Definir el modelo y los componentes", [
+            ("typescript", "export interface Producto {\n  nombre: string;\n  precio: number;\n}"),
+            ("typescript", "@Input() producto!: Producto;"),
+            ("typescript", "productos: Producto[] = [];"),
+            ("typescript", "ngOnChanges(cambios: SimpleChanges): void {}"),
+        ]),
+        ("Maquetar la tarjeta", [
+            ("html", "<article class=\"tarjeta\">\n  <h3>{{ producto.nombre }}</h3>\n</article>"),
+            ("css", ".tarjeta {\n  border-radius: 8px;\n}"),
+            ("html", "<app-tarjeta-producto [producto]=\"producto\" />"),
+            ("typescript", "import { TarjetaProductoComponent } from './tarjeta-producto/tarjeta-producto.component';"),
+        ]),
+        ("Componer la lista", [
+            ("typescript", "import { Producto } from '../models/producto.model';"),
+            ("html", "<app-tarjeta-producto *ngFor=\"let p of productos\" [producto]=\"p\" />"),
+            ("css", ".lista {\n  display: grid;\n}"),
+            ("html", "<p>Total: {{ productos.length }}</p>"),
+        ]),
+        ("Compilar y probar", [
+            ("bash", "ng build"),
+            ("bash", "npm test -- --watch=false"),
+            ("bash", "ls dist/lab-componentes"),
+        ]),
+        ("Documentar y limpiar", [
+            ("markdown", "# Primer componente\n\nSe generó con Angular CLI."),
+            ("bash", "git add ."),
+            ("bash", "git commit -m \"feat: primer componente\""),
+            ("bash", "git log --oneline -1"),
+        ]),
+    ]
+    cuerpo = ["# Lab 06-00-01: Crear el primer componente\n\n"
+              f"| **Duración** | {duracion} minutos |\n"
+              "| **Complejidad** | Fácil |\n"]
+    for numero, (titulo, bloques) in enumerate(pasos, start=1):
+        cuerpo.append(f"### Paso {numero}: {titulo}\n")
+        for lenguaje, contenido in bloques:
+            cuerpo.append(f"```{lenguaje}\n{contenido}\n```\n")
+    return "\n".join(cuerpo)
+
+
+def test_b6_marca_el_caso_angular_de_12_minutos():
+    """12 minutos para `ng new` + tres `ng generate` + dos plantillas: imposible.
+
+    Es el caso real `260728-angular-essentials`/`06-00-01`, leído el 23/10/2026:
+    1,5 min por paso y 0,44 min por bloque. B6 debe marcarlo con confianza alta.
+    """
+    lab = _lab_tipo_angular(12)
+    informe = auditar_laboratorio(lab, "")
+    assert informe["duracion"]["con_accion"] == 8, informe["duracion"]
+    assert informe["duracion"]["bloques"] == 27, informe["duracion"]
+    assert informe["duracion"]["minutos_por_paso"] == 1.5
+    assert informe["duracion"]["minutos_por_bloque"] == 0.44
+    b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
+    assert len(b6) == 1, informe["violaciones"]
+    assert b6[0]["confianza"] == "alta"
+
+
+def test_b6_no_marca_el_mismo_caso_angular_con_45_minutos():
+    """El mismo trabajo con una duración plausible deja de ser una contradicción.
+
+    Fija el otro lado del umbral: si un cambio futuro moviera ``_MINUTOS_POR_PASO_ACCION``
+    o ``_MINUTOS_POR_BLOQUE``, uno de los dos lados de esta pareja se rompe.
+    """
+    lab = _lab_tipo_angular(45)
+    informe = auditar_laboratorio(lab, "")
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
+    assert informe["duracion"]["minutos_por_paso"] == 5.62
+    assert informe["duracion"]["minutos_por_bloque"] == 1.67
+
+
 def test_un_listado_de_python_no_es_un_marcador():
     """`['pendientes']` exoneraba un fichero de salida real: el marcador va en
     mayúsculas, o el corchete **es** la marca. Medido sobre el corpus."""

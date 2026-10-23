@@ -1821,7 +1821,146 @@ Además de lo de §24.9:
   `test_para_confirmar_no_es_un_marcador`,
   `test_una_plantilla_completar_no_exime`.
 
+## 26. B6 en la banda marginal: los casos leídos y el umbral medido (23/10/2026)
 
+§25.7 dejó abierto un frente: 4 de los 12 laboratorios que B6 marcaba estaban en una «banda
+marginal» —1,5–1,9 min/paso y 0,53–0,72 min/bloque— donde, se dijo, el umbral ya no distingue.
+La pregunta no era el número sino la política: ¿B6 debe bloquear en esa banda o solo registrar?
+Este apartado lee los cuatro enteros, encuentra un decimotercero que §25 no podía ver, mide dónde
+cae el umbral en el corpus y cierra la decisión.
 
+### 26.1 Los cuatro, leídos
 
+| Laboratorio | Declara | Pasos | Bloques | min/paso | min/bloque | Qué pide de verdad |
+|---|---|---|---|---|---|---|
+| `260617-TPRACT-DES-COPCHAT` / `02-00-03` | 10 min | 6 | 19 | 1,67 | 0,53 | mini proyecto de IMC con Copilot, **un commit por paso** (6), diario de intervenciones con una entrada por paso, `pylint` y README |
+| `260617-TPRACT-DES-COPCHAT` / `04-00-02` | 9 min | 5 | 15 | 1,80 | 0,60 | dos ficheros, prompt estructurado, `flake8` **y** `pylint`, informe de evidencias y **rúbrica de evaluación** con tabla de niveles |
+| `260728-angular-essentials` / `06-00-01` | 12 min | 8 | 27 | 1,50 | 0,44 | `ng new` (instala `node_modules`), `ng serve`, tres `ng generate`, dos plantillas HTML, dos hojas de estilo y el `AppComponent` |
+| `260728-angular-essentials` / `06-00-02` | 13 min | 7 | 18 | 1,90 | 0,72 | componente hijo con `@Output`, dos componentes con sus plantillas y tres comprobaciones de compilación |
 
+Los cuatro son **imposibles**, y no por el ritmo: por el trabajo. En el primero, solo el diario con
+una entrada por paso y los seis commits no caben en 10 minutos. En el segundo, la rúbrica de
+evaluación es una página y los dos linters se ejecutan dos veces. En los dos de Angular, la
+instalación inicial de `ng new` consume por sí sola 1–3 minutos y después hay que escribir dos
+plantillas y dos hojas de estilo completas.
+
+La etiqueta anterior —«marginal»— era de ritmo, no de contenido: se puso mirando 1,5–1,9 min/paso
+sin leer los pasos. Leídos, son 4/4 verdaderos positivos.
+
+### 26.2 El decimotercero: el que §25 no podía ver
+
+`251031-oracle19c-recovery-tuning-01` / `01-04-01`, 15 minutos, 8 pasos y 25 bloques
+(1,9 min/paso, 0,60 min/bloque): pide escribir **ocho documentos** con heredoc —árbol de decisión,
+dos scripts de runbook, checklist pre/post, calendario de simulacros, contactos y escalaciones,
+preguntas tipo OCP, script de generación de reporte e índice maestro— y validarlos. Imposible.
+
+§25 no lo contó porque su inventario exigía `outline.json` y ese proyecto no lo tiene; el barrido
+por guías sí lo ve. La consecuencia es de **población, no de medida**: el total de §25 (20
+bloqueantes en 1.196 laboratorios) sigue siendo cierto para la población que midió; sobre la
+población por guías son **21 en 21 laboratorios** (1.196 + las 52 guías de esos 6 proyectos sin
+`outline`, ≈1,7 %). B6 pasa de 12 a **13**.
+
+### 26.3 De dónde sale la duración: del plan, no de la guía
+
+| Laboratorio | Declarada en la guía | `plan.estimated_duration` | `plan.duration_minutes` |
+|---|---|---|---|
+| `260617` / `02-00-03` | 10 | 10 | ausente |
+| `260617` / `04-00-02` | 9 | 9 | ausente |
+| `260728` / `06-00-01` | 12 | 12 | ausente |
+| `260728` / `06-00-02` | 13 | 13 | ausente |
+
+La guía no estima: copia el único campo que el plan escribe, `estimated_duration`; `duration_minutes`
+no aparece en ninguno de los 13 planes (el camino vivo lo consulta como respaldo y aquí nunca se
+usa). Y no son cuatro: **los 13 marcados** tienen la duración de la guía igual a `estimated_duration`.
+
+El patrón se ve mejor en un módulo entero: los nueve laboratorios del módulo 05 de `260225-DESSEGV`
+(`05-00-01` … `05-00-09`) declaran **12 minutos todos**, con cargas que van de 22 a 42 bloques. Eso
+no es una estimación: es una constante por módulo.
+
+Conclusión: el defecto nace en el **planificador**, el Writer lo copia y B6 lo detecta aguas
+abajo. La corrección de fondo es estimar por carga (pasos × bloques), y es trabajo del
+planificador, no de la regla.
+
+### 26.4 Dónde cae el umbral en la distribución
+
+Población: **647 laboratorios comparables** (proyecto con plan, guía, al menos 3 pasos con acción,
+al menos 1 bloque y duración). Los otros 549 no son «limpios»: B6 no se pronuncia sin datos.
+
+| min/paso | Laboratorios |
+|---|---|
+| < 1,0 | 0 |
+| 1,0 – 1,5 | 3 |
+| 1,5 – 2,0 | 12 |
+| 2,0 – 3,0 | 30 |
+| 3,0 – 5,0 | 124 |
+| ≥ 5,0 | 478 |
+
+| min/bloque | Laboratorios |
+|---|---|
+| < 0,25 | 2 |
+| 0,25 – 0,5 | 38 |
+| 0,5 – 0,75 | 75 |
+| 0,75 – 1,0 | 93 |
+| 1,0 – 1,5 | 140 |
+| 1,5 – 2,5 | 154 |
+| ≥ 2,5 | 145 |
+
+- **15 de 647 (2,3 %) están por debajo de 2,0 min/paso**; 478 (74 %) están en 5 o más. El umbral de
+  2,0 está en el percentil 97,7: no está en una pendiente, está en el extremo de la cola.
+- 115 (17,8 %) están por debajo de 0,75 min/bloque. Si B6 mirara solo esa razón marcaría 115: la
+  **conjunción** es lo que lo hace usable, porque un laboratorio hecho de muchos comandos triviales
+  por paso tiene una razón baja sin ser imposible. La unidad que lleva la señal es el paso; el
+  bloque filtra.
+- Marca **13 (2,0 %)**.
+
+Y un hallazgo incómodo: **B6 se queda corto**. Hay 16 laboratorios sin marcar con
+min/bloque < 1,0 y 2,0 ≤ min/paso < 2,5; **10 de ellos con min/bloque < 0,5**, peor que varios de
+los marcados: `260225-DESSEGV` / `05-00-09` (12 min, 6 pasos, 42 bloques: 2,0 min/paso y
+0,29 min/bloque, 17 s por bloque), `260722-Certified-Kubernetes-Administration` / `06-00-03`
+(17 min, 51 bloques), `260629-Temario-contenedores-Azure` / `05-01-01` (21 min, 54 bloques).
+Escapan porque **2,0 no es menor que 2,0**. Son falsos negativos de frontera, no falsos positivos.
+
+### 26.5 Decisión: el umbral no se toca
+
+1. **Cero falsos positivos sobre los 13.** Los cuatro de 26.1 y el de 26.2 se leyeron enteros; los
+   ocho restantes ya se habían leído en §25.4. El criterio de 0 FP sobre N reales se cumple, y B6
+   ya bloquea: la pregunta era si dejaba de hacerlo.
+2. **Aflojar habría perdido verdaderos positivos.** Dejar de bloquear en la banda (o subir los
+   umbrales) habría dejado B6 en 9, los bloqueantes en 17, y habría dejado sin marcar los 10 casos
+   de 26.4, que son peores que los que se habrían liberado.
+3. **Endurecer no es gratis.** Pasar la conjunción a disyunción, o subir min/paso a 2,5, añadiría
+   unos 10 bloqueantes (21 → ~31) sin una decisión de producto, y va contra «estrechar antes de
+   endurecer».
+
+Se mantienen `_MINUTOS_POR_PASO_ACCION = 2.0` y `_MINUTOS_POR_BLOQUE = 0.75`. La banda no era de
+ruido: era de defectos reales con un ritmo menos extremo. El falso negativo de frontera queda
+documentado como conocido; corregirlo exigirá aceptar más bloqueo, y eso es una decisión explícita.
+
+### 26.6 Pruebas que fijan los dos lados
+
+`_lab_tipo_angular(duracion)` reproduce la forma del caso real —8 pasos, 27 bloques, `ng new` +
+tres `ng generate` + plantillas y estilos— y dos pruebas la usan con distinta duración:
+
+- `test_b6_marca_el_caso_angular_de_12_minutos`: 1,5 min/paso y 0,44 min/bloque → marca, con
+  confianza alta.
+- `test_b6_no_marca_el_mismo_caso_angular_con_45_minutos`: 5,62 y 1,67 → no marca.
+
+Mover cualquiera de los dos umbrales rompe uno de los dos lados. `test_referent_check.py`:
+**130/130**.
+
+### 26.7 Lo que sigue
+
+1. **El planificador**: estimar por carga (pasos × bloques) en vez de por módulo. Es la raíz de
+   26.3 y quitaría de golpe la mayor parte de los 13.
+2. **El falso negativo de frontera** de 26.4: decidir si 2,0 exacto debe marcar. Requiere aceptar
+   más bloqueo.
+3. Sin cambios, el resto de §25.7.
+
+### 26.8 Reproducibilidad de este apartado
+
+- `revisar_b6_marginal.py` → `prueba/b6_marginal.txt`: los cuatro laboratorios paso a paso.
+- `medir_b6_umbral.py` → `prueba/b6_umbral.txt`: duración de guía y de plan de los cuatro, y la
+  distribución sobre los 647 comparables.
+- `listar_b6_marcados.py` → `prueba/b6_marcados.txt`: los 13, con la duración de cada fuente.
+- `ver_oracle_010401.py`: el decimotercero, paso a paso.
+- `test_referent_check.py`: 130/130, incluidas las dos de 26.6.
