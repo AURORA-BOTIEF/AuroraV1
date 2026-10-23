@@ -1455,6 +1455,368 @@ Baterías al cerrar el apartado: `test_referent_check.py` **117/117**,
 `test_content_validator.py` **15/15**, `test_state_machine.py` **5/5**, `test_manual_context.py`
 **17/17**.
 
+## 24. La medida sobre 1.196 laboratorios reales (22/10/2026): el bloqueo ya está puesto y no
+cumple el criterio
+
+El criterio que nos dimos para subir una regla a `ERROR` era explícito: **0 falsos positivos sobre
+N cursos reales**. Hasta ahora N eran 2 laboratorios del piloto. Aquí se mide sobre todo el corpus
+entregado, y el resultado obliga a reencuadrar la pregunta: no se trata de encender un bloqueo que
+hoy no existe, sino de decidir si se apaga o se estrecha el que ya está en producción.
+
+### 24.1 Qué se midió y sobre qué
+
+| | Artefacto | Contexto |
+|---|---|---|
+| **A1** | `labguide/lab-master-plan.json` de 165 proyectos | `fuentes` = texto del temario + manual, tal como los arma el planner |
+| **B1/B2/B5/B6/B3p** | las 1.196 guías `labguide/lab-*.md` de 164 proyectos | reconstruido igual que el Writer: `fuentes` = temario + manual; `plan` = `flatten_to_text` del plan; `creados_antes` acumulado en el orden del plan; `salidas_posteriores`; `duración` declarada en la guía o, si no, la del plan; `requisitos` del plan; `expected_outcomes` |
+
+Las funciones que se ejecutan son **las del repositorio desplegado** (`auditar_plan`,
+`auditar_laboratorio` de `referent_check.py`), no una reimplementación. Las guías son las
+entregadas: laboratorios generados **antes** de que B1/B2/B6 existieran, así que esta medida
+estima lo que el validador habría marcado, sin que el bucle de reintento haya influido en el texto.
+
+### 24.2 A1 sobre el plan
+
+| | Hallazgos | Alta confianza | Baja confianza |
+|---|---|---|---|
+| 165 planes | 1.432 | **119** | 1.313 |
+
+Los 119 de alta están en **32 de 165 planes** (19 %). Campos donde aparecen: `lab_plans[].scope`
+(53), `lab_plans[].prerequisites[]` (33), `special_considerations[]` (26),
+`software_requirements[].installation_notes` (7). Por extensión dominan los datos que el curso
+debería aportar: `.xlsx` 33, `.csv` 15, `.docx` 14, `.pdf` 8.
+
+Y A1 **no bloquea nada**: `auditar_y_corregir_plan` reintenta como mucho 2 veces y si quedan altas
+solo las registra (líneas 1043-1074 del planner, sin `raise`). Los 119 quedan escritos en
+`metadata.referential_integrity` y ahí muere su efecto, salvo que el Writer los use para *excluir*
+esos referentes del texto del plan.
+
+### 24.3 B1/B2/B5/B6 sobre las guías
+
+| Regla | Alta | Baja | ¿Tumba la ejecución hoy? |
+|---|---|---|---|
+| B1 | **14** | 543 | Sí |
+| B2 | 0 | 8 | Sí |
+| B5 | 0 | 47 | Sí |
+| B6 | **14** | — | Sí |
+| B3p | 212 | 29 | No (`DELIVERABLES_RETRY=0`) |
+
+**28 hallazgos de alta en 28 laboratorios** de 1.196 (2,3 %). Los 240 «de alta» del cómputo global
+incluyen los 212 de B3p, que no bloquean.
+
+### 24.4 Lo que significa hoy un hallazgo de alta (reencuadre)
+
+La configuración desplegada no tiene ninguna de las variables de reintento, así que aplican los
+valores por defecto (`strands_lab_writer`, líneas 59-135; comprobado con
+`get_function_configuration` sobre la Lambda desplegada):
+
+- `REFERENTIAL_RETRY=1`, `DURATION_RETRY=1`, `REQUIREMENTS_RETRY=1` → B1/B2/B6/B5 de alta entran en
+  el reintento correctivo.
+- `DELIVERABLES_RETRY=0` → B3p de alta solo se registra.
+- `MAX_LAB_GENERATION_ATTEMPTS=3` → si el hallazgo persiste, `raise RuntimeError` (línea 2433).
+- El `Retry` de `GenerateLabBatch` solo cubre errores transitorios de Lambda, así que un
+  `RuntimeError` **no se reintenta**: `Catch: States.ALL` → `LabBatchFailState`, que es un estado
+  `Fail` del `Map`. El `except` del handler vuelve a lanzar (`raise`), no lo traga en un
+  `statusCode: 500`.
+- `ProcessLabBatchesInParallel` no tiene `Retry`; su `Catch` va a `NotifyFailure`.
+
+Consecuencia: **un hallazgo de alta de B1/B2/B5/B6 que aguante tres intentos tumba la ejecución
+entera y el curso no se entrega.** La exposición medida es de 2,3 % por laboratorio, es decir en
+torno al 17 % por curso de 8 laboratorios (1 − (1 − 28/1196)^8), suponiendo que el corpus viejo sea
+representativo de lo que genera el Writer actual.
+
+No es un riesgo hipotético, pero tampoco ha matado ningún curso todavía: de las 28 ejecuciones
+fallidas de `CourseGeneratorStateMachine` en 120 días, ninguna tiene causa
+`LabBatchGenerationFailed` (son errores de JSONPath de la máquina de estados, límite de tamaño de
+payload y un `int('all')`). B1 lleva desplegado horas, así que ese «no ha pasado» no es evidencia
+de nada.
+
+### 24.5 Revisión a mano: los falsos positivos existen
+
+Se revisó uno a uno el contexto de las 14 de B1 y se inspeccionaron las 14 de B6 (ficheros:
+`revision_b1_altas.txt`, `ab1_corpus.txt`).
+
+**B1, 14 hallazgos, 4 falsos positivos (29 %):**
+
+| Hallazgo | Veredicto | Por qué |
+|---|---|---|
+| `251209-copilot-365-4-h` `Ventas_MultiRegional_2024.xlsx` | real | «Descargue el archivo de ejemplo … desde el repositorio del taller» y ningún sitio lo aporta |
+| `260129-IA-GEN-ESS-V2` `politica_vacaciones_parte1.txt` y `parte2.txt` | **falso** | son los nombres de ejemplo de un bloque de código que ilustra cómo trocear un documento; el alumno los crea |
+| `260527-COP-CHAT-IT-Priv` `C:\users.txt` | **falso** | está dentro de un guion de PowerShell que el alumno debe **revisar** (`Get-Content "C:\users.txt"`), no ejecutar |
+| `260528-IA-GEN-INTE` `./openai_key.txt` | **falso** | está en el *docstring* de un ejemplo de uso (`docker secret create openai_api_key ./openai_key.txt`) |
+| los 10 restantes (`REFERENCIA-NORMAS-EHS.docx`, `Lab02_Claves_Respuesta.pdf`, `BA_05-00-01_*`, `Politica_Vacaciones.pdf`, `Datos_Financieros_Q4.xlsx`…) | reales | son ficheros que el instructor debe colocar en SharePoint/OneDrive y que ni el temario ni el plan declaran |
+
+Nótese que varios de los reales ya llevan en la guía un marcador semántico —«El instructor debe
+confirmar que la carpeta de fuentes contiene…»— que ninguna regla reconoce.
+
+**B6, 14 hallazgos:** el motivo siempre es la duración declarada contra el trabajo real
+(«15 minutos para 9 pasos con acción y 65 bloques»). La mayoría son reales (instalar Ubuntu Server
+con 65 bloques en 15 minutos), pero hay al menos uno falso por lectura parcial:
+`260924-Temario-fortinet-…` lab `02-00-02` declara «15 minutos (creación VM) + 35–45 minutos
+(instalación OS) + 15 minutos (post-instalación)» y `duracion_declarada` se queda con el **primer**
+número, 15, cuando el laboratorio declara entre 65 y 75. Y hay casos limítrofes: `06-00-02` de
+`260728-angular-essentials` cruza los **dos** umbrales por poco (1,9 min/paso y 0,72 min/bloque).
+
+**El criterio de 0 falsos positivos no se cumple**, ni en B1 (29 %) ni en B6.
+
+### 24.6 Los mecanismos, en el código
+
+1. **La ventana de contexto no es la frase.** `_contexto_de` recorta a los límites del *paso*, y
+   cuando el texto no tiene encabezados `###` —un campo del plan, o una sección de la guía— el
+   «paso» es todo el bloque y la ventana son ±260 caracteres (`_VENTANA_CONTEXTO`). En
+   `politica_vacaciones_parte1.txt` basta un «Abre el PDF» a media distancia para que el listado de
+   nombres de ejemplo pase por entrada aportada por el curso.
+2. **Un bloque de código de ejemplo no es una entrada.** El docstring de `obtener_docker_secret` y
+   el guion que el alumno revisa cuentan como referencias de fichero.
+3. **A1 no tiene la puerta que B1 sí tiene.** B1 descarta primero con `_es_creacion` (línea 1420):
+   verbo de creación, `_MARCAS_CREACION` (`--output`, `cat >`, `archivos generados`, `mkdir`…), el
+   andamiaje (`ng new`, `git clone`…), árboles de directorios, importaciones y citas. A1 decide con
+   `_es_entrada` a secas (línea 816) y no consulta ninguna marca de creación, aunque su propio
+   comentario de `_MARCAS_ENTRADA` dice que «casi todos los falsos positivos» están en contextos de
+   creación.
+   - Lectura a mano de los 119 de A1: **43 falsos positivos (36 %)**, casi todos de esa clase
+     («se guardará en», «se exporta a», «archivos de salida», «generado por el script», «producir un
+     documento», «se desarrollará»…): directorios de trabajo, ficheros que el laboratorio exporta y
+     módulos que el alumno escribe.
+   - Aplicando `_es_creacion` —la del propio repositorio— a esos mismos 119, exoneraría 74 (62 %).
+     Ese 62 % **no** es la tasa de falsos positivos: sobre texto de plan sin estructura de pasos la
+     ventana es tan ancha que `_es_creacion` exculpa también cosas que sí se aportan («se
+     proporcionan 2-3 archivos CSV de ejemplo»). Sirve como cota superior, no como medida.
+4. **`duracion_declarada` toma el primer número.** `_DURACION_LAB_RE` no distingue una duración
+   total de un desglose.
+
+### 24.7 La corrección que el Writer prescribe no converge
+
+`mensaje_de_correccion` (línea 1547) instruye, para un referente que el curso debe aportar: «escribe
+«[POR CONFIRMAR]» junto a su mención». El docstring del módulo dice lo mismo: un referente no
+declarado ni derivable «debe omitirse o marcarse con un marcador visible (`[POR CONFIRMAR]` y
+similares)».
+
+**Ninguna regla reconoce ese marcador.** `grep` de `POR CONFIRMAR` en `referent_check.py` solo
+aparece en el docstring y en las tres instrucciones de corrección.
+
+Se aplicó la corrección al pie de la letra (insertar el marcador tras cada mención) y se volvió a
+auditar con `auditar_laboratorio` y el mismo contexto (`probar_convergencia.py`): en los cuatro
+casos probados —incluido el verdadero positivo `Ventas_MultiRegional_2024.xlsx`— el hallazgo
+**persiste** con la misma confianza. Es decir, el camino que la propia instrucción señala como
+canónico no limpia la comprobación: el reintento gasta sus tres intentos y el curso cae. Solo
+convergen las otras dos salidas de la instrucción (añadir el paso que lo crea, o sustituirlo por
+una descripción sin nombre de fichero).
+
+### 24.8 Decisión
+
+1. **No se sube ninguna regla a `ERROR`.** El criterio de 0 falsos positivos no se cumple: 29 % en
+   B1 sobre 14 hallazgos revisados uno a uno, y al menos 1 en B6.
+2. **No se apaga el bloqueo que ya está puesto** (B1/B2/B5/B6 con reintento y `raise`): 24 de los 28
+   hallazgos son defectos reales y son exactamente el fallo que el informe del instructor describe.
+   Apagarlo perdería esos 24.
+3. **Se estrecha antes de endurecer**, por orden de coste/beneficio:
+   a. Reconocer `[POR CONFIRMAR]` (y «el instructor debe confirmar») como exoneración → hace
+      converger el reintento y da contenido real al nivel 3 de la regla de tres niveles. Sin esto,
+      cualquier referencia legítima que el curso deba aportar puede matar el curso.
+   b. Exigir que la señal de entrada esté **en la frase del referente**, no en ±260 caracteres, y
+      exonerar los referentes que solo aparecen dentro de un bloque de código de ejemplo.
+   c. Dar a A1 la puerta de `_es_creacion` que ya tiene B1 y recortar su ventana a la frase.
+   d. `duracion_declarada`: tomar el **mayor** de los números declarados, para no leer un desglose
+      como si fuera el total.
+
+   → Implementado y medido en **§25**. Dos de estos puntos cambiaron al medirlos: (b) no se resolvió
+   recortando la frase sino comprobando que la prosa mencione el referente, y (c) no recorta la
+   ventana de A1 (el falso positivo venía de la puerta de creación, no del tamaño). Ver §25.2.
+4. **B3p sigue en registro** (`DELIVERABLES_RETRY=0`): 212 altas en 1.196 laboratorios es la clase
+   más ruidosa y no hay evidencia de que sean defecto.
+5. **El efecto cascada existe y está medido.** A1 marca un referente de alta, el Writer lo
+   **borra** del texto del plan (líneas 2189-2208) y entonces B1 lo marca en la guía: el referente
+   deja de contar como declarado precisamente porque A1 dijo que el curso debe aportarlo. Se midió
+   reconstruyendo ese borrado (`medir_ab1_vivo.py`: recalcula A1 sobre cada plan, aplica el mismo
+   `.replace` y vuelve a auditar las 1.196 guías).
+
+   | | Sin borrado de A1 | Con borrado de A1 |
+   |---|---|---|
+   | B1 alta | 14 | **17** |
+   | B1 baja | 543 | 552 |
+   | Altas bloqueantes | 28 | **31** |
+   | Laboratorios afectados | 28 | 29 |
+   | Proyectos afectados | — | 17 |
+
+   Las **3 que solo aparecen por la cascada** (`diferenciar_ab1.py`):
+
+   - `260627-COP-CHAT-LEGAL` lab `04-00-01` → `Lab04_Plan_Cierre_Fiscal.xlsx`
+   - `260803-temario-vmware-vsphere-foundation` lab `03-00-01` → `licenses.txt`
+   - `260818-fundamentos-finops` lab `02-00-02` → `lab_02_02_trend_analysis.ipynb`
+
+   Las tres son **verdaderos positivos de A1** (ficheros que el curso debe aportar y no están en el
+   temario) y a la vez **verdaderos positivos de B1** (la guía los usa como entrada). El borrado
+   los convierte en bloqueantes que el reintento no puede arreglar borrando: la guía necesita el
+   fichero. Es decir, la cascada no inventa hallazgos falsos; **duplica la sanción sobre el mismo
+   defecto real** y, al hacerlo, obliga al modelo a quitar de la guía una referencia legítima. Es
+   una razón más para que la exoneración por marcador (`[POR CONFIRMAR]`) exista: es la salida
+   correcta para este caso.
+
+### 24.9 Reproducibilidad de este apartado
+
+- `medir_a1_corpus.py` — A1 sobre los 165 planes guardados; `prueba/a1_corpus.txt`.
+- `clasificar_a1_corpus.py` — los 119 de alta con su ventana de contexto; `prueba/a1_altas_contexto.json`.
+- `medir_fp_a1.py` — cuántos de esos 119 exonera `_es_creacion`; `prueba/a1_falsos_positivos.txt`.
+- `medir_ab1_corpus.py` — B1/B2/B3p/B5/B6 sobre las 1.196 guías; `prueba/ab1_corpus.txt`.
+- `medir_ab1_vivo.py` — lo mismo con el borrado de A1 aplicado (efecto cascada);
+  `diferenciar_ab1.py` — las 3 altas que solo aparecen por la cascada.
+- `revisar_b1_altas.py` y `revisar_b6.py` — contexto ancho de los hallazgos concretos revisados.
+- `probar_convergencia.py` — ¿limpia `[POR CONFIRMAR]` el hallazgo?
+- `buscar_fallos_produccion.py` y `detalle_fallos.py` — ninguna ejecución fallida con causa
+  `LabBatchGenerationFailed`.
+
+## 25. Los estrechamientos de 24.8, implementados y medidos (23/10/2026)
+
+La §24 cerró con «estrechar antes de endurecer». Esto es lo que se implementó, cómo se verificó
+—siempre por el camino vivo, nunca buscando texto en el fuente— y qué pasó al volver a medir
+sobre el **mismo** corpus.
+
+### 25.1 Qué se cambió
+
+| Estrechamiento | Dónde | Qué hace ahora |
+|---|---|---|
+| (a) marcador visible | `marcas_de_confirmacion` | `[POR CONFIRMAR]` —o «el instructor debe confirmar», «solicítalos a tu instructor», «confirmado por el instructor»— junto a la mención, o en el párrafo que la introduce, **exime** el referente y lo devuelve en `marcados` |
+| (b) bloques de código | `_bloques_cercados`, `_texto_sin_bloques`, `_aparece_en_prosa` | la señal de entrada se busca en prosa y, si el nombre **solo** aparece dentro de un bloque de código, no puede ser de alta |
+| (c) A1 | `auditar_plan` | consulta `_es_creacion` y el marcador antes de decidir la confianza |
+| (d) duración | `_DURACION_LAB_RE`, `duracion_declarada` | acepta `**Duración estimada**`, `Duración total:` y toma el **mayor** de un desglose |
+
+El informe al instructor gana `total_marcados_por_confirmar` y cada laboratorio gana `marcados`:
+un referente señalado no es un defecto oculto, es trabajo que alguien tiene que hacer.
+
+### 25.2 Tres correcciones que hizo la propia medición
+
+Las tres van contra hipótesis de la §24, no contra el código:
+
+1. **La ventana de A1 no se recorta.** El falso positivo de A1 no venía del tamaño de la ventana
+   sino de que A1 no consultaba la puerta de creación. Recortar a la frase habría perdido
+   verdaderos positivos del tipo «los estudiantes deben tener acceso a `M1_Catalogo_Cuentas.xlsx`
+   en la carpeta compartida», que no lleva verbo de entrada.
+2. **«En prosa» no basta; la prosa tiene que hablar del referente.** En el falso positivo de
+   `politica_vacaciones_parte1.txt` el verbo («Abre el PDF») estaba en prosa, a 60 caracteres.
+   Lo que lo distingue es que el nombre **solo** vive dentro del bloque: la prosa no lo menciona.
+   Eso es lo que se comprueba con `_aparece_en_prosa`.
+3. **El emparejamiento de cercas estaba mal.** ` ```.*?``` ` cerraba la cerca huérfana que el
+   modelo abrió para citar un enunciado con la siguiente ` ```powershell `, y el script quedaba
+   «en prosa»: así sobrevivía `C:\users.txt` en `260527-COP-CHAT-IT-Priv`. Ahora se respeta
+   Markdown (un cierre no lleva lenguaje).
+
+Y dos falsos positivos del **propio detector de marcadores**, encontrados revisando las 70
+exoneraciones de la primera pasada:
+
+- `"a confirmar"` casaba dentro de «par**a confirmar**»: cualquier «ejecuta esto para confirmar
+  que…» exoneraba el párrafo entero. Se eliminó.
+- `[COMPLETAR]` es un hueco de plantilla que rellena el alumno, no una marca para el instructor.
+  Se acotó a `CONFIRMAR`/`PENDIENTE`.
+
+Tras acotarlo, las exoneraciones pasan de 70 a **16** y las 16 son legítimas (§25.5).
+
+### 25.3 La medición
+
+Mismo corpus, mismas funciones, mismo borrado de A1 en el plan (el camino vivo):
+
+| | §24 (antes) | §25 (después) | |
+|---|---|---|---|
+| A1 hallazgos | 1.432 | **1.432** | no se pierde ninguno |
+| A1 de alta | 119 en 32 planes | **45 en 13 planes** | −62 % |
+| A1 de baja | 1.313 | **1.387** | los 74 bajan, no desaparecen |
+| B1 de alta | 17 | **8** | |
+| B1 de baja | 552 | 550 | |
+| B6 de alta | 14 | **12** | |
+| **Altas bloqueantes** | **31** | **20** | −35 % |
+| Laboratorios afectados | 29 | **20** | |
+| Proyectos afectados | 17 | **12** | |
+| Exonerados por marcador | 0 | **16** | |
+
+Es decir: **1,7 % de los laboratorios** (20 de 1.196) sigue teniendo un hallazgo que puede tumbar
+el curso, frente al 2,6 % de antes. Con la cuenta de siempre —8 laboratorios por curso y
+dependencia ingenua—, del ≈19 % por curso al ≈13 %.
+
+### 25.4 Los 20 que quedan, leídos uno a uno
+
+**B1 (8).** Siete son defectos reales, y son exactamente el fallo que describe el informe del
+instructor: el laboratorio usa un fichero que el curso debe aportar y el temario no declara —
+`Ventas_MultiRegional_2024.xlsx` («Abra el archivo … desde OneDrive»),
+`Lab02_Reporte_Automatizado.xlsx` («Asegúrate de tener … en tu OneDrive»),
+`Lab04_Plan_Cierre_Fiscal.xlsx` (lista de los tres ficheros cargados en OneDrive),
+`REFERENCIA-NORMAS-EHS.docx` («Verifica que puedes ver los siguientes archivos»),
+`Lab02_Claves_Respuesta.pdf` («valores de referencia proporcionados por el instructor»),
+`licenses.txt` («proporcionado por el instructor»),
+`Datos_Financieros_Q4.xlsx` («subir el archivo … y referenciarlo»).
+El octavo, `/Modulo1/Normativos/LSS_Cuotas_IMSS_2024_Ficticio.pdf`, ya lleva un nivel 3 escrito
+en prosa que el vocabulario no reconoce: «**Nota para el instructor:** … verificar que el sitio de
+SharePoint contenga…». Es el candidato inmediato, y es una decisión de vocabulario, no de regla.
+
+Los falsos positivos que la revisión a mano había identificado **ya no están**: `C:\users.txt`
+(script que el alumno revisa), `politica_vacaciones_parte1/2.txt` (listado de ejemplo) y
+`./openai_key.txt` (*docstring* de uso).
+
+**B6 (12).** Ocho son imposibles por simple lectura: instalar Ubuntu Server 24.04 en 15 minutos
+con 65 bloques (fortinet `02-00-01`), 5 minutos con 31 bloques (`261008-LFS158`), snapshots de
+VMware en 15 con 36 bloques (`251215-virtualizacion`), etc. Los otros cuatro caen en la **banda
+marginal** donde el umbral ya no distingue: 1,5–1,9 min/paso y 0,53–0,72 min/bloque
+(`260617-TPRACT-DES-COPCHAT` ×2, `260728-angular-essentials` ×2). No se tocan sin etiqueta: son
+el siguiente frente, y la pregunta no es el umbral sino si B6 debe bloquear en la banda.
+
+### 25.5 Los 16 exonerados por marcador, revisados
+
+Cuatro clases, todas con el mismo significado —«esto lo tiene que poner alguien, y la guía lo
+dice»—, y ninguna oculta un defecto que el instructor no vaya a ver:
+
+- `260629-COP_CHAT_COMP_Priv` `07-00-01` (7 ficheros): «Estos archivos deben estar disponibles en
+  el sitio de SharePoint del curso antes de iniciar. **Solicítalos a tu instructor** si no los
+  localizas.» Entre ellos `Politica_Vacaciones.pdf`, que la revisión a mano de §24.5 había
+  marcado como falso positivo.
+- `260628-COP_CHAT_EHS-Priv` (4): tabla de requisitos con «✅ **Confirmado por el instructor**» y
+  «✅ Preparado por el instructor» en la fila del fichero.
+- `261012-COP-ABAST-FINAN-LD-Priv` (3): «**El instructor debe confirmar** que la carpeta de fuentes
+  contiene los siguientes archivos ficticios y anonimizados:» sobre la tabla de ficheros.
+- `260917-IA-Generativa-Usuarios-Finales-M365-C` (2): «**el instructor debe confirmar**» en la
+  tabla de archivos que hay que descargar antes del laboratorio.
+
+### 25.6 La corrección prescrita ahora converge
+
+La §24.7 midió que el camino que el propio Writer prescribe —escribir `[POR CONFIRMAR]` junto a la
+mención— **no** limpiaba el hallazgo, y el reintento acababa en `RuntimeError`. Ahora sí: el
+marcador exime el referente, el laboratorio queda sin altas y el reintento cierra. Las dos
+instrucciones llevan el mismo criterio por primera vez: `mensaje_de_correccion` pide el marcador y
+`marcas_de_confirmacion` lo reconoce.
+
+### 25.7 Lo que sigue
+
+1. **B6 en la banda marginal** (4 de 12): o se etiqueta a mano para decidir si son defecto, o se
+   deja de bloquear en la banda y solo se registra.
+2. **Nivel 3 escrito en prosa** («Nota para el instructor», «verificar que el sitio contenga»):
+   añadirlo al vocabulario quitaría 1 de los 8 B1. Es un cambio de lista, con prueba de camino
+   vivo y medición.
+3. **A1 sigue sin bloquear y le quedan falsos positivos**: de los 45 de alta, `/_prometheus/metrics`
+   (una ruta de API de Couchbase) o `P11_Clasificacion_Demanda_SOLUCION.xlsx` (un ejemplo de
+   nomenclatura) no son entradas. A1 los registra y no los usa para tumbar nada, que es su sitio.
+4. **B3p sigue en registro** (212 altas): sin evidencia de que sean defecto.
+5. **El efecto cascada no se volvió a contrastar** con/sin borrado tras el estrechamiento; los
+   tres casos de §24.8 siguen en la lista y siguen siendo defectos reales por sí mismos.
+
+### 25.8 Reproducibilidad de este apartado
+
+Además de lo de §24.9:
+
+- `medir_ab1_vivo.py` — versión con `marcados`; salida en `prueba/ab1_final3.txt`.
+- `ver_users_txt.py` — el caso `C:\users.txt`: apariciones, si están en bloque y qué decide cada
+  función.
+- `medir_marcados.py` y `prueba/marcados.json` — la primera pasada de revisión de exoneraciones
+  (la que descubrió las 70 y los dos falsos positivos del detector).
+- Pruebas de camino vivo en `test_referent_check.py` (128 en total): `test_el_marcador_por_confirmar_exime_el_referente`,
+  `test_el_marcador_de_la_introduccion_exime_las_filas_de_la_tabla`,
+  `test_un_nombre_que_solo_vive_en_un_bloque_de_codigo_no_es_entrada`,
+  `test_un_fichero_nombrado_en_prosa_sigue_siendo_entrada`,
+  `test_la_duracion_estimada_del_metadato_se_lee`,
+  `test_la_duracion_de_un_desglose_toma_el_mayor`,
+  `test_b6_no_marca_un_laboratorio_con_duracion_compuesta`,
+  `test_un_listado_de_python_no_es_un_marcador`,
+  `test_una_cerca_huerfana_no_saca_el_codigo_del_bloque`,
+  `test_para_confirmar_no_es_un_marcador`,
+  `test_una_plantilla_completar_no_exime`.
+
 
 
 

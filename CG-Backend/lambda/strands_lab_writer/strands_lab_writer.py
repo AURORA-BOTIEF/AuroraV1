@@ -2043,6 +2043,7 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             for v in r.get("violaciones", [])
             if v.get("confianza") == "alta"
         )
+        marcados = sum(len(r.get("marcados", [])) for r in informes.values())
         payload = {
             "check": "B1+B2+B3p+B5+B6",
             "labs": len(informes),
@@ -2053,6 +2054,10 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             "total_b5": b5,
             "total_b6": b6,
             "total_alta_confianza": altas,
+            # Referentes que la guía deja **a la vista** del instructor
+            # («[POR CONFIRMAR]»): son el nivel 3 de la regla, no una violación.
+            # Se cuentan aparte para que el instructor sepa qué ficheros debe aportar.
+            "total_marcados_por_confirmar": marcados,
             "total_menciones_posteriores": sum(
                 len(r.get("menciones_posteriores", [])) for r in informes.values()
             ),

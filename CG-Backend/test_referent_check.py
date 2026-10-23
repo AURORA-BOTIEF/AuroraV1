@@ -2404,6 +2404,187 @@ def _lab_con_bloques(pasos, bloques_por_paso, duracion, lenguaje="bash"):
     return cabecera + "\n".join(cuerpo)
 
 
+# --------------------------------------------------------------------------- #
+# Calibración del 22/10/2026 (spec §24): los estrechamientos
+# --------------------------------------------------------------------------- #
+
+def test_el_marcador_por_confirmar_exime_el_referente():
+    """Nivel 3 de la regla: el fichero se señala, no se afirma.
+
+    Sin esto la corrección que el propio Writer prescribe no converge: se midió que
+    insertar el marcador dejaba el hallazgo intacto y el reintento acababa tumbando
+    el curso (`RuntimeError` → `LabBatchFailState`).
+    """
+    lab = (
+        "### Paso 1: Revisar los datos\n"
+        "Abra el archivo `Ventas_MultiRegional_2024.xlsx` desde OneDrive [POR CONFIRMAR] "
+        "y revise las hojas del libro.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["violaciones"] == []
+    assert [m["valor"] for m in informe["marcados"]] == ["Ventas_MultiRegional_2024.xlsx"]
+
+
+def test_el_marcador_de_la_introduccion_exime_las_filas_de_la_tabla():
+    """El marcador va en la línea que introduce la tabla, no en la fila del nombre."""
+    lab = (
+        "### Paso 1: Verificar las fuentes\n"
+        "El instructor debe confirmar que la carpeta de fuentes contiene los siguientes "
+        "archivos ficticios y anonimizados:\n\n"
+        "| Archivo de fuente | Uso |\n"
+        "|---|---|\n"
+        "| `BA_05-00-01_DueDiligence_NubeSur_v01.docx` | contexto contractual |\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["violaciones"] == []
+    assert informe["marcados"]
+
+
+def test_un_nombre_que_solo_vive_en_un_bloque_de_codigo_no_es_entrada():
+    """El falso positivo medido en `260129-IA-GEN-ESS-V2` (bloqueaba el curso).
+
+    Los nombres son un listado de ejemplo; el «Abre el PDF» de la frase siguiente
+    habla de otro fichero. Al quedar como baja se sigue registrando, pero no dispara
+    el reintento correctivo.
+    """
+    lab = (
+        "### Paso 3: Trocear el documento\n"
+        "Si el archivo es muy grande, divídelo en secciones más pequeñas:\n"
+        "```\n"
+        "politica_vacaciones_parte1.txt\n"
+        "politica_vacaciones_parte2.txt\n"
+        "```\n"
+        "3. Si es un PDF con problemas, conviértelo a .txt:\n"
+        "- Abre el PDF\n"
+        "- Copia el texto en un archivo nuevo\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    confianzas = {v["valor"]: v["confianza"] for v in informe["violaciones"]}
+    assert confianzas["politica_vacaciones_parte1.txt"] == "baja"
+    assert confianzas["politica_vacaciones_parte2.txt"] == "baja"
+
+
+def test_un_fichero_nombrado_en_prosa_sigue_siendo_entrada():
+    """La contraparte: el verdadero positivo de `251209-copilot-365-4-h` no se pierde."""
+    lab = (
+        "### Paso 1: Explorar el workbook\n"
+        '1. Abra el archivo "Ventas_MultiRegional_2024.xlsx" desde OneDrive en Excel de escritorio.\n'
+        "2. Haga clic en Copilot y pida un resumen de las hojas.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["violaciones"][0]["valor"] == "Ventas_MultiRegional_2024.xlsx"
+    assert informe["violaciones"][0]["confianza"] == "alta"
+
+
+def test_la_duracion_estimada_del_metadato_se_lee():
+    """El corpus escribe `| **Duración estimada** | …`: antes se ignoraba y B6 tomaba
+    la duración del plan, que es de donde salían los falsos positivos."""
+    assert duracion_declarada("| **Duración estimada** | 13 minutos |") == 13
+    assert duracion_declarada("| Duración | 15 minutos |") == 15
+    assert duracion_declarada("**Duración total:** 40 minutos") == 40
+    assert duracion_declarada("sin metadatos") is None
+
+
+def test_la_duracion_de_un_desglose_toma_el_mayor():
+    lab = (
+        "| Propiedad | Valor |\n"
+        "|---|---|\n"
+        "| **Duración** | 15 minutos (creación VM) + 35–45 minutos (instalación OS) + "
+        "15 minutos (post-instalación) |\n"
+    )
+    assert duracion_declarada(lab) == 45
+
+
+def test_b6_no_marca_un_laboratorio_con_duracion_compuesta():
+    """El falso positivo de B6 en `260924-Temario-fortinet-…` lab `02-00-02`.
+
+    Ocho pasos con ocho bloques cada uno: con la duración mal leída (15 min) salía
+    «imposible»; con el desglose bien leído (45 min) el laboratorio entra en lo
+    razonable y B6 no debe marcarlo.
+    """
+    cuerpo = []
+    for paso in range(1, 9):
+        cuerpo.append(f"### Paso {paso}: Ejecutar la comprobación {paso}\n")
+        for bloque in range(1, 9):
+            cuerpo.append(f"```bash\necho paso {paso} bloque {bloque}\n```\n")
+    lab = (
+        "# Lab 02-00-02: Instalación\n\n"
+        "| Propiedad | Valor |\n|---|---|\n"
+        "| **Duración** | 15 minutos (creación VM) + 35–45 minutos (instalación OS) + "
+        "15 minutos (post-instalación) |\n\n" + "\n".join(cuerpo)
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
+
+
+def test_un_listado_de_python_no_es_un_marcador():
+    """`['pendientes']` exoneraba un fichero de salida real: el marcador va en
+    mayúsculas, o el corchete **es** la marca. Medido sobre el corpus."""
+    lab = (
+        "### Paso 2: Exportar el reporte\n"
+        "```python\n"
+        "def exportar(reporte, archivo='data/reporte.txt'):\n"
+        "    prioridades = ['pendientes', 'en curso']\n"
+        "    return archivo\n"
+        "```\n"
+        "El alumno escribe data/reporte.txt con el resultado.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["marcados"] == []
+    assert not any(m["valor"] == "data/reporte.txt" for m in informe["marcados"])
+
+
+def test_una_cerca_huerfana_no_saca_el_codigo_del_bloque():
+    """Medido en `260527-COP-CHAT-IT-Priv`: el modelo abrió una cerca para citar el
+    enunciado y no la cerró. La cerca con lenguaje siguiente no puede cerrarla, así
+    que el script sigue dentro de un bloque y su ``C:\\users.txt`` no es entrada."""
+    lab = (
+        "### Paso 1: Revisar el script\n"
+        "```\n"
+        "Actúa como un experto en PowerShell.\n"
+        "```powershell\n"
+        '$users = Get-Content "C:\\users.txt"\n'
+        "```\n"
+        "Responde con el análisis completo.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    confianzas = {v["valor"]: v["confianza"] for v in informe["violaciones"]}
+    assert confianzas["C:\\users.txt"] == "baja"
+
+
+def test_para_confirmar_no_es_un_marcador():
+    """«Ejecute esto para confirmar que…» es prosa corriente. El detector amplio la
+    confundía con «a confirmar» y exoneraba el párrafo entero: 70 exoneraciones
+    medidas sobre el corpus, casi todas por esta confusión."""
+    lab = (
+        "### Paso 2: Verificar\n"
+        "Ejecute el siguiente comando para confirmar que el pipeline funciona:\n"
+        "```bash\n"
+        "python pipeline/run_pipeline.py\n"
+        "```\n"
+        "Abra el archivo `Datos_Financieros_Q4.xlsx` desde OneDrive y revise las hojas.\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["marcados"] == []
+    confianzas = {v["valor"]: v["confianza"] for v in informe["violaciones"]}
+    assert confianzas["Datos_Financieros_Q4.xlsx"] == "alta"
+
+
+def test_una_plantilla_completar_no_exime():
+    """`[COMPLETAR]` es un hueco que rellena el alumno, no una marca de confirmación
+    para el instructor: no puede exonerar el fichero de la misma tabla."""
+    lab = (
+        "### Paso 4: Documentar\n"
+        "Rellene la tabla de la plantilla:\n\n"
+        "| Campo | Valor |\n"
+        "|---|---|\n"
+        "| Nombre del archivo | [COMPLETAR] |\n"
+        "| Archivo de entrada | `informe_final.docx` |\n"
+    )
+    informe = auditar_laboratorio(lab, "")
+    assert informe["marcados"] == []
+
+
 if __name__ == "__main__":
     pruebas = [
         (nombre, funcion)

@@ -812,8 +812,18 @@ def auditar_plan(plan: dict, fuentes: str) -> dict:
             # salida por definición, no una entrada aportada por el curso. Se registra
             # siempre como baja confianza para que nunca dispare un reintento.
             es_salida_declarada = "expected_outcomes" in campo
-            confianza = "baja" if es_salida_declarada else (
-                "alta" if _es_entrada(texto, referente) else "baja"
+            # Un fichero que el propio plan dice que se crea, se exporta o se guarda
+            # no es una entrada que el curso deba aportar. Sin esta puerta, el
+            # auditor del plan marcaba de alta 43 de 119 directorios de trabajo,
+            # módulos que escribe el alumno y ficheros de salida (medido el
+            # 22/10/2026 sobre 165 planes reales). Es la misma puerta que B1 ya aplica
+            # antes de decidir la confianza; se registra igual, pero como baja.
+            es_creacion = _es_creacion(texto, referente)
+            marcado = bool(marcas_de_confirmacion(texto, referente))
+            confianza = (
+                "baja"
+                if (es_salida_declarada or es_creacion or marcado)
+                else ("alta" if _es_entrada(texto, referente) else "baja")
             )
             violaciones.append(
                 {
@@ -877,6 +887,128 @@ def _en_bloque_de_salida(texto: str, posicion: int) -> bool:
     return any(marca in normalizar(linea_previa) for marca in _MARCADORES_SALIDA)
 
 
+# Un bloque de código cercado **no declara intención**: es un ejemplo o una orden.
+# La medición del 22/10/2026 sobre 1.196 guías reales encontró que los falsos positivos
+# que bloqueaban un curso vivían precisamente ahí (un listado de nombres de ejemplo, un
+# guion que el alumno debe *revisar* y una *docstring* de uso). Se sustituyen por
+# espacios **conservando la longitud**, porque los índices de los referentes ya
+# extraídos apuntan al texto original.
+_CERCA_RE = re.compile(r"^[ \t]*(`{3,})[^\n]*$", re.MULTILINE)
+
+
+def _bloques_cercados(texto: str) -> list[tuple[int, int]]:
+    """Tramos de bloque de código cercado, respetando la sintaxis de Markdown.
+
+    Una cerca **sin** lenguaje (```` ``` ```` sola en la línea) cierra; una cerca
+    **con** lenguaje abre bloque aunque ya haya uno abierto, porque no puede cerrar.
+    Sin esa regla, una cerca de apertura huérfana —el modelo citó un enunciado con
+    ```` ``` ```` y no lo cerró— se emparejaba con la siguiente ```` ```powershell ````
+    y el código quedaba fuera del bloque: medido en `260527-COP-CHAT-IT-Priv`, donde el
+    script de PowerShell se publicaba como prosa y `C:\\users.txt` volvía a ser una
+    entrada de alta confianza.
+    """
+    tramos: list[tuple[int, int]] = []
+    apertura: int | None = None
+    longitud_apertura = 0
+    for coincidencia in _CERCA_RE.finditer(texto or ""):
+        cerca = coincidencia.group(1)
+        cierre = coincidencia.group(0)[coincidencia.start(1) - coincidencia.start() + len(cerca):].strip()
+        if apertura is None:
+            apertura = coincidencia.start()
+            longitud_apertura = len(cerca)
+        elif len(cerca) >= longitud_apertura and not cierre:
+            tramos.append((apertura, coincidencia.end()))
+            apertura = None
+    if apertura is not None:
+        tramos.append((apertura, len(texto or "")))
+    return tramos
+
+
+def _texto_sin_bloques(texto: str) -> str:
+    """Copia del texto con los bloques de código cercados en blanco (misma longitud)."""
+    caracteres = list(texto or "")
+    for inicio, fin in _bloques_cercados(texto or ""):
+        for posicion in range(inicio, fin):
+            if caracteres[posicion] != "\n":
+                caracteres[posicion] = " "
+    return "".join(caracteres)
+
+
+# Marcadores que dicen con palabras lo mismo que ``[POR CONFIRMAR]``: el fichero no
+# está declarado y se deja a la vista del instructor. La regla de tres niveles los
+# considera resueltos (nivel 3: «debe omitirse **o marcarse**»), así que no son
+# violación. Sin esto, la corrección que el propio Writer prescribe no converge: se
+# midió el 22/10/2026 que insertar el marcador dejaba el hallazgo intacto en los 4
+# casos probados, y el reintento acababa en ``RuntimeError`` → curso no entregado.
+_MARCAS_CONFIRMACION = (
+    "por confirmar", "pendiente de confirmar", "por definir",
+    "confirmar con el instructor", "confirmar con tu instructor",
+    "confirmar con la persona instructora", "el instructor debe confirmar",
+    "la persona instructora debe confirmar", "el instructor tiene que confirmar",
+    "confirmado por el instructor", "confirmada por el instructor",
+    "confirmados por el instructor", "confirmadas por el instructor",
+    "solicitalo a tu instructor", "solicitalos a tu instructor",
+    "solicitala a tu instructor", "solicitalas a tu instructor",
+    "pide a tu instructor", "pide a la persona instructora",
+)
+# Marcador en mayúsculas, que es como lo piden los prompts: ``[POR CONFIRMAR]``.
+# Se exige que todo el corchete sea mayúsculas y que diga CONFIRMAR o PENDIENTE: ni
+# ``['pendientes']`` (un listado de Python) ni ``[COMPLETAR]`` (una plantilla que el
+# alumno rellena) son marcas de confirmación. Medido sobre el corpus: el detector
+# amplio exoneraba 70 referentes, casi todos por esas dos confusiones.
+_MAYUSCULAS = "A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00d1"
+_MARCADOR_MAYUSCULAS_RE = re.compile(
+    rf"\[(?=[^\]\n]*(?:CONFIRMAR|PENDIENTE)[^\]\n]*\])"
+    rf"[{_MAYUSCULAS}0-9 _./:\-]{{2,60}}\]"
+)
+# La misma idea escrita en minúsculas, pero solo si el corchete **es** la marca.
+_MARCADOR_MINUSCULAS_RE = re.compile(
+    r"\[\s*(?:(?:por|a|para)\s+confirmar|pendiente(?:\s+de\s+confirmar)?)\s*\]"
+    r"|<(?:por confirmar|pendiente|a confirmar)>",
+    re.IGNORECASE,
+)
+
+
+def _parrafo_de(texto: str, posicion: int) -> str:
+    """Ámbito donde se declara un referente: su párrafo y el anterior.
+
+    En una tabla de ficheros que hay que aportar, el texto que lo declara va en la
+    línea de introducción y la tabla empieza tras una línea en blanco; por eso se
+    incluye también el párrafo inmediatamente anterior. El recorte es deliberadamente
+    corto: un marcador a media página no exonera nada.
+    """
+    inicio = texto.rfind("\n\n", 0, posicion)
+    if inicio == -1:
+        desde = max(0, posicion - _VENTANA_CONTEXTO)
+    else:
+        anterior = texto.rfind("\n\n", 0, inicio)
+        desde = anterior + 2 if anterior != -1 else 0
+    fin = texto.find("\n\n", posicion)
+    hasta = fin if fin != -1 else len(texto)
+    return texto[desde:hasta]
+
+
+def marcas_de_confirmacion(texto: str, referente: dict) -> list[str]:
+    """Marcadores visibles que acompañan al referente, si los hay.
+
+    Devuelve la lista de marcas halladas (vacía si el referente se afirma sin
+    reservas). ``[POR CONFIRMAR]`` y «el instructor debe confirmar» cuentan igual:
+    los dos dejan el fichero a la vista de quien imparte el curso.
+    """
+    if not texto:
+        return []
+    parrafo = _parrafo_de(texto, referente.get("inicio", 0))
+    # Las frases se buscan en la **prosa**: un comentario de código que diga
+    # «confirmar con el instructor» no es una declaración para el instructor.
+    # Los corchetes sí se buscan en todo el párrafo, porque la corrección prescribe
+    # escribirlos junto a la mención, y esa mención puede estar en un bloque.
+    prosa = normalizar(_texto_sin_bloques(parrafo))
+    halladas = [marca for marca in _MARCAS_CONFIRMACION if marca in prosa]
+    halladas += [m.group(0) for m in _MARCADOR_MAYUSCULAS_RE.finditer(parrafo)]
+    halladas += [m.group(0) for m in _MARCADOR_MINUSCULAS_RE.finditer(parrafo)]
+    return sorted(set(halladas))
+
+
 def _es_creacion(texto: str, referente: dict) -> bool:
     """¿La aparición del referente está en un contexto de creación o de ausencia?
 
@@ -923,6 +1055,18 @@ def _es_creacion(texto: str, referente: dict) -> bool:
     return bool(_MARCADORES_AUSENCIA_RE.search(contexto))
 
 
+def _aparece_en_prosa(texto: str, referente: dict) -> bool:
+    """¿El nombre del referente aparece fuera de los bloques de código?
+
+    Si **solo** aparece dentro de un bloque, la prosa no habla de él: un «Abre el
+    PDF» de la frase siguiente se refiere a otra cosa. Es el mecanismo medido del
+    falso positivo de `politica_vacaciones_parte1.txt`, donde el nombre estaba en un
+    listado de ejemplo y el verbo en el punto siguiente.
+    """
+    prosa = canonico(_texto_sin_bloques(texto or ""))
+    return any(clave and clave in prosa for clave in claves_de(referente))
+
+
 def _es_entrada(texto: str, referente: dict) -> bool:
     """¿El contexto presenta el fichero como **aportado por el curso**?
 
@@ -931,13 +1075,23 @@ def _es_entrada(texto: str, referente: dict) -> bool:
     debe provocar un reintento (la calibración lo midió: ~90 % de los marcados
     eran de ese tipo). Un fichero que el curso dice **proporcionar** y que no está
     en el temario sí: el alumno no lo tendrá.
+
+    La señal tiene que estar en la **prosa** y hablar del propio referente. Medido el
+    22/10/2026 sobre 1.196 guías, los tres falsos positivos que bloqueaban un curso
+    eran un listado de nombres de ejemplo dentro de un bloque, un guion que el alumno
+    revisa y una *docstring* de uso. Los verbos de edición se siguen buscando en el
+    texto completo, para no perder el caso legítimo «Abra el fichero X … reemplace su
+    contenido».
     """
     contexto = _contexto_de(texto, referente)
-    if any(marca in contexto for marca in _MARCAS_ENTRADA):
+    prosa = _contexto_de(_texto_sin_bloques(texto), referente)
+    if any(marca in prosa for marca in _MARCAS_ENTRADA):
         return True
     if any(marca in contexto for marca in _MARCAS_EDICION):
         return False
-    return bool(_VERBOS_ENTRADA_RE.search(contexto))
+    if not _aparece_en_prosa(texto, referente):
+        return False
+    return bool(_VERBOS_ENTRADA_RE.search(prosa))
 
 
 # --------------------------------------------------------------------------- #
@@ -947,10 +1101,16 @@ def _es_entrada(texto: str, referente: dict) -> bool:
 _PASO_RE = re.compile(r"^###\s+(?:Paso|Step)\s+\d+.*$", re.MULTILINE)
 _BLOQUE_RE = re.compile(r"```([\w+-]*)\n(.*?)```", re.DOTALL)
 _DURACION_LAB_RE = re.compile(
-    r"(?:\|\s*(?:Duraci[oó]n|Duration)\s*\|\s*(\d+)\s*(?:minutos?|minutes?|min)\b"
-    r"|(?:Duraci[oó]n|Duration)\s*:\s*\**\s*(\d+)\s*(?:minutos?|minutes?|min)\b)",
+    r"(?:"
+    r"\|\s*\**\s*(?:Duraci[oó]n|Duration)"
+    r"(?:\s+(?:estimada|total|aproximada|del\s+laboratorio|del\s+lab))?\s*\**[^|\n]*\|"
+    r"|(?:Duraci[oó]n|Duration)"
+    r"(?:\s+(?:estimada|total|aproximada|del\s+laboratorio|del\s+lab))?\s*\**\s*:\s*\**"
+    r")"
+    r"\s*(\d+)\s*(?:minutos?|minutes?|min)\b",
     re.IGNORECASE,
 )
+_MINUTOS_SUELTOS_RE = re.compile(r"(\d+)\s*(?:minutos?|minutes?|min)\b", re.IGNORECASE)
 
 _LENGUAJES_SHELL = frozenset(
     {"bash", "sh", "shell", "powershell", "ps1", "cmd", "bat", "zsh", "console", "terminal"}
@@ -977,12 +1137,32 @@ _PASOS_ACCION_MINIMOS = 3
 
 
 def duracion_declarada(laboratorio_md: str) -> int | None:
-    """Minutos que declara el propio laboratorio en sus metadatos, si los trae."""
-    coincidencia = _DURACION_LAB_RE.search(laboratorio_md or "")
+    """Minutos que declara el propio laboratorio en sus metadatos, si los trae.
+
+    Acepta las formas que el corpus usa de verdad: ``| Duración | 15 minutos |``,
+    ``| **Duración** | …``, ``| **Duración estimada** | …``, ``Duración total:`` y
+    ``**Duración:**``.
+
+    Si la declaración es un **desglose** («15 minutos (creación VM) + 35–45 minutos
+    (instalación OS) + 15 minutos»), se toma el mayor de los números de esa línea: el
+    total de un laboratorio no puede ser menor que su tramo más largo. Medido el
+    22/10/2026: leer solo el primero convertía en «imposible» un laboratorio que
+    declara 65–75 minutos, porque además el desglose no encajaba en el patrón y la
+    duración acababa tomándose del plan.
+    """
+    texto = laboratorio_md or ""
+    coincidencia = _DURACION_LAB_RE.search(texto)
     if not coincidencia:
         return None
-    valor = coincidencia.group(1) or coincidencia.group(2)
-    return int(valor) if valor else None
+    valor = coincidencia.group(1)
+    if not valor:
+        return None
+    numeros = [int(valor)]
+    fin_linea = texto.find("\n", coincidencia.end())
+    fin_linea = len(texto) if fin_linea == -1 else fin_linea
+    for extra in _MINUTOS_SUELTOS_RE.finditer(texto[coincidencia.end():fin_linea]):
+        numeros.append(int(extra.group(1)))
+    return max(numeros)
 
 
 def carga_de_laboratorio(laboratorio_md: str) -> dict:
@@ -1388,8 +1568,9 @@ def auditar_laboratorio(
             pasan, se comprueba B3p.
 
     Returns:
-        ``{"total", "creados", "violaciones", "menciones_posteriores", "duracion",
-        "requisitos", "entregables", "ok"}``. Cada violación lleva ``verificacion``
+        ``{"total", "creados", "marcados", "violaciones", "menciones_posteriores",
+        "duracion", "requisitos", "entregables", "ok"}``. Cada violación lleva
+        ``verificacion``
         (``B1``, ``B2``, ``B3p``, ``B5`` o ``B6``) y ``confianza`` (``alta`` si el
         contexto presenta el referente como **aportado por el curso**, si es una
         dependencia hacia delante, si es una duración imposible, si contradice al
@@ -1405,6 +1586,7 @@ def auditar_laboratorio(
     conocidos: set[str] = set(creados_antes or ())
     posteriores = _indice_de_salidas(salidas_posteriores)
     creados: set[str] = set()
+    marcados: list[dict] = []
     candidatos: list[dict] = []
 
     # Se recorren **todas** las apariciones (no solo la primera): un fichero puede
@@ -1415,6 +1597,20 @@ def auditar_laboratorio(
     for referente in extraer_referentes(laboratorio_md or "", deduplicar=False):
         claves = claves_de(referente)
         if any(clave in conocidos for clave in claves):
+            conocidos.update(claves)
+            continue
+        # Nivel 3 de la regla: el referente se deja **a la vista** del instructor
+        # (``[POR CONFIRMAR]`` o «el instructor debe confirmar»). Eso es una
+        # resolución, no una violación: el fichero no se afirma, se señala.
+        marcas = marcas_de_confirmacion(laboratorio_md or "", referente)
+        if marcas:
+            marcados.append(
+                {
+                    "valor": referente["valor"],
+                    "inicio": referente["inicio"],
+                    "marcas": marcas,
+                }
+            )
             conocidos.update(claves)
             continue
         creacion = _es_creacion(laboratorio_md, referente)
@@ -1535,6 +1731,7 @@ def auditar_laboratorio(
     return {
         "total": len(conocidos),
         "creados": sorted(creados),
+        "marcados": marcados,
         "violaciones": violaciones,
         "menciones_posteriores": menciones_posteriores,
         "duracion": duracion,
