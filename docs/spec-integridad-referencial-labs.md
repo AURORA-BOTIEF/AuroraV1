@@ -1964,3 +1964,124 @@ Mover cualquiera de los dos umbrales rompe uno de los dos lados. `test_referent_
 - `listar_b6_marcados.py` → `prueba/b6_marcados.txt`: los 13, con la duración de cada fuente.
 - `ver_oracle_010401.py`: el decimotercero, paso a paso.
 - `test_referent_check.py`: 130/130, incluidas las dos de 26.6.
+
+## 27. Tres estrechamientos más y el falso negativo de B6, medidos (23/10/2026)
+
+§26 cerró B6 con una decisión y dejó una lista de frentes. Este apartado ataca los estrechamientos
+que no endurecen nada —nivel 3 escrito en prosa y dos falsos positivos de A1—, lee los diez
+laboratorios que B6 **no** marca y decide qué hacer con ellos.
+
+### 27.1 Qué se cambió
+
+| Estrechamiento | Dónde | Qué hace ahora |
+|---|---|---|
+| (e) nivel 3 en prosa | `_NOTA_INSTRUCTOR_RE`, `_VERIFICACION_PRESENCIA_RE`, `marcas_de_confirmacion` | una **nota a quien imparte** que pide verificar que el material está en un sitio, carpeta o repositorio exime el referente y lo devuelve en `marcados` |
+| (f) lista de ejemplos | `_EJEMPLO_PARENTESIS_RE`, `_es_ejemplo` | en «(ej. 'X_BASE.xlsx', 'X_SOLUCION.xlsx')» el segundo nombre también es nomenclatura: el paréntesis **abre** con «ej.» o «ej:» |
+| (g) endpoint de métricas | `_SEGMENTOS_API` | `/_prometheus/metrics` es una URL de servicio, no un fichero del curso |
+
+Los tres son de la misma familia que §25: quitan ruido sin dejar pasar un defecto, y ninguno cambia
+lo que bloquea.
+
+### 27.2 Los controles negativos, que son la mitad de la regla
+
+El marcador (e) **no** es «nota para el instructor» a secas. Una nota que solo declara una entrada
+(«el alumno trabajará con `X`») seguiría ocultando un defecto real, así que se exige que la misma
+prosa pida **verificar la presencia** en un sitio, carpeta o repositorio. Tres pruebas fijan los
+tres lados:
+
+- la nota del caso real (pide verificar que SharePoint contenga los archivos) **exime**;
+- la nota que solo describe el uso de un fichero **no** exime (B1 se mantiene);
+- la nota en otro párrafo **no** exime (el ámbito es el párrafo del referente, no la página).
+
+El marcador (f) tenía un riesgo que la primera versión no acotaba: `ej\s*\.?` casaba con
+«(ejercicio 3: `Datos_Privados_Q3.xlsx`)» y habría exonerado una entrada real. Se exige el punto
+(«ej.») o el separador («ej:»), y una prueba lo fija.
+
+### 27.3 La medición
+
+Mismo corpus, misma población y mismo borrado de A1 en el plan (el camino vivo):
+
+| | §25 (antes) | §27 (después) | |
+|---|---|---|---|
+| A1 hallazgos | 1.432 | **1.428** | −4: los cuatro son falsos positivos |
+| A1 de alta | 45 en 13 planes | **43 en 11 planes** | −2 |
+| A1 de baja | 1.387 | **1.385** | −2 |
+| B1 de alta | 8 | **7** | la nota de nivel 3 |
+| B1 de baja | 550 | **544** | −6 |
+| B6 de alta | 12 | **12** | sin cambios |
+| **Altas bloqueantes** | **20 en 20 laboratorios** | **19 en 19 laboratorios** | −1 |
+| Exonerados por marcador | 16 | **20** | +4 |
+
+La población es la de §25 (proyectos con `outline`, plan y guías). La población por guías de §26
+suma un laboratorio más —el proyecto de Oracle sin `outline`—: allí B6 son 13 y las bloqueantes 21;
+aquí no entra porque §27 no lo toca.
+
+No se compararon totales: se comparó **hallazgo a hallazgo** contra el volcado de §25
+(`a1_corpus.json` y `ab1_vivo.json`). En A1 desaparecen 4 y aparecen 0; en B desaparecen 7 y
+aparecen 0. Los 11 son falsos positivos:
+
+- A1: `P11_Clasificacion_Demanda_SOLUCION.xlsx` (alta) y `/_prometheus/metrics` (alta) son los dos
+  que se buscaban; `books_static.csv` (baja) estaba en «(ej: api_weather.json, books_static.csv)», y
+  `/Documents/automatizacion-python` (baja) en «(p. ej. `C:\Users\<usuario>\Documents\…`)».
+- B1: seis en el laboratorio de nóminas —los tres normativos que se marcaban por ruta (uno de alta)
+  y por nombre (tres de baja)—; el cuarto, `LFT_Vigente_Ficticio.pdf`, no llegaba a marcarse. Los
+  cuatro pasan a `marcados` (16 → 20). El séptimo es `lesson/SqlInjection.lesson` (baja) en
+  `260225-DESSEGV`/`03-00-03`, dentro de «(ej: `/WebGoat/start.mvc#lesson/SqlInjection.lesson`)».
+
+### 27.4 El falso negativo de frontera, leído
+
+§26.4 dejó 10 laboratorios con menos de 0,5 min/bloque que B6 no marca porque `2,0` no es menor que
+`2,0`. Leídos los diez, **todos son imposibles**:
+
+| Laboratorio | Declara | Pasos / bloques | Qué pide |
+|---|---|---|---|
+| `260225-DESSEGV` / `05-00-01` | 12 min | 6 / 38 | VAmPI *mass assignment*: explotar, leer el código vulnerable, escribir un DTO y verificar |
+| `260225-DESSEGV` / `05-00-02` | 12 min | 6 / 36 | crAPI BOLA: `git clone` + `docker compose`, explotar, servidor Flask y reporte |
+| `260225-DESSEGV` / `05-00-03` | 12 min | 6 / 38 | middleware de logging, tocar endpoints, repetir los ataques y generar reporte |
+| `260225-DESSEGV` / `05-00-05` | 12 min | 5 / 32 | crAPI fuga de datos: script, `venv`, corrección y reporte comparativo |
+| `260225-DESSEGV` / `05-00-06` | 12 min | 5 / 29 | crear tres versiones de API, gateway Nginx, explotar BOLA y reportar |
+| `260225-DESSEGV` / `05-00-07` | 12 min | 5 / 25 | fuerza bruta, Flask-Limiter con Redis, validar y documentar |
+| `260225-DESSEGV` / `05-00-09` | 12 min | 6 / 42 | headers de seguridad, CORS, OWASP ZAP en daemon, Dockerfile seguro y rebuild |
+| `261008-LFS158` / `04-00-01` | 10 min | 5 / 34 | explorar la API de Kubernetes, manifiesto del namespace y documento de análisis |
+| `260722-Certified-Kubernetes-Administration` / `06-00-03` | 17 min | 7 / 51 | minikube de tres nodos, DNS entre namespaces y CoreDNS en CrashLoop |
+| `260629-Temario-contenedores-Azure` / `05-01-01` | 21 min | 10 / 54 | RBAC en AKS, Defender for Containers y ACR en 21 minutos |
+
+Siete de los diez son el **mismo módulo** de `260225-DESSEGV`, todos con 12 minutos: la misma
+constante por módulo que §26.3, ahora vista desde el lado de los falsos negativos.
+
+Son **falsos negativos**, no falsos positivos. Y la decisión es **no endurecer**: pasar la
+conjunción a disyunción —o añadir un umbral de min/bloque— metería ~10 bloqueantes más (19 → ~29)
+sin una decisión de producto, y la dirección acordada es estrechar antes de endurecer. Queda
+documentado con la lista leída: si se corrige, será con un cambio explícito y medido, no de paso.
+
+### 27.5 Pruebas y despliegue
+
+`test_referent_check.py`: **136/136**. Nuevas: las tres del marcador (e), la de la lista de ejemplos
+(f), la del control «ejercicio», la del endpoint (g) y las dos de B6 de §26.6.
+
+Despliegue verificado **sobre el artefacto de la Lambda**, no sobre el fuente: `StrandsLabWriter` y
+`StrandsLabPlanner` con `LastModified` 2026-10-23T23:15:03, los cinco símbolos nuevos presentes y
+las dos copias de `referent_check.py` idénticas (`sha256[:16] = f07f1d149e6b98d1`). El módulo
+descargado de la Lambda ejecuta los cinco casos: 5/5.
+
+### 27.6 Lo que sigue
+
+1. **El planificador**: estimar por carga en vez de por módulo (§26.3). Es la raíz de los 12 de B6
+   y de los 10 de §27.4.
+2. **La cascada, medida.** Con el borrado de A1 en el plan (el camino vivo) hay **7 B1 de alta y 19
+   bloqueantes**; sin el borrado, **5 y 17**. La diferencia son 6 referentes que solo aparecen con
+   el borrado —2 de alta, `Lab04_Plan_Cierre_Fiscal.xlsx` y `licenses.txt`, y 4 de baja— y
+   **ninguno** que solo aparezca sin él. El borrado no crea el defecto: deja de taparlo. El plan
+   declaraba esos ficheros en falso y B1 los saca a la luz. Se mantiene.
+3. Sin cambios: el resto de §25.7 (`step_structure`, Fase 3, C1, manifiesto de entradas).
+
+### 27.7 Reproducibilidad de este apartado
+
+- `medir_ab1_vivo4.py` → `prueba/ab1_final4.txt` y `ab1_final4.json`: la medición completa.
+- `comparar_a1.py`: A1 antes/después sobre la misma población, hallazgo a hallazgo.
+- `dif_b.py`: la diferencia de B, hallazgo a hallazgo.
+- `medir_cascada.py` con `AB1_SIN_BORRADO=1` → `prueba/ab1_cascada.txt`: la cascada de §27.6.
+- `perfilar_frontera.py` → `prueba/frontera_perfil.txt`: los diez de §27.4, paso a paso.
+- `probar_estrechamientos3.py`: los cinco casos del marcador y de los ejemplos, aislados.
+- `verificar_desplegado27.py` y `probar_desplegado27.py`: el artefacto de la Lambda.
+- `test_referent_check.py`: 136/136.
