@@ -1805,6 +1805,10 @@ Además de lo de §24.9:
   función.
 - `medir_marcados.py` y `prueba/marcados.json` — la primera pasada de revisión de exoneraciones
   (la que descubrió las 70 y los dos falsos positivos del detector).
+- `verificar_desplegado.py` — descarga el artefacto de cada Lambda y comprueba que lleva
+  los símbolos nuevos y que las dos copias desplegadas de `referent_check.py` son idénticas.
+- `probar_desplegado.py` — importa el `referent_check.py` **descargado de la Lambda** y ejecuta
+  los cuatro estrechamientos: 6/6.
 - Pruebas de camino vivo en `test_referent_check.py` (128 en total): `test_el_marcador_por_confirmar_exime_el_referente`,
   `test_el_marcador_de_la_introduccion_exime_las_filas_de_la_tabla`,
   `test_un_nombre_que_solo_vive_en_un_bloque_de_codigo_no_es_entrada`,
