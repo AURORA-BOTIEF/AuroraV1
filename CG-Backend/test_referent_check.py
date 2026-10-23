@@ -2611,6 +2611,109 @@ def test_b6_no_marca_el_mismo_caso_angular_con_45_minutos():
     assert informe["duracion"]["minutos_por_bloque"] == 1.67
 
 
+def test_la_nota_al_instructor_que_pide_verificar_exime_el_material():
+    """Nivel 3 escrito en prosa, tal como aparece en el corpus real.
+
+    Caso medido el 23/10/2026 en el curso de nóminas: «**Nota para el instructor:**
+    … verificar que el sitio de SharePoint del curso contenga las siguientes carpetas
+    y archivos». La guía no afirma el material: lo deja a la vista de quien imparte,
+    que es exactamente la resolución que la regla de tres niveles admite.
+    """
+    lab = (
+        "## Material del curso\n\n"
+        "> **Nota para el instructor:** Antes de iniciar la práctica, verificar que el "
+        "sitio de SharePoint del curso contenga las siguientes carpetas y archivos en "
+        "la biblioteca de documentos:\n"
+        "> - `/Modulo1/Normativos/LFT_Vigente_Ficticio.pdf`\n"
+        "> - `/Modulo1/Normativos/LSS_Cuotas_IMSS_2024_Ficticio.pdf`\n\n"
+        "### Paso 1: Abrir el material\n```bash\nls /Modulo1/Normativos\n```\n"
+    )
+    informe = auditar_laboratorio(lab, _FUENTES)
+    assert informe["violaciones"] == [], informe["violaciones"]
+    marcados = {m["valor"] for m in informe["marcados"]}
+    assert "/Modulo1/Normativos/LSS_Cuotas_IMSS_2024_Ficticio.pdf" in marcados
+
+
+def test_una_nota_al_instructor_que_solo_declara_la_entrada_no_exime():
+    """No basta con la nota: tiene que pedir **verificar la presencia**.
+
+    Si la nota solo describe una entrada («el alumno debe descargar X»), el temario
+    sigue sin declararla y el defecto es real. Sin esta condición, añadir «nota para
+    el instructor» habría exonerado entradas de verdad.
+    """
+    lab = (
+        "**Nota para el instructor:** el alumno trabajará con "
+        "`Datos_Financieros_Q4.xlsx` durante la práctica.\n\n"
+        "### Paso 1: Abrirlo\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, _FUENTES)
+    b1 = [v for v in informe["violaciones"] if v["verificacion"] == "B1"]
+    assert len(b1) == 1, informe["violaciones"]
+
+
+def test_una_nota_al_instructor_en_otro_parrafo_no_exime():
+    """El ámbito del marcador es el párrafo del referente, no la página."""
+    lab = (
+        "**Nota para el instructor:** verificar que el sitio contenga el material.\n\n"
+        "Rellene la tabla con los resultados obtenidos.\n\n"
+        "| Fichero |\n|---|\n| `Datos_Financieros_Q4.xlsx` |\n\n"
+        "### Paso 1: Abrirlo\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, _FUENTES)
+    b1 = [v for v in informe["violaciones"] if v["verificacion"] == "B1"]
+    assert len(b1) == 1, informe["violaciones"]
+
+
+def test_el_segundo_nombre_de_una_lista_de_ejemplos_no_es_entrada():
+    """«(ej. 'X_BASE.xlsx', 'X_SOLUCION.xlsx')»: los dos son nomenclatura.
+
+    La marca delante solo cubre el primer nombre. Medido el 23/10/2026 en
+    `P11_Clasificacion_Demanda_SOLUCION.xlsx`, que A1 marcaba como entrada.
+    """
+    plan = {
+        "special_considerations": [
+            "Nomenclatura consistente (ej. 'P11_Clasificacion_Demanda_BASE.xlsx', "
+            "'P11_Clasificacion_Demanda_SOLUCION.xlsx') para evitar confusiones."
+        ]
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    assert informe["ok"], informe["violaciones"]
+
+
+def test_un_endpoint_de_metricas_no_es_un_fichero_del_curso():
+    """`/_prometheus/metrics` es una URL de servicio, no material del curso.
+
+    Caso medido el 23/10/2026: A1 la marcaba como ruta en las notas de instalación
+    de Couchbase.
+    """
+    plan = {
+        "software_requirements": [
+            {
+                "name": "Couchbase",
+                "installation_notes": "Couchbase expone métricas en formato Prometheus "
+                "en /_prometheus/metrics.",
+            }
+        ]
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    assert informe["ok"], informe["violaciones"]
+
+
+def test_un_ejercicio_entre_parentesis_no_es_un_ejemplo():
+    """«(ejercicio 3: `datos.xlsx`)» es una entrada, no una ilustración.
+
+    La marca tiene que ser «ej.» o «ej:»: el prefijo «ej» de «ejercicio» no vale.
+    """
+    plan = {
+        "special_considerations": [
+            "Ver el ejercicio 3: (`Datos_Privados_Q3.xlsx`) para el cálculo de indicadores."
+        ]
+    }
+    informe = auditar_plan(plan, _FUENTES)
+    valores = {v["valor"] for v in informe["violaciones"]}
+    assert "Datos_Privados_Q3.xlsx" in valores, informe["violaciones"]
+
+
 def test_un_listado_de_python_no_es_un_marcador():
     """`['pendientes']` exoneraba un fichero de salida real: el marcador va en
     mayúsculas, o el corchete **es** la marca. Medido sobre el corpus."""

@@ -213,6 +213,9 @@ _SEGMENTOS_API = (
     # Rutas de API de aplicaciones que el laboratorio levanta: Spring Actuator,
     # VAmPI (``/users/v1/…``) y Microsoft Graph (``/me/…``, ``/drive/…``).
     "/actuator/", "/users/v1/", "/me/", "/drive/",
+    # Endpoint de métricas que una herramienta expone (``/_prometheus/metrics``):
+    # es una URL de servicio, no un fichero que el curso deba aportar.
+    "/_prometheus/",
     # Recurso REST de un catálogo de ejemplo (``/products/p-1`` en una aserción).
     "/products/",
 )
@@ -441,6 +444,17 @@ _EJEMPLO_LEJANO_RE = re.compile(
 )
 _SOLO_CONECTORES_RE = re.compile(r"[\w./\\\-`\"'«»(),;:\s]*")
 
+# Un ejemplo puede enunciar **una lista** entre paréntesis: «(ej. 'X_BASE.xlsx',
+# 'X_SOLUCION.xlsx')». La marca delante solo cubre el primer nombre; el segundo se
+# reconoce porque el paréntesis **empieza** por «ej.»/«p. ej.». Medido el
+# 23/10/2026: sin esto, el segundo nombre de la convención de nomenclatura
+# (``P11_Clasificacion_Demanda_SOLUCION.xlsx``) se marcaba como entrada.
+_EJEMPLO_PARENTESIS_RE = re.compile(
+    r"^\s*\(\s*(?:p\s*\.\s*)?ej\s*\.\s*(?::|,)?\s*"
+    r"|^\s*\(\s*(?:p\s*\.\s*)?ej\s*(?::|,)\s*",
+    re.IGNORECASE,
+)
+
 _VENTANA_CONTEXTO = 260
 
 # Referencias a un laboratorio por número, para la parte débil de B2: una mención
@@ -549,6 +563,12 @@ def _es_ejemplo(texto: str, inicio: int) -> bool:
     """¿El nombre está puesto como ejemplo (``ej: …``, ``normalmente …``)?"""
     if _EJEMPLO_PREVIO_RE.search(texto[max(0, inicio - 40):inicio]):
         return True
+    # Lista de ejemplos entre paréntesis: la marca abre el paréntesis y el
+    # segundo nombre ya no la lleva delante.
+    apertura = texto.rfind("(", 0, inicio)
+    if apertura != -1 and texto.rfind(")", 0, inicio) < apertura:
+        if _EJEMPLO_PARENTESIS_RE.match(texto[apertura:inicio]):
+            return True
     largo = texto[max(0, inicio - 120):inicio]
     marca = _EJEMPLO_LEJANO_RE.search(largo)
     if not marca:
@@ -968,6 +988,25 @@ _MARCADOR_MINUSCULAS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Nivel 3 escrito en prosa: una **nota a quien imparte** que le pide comprobar que
+# el material está. No basta con «nota para el instructor» —eso también introduce
+# una simple declaración de entrada—: se exige que la misma prosa pida verificar
+# la presencia en un sitio, carpeta o repositorio. Caso medido el 23/10/2026:
+# «**Nota para el instructor:** … verificar que el sitio de SharePoint del curso
+# contenga las siguientes carpetas y archivos…».
+_NOTA_INSTRUCTOR_RE = re.compile(
+    r"\bnota\s+(?:para|al)\s+(?:el\s+|la\s+)?"
+    r"(?:instructor|instructora|persona\s+instructora|docente|quien\s+imparte)",
+    re.IGNORECASE,
+)
+_VERIFICACION_PRESENCIA_RE = re.compile(
+    r"\b(?:verificar|verifique|confirmar|confirme|comprobar|compruebe|"
+    r"asegurar|asegurese|revisar|revise)\b[^.]{0,80}?"
+    r"\b(?:sitio|repositorio|carpeta|biblioteca|sharepoint|onedrive|"
+    r"plataforma|entorno)\b",
+    re.IGNORECASE,
+)
+
 
 def _parrafo_de(texto: str, posicion: int) -> str:
     """Ámbito donde se declara un referente: su párrafo y el anterior.
@@ -1006,6 +1045,9 @@ def marcas_de_confirmacion(texto: str, referente: dict) -> list[str]:
     halladas = [marca for marca in _MARCAS_CONFIRMACION if marca in prosa]
     halladas += [m.group(0) for m in _MARCADOR_MAYUSCULAS_RE.finditer(parrafo)]
     halladas += [m.group(0) for m in _MARCADOR_MINUSCULAS_RE.finditer(parrafo)]
+    # Nivel 3 en prosa: nota a quien imparte pidiendo comprobar la presencia.
+    if _NOTA_INSTRUCTOR_RE.search(prosa) and _VERIFICACION_PRESENCIA_RE.search(prosa):
+        halladas.append("nota para el instructor")
     return sorted(set(halladas))
 
 
