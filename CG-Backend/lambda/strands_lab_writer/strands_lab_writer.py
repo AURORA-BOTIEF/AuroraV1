@@ -2482,7 +2482,7 @@ def lambda_handler(event, context):
             'lab_guide_keys': lab_guide_keys,
             'project_folder': project_folder,
             'bucket': course_bucket,
-            'model_provider': model_provider
+            'model_provider': model_provider,
         }
     
     except KeyError as e:

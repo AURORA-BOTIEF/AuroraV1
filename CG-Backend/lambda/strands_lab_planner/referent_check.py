@@ -2123,9 +2123,19 @@ _INSTRUCCION_RE = re.compile(
 
 
 def _en_instruccion(prosa: str, posicion: int) -> bool:
-    """¿La cantidad aparece en una instrucción o en un límite, no en una descripción?"""
-    ventana = normalizar(prosa[max(0, posicion - 110) : posicion])
-    return bool(_INSTRUCCION_RE.search(ventana))
+    """¿La cantidad aparece en una instrucción o en un límite, no en una descripción?
+
+    La ventana se corta en el **inicio de la frase** (salto de línea, punto o dos
+    puntos): un encabezado como «### Paso 1: Revisar» no debe envenenar la
+    descripción que viene detrás.
+    """
+    corte = max(
+        prosa.rfind("\n", 0, posicion),
+        prosa.rfind(". ", 0, posicion),
+        prosa.rfind(": ", 0, posicion),
+    )
+    ventana = prosa[max(corte + 1, posicion - 110) : posicion]
+    return bool(_INSTRUCCION_RE.search(normalizar(ventana)))
 
 
 def _lema_cantidad(sustantivo: str) -> str:
