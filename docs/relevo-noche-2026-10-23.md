@@ -147,6 +147,14 @@ filtros de instrucciones/genericos → **2** con la regla de pluralidad; los 2 s
 plan: **1 de 165**, corregido; **0 A2 restantes**. 156/156 pruebas y despliegue verificado
 (`21:35:14`, `2fc2071e138bffc2`, 4/4).
 
+**A2 v2 y B4 (spec §32): descartadas por medición.** Nombres propios: **1.246 guías, el 100 % con
+candidatos, 14.670 nombres**; «no está en el temario» es casi todo (productos, encabezados, personas
+de ejemplo). Estabilidad entre prácticas: **312 discrepancias en 99 proyectos** contra el temario y
+**66 en 46** contra el plan; casi todas son recuentos legítimos («4 vs 9 diapositivas», «6 vs 18
+meses»). Ninguna se despliega. A cambio, la prueba de camino vivo destapó un fallo de A2: el filtro
+de instrucciones se comía el encabezado del paso; acotado a la frase, A2 pasa de 2 a 3 hallazgos
+(los tres del caso real). 156/156 y despliegue verificado (`23:46:13`, `7ea6374c7505ec5d`, 3/3).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

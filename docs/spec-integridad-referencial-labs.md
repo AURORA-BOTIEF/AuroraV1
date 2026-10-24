@@ -2413,3 +2413,95 @@ línea. Tras reconciliar los 165 planes, **quedan 0 A2**.
 2. **B4: estabilidad entre laboratorios** — la misma entidad o cifra no cambia de una práctica a otra.
 3. El mapa de conformidad de §30.2 queda con una fila menos pendiente: entidades y cantidades ya
    tienen regla para las cantidades.
+
+## 32. A2 v2 y B4: dos reglas descartadas por medición (24/10/2026)
+
+Después de A2 v1 (§31), quedaban dos quejas del informe: los **nombres** («CIBEST CAPITAL» →
+«Northstar Digital») y la **estabilidad de cifras entre prácticas**. Las dos se implementaron hasta
+poder medirlas y las dos se descartaron: no separan señal de ruido. El trabajo dejó, eso sí, un
+arreglo real en A2.
+
+### 32.1 A2 v2 (nombres propios): no viable
+
+La hipótesis: si un nombre de la guía no aparece en el temario, es inventado. La extracción
+—secuencias de dos o más palabras capitalizadas, en prosa, sin encabezados ni bloques— se midió
+sobre el corpus:
+
+| | |
+|---|---|
+| Guías | 1.246 |
+| Guías con algún candidato | **1.246 (100 %)** |
+| Nombres distintos | **14.670** |
+| Apariciones | **43.129** |
+
+Los más frecuentes no son entidades inventadas: «Salida Esperada» (1.299), «Nivel Bloom» (779),
+«Microsoft Edge» (539), «Intel Core» (523), «Copilot Studio» (404), «Carlos Mendoza» (140). La razón
+es estructural: **el temario describe un curso y la guía es el curso**. La guía nombra herramientas,
+productos, personas de ejemplo y encabezados que el temario no tiene por qué nombrar. «No está en el
+temario» es casi todo.
+
+**No se implementa.** Cazar una sustitución de nombre exige que alguien declare la lista de entidades
+del escenario, o un modelo semántico. No es una regla que podamos inventar.
+
+### 32.2 B4 (estabilidad entre prácticas): no viable con recuentos de superficie
+
+La idea: si un laboratorio dice «seis fondos» y otro «tres», al menos uno está mal. Se probaron los
+dos ámbitos posibles:
+
+| Comparación | Discrepancias | Proyectos afectados |
+|---|---|---|
+| Contra el temario (sustantivos que no declara) | **312** | 99 de 164 |
+| Contra el plan (sustantivos que el plan declara) | **66** | 46 de 169 |
+
+Los casos son, casi todos, recuentos que **varían legítimamente** por laboratorio: «secciones» 8 y 4
+(dos documentos distintos), «meses» 6 y 18 (dos ventanas de datos), «personas» 5 y 50 (un dataset de
+50 frente a cinco usuarios), «imágenes» 8, 15 y 3, «aplicaciones» 25, 45 y 10.
+
+El problema es el mismo que en A2 v1: **el sustantivo no distingue un parámetro del escenario de un
+recuento de la práctica**. Sin un modelo que declare qué cifras son del escenario, la regla marca
+entre el 27 % y el 60 % de los cursos.
+
+**No se implementa.** Se llegó a cablear en el Writer y se revirtió antes de desplegar: sus 312
+discrepancias habrían llenado el registro de ruido. La función y sus pruebas no se quedan en el
+código; el resultado se documenta aquí.
+
+### 32.3 El arreglo que sí salió de aquí
+
+La prueba de camino vivo del Writer con dos guías (6 y 3 fondos) destapó un fallo de A2: el filtro de
+instrucciones miraba 110 caracteres hacia atrás y **se comía el encabezado del paso**. En «### Paso
+1: Revisar\nEl escenario tiene seis fondos», el verbo «Revisar» convertía la frase siguiente en
+instrucción y la cantidad se descartaba: un falso negativo silencioso.
+
+Ahora la ventana se corta en el inicio de la frase (salto de línea, punto o dos puntos). Efecto
+medido: A2 pasa de **2 a 3** hallazgos en guías, y el tercero es el mismo caso real
+(`260915`/`03-00-02`, «tres fondos» frente a los seis del temario). Los tres son verdaderos
+positivos.
+
+### 32.4 El mapa de conformidad
+
+| Lo que declara el temario | Comprobación | Estado |
+|---|---|---|
+| Número de prácticas y su duración | A3 + B6 (banda 4/3) | cubierto |
+| Objetivo y descripción de cada práctica | A5 | cubierto |
+| Entregables | A4 + B3p | cubierto |
+| Ficheros y material | A1 / B1 | cubierto |
+| Requisitos técnicos | B5 | cubierto |
+| **Cantidades** | **A2** (plan y guía) | **cubierto** |
+| Nombres de entidades | — | **no viable sin lista declarada** |
+| Estabilidad de cifras entre prácticas | — | **no viable con recuentos de superficie** |
+
+### 32.5 Verificación
+
+- `test_referent_check.py`: **156/156** (se retiraron las 5 pruebas de B4 al retirar la regla).
+- Corpus con el filtro corregido: A2 en guías **3/3 verdaderos positivos**; plan sin cambios desde
+  §31.
+- Despliegue verificado sobre el artefacto de la Lambda: `LastModified` 2026-10-24T23:46:13, copias
+  idénticas (`sha256[:16] = 7ea6374c7505ec5d`), y el módulo descargado ejecuta el caso con encabezado
+  delante, el de instrucción y la reconciliación del plan (**3/3**).
+
+### 32.6 Lo que sigue
+
+1. **B7 (Setup Guide ↔ laboratorios)** y **B8 (marcadores)**: los dos frentes que quedan de Fase 3.
+2. **Nombres y estabilidad** solo si el negocio decide que el temario declare el escenario (lista de
+   entidades y cifras). Es una decisión de producto; la regla no puede sustituirla.
+3. El resto de §25.7: C1, manifiesto de entradas y observación en producción.
