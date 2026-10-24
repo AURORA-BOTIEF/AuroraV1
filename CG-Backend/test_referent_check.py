@@ -43,6 +43,7 @@ from referent_check import (  # noqa: E402
     extraer_referentes,
     mensaje_de_correccion,
     preflight_duracion,
+    reconciliar_cantidades,
     reconciliar_contrato,
     reconciliar_duraciones,
     referencias_a_labs_posteriores,
@@ -2879,6 +2880,172 @@ def test_el_planner_guarda_el_preflight_en_los_metadatos():
     preflight = plan["metadata"]["preflight_duracion"]
     assert preflight["avisos"] == 1, preflight
     assert preflight["modulos"][0]["por_laboratorio"] == 9.5
+
+
+def test_a2_marca_una_cantidad_cambiada():
+    """«Seis fondos» en el temario y «tres fondos» en la guía: el escenario cambió."""
+    fuentes = "El escenario del curso tiene seis fondos de inversión."
+    lab = (
+        "## Contexto\nEl escenario tiene tres fondos de inversión.\n\n"
+        "### Paso 1: Revisar\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, fuentes)
+    a2 = [v for v in informe["violaciones"] if v["verificacion"] == "A2"]
+    assert len(a2) == 1, informe["violaciones"]
+    assert a2[0]["confianza"] == "alta"
+    assert a2[0]["esperado"] == 6
+    assert a2[0]["obtenido"] == 3
+
+
+def test_a2_no_marca_la_misma_cantidad_en_palabra_o_cifra():
+    fuentes = "El escenario del curso tiene seis fondos de inversión."
+    lab = (
+        "El escenario tiene 6 fondos de inversión.\n\n"
+        "### Paso 1: Revisar\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, fuentes)
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
+
+
+def test_a2_ignora_los_sustantivos_de_estructura():
+    """«tres pasos» no es una cantidad del escenario: lo gobierna el formato."""
+    fuentes = "La práctica tiene tres pasos y un total de seis fondos."
+    lab = (
+        "Esta guía tiene cinco pasos.\n\n"
+        "### Paso 1: Revisar\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, fuentes)
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
+
+
+def test_a2_no_mira_dentro_de_los_bloques_de_codigo():
+    fuentes = "El escenario tiene seis fondos."
+    lab = "### Paso 1: Revisar\n```bash\n# tres fondos de prueba\nls\n```\n"
+    informe = auditar_laboratorio(lab, fuentes)
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
+
+
+def test_a2_no_inventa_la_fuente():
+    """Si el temario no declara la cantidad, no hay nada que comparar."""
+    fuentes = "El escenario tiene varios fondos."
+    lab = (
+        "El escenario tiene tres fondos.\n\n"
+        "### Paso 1: Revisar\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, fuentes)
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
+
+
+def test_a2_no_compara_un_singular_con_una_lista():
+    """«1 idea» en el temario y «tres ideas» en la guía son otro referente, no un cambio."""
+    fuentes = "La demo deja una idea clave sobre el prompt."
+    lab = (
+        "Quiero que se lleven tres ideas de esta demo.\n\n"
+        "### Paso 1: Revisar\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, fuentes)
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
+
+
+def test_a2_el_plan_no_cambia_la_cantidad_del_temario():
+    """El plan nace del temario: si dice «tres fondos» y el temario «seis», se corrige ahí."""
+    fuentes = "El escenario consta de seis fondos multiactivo."
+    plan = {
+        "lab_plans": [
+            {**_LAB_PLAN, "scope": "Trabaja con tres fondos multiactivo del escenario."}
+        ]
+    }
+    informe = auditar_plan(plan, fuentes)
+    a2 = [v for v in informe["violaciones"] if v["verificacion"] == "A2"]
+    assert len(a2) == 1, informe["violaciones"]
+    assert a2[0]["confianza"] == "alta"
+    assert "campo" in a2[0]
+    mensaje = mensaje_de_correccion(informe["violaciones"], "plan")
+    assert "cantidades" in mensaje
+    assert "seis" in mensaje or "6" in mensaje
+
+
+def test_a2_el_plan_con_la_cantidad_correcta_no_marca():
+    fuentes = "El escenario consta de seis fondos multiactivo."
+    plan = {
+        "lab_plans": [
+            {**_LAB_PLAN, "scope": "Trabaja con seis fondos multiactivo del escenario."}
+        ]
+    }
+    informe = auditar_plan(plan, fuentes)
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
+
+
+def test_a2_la_reconciliacion_copia_la_cantidad_del_temario():
+    """El plan se alinea copiando la cifra, sin depender del modelo."""
+    fuentes = "El escenario consta de seis fondos multiactivo."
+    plan = {
+        "lab_plans": [
+            {"lab_id": "01-00-01", "scope": "Trabaja con tres fondos multiactivo."}
+        ]
+    }
+    resultado = reconciliar_cantidades(plan, fuentes)
+    assert "6 fondos" in resultado["plan"]["lab_plans"][0]["scope"]
+    assert resultado["corregidos"] == [
+        {"sustantivo": "fondo", "antes": 3, "despues": 6}
+    ]
+    assert [
+        v
+        for v in auditar_plan(resultado["plan"], fuentes)["violaciones"]
+        if v["verificacion"] == "A2"
+    ] == []
+
+
+def test_a2_la_reconciliacion_no_toca_lo_que_coincide():
+    fuentes = "El escenario consta de seis fondos multiactivo."
+    plan = {
+        "lab_plans": [
+            {"lab_id": "01-00-01", "scope": "Trabaja con seis fondos multiactivo."}
+        ]
+    }
+    resultado = reconciliar_cantidades(plan, fuentes)
+    assert resultado["corregidos"] == []
+    assert resultado["plan"] == plan
+
+
+def test_el_planner_reconcilia_la_cantidad_del_temario():
+    """Camino vivo: el handler guarda el plan con la cifra del temario."""
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    outline = {
+        "course": {
+            "title": "Curso de prueba",
+            "total_duration_minutes": 120,
+            "modules": [
+                {
+                    "title": "Modulo 1",
+                    "summary": "El escenario consta de seis fondos multiactivo.",
+                    "lab_activities": [
+                        {"title": "Practica uno", "duration_minutes": 30}
+                    ],
+                }
+            ],
+        }
+    }
+    plan = _handler_de_planificador_con_temario(
+        modulo,
+        outline,
+        {
+            "lab_plans": [
+                {
+                    "lab_id": "01-00-01",
+                    "lab_title": "Practica uno",
+                    "estimated_duration": 30,
+                    "objectives": ["a"],
+                    "scope": "Trabaja con tres fondos multiactivo.",
+                    "expected_outcomes": ["c"],
+                }
+            ]
+        },
+    )
+    assert "6 fondos" in plan["lab_plans"][0]["scope"], plan["lab_plans"][0]
+    assert plan["metadata"]["quantity_integrity"]["corregidos"] == [
+        {"sustantivo": "fondo", "antes": 3, "despues": 6}
+    ]
 
 
 def test_un_listado_de_python_no_es_un_marcador():

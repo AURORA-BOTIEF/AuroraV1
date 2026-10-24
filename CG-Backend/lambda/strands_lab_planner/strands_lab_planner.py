@@ -26,6 +26,7 @@ from referent_check import (
     auditar_plan,
     mensaje_de_correccion,
     preflight_duracion,
+    reconciliar_cantidades,
     reconciliar_contrato,
     reconciliar_duraciones,
 )
@@ -1212,6 +1213,17 @@ def lambda_handler(event, context):
         # comprobar contra el extracto marcaría como inventado lo que el manual sí
         # declara pero quedó fuera de la selección por relevancia.
         referential_sources = flatten_to_text(outline_data) + "\n" + man_text
+        # A2: el plan no puede cambiar una cantidad que el temario declara. Se copia
+        # del temario de forma determinista, como A3 copia la duración y A5 el
+        # objetivo: así el reintento de A1 no gasta una llamada en algo que se
+        # arregla copiando. Va antes de la auditoría para que esta lo vea ya alineado.
+        cantidades = reconciliar_cantidades(master_plan, referential_sources)
+        if cantidades["corregidos"]:
+            print(
+                f"🔢 A2: {len(cantidades['corregidos'])} cantidad(es) del plan "
+                f"ajustadas al temario"
+            )
+            master_plan = cantidades["plan"]
         master_plan, referential_report = auditar_y_corregir_plan(
             master_plan,
             fuentes=referential_sources,
@@ -1347,6 +1359,10 @@ def lambda_handler(event, context):
                 'sin_contrato': duraciones['sin_contrato'],
             },
             'contract_integrity': contrato_informe,
+            'quantity_integrity': {
+                'check': 'A2',
+                'corregidos': cantidades['corregidos'],
+            },
             'preflight_duracion': preflight,
         }
 

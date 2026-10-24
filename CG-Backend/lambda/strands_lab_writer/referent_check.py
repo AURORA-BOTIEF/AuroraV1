@@ -819,6 +819,7 @@ def auditar_plan(plan: dict, fuentes: str) -> dict:
     violaciones: list[dict] = []
     vistos: set[str] = set()
     total = 0
+    cantidades_fuentes = _cantidades(fuentes or "")
 
     for campo, texto in _textos_del_plan(plan or {}):
         for referente in extraer_referentes(texto):
@@ -851,6 +852,23 @@ def auditar_plan(plan: dict, fuentes: str) -> dict:
                     "campo": campo,
                     "valor": referente["valor"],
                     "confianza": confianza,
+                    "verificacion": "A1",
+                }
+            )
+
+        # A2: el plan no puede cambiar una cantidad que el temario declara. Se
+        # comprueba campo a campo para poder señalar dónde está el desvío; el plan
+        # es el que nace del temario y el que el Writer obedece después.
+        for conflicto in _conflictos_de_cantidades(cantidades_fuentes, texto):
+            violaciones.append(
+                {
+                    "campo": campo,
+                    "valor": (
+                        f"{conflicto['sustantivo']}: el temario dice "
+                        f"{conflicto['esperado']} y el plan {conflicto['obtenido']}"
+                    ),
+                    "confianza": "alta",
+                    "verificacion": "A2",
                 }
             )
 
@@ -1736,6 +1754,24 @@ def auditar_laboratorio(
             }
         )
 
+    # A2: las cantidades del temario no se cambian. Se compara el mismo sustantivo
+    # en las fuentes (temario + manual) y en la guía; el temario es la verdad.
+    for conflicto in auditar_cantidades(fuentes or "", laboratorio_md or ""):
+        violaciones.append(
+            {
+                "valor": (
+                    f"{conflicto['sustantivo']}: el temario dice {conflicto['esperado']} "
+                    f"y la guía {conflicto['obtenido']}"
+                ),
+                "tipo": "cantidad",
+                "inicio": conflicto["inicio"],
+                "confianza": "alta",
+                "verificacion": "A2",
+                "esperado": conflicto["esperado"],
+                "obtenido": conflicto["obtenido"],
+            }
+        )
+
     # B5: requisitos técnicos que el laboratorio exige y el plan no declara. La
     # contradicción es de alta confianza; la ampliación se registra con baja.
     requisitos = auditar_requisitos(laboratorio_md or "", requisitos_texto or "")
@@ -1815,17 +1851,31 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
     if not violaciones:
         return ""
     if ambito == "plan":
-        lineas = [f"- «{v['valor']}» (campo {v['campo']})" for v in violaciones[:20]]
-        intro = (
-            "El plan presenta estos ficheros o rutas como APORTADOS POR EL CURSO, pero no "
-            "aparecen en el temario ni en el manual: el alumno no los tendrá. Corrígelos sin "
-            "cambiar lo que el temario sí define:\n"
-            "- si el curso debe aportarlo, escribe «[POR CONFIRMAR]» junto a su mención;\n"
-            "- si el estudiante lo crea o lo genera, describe en qué paso se crea;\n"
-            "- si sobra, sustitúyelo por una descripción funcional sin nombre de fichero.\n"
-            "No inventes nombres de fichero y no elimines entregables que produce el estudiante."
-        )
-        return intro + "\n" + "\n".join(lineas)
+        partes: list[str] = []
+        a1_plan = [v for v in violaciones if v.get("verificacion", "A1") == "A1"]
+        a2_plan = [v for v in violaciones if v.get("verificacion") == "A2"]
+        if a1_plan:
+            lineas = [f"- «{v['valor']}» (campo {v['campo']})" for v in a1_plan[:20]]
+            intro = (
+                "El plan presenta estos ficheros o rutas como APORTADOS POR EL CURSO, pero no "
+                "aparecen en el temario ni en el manual: el alumno no los tendrá. Corrígelos sin "
+                "cambiar lo que el temario sí define:\n"
+                "- si el curso debe aportarlo, escribe «[POR CONFIRMAR]» junto a su mención;\n"
+                "- si el estudiante lo crea o lo genera, describe en qué paso se crea;\n"
+                "- si sobra, sustitúyelo por una descripción funcional sin nombre de fichero.\n"
+                "No inventes nombres de fichero y no elimines entregables que produce el estudiante."
+            )
+            partes.append(intro + "\n" + "\n".join(lineas))
+        if a2_plan:
+            lineas = [f"- {v['valor']} (campo {v['campo']})" for v in a2_plan[:20]]
+            intro = (
+                "El plan cambia cantidades que el temario declara. El temario es la fuente "
+                "de verdad y el plan debe decir lo mismo:\n"
+                "- restaura la cantidad del temario en ese campo;\n"
+                "- no cambies el escenario, los nombres ni las cifras que el temario fija."
+            )
+            partes.append(intro + "\n" + "\n".join(lineas))
+        return "\n\n".join(partes)
 
     bloques: list[str] = []
 
@@ -1887,6 +1937,17 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "- si de verdad necesita ese sistema o esa versión, no la cambies aquí: el plan es "
             "el contrato y debe declararla antes;\n"
             "- no elimines entregables ni pasos por este motivo."
+        )
+        bloques.append(intro + "\n" + "\n".join(lineas))
+
+    a2 = [v for v in violaciones if v.get("verificacion") == "A2"]
+    if a2:
+        lineas = [f"- {v['valor']}" for v in a2[:20]]
+        intro = (
+            "La guía cambia cantidades que el temario declara. El temario es la fuente "
+            "de verdad y la guía debe decir lo mismo:\n"
+            "- restaura la cantidad del temario en esa mención;\n"
+            "- no cambies el escenario, los nombres ni las cifras que el temario fija."
         )
         bloques.append(intro + "\n" + "\n".join(lineas))
 
@@ -2005,6 +2066,192 @@ def preflight_duracion(curso: dict, laboratorios: list[dict]) -> dict:
         "avisos": avisos,
         "modulos_con_aviso": sum(1 for m in detalle if m.get("senales")),
     }
+
+
+# --------------------------------------------------------------------------- #
+# A2: las cantidades del temario no se cambian
+# --------------------------------------------------------------------------- #
+
+# Cifras que se comparan: palabras (hasta cien) y dígitos. El número se normaliza
+# a entero; el sustantivo se compara por su lema para que «fondo» y «fondos» sean
+# la misma cosa.
+_NUMEROS_CANTIDAD = {
+    "un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11,
+    "doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciseis": 16,
+    "diecisiete": 17, "dieciocho": 18, "diecinueve": 19, "veinte": 20,
+    "treinta": 30, "cuarenta": 40, "cincuenta": 50, "sesenta": 60,
+    "setenta": 70, "ochenta": 80, "noventa": 90, "cien": 100,
+}
+# Palabra candidata a número (se valida con el mapa) y sustantivo que la sigue.
+_NUMERO_TOKEN_RE = re.compile(r"\b(\d{1,3}|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,12})\b")
+_SUSTANTIVO_TRAS_NUMERO_RE = re.compile(r"\s+([a-záéíóúüñ][a-záéíóúüñ]{2,})\b")
+# Sustantivos de estructura o de tiempo: su cifra la gobiernan A3/B6 o el formato,
+# no el contenido del escenario. Compararlos daría ruido («tres pasos»).
+_CANTIDADES_ESTRUCTURALES = frozenset(
+    {
+        "hora", "minuto", "segundo", "dia", "semana", "mes", "ano", "porcentaje",
+        "punto", "paso", "bloque", "modulo", "capitulo", "leccion", "practica",
+        "laboratorio", "tema", "seccion", "parte", "nivel", "linea", "fila",
+        "columna", "tabla", "pagina", "palabra", "caracter", "vez", "tipo",
+        "ejemplo", "caso", "opcion", "version", "archivo", "fichero", "carpeta",
+        "directorio", "comando", "script", "pantalla", "ventana", "boton", "clic",
+        "unidad", "apartado", "ejercicio", "actividad", "reto", "pregunta",
+        # Palabras función y unidades: no son el sustantivo de una cantidad.
+        "con", "para", "del", "de", "en", "por", "sin", "como", "que", "su",
+        "sus", "los", "las", "el", "la", "al", "se", "no", "mas", "muy", "ya",
+        "ante", "bajo", "contra", "desde", "durante", "entre", "hacia", "hasta",
+        "segun", "tras", "sobre", "min", "mins", "kb", "mb", "gb", "ml",
+        # Contenedores genéricos: la cifra no describe el escenario.
+        "escenario", "test", "host", "agente", "documento", "tarea", "servicio",
+        "modelo", "proceso", "componente", "prompt", "alternativa", "suite",
+        "estrategia", "fuente", "propuesta", "correo", "slide", "conjunto",
+        "estructura", "repositorio", "salida", "red", "dashboard", "experiencia",
+        "warehouse", "incidente", "usuario", "ciclo", "flujo", "keyword",
+    }
+)
+# Una cantidad dentro de una **instrucción** no describe el escenario: «documenta
+# 3 escenarios» o «anticipa al menos 10 escenarios» no contradicen «2 escenarios»
+# del temario. Solo se comparan cantidades en prosa descriptiva.
+_INSTRUCCION_RE = re.compile(
+    r"\b(?:document\w*|anticip\w*|identific\w*|seleccion\w*|mencion\w*|analic\w*|"
+    r"inclu\w*|agreg\w*|complet\w*|defin\w*|prepar\w*|elabor\w*|redact\w*|revis\w*|"
+    r"ejecut\w*|compar\w*|justific\w*|enumer\w*|list\w*|explic\w*|describ\w*|"
+    r"solicit\w*|crea\w*|escrib\w*|respond\w*|agrega\w*|anad\w*|añad\w*)\b"
+    r"|al menos|como minimo|como mínimo|minimo|mínimo|maximo|máximo|hasta"
+)
+
+
+def _en_instruccion(prosa: str, posicion: int) -> bool:
+    """¿La cantidad aparece en una instrucción o en un límite, no en una descripción?"""
+    ventana = normalizar(prosa[max(0, posicion - 110) : posicion])
+    return bool(_INSTRUCCION_RE.search(ventana))
+
+
+def _lema_cantidad(sustantivo: str) -> str:
+    """Forma de comparación de un sustantivo: sin acentos, minúsculas y sin plural."""
+    lema = normalizar(sustantivo)
+    if len(lema) > 3 and lema.endswith("s"):
+        lema = lema[:-1]
+    return lema
+
+
+def _cantidades(texto: str) -> dict[str, tuple[int, int]]:
+    """Cantidades del texto: ``lema → (número, posición de la primera aparición)``.
+
+    Solo prosa: un «tres fondos» dentro de un bloque de código o de una salida no es
+    una afirmación del escenario.
+    """
+    resultado: dict[str, tuple[int, int]] = {}
+    prosa = _texto_sin_bloques(texto or "")
+    for token in _NUMERO_TOKEN_RE.finditer(prosa):
+        bruto = normalizar(token.group(1))
+        if bruto.isdigit():
+            numero = int(bruto)
+        else:
+            numero = _NUMEROS_CANTIDAD.get(bruto)
+        if not numero or numero > 100:
+            continue
+        # El sustantivo es la palabra que sigue al número. Se exige minúscula: en el
+        # texto aplanado del temario, «171 Capítulo» es un límite entre valores.
+        siguiente = _SUSTANTIVO_TRAS_NUMERO_RE.match(prosa, token.end())
+        if not siguiente:
+            continue
+        lema = _lema_cantidad(siguiente.group(1))
+        if not lema or lema in _CANTIDADES_ESTRUCTURALES:
+            continue
+        if _en_instruccion(prosa, token.start()):
+            continue
+        resultado.setdefault(lema, (numero, token.start()))
+    return resultado
+
+
+def _conflictos_de_cantidades(
+    origen: dict[str, tuple[int, int]], texto: str
+) -> list[dict]:
+    """Conflictos de cantidad entre las cantidades del temario y las de ``texto``."""
+    if not origen:
+        return []
+    conflictos = []
+    for lema, (obtenido, inicio) in _cantidades(texto or "").items():
+        esperado = origen.get(lema)
+        # Solo se comparan **pluralidades**: un «1 idea» del temario frente a «tres
+        # ideas» de la guía es otro referente (el singular del temario contra la
+        # lista de la guía), no un cambio de escenario. Medido el 24/10/2026: de 11
+        # hallazgos, los 9 que tenían un 1 a un lado eran ruido y los 2 restantes
+        # eran el caso real («seis fondos» → «tres fondos»).
+        if (
+            esperado
+            and esperado[0] != obtenido
+            and min(esperado[0], obtenido) >= 2
+        ):
+            conflictos.append(
+                {
+                    "sustantivo": lema,
+                    "esperado": esperado[0],
+                    "obtenido": obtenido,
+                    "inicio": inicio,
+                }
+            )
+    return sorted(conflictos, key=lambda conflicto: conflicto["inicio"])
+
+
+def auditar_cantidades(fuentes: str, laboratorio_md: str) -> list[dict]:
+    """A2: ¿la guía cambia una cantidad que el temario declara?
+
+    El temario es la fuente de verdad. Solo se compara el **mismo sustantivo** en
+    los dos textos y solo la primera aparición de cada uno: una mención legítima
+    posterior («3 de los 6 fondos») no invalida la cifra del escenario.
+    """
+    return _conflictos_de_cantidades(_cantidades(fuentes or ""), laboratorio_md or "")
+
+
+def reconciliar_cantidades(plan: dict, fuentes: str) -> dict:
+    """Copia del temario las cifras que el plan cambió, sin depender del modelo.
+
+    Es la misma idea que A3 (duración) y A5 (objetivo): el temario manda. Se
+    sustituye **solo el token de la cifra** en el campo donde el plan se desvía
+    («tres fondos» → «6 fondos»), no el resto del texto. Así el Writer recibe un
+    plan alineado y A2 no depende de que un reintento del modelo acierte.
+    """
+    origen = _cantidades(fuentes or "")
+    corregidos: list[dict] = []
+    if not origen:
+        return {"plan": plan, "corregidos": corregidos}
+
+    def arreglar(texto: str) -> str:
+        conflictos = _conflictos_de_cantidades(origen, texto)
+        if not conflictos:
+            return texto
+        nuevo = texto
+        for conflicto in sorted(conflictos, key=lambda c: c["inicio"], reverse=True):
+            inicio = conflicto["inicio"]
+            token = re.match(r"\S+", nuevo[inicio:])
+            if not token:
+                continue
+            forma = token.group(0)
+            if not (forma.isdigit() or normalizar(forma) in _NUMEROS_CANTIDAD):
+                continue
+            nuevo = nuevo[:inicio] + str(conflicto["esperado"]) + nuevo[inicio + len(forma) :]
+            corregidos.append(
+                {
+                    "sustantivo": conflicto["sustantivo"],
+                    "antes": conflicto["obtenido"],
+                    "despues": conflicto["esperado"],
+                }
+            )
+        return nuevo
+
+    def recorrer(nodo):
+        if isinstance(nodo, str):
+            return arreglar(nodo)
+        if isinstance(nodo, list):
+            return [recorrer(item) for item in nodo]
+        if isinstance(nodo, dict):
+            return {clave: recorrer(valor) for clave, valor in nodo.items()}
+        return nodo
+
+    return {"plan": recorrer(plan), "corregidos": corregidos}
 
 
 # --------------------------------------------------------------------------- #
