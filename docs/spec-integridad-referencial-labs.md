@@ -2168,3 +2168,84 @@ también son imposibles. Generado de `ab1_final4.json`, no redactado de memoria.
    El informe de 28.4 es el traspaso.
 3. **Fase 3 (A2/B7/B8)**: sigue sin definir; necesita su propia spec.
 4. Sin cambios: C1 de enlaces y manifiesto de entradas con hash.
+
+## 29. La duración se garantiza: la banda (24/10/2026)
+
+Decisión de producto del 24/10/2026: **la duración del temario se debe garantizar**. Se admiten
+desviaciones, pero no exageradas; el ejemplo que la define es un laboratorio declarado en 60 minutos
+que en la realidad puede durar 50, 70 o como máximo 80. Y el enfoque del proyecto queda explícito:
+**no se corrigen los cursos existentes**; se corrige el sistema para que las generaciones futuras y
+las actualizaciones salgan mejor.
+
+### 29.1 La regla
+
+La franja se define sobre la duración declarada: **suelo 5/6** y **techo 4/3** (60 → 50 y 80). El
+tiempo real se estima por carga con los ritmos mínimos que ya usaba B6:
+`mínimo = max(pasos × 2,0, bloques × 0,75)`. La desviación es un hecho cuando **ni con esos ritmos
+el trabajo cabe en el techo**: `mínimo > 4/3 × declarada`.
+
+| | Antes (§28) | Ahora |
+|---|---|---|
+| Condición | `min/paso < 2,0` **y** `min/bloque < 0,75` | `mínimo > 4/3 × declarada` |
+| Campo del hallazgo | `duracion_minima` | `duracion_minima` y `duracion_maxima` |
+| Mensaje de corrección | «3 min por paso y 1 por bloque» | «debe caber en el techo» |
+
+**El suelo no se comprueba, y es una decisión medida, no un olvido.** La carga es una **cota
+inferior** del tiempo: sirve para demostrar «no cabe», pero no «sobra». Aplicar el suelo marcaría
+**361 de 647** laboratorios, casi todos sesiones largas con pocos bloques —288 minutos declarados con
+6 pasos y 13 bloques, 216 con 7 y 11—, donde la carga no demuestra nada. Queda documentado hasta que
+exista otra señal (la lista de actividades del temario, por ejemplo).
+
+### 29.2 La medición
+
+| Clase | Laboratorios | % de 647 |
+|---|---|---|
+| Desviación alta (no cabe ni en el mejor caso) | **56** | 8,7 % |
+| Dentro de la franja | 230 | 35,5 % |
+| Desviación baja (no comprobable) | 361 | 55,8 % |
+
+De los 12 que marcaba §28, **10 siguen marcando y 2 pasan a «dentro»**: `04-00-02` (mínimo 12, techo
+12) y `06-00-02` (mínimo 14, techo 17). Los **46 nuevos** son el tipo de caso que §26.4 había
+identificado como falso negativo: muchos bloques y pocos minutos. Tres leídos:
+
+- `260430-Linux-2h`/`01-00-01`: 30 min, 71 bloques (`cd`, `mkdir`, `touch`, `rm`; pasos de 9 a 15
+  bloques) → mínimo 54, techo 40.
+- `260313-python-moderno-automatizacion`/`04-00-01`: 25 min, 68 bloques y cinco módulos escritos →
+  mínimo 51, techo 33.
+- `261008-LFS158`/`03-00-01`: 10 min, 21 bloques con `docker build`, `docker run` y una matriz de
+  análisis → mínimo 16, techo 13.
+
+Los 56 están en 18 proyectos. Sumando los 7 B1, la regla marcaría **24 de los 164 proyectos
+(14,6 %)**, frente a 12 (7,3 %) antes. Ese número **no es una lista de tareas**: es la medida de cómo
+se comporta la regla sobre el corpus, que aquí es banco de pruebas.
+
+### 29.3 Qué significa para el sistema
+
+En una generación futura, un laboratorio que no quepa en su franja dispara el reintento: el Writer
+recorta pasos y bloques hasta caber. Si no lo consigue, el curso falla con los dos números en el
+mensaje —«necesita al menos X, el hueco admite Y»—, que es la señal correcta para el temario.
+
+El precio es explícito: **un laboratorio que se recorta para caber pierde profundidad**. Cuando el
+hueco es absurdo (5 minutos para 31 bloques), el sistema entregará un laboratorio pequeño y correcto
+en duración, no el laboratorio que el temario describía. La alternativa —generar el laboratorio
+imposible— es peor: el alumno no puede terminarlo. La corrección de fondo sigue estando en el
+temario, y el informe de §28.4 es el diagnóstico, no el traspaso.
+
+### 29.4 Verificación
+
+- `test_referent_check.py`: **140/140**. Nuevas: la franja admite 60 declarados con 75 de trabajo y
+  marca con 81; `06-00-02` (13 declarados, 14 de mínimo, 17 de techo) no marca; el mensaje da el
+  techo y prohíbe cambiar la duración.
+- Sobre guías reales: los **12** de §27 reclasificados como predijo la medición (10 alta, 2 dentro) y
+  **3** de los 46 nuevos, con sus bloques leídos (`15/15`).
+- Despliegue verificado sobre el artefacto de la Lambda: `LastModified` 2026-10-24T17:40:45, copias
+  idénticas (`sha256[:16] = 62cf3cbe6e96a344`) y el módulo descargado ejecuta la banda y los
+  estrechamientos de §27 (**6/6**).
+
+### 29.5 Lo que sigue
+
+1. **El suelo de la franja** necesita una señal que no sea la carga (lista de actividades del
+   temario). Hoy no se comprueba y está medido por qué.
+2. **El pre-flight del temario**: avisar antes de generar cuando el hueco por práctica es
+   implausible. Es la única forma de que el autor lo vea antes del fallo.
+3. Sin cambios: Fase 3 (A2/B7/B8), C1 y el manifiesto de entradas.

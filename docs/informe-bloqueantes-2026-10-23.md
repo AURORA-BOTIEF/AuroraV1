@@ -1,5 +1,10 @@
 # Informe para autores — 19 hallazgos bloqueantes
 
+> **Nota del 24/10/2026.** Con la banda de duración de §29, la regla marca 56 laboratorios de
+> duración (y 2 de estos 12 dejan de marcar). Este informe describe el estado del 23/10 y sirve como
+> **diagnóstico del sistema**, no como una lista de tareas: el proyecto no corrige los cursos
+> existentes, corrige la generación futura.
+
 **Fecha:** 23/10/2026 · **Origen:** medición de §27 sobre 1.196 laboratorios reales
 (`prueba/ab1_final4.json`) · **Generado de los datos, no redactado de memoria.**
 

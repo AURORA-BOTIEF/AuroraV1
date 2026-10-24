@@ -61,8 +61,11 @@ duración», no puede (viene del plan) y el reintento no convergería.
 
 ## Los 19 bloqueantes
 
+> **Nota del 24/10.** Con la banda de §29, la regla marca 56 de duración y dos de estos doce pasan a
+> «dentro». Esta tabla es el diagnóstico del 23/10, no una lista de tareas: el proyecto corrige la
+> generación futura, no los cursos existentes.
+
 | Proyecto / laboratorio | Regla | Valor | Mínimo (B6) |
-|---|---|---|---|
 | `251209-copilot-365-4-h` / `03-00-01` | B1 | `Ventas_MultiRegional_2024.xlsx` | — |
 | `251215-virtualizacion` / `02-00-01` | B6 | 15 min, 9 pasos, 36 bloques | 27 |
 | `260225-DESSEGV` / `05-00-08` | B6 | 12 min, 7 pasos, 34 bloques | 26 |
@@ -113,6 +116,22 @@ generación real.
 **Fase 3.** Borrador de alcance en `docs/fase-3-borrador.md`: A2 no puede empezar sin decidir de
 dónde sale la lista de entidades; B7 es autocontenido (Setup Guide contra laboratorios, con riesgo
 de circularidad); B8 es un censo de marcadores más una decisión de vocabulario.
+
+## Continuación — 24/10
+
+**Decisión:** la duración del temario se garantiza, con banda 5/6–4/3 (60 → 50–80). **No se corrigen
+los cursos existentes**: el corpus es banco de pruebas y los hallazgos son diagnóstico, no backlog.
+
+**Implementado y desplegado:** B6 marca cuando `mínimo > 4/3 × declarada`, con `duracion_minima` y
+`duracion_maxima` en el hallazgo y el techo en el mensaje de corrección. 140/140 pruebas; 12/12 + 3
+guías reales; artefacto verificado (`17:40:45`, `62cf3cbe6e96a344`, 6/6). Spec §29.
+
+**Medido:** 56 de 647 laboratorios con desviación alta (10 de los 12 anteriores + 46 nuevos), 230
+dentro, 361 de desviación baja **no comprobable** (la carga es cota inferior: no prueba «sobra
+tiempo»). Con los 7 B1, la regla marcaría 24 de 164 proyectos (14,6 %) frente a 12 (7,3 %).
+
+**Lo que sigue:** el suelo de la banda necesita otra señal; el *pre-flight* del temario es la forma de
+que el autor vea un hueco implausible antes de generar.
 
 ## Decisiones pendientes para la mañana
 
