@@ -2596,6 +2596,8 @@ def test_b6_marca_el_caso_angular_de_12_minutos():
     b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
     assert len(b6) == 1, informe["violaciones"]
     assert b6[0]["confianza"] == "alta"
+    # max(8 × 2,0 = 16; 27 × 0,75 = 20,25) → 21.
+    assert b6[0]["duracion_minima"] == 21
 
 
 def test_b6_no_marca_el_mismo_caso_angular_con_45_minutos():
@@ -2609,6 +2611,22 @@ def test_b6_no_marca_el_mismo_caso_angular_con_45_minutos():
     assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
     assert informe["duracion"]["minutos_por_paso"] == 5.62
     assert informe["duracion"]["minutos_por_bloque"] == 1.67
+    assert "duracion_minima" not in informe["duracion"]
+
+
+def test_el_minimo_de_b6_es_informativo_y_no_entra_en_la_correccion():
+    """El mínimo accionable no puede pedirle al Writer que cambie la duración.
+
+    La duración viene del plan; si el mensaje de corrección pidiera «pon 21
+    minutos», el reintento no podría obedecerlo y no convergería.
+    """
+    lab = _lab_tipo_angular(12)
+    informe = auditar_laboratorio(lab, "")
+    b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
+    assert b6[0]["duracion_minima"] == 21
+    mensaje = mensaje_de_correccion(informe["violaciones"], "laboratorio")
+    assert "duracion_minima" not in mensaje
+    assert "21" not in mensaje
 
 
 def test_la_nota_al_instructor_que_pide_verificar_exime_el_material():

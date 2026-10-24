@@ -70,6 +70,7 @@ Sin dependencias externas: solo biblioteca estándar.
 """
 
 import json
+import math
 import os
 import re
 import unicodedata
@@ -1268,6 +1269,17 @@ def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
         and minutos_bloque < _MINUTOS_POR_BLOQUE
     ):
         informe["ok"] = False
+        # Mínimo con el que la duración deja de ser contradictoria: el mayor de los
+        # dos suelos que impone la regla. Es **informativo** —no es una estimación
+        # realista ni entra en el mensaje de corrección—, pero convierte el hallazgo
+        # en algo accionable para quien corrige el temario: «12 minutos no; 21 como
+        # mínimo». Se redondea hacia arriba porque un mínimo no puede quedarse corto.
+        informe["duracion_minima"] = math.ceil(
+            max(
+                unidades["con_accion"] * _MINUTOS_POR_PASO_ACCION,
+                unidades["bloques"] * _MINUTOS_POR_BLOQUE,
+            )
+        )
         informe["motivo"] = (
             f"{duracion} minutos para {unidades['con_accion']} pasos con accion y "
             f"{unidades['bloques']} bloques de comando o codigo "
@@ -1711,6 +1723,7 @@ def auditar_laboratorio(
                 "duracion": duracion["duracion"],
                 "pasos": duracion["con_accion"],
                 "bloques": duracion["bloques"],
+                "duracion_minima": duracion.get("duracion_minima"),
             }
         )
 
