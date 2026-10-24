@@ -1918,6 +1918,96 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Pre-flight de duración: ¿el temario da tiempo para los laboratorios que declara?
+# --------------------------------------------------------------------------- #
+
+# Presupuesto mínimo por laboratorio en el temario. Calibrado el 24/10/2026 sobre
+# 156 proyectos con actividades de laboratorio: con 12 minutos habría avisado en 4
+# de los 5 proyectos que luego tienen un B6 de alta, con 13 avisos en proyectos sin
+# B6. No separa perfecto, así que es un **aviso**, no un error: sirve para que
+# quien revisa el temario vea la aritmética antes de generar.
+_MINUTOS_POR_LAB_PREFLIGHT = 12
+
+
+def preflight_duracion(curso: dict, laboratorios: list[dict]) -> dict:
+    """¿El temario puede sostener los laboratorios que declara?
+
+    Se ejecuta **antes** de generar las guías: no hay pasos ni bloques, solo la
+    aritmética del temario. No sustituye a B6 —que compara con el trabajo real—;
+    avisa de un temario que pide más práctica de la que presupuesta.
+
+    Dos señales por módulo, ambas con los números a la vista:
+
+    - ``sobre_comprometido``: la suma de duraciones de las actividades de laboratorio
+      supera el presupuesto de práctica del módulo (``duration × percent_practice``).
+    - ``poco_tiempo``: el presupuesto por laboratorio queda por debajo de
+      ``_MINUTOS_POR_LAB_PREFLIGHT``.
+
+    Devuelve ``{"modulos": [...], "avisos": n, "modulos_con_aviso": k}``. No bloquea.
+    """
+    modulos = (curso or {}).get("modules") or []
+    conteo: dict[str, int] = {}
+    for lab in laboratorios or []:
+        prefijo = str(lab.get("lab_id") or "")[:2]
+        if prefijo:
+            conteo[prefijo] = conteo.get(prefijo, 0) + 1
+
+    detalle = []
+    avisos = 0
+    for indice, modulo in enumerate(modulos, start=1):
+        laboratorios_del_modulo = conteo.get(f"{indice:02d}", 0)
+        if not laboratorios_del_modulo:
+            continue
+        duracion = modulo.get("duration_minutes") or 0
+        porcentaje = modulo.get("percent_practice")
+        if porcentaje is None:
+            detalle.append(
+                {
+                    "modulo": indice,
+                    "laboratorios": laboratorios_del_modulo,
+                    "sin_presupuesto": True,
+                }
+            )
+            continue
+        presupuesto = duracion * porcentaje / 100
+        if presupuesto <= 0:
+            continue
+        por_laboratorio = presupuesto / laboratorios_del_modulo
+        actividades = modulo.get("lab_activities") or []
+        # Solo cuenta lo que el temario **declara**: sumar 30 por defecto a las
+        # actividades sin duración fabricaría un sobre-compromiso que no está escrito.
+        pedido = sum(
+            a.get("duration_minutes")
+            for a in actividades
+            if isinstance(a, dict) and a.get("duration_minutes")
+        )
+        senales = []
+        if pedido and pedido > presupuesto:
+            senales.append("sobre_comprometido")
+        if por_laboratorio < _MINUTOS_POR_LAB_PREFLIGHT:
+            senales.append("poco_tiempo")
+        if senales:
+            avisos += 1
+        detalle.append(
+            {
+                "modulo": indice,
+                "titulo": str(modulo.get("title") or "")[:80],
+                "laboratorios": laboratorios_del_modulo,
+                "presupuesto_practica": round(presupuesto, 1),
+                "pedido_actividades": round(pedido, 1),
+                "por_laboratorio": round(por_laboratorio, 1),
+                "senales": senales,
+            }
+        )
+
+    return {
+        "modulos": detalle,
+        "avisos": avisos,
+        "modulos_con_aviso": sum(1 for m in detalle if m.get("senales")),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Duración del curso (A3): el temario es el contrato
 # --------------------------------------------------------------------------- #
 

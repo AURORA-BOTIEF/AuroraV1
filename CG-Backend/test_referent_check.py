@@ -42,6 +42,7 @@ from referent_check import (  # noqa: E402
     duracion_declarada,
     extraer_referentes,
     mensaje_de_correccion,
+    preflight_duracion,
     reconciliar_contrato,
     reconciliar_duraciones,
     referencias_a_labs_posteriores,
@@ -2761,6 +2762,123 @@ def test_un_ejercicio_entre_parentesis_no_es_un_ejemplo():
     informe = auditar_plan(plan, _FUENTES)
     valores = {v["valor"] for v in informe["violaciones"]}
     assert "Datos_Privados_Q3.xlsx" in valores, informe["violaciones"]
+
+
+def test_el_preflight_avisa_de_un_temario_sobre_comprometido():
+    """La forma del módulo 5 de `260225-DESSEGV`: 9 actividades de 12 min y 85,5 de
+    presupuesto.
+
+    Es el caso que produce los nueve laboratorios de 12 minutos: el temario pide más
+    práctica de la que presupuesta y, además, deja 9,5 minutos por laboratorio.
+    """
+    curso = {
+        "modules": [
+            {
+                "title": "Capítulo 5",
+                "duration_minutes": 171,
+                "percent_practice": 50,
+                "lab_activities": [
+                    {"title": f"Practica {i}", "duration_minutes": 12}
+                    for i in range(1, 10)
+                ],
+            }
+        ]
+    }
+    laboratorios = [{"lab_id": f"01-00-{i:02d}"} for i in range(1, 10)]
+    informe = preflight_duracion(curso, laboratorios)
+    assert informe["avisos"] == 1, informe
+    modulo = informe["modulos"][0]
+    assert modulo["presupuesto_practica"] == 85.5
+    assert modulo["pedido_actividades"] == 108.0
+    assert modulo["por_laboratorio"] == 9.5
+    assert set(modulo["senales"]) == {"sobre_comprometido", "poco_tiempo"}
+
+
+def test_el_preflight_no_avisa_de_un_temario_consistente():
+    curso = {
+        "modules": [
+            {
+                "duration_minutes": 300,
+                "percent_practice": 50,
+                "lab_activities": [{"duration_minutes": 30} for _ in range(5)],
+            }
+        ]
+    }
+    laboratorios = [{"lab_id": f"01-00-{i:02d}"} for i in range(1, 6)]
+    informe = preflight_duracion(curso, laboratorios)
+    assert informe["avisos"] == 0, informe
+    assert informe["modulos"][0]["por_laboratorio"] == 30.0
+
+
+def test_el_preflight_ignora_modulos_sin_laboratorios():
+    curso = {
+        "modules": [
+            {
+                "duration_minutes": 60,
+                "percent_practice": 50,
+                "lab_activities": [{"duration_minutes": 30}],
+            }
+        ]
+    }
+    informe = preflight_duracion(curso, [{"lab_id": "02-00-01"}])
+    assert informe["modulos"] == []
+    assert informe["avisos"] == 0
+
+
+def test_el_preflight_registra_el_modulo_sin_porcentaje_de_practica():
+    curso = {
+        "modules": [
+            {
+                "duration_minutes": 100,
+                "lab_activities": [{"duration_minutes": 60}],
+            }
+        ]
+    }
+    informe = preflight_duracion(curso, [{"lab_id": "01-00-01"}])
+    assert informe["modulos"][0]["sin_presupuesto"] is True
+    assert informe["avisos"] == 0
+
+
+def test_el_planner_guarda_el_preflight_en_los_metadatos():
+    """Camino vivo: el handler real deja el aviso en el plan guardado."""
+    modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
+    outline = {
+        "course": {
+            "title": "Curso de prueba",
+            "total_duration_minutes": 171,
+            "modules": [
+                {
+                    "title": "Modulo 5",
+                    "duration_minutes": 171,
+                    "percent_practice": 50,
+                    "lab_activities": [
+                        {"title": f"Practica {i}", "duration_minutes": 12}
+                        for i in range(1, 10)
+                    ],
+                }
+            ],
+        }
+    }
+    plan = _handler_de_planificador_con_temario(
+        modulo,
+        outline,
+        {
+            "lab_plans": [
+                {
+                    "lab_id": f"01-00-{i:02d}",
+                    "lab_title": f"Practica {i}",
+                    "estimated_duration": 12,
+                    "objectives": ["a"],
+                    "scope": "b",
+                    "expected_outcomes": ["c"],
+                }
+                for i in range(1, 10)
+            ]
+        },
+    )
+    preflight = plan["metadata"]["preflight_duracion"]
+    assert preflight["avisos"] == 1, preflight
+    assert preflight["modulos"][0]["por_laboratorio"] == 9.5
 
 
 def test_un_listado_de_python_no_es_un_marcador():

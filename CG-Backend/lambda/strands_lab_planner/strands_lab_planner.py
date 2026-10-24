@@ -25,6 +25,7 @@ from referent_check import (
     auditar_duraciones_curso,
     auditar_plan,
     mensaje_de_correccion,
+    preflight_duracion,
     reconciliar_contrato,
     reconciliar_duraciones,
 )
@@ -1296,6 +1297,16 @@ def lambda_handler(event, context):
                 f"temario en {contrato_informe['labs']} laboratorio(s)"
             )
 
+        # Pre-flight de duración: el temario no puede sostener más práctica de la que
+        # declara. Se calcula sobre el plan final (tras A3 y A5) y se guarda en los
+        # metadatos. Es un aviso para quien revisa el temario: no bloquea la generación.
+        preflight = preflight_duracion(course_info, master_plan.get("lab_plans") or [])
+        if preflight["avisos"]:
+            print(
+                f"⏱️  Pre-flight: {preflight['avisos']} aviso(s) de duración en "
+                f"{preflight['modulos_con_aviso']} módulo(s) del temario"
+            )
+
         # Reauditoría sobre el plan final (tras el merge parcial, si lo hubo): es el
         # plan que realmente se guarda y el que el Writer va a obedecer.
         referential_report = auditar_plan(master_plan, referential_sources)
@@ -1336,6 +1347,7 @@ def lambda_handler(event, context):
                 'sin_contrato': duraciones['sin_contrato'],
             },
             'contract_integrity': contrato_informe,
+            'preflight_duracion': preflight,
         }
 
         guardar_informe_referencial(course_bucket, project_folder, referential_report)
