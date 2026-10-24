@@ -106,6 +106,14 @@ curso»), `docker-compose.yml` («el repositorio del curso contiene …») y
 `data/raw/atenciones_historicas.csv` («archivo de entrada oficial») son material del curso que el
 temario no declara. **43/43 son verdaderos positivos; A1 no se toca.**
 
+**Producción.** No hubo ejecuciones de `StrandsLabWriter` ni de `StrandsLabPlanner` en las 8 horas
+posteriores al despliegue: no hay tráfico que observar todavía. Queda pendiente para la primera
+generación real.
+
+**Fase 3.** Borrador de alcance en `docs/fase-3-borrador.md`: A2 no puede empezar sin decidir de
+dónde sale la lista de entidades; B7 es autocontenido (Setup Guide contra laboratorios, con riesgo
+de circularidad); B8 es un censo de marcadores más una decisión de vocabulario.
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.
