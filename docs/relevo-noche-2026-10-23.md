@@ -133,6 +133,12 @@ tiempo»). Con los 7 B1, la regla marcaría 24 de 164 proyectos (14,6 %) frente 
 **Lo que sigue:** el suelo de la banda necesita otra señal; el *pre-flight* del temario es la forma de
 que el autor vea un hueco implausible antes de generar.
 
+**Pre-flight (spec §30).** Implementado en el planificador: por módulo, presupuesto de práctica
+(`duration × percent_practice`) contra el pedido declarado por las actividades y contra el tiempo por
+laboratorio (suelo de 12 min, calibrado). Se guarda en `metadata.preflight_duracion` y **no bloquea**.
+Medido sobre 165 temarios: 65 con aviso (39,4 %), y **5 de los 6** proyectos con B6 de alta quedan
+avisados antes de generar. 145/145 pruebas (incluido el camino vivo del handler).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

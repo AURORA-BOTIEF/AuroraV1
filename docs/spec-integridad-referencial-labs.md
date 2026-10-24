@@ -2249,3 +2249,83 @@ temario, y el informe de §28.4 es el diagnóstico, no el traspaso.
 2. **El pre-flight del temario**: avisar antes de generar cuando el hueco por práctica es
    implausible. Es la única forma de que el autor lo vea antes del fallo.
 3. Sin cambios: Fase 3 (A2/B7/B8), C1 y el manifiesto de entradas.
+
+## 30. Pre-flight de duración: el temario avisa antes de generar (24/10/2026)
+
+B6 habla cuando la guía ya existe. El pre-flight habla **antes**: con el temario y el plan en la
+mano, sin pasos ni bloques. No sustituye a B6; cubre el tramo en el que todavía se puede corregir el
+temario sin haber gastado ocho generaciones.
+
+### 30.1 Qué comprueba
+
+Por cada módulo del temario, con los laboratorios que el plan deriva de él:
+
+- `presupuesto_practica = duration_minutes × percent_practice / 100`.
+- `por_laboratorio = presupuesto_practica / número de laboratorios del módulo`.
+- `pedido_actividades`: la suma de las duraciones **declaradas** por las actividades de laboratorio.
+
+Dos señales, ambas con los números a la vista:
+
+| Señal | Cuándo | Qué dice |
+|---|---|---|
+| `sobre_comprometido` | `pedido_actividades > presupuesto_practica` | el temario pide más laboratorio del que presupuesta |
+| `poco_tiempo` | `por_laboratorio < 12` | el hueco por laboratorio no da para una práctica |
+
+Dos decisiones que hicieron falta para que la medida fuera honesta:
+
+1. **Solo se suma lo que el temario declara.** La primera versión sumaba 30 minutos por defecto a las
+   actividades sin duración (el mismo defecto que usa el planificador) y fabricaba sobre-compromisos
+   que no estaban escritos: 68 proyectos avisados en vez de 65.
+2. **El suelo de 12 no separa perfecto.** Calibrado sobre 156 proyectos: con 12 minutos habría
+   avisado en 4 de los 5 proyectos que luego tienen un B6 de alta, con 13 avisos en proyectos sin B6.
+   Por eso es un **aviso**, no un error.
+
+El resultado se guarda en `metadata.preflight_duracion` del plan y se imprime en el log. **No bloquea
+la generación**: el temario es el contrato y corregirlo no es una decisión del generador.
+
+### 30.2 La medición
+
+Sobre 165 proyectos con laboratorios y temario:
+
+| | |
+|---|---|
+| Proyectos con algún aviso | **65 (39,4 %)** |
+| Señales `sobre_comprometido` | 177 módulos |
+| Señales `poco_tiempo` | 49 módulos |
+| Proyectos con B6 de alta que quedan avisados | **5 de 6** |
+
+Los tres avisos más claros:
+
+- `260225-DESSEGV`, módulo 5: 9 actividades de 12 min (108) contra 85,5 de presupuesto → **9,5 min por
+  laboratorio**. Es el origen de los nueve laboratorios de 12 minutos de §26.
+- `260502-FOR-LOG-Priv`, módulo 1: 8 laboratorios, 96 min pedidos contra 63 de presupuesto →
+  **7,9 min por laboratorio**.
+- `261005-Custom-MS-4004-2`, módulo 1: 12 laboratorios, 97 contra 95 → **7,9 min por laboratorio**.
+
+El único proyecto con B6 de alta que no queda avisado es `251215-virtualizacion`: su temario sí
+presupuesta tiempo suficiente, y el defecto está en el laboratorio que el Writer escribió con 36
+bloques para 15 minutos. Es exactamente la clase de defecto que solo B6 puede ver.
+
+### 30.3 Qué no hace
+
+- **No bloquea**: avisa. Un temario con 39 % de inconsistencias no puede detener la generación sin
+  una decisión de producto.
+- **No corrige el temario**: no puede, es el documento aprobado. El aviso es para quien lo edita.
+- **No sustituye a B6**: sin pasos ni bloques no sabe si el laboratorio cabe; solo si el temario
+  tiene tiempo para intentarlo.
+
+### 30.4 Verificación
+
+- `test_referent_check.py`: **145/145**. Nuevas: el caso de 9 × 12 contra 85,5 (dos señales), el
+  temario consistente, el módulo sin laboratorios, el módulo sin porcentaje de práctica y el **camino
+  vivo**: el handler real guarda el aviso en `metadata.preflight_duracion`.
+- Despliegue verificado sobre el artefacto de la Lambda: `LastModified` 2026-10-24T18:52:44, copias
+  idénticas (`sha256[:16] = 4fb79a323d2d8322`), el handler del planificador lleva la llamada y el
+  módulo descargado ejecuta el pre-flight y la banda de §29 (**3/3**).
+
+### 30.5 Lo que sigue
+
+1. **Decidir si el pre-flight debe llegar al autor antes de aprobar el temario**, no solo al log de
+   generación. Es la diferencia entre «avisar» y «evitar».
+2. **B8**: censo de marcadores y decisión de vocabulario.
+3. Sin cambios: el suelo de la banda de §29 y Fase 3 (A2/B7/B8).
