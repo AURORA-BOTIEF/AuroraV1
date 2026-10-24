@@ -1,0 +1,363 @@
+/* src/components/RegenerateLesson.css */
+
+.regenerate-lesson-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50000;
+    backdrop-filter: blur(4px);
+}
+
+.regenerate-lesson-modal {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.regenerate-lesson-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 2px solid #c7d2fe;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+}
+
+.regenerate-lesson-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.regenerate-lesson-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.regenerate-lesson-close:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+.regenerate-lesson-close:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.regenerate-lesson-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.regenerate-lesson-info {
+    background: #eef2ff;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid #6366f1;
+}
+
+.regenerate-lesson-info p {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+.regenerate-lesson-info p:first-child {
+    font-weight: 600;
+    color: #374151;
+}
+
+.lesson-title {
+    font-size: 1.1rem;
+    color: #4f46e5;
+    font-weight: 600;
+}
+
+.lesson-id,
+.lesson-module {
+    font-size: 0.9rem;
+    color: #6b7280;
+    font-family: 'Courier New', monospace;
+}
+
+.regenerate-lesson-form {
+    margin-bottom: 1.5rem;
+}
+
+.regenerate-lesson-form label {
+    display: block;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.lesson-requirements-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #c7d2fe;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s;
+}
+
+.lesson-requirements-input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.lesson-requirements-input:disabled {
+    background: #f3f4f6;
+    cursor: not-allowed;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.regenerate-lesson-error {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    color: #991b1b;
+    font-size: 0.9rem;
+}
+
+.regenerate-lesson-warning {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    padding: 1rem;
+    font-size: 0.9rem;
+    color: #3730a3;
+    line-height: 1.5;
+}
+
+.regenerate-lesson-warning strong {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.regenerate-lesson-footer {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    padding: 1.5rem;
+    border-top: 2px solid #c7d2fe;
+    background: #eef2ff;
+}
+
+.regenerate-lesson-footer button {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.regenerate-lesson-footer .btn-cancel {
+    background: white;
+    color: #374151;
+    border: 2px solid #e5e7eb !important;
+}
+
+.regenerate-lesson-footer .btn-cancel:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #d1d5db !important;
+}
+
+.regenerate-lesson-footer .btn-regenerate {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+}
+
+.regenerate-lesson-footer .btn-regenerate:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.regenerate-lesson-footer .btn-regenerate:disabled,
+.regenerate-lesson-footer .btn-cancel:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.regenerate-lesson-footer .spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Success Modal Styles */
+.regenerate-lesson-success-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50001;
+    backdrop-filter: blur(4px);
+}
+
+.regenerate-lesson-success-modal {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 450px;
+    overflow: hidden;
+}
+
+.regenerate-lesson-success-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+}
+
+.regenerate-lesson-success-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.regenerate-lesson-success-body {
+    padding: 1.5rem;
+}
+
+.regenerate-lesson-success-body p {
+    margin: 0.5rem 0;
+    color: #4b5563;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.regenerate-lesson-success-body .highlight {
+    color: #4f46e5;
+    font-weight: 600;
+}
+
+.regenerate-lesson-success-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background: #eef2ff;
+    border-top: 1px solid #c7d2fe;
+}
+
+.regenerate-lesson-success-footer .btn-success-cancel {
+    background: white;
+    color: #374151;
+    border: 2px solid #e5e7eb;
+    padding: 0.625rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.regenerate-lesson-success-footer .btn-success-cancel:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+.regenerate-lesson-success-footer .btn-success-ok {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    border: none;
+    padding: 0.625rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.regenerate-lesson-success-footer .btn-success-ok:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+/* Responsive design */
+@media (max-width: 640px) {
+    .regenerate-lesson-modal {
+        width: 95%;
+        max-height: 95vh;
+    }
+
+    .regenerate-lesson-header h2 {
+        font-size: 1.25rem;
+    }
+
+    .regenerate-lesson-footer {
+        flex-direction: column;
+    }
+
+    .regenerate-lesson-footer button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .regenerate-lesson-success-modal {
+        width: 95%;
+    }
+}

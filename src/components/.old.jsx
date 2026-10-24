@@ -1,6 +1,7 @@
 // src/components/AvatarModal.jsx
 import { useState, useEffect } from "react";
 import { getApiBase } from "../lib/apiBase";
+import { fetchAuthSession } from "aws-amplify/auth";
 
 const API_BASE = getApiBase(); // resuelto desde tus variables
 
@@ -20,10 +21,13 @@ export default function AvatarModal({ isOpen, onClose }) {
       setError("");
       try {
         if (!API_BASE) throw new Error("API base no configurada");
-        const token = localStorage.getItem("id_token");
+        //CAMBIO: obtener Access Token desde Amplify (en lugar de localStorage id_token)
+        const session = await fetchAuthSession({ forceRefresh: true });
+        const token = session.tokens?.accessToken?.toString();
+        if (!token) throw new Error("Sin sesión");
         const r = await fetch(`${API_BASE}/avatars`, {
           method: "GET",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: { Authorization: `Bearer ${token}` }, 
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const payload = await r.json();
@@ -48,7 +52,9 @@ export default function AvatarModal({ isOpen, onClose }) {
     setSaving(true); setError("");
     try {
       if (!API_BASE) throw new Error("API base no configurada");
-      const token = localStorage.getItem("id_token");
+      //CAMBIO: obtener Access Token desde Amplify (en lugar de localStorage id_token)
+      const session = await fetchAuthSession({ forceRefresh: true });
+      const token = session.tokens?.accessToken?.toString();
       if (!token) throw new Error("Sin sesión");
 
       const res = await fetch(`${API_BASE}/perfil/avatar`, {

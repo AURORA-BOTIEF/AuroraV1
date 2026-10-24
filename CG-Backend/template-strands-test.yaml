@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Phase 2 - Strands Agents Content Generation (NO DOCKER!)
+
+Resources:
+  # ======================================
+  # SHARED LAMBDA LAYER
+  # ======================================
+  StrandsAgentsLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: strands-agents-dependencies
+      Description: Strands Agents SDK for AWS-native agent deployment
+      Content: ./lambda-layers/strands-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
+  GeminiLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: gemini-dependencies
+      Description: Google Gemini API + Pillow for image generation
+      Content: ./lambda-layers/gemini-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+
+  # ======================================
+  # PHASE 1: Hello World Test Lambda
+  # ======================================
+  StrandsHelloWorld:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsHelloWorld
+      Description: Test Lambda to validate Strands Agents deployment (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_hello_world.lambda_handler
+      CodeUri: ./lambda/strands_hello_world/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 30
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+
+  # ======================================
+  # PHASE 2: Content Generation Lambda
+  # ======================================
+  StrandsContentGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsContentGen
+      Description: Generate course lesson content using Strands Agents (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_content_gen.lambda_handler
+      CodeUri: ./lambda/strands_content_gen/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 900
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: anthropic.claude-3-5-sonnet-20241022-v2:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
+  # ======================================
+  # PHASE 3: Visual Planner Lambda
+  # ======================================
+  StrandsVisualPlanner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: StrandsVisualPlanner
+      Description: Extract visual tags and create image generation prompts using Strands Agents (NO DOCKER!)
+      Runtime: python3.12
+      Handler: strands_visual_planner.lambda_handler
+      CodeUri: ./lambda/strands_visual_planner/
+      Layers:
+        - !Ref StrandsAgentsLayer
+      Timeout: 300
+      MemorySize: 512
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          BEDROCK_MODEL: anthropic.claude-3-5-sonnet-20241022-v2:0
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
+  # ======================================
+  # PHASE 4: Images Generation Lambda
+  # ======================================
+  ImagesGen:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ImagesGen
+      Description: Generate images from prompts using Google Gemini API (NO DOCKER!)
+      Runtime: python3.12
+      Handler: images_gen.lambda_handler
+      CodeUri: ./lambda/images_gen/
+      Layers:
+        - !Ref GeminiLayer
+      Timeout: 900
+      MemorySize: 1024
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          PYTHONPATH: /opt/python
+          IMAGES_BACKEND_MAX: '50'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:aurora/google-api-key-*
+
+Outputs:
+  StrandsHelloWorldArn:
+    Description: Strands Hello World Lambda ARN
+    Value: !GetAtt StrandsHelloWorld.Arn
+  
+  StrandsContentGenArn:
+    Description: Strands Content Generator Lambda ARN  
+    Value: !GetAtt StrandsContentGen.Arn
+  
+  StrandsVisualPlannerArn:
+    Description: Strands Visual Planner Lambda ARN
+    Value: !GetAtt StrandsVisualPlanner.Arn
+  
+  ImagesGenArn:
+    Description: Images Generation Lambda ARN
+    Value: !GetAtt ImagesGen.Arn
+  
+  StrandsAgentsLayerArn:
+    Description: Strands Agents Layer ARN
+    Value: !Ref StrandsAgentsLayer
+  
+  GeminiLayerArn:
+    Description: Gemini API Layer ARN
+    Value: !Ref GeminiLayer
