@@ -41,11 +41,11 @@ Población por guías (§26, incluye el proyecto de Oracle sin `outline`): B6 13
 | # | Frente | Estado | Entregable |
 |---|---|---|---|
 | F0 | Estado base y relevo | **hecho** | este fichero + lista de los 19 |
-| F1 | B6 accionable (`duracion_minima`) | en curso | campo informativo, pruebas, medición, deploy, §28.1 |
-| F2 | Informe para autores | pendiente | `docs/informe-bloqueantes-2026-10-23.md` |
-| F3 | `step_structure` (291) | pendiente | medición agrupada + decisión escrita |
-| F4 | Triaje de las 43 altas de A1 | pendiente | agrupación + patrones con 0 FP |
-| F5 | Cierre | pendiente | baterías, §28, relevo final, push |
+| F1 | B6 accionable (`duracion_minima`) | **hecho** | campo, pruebas, 12/12 reales, deploy verificado, §28.1 |
+| F2 | Informe para autores | **hecho** | `docs/informe-bloqueantes-2026-10-23.md` |
+| F3 | `step_structure` | **hecho** | medición (6.715 avisos) y decisión de no tocar, §28.2 |
+| F4 | Triaje de las 43 altas de A1 | **hecho** | 43/43 verdaderos positivos, §28.3 |
+| F5 | Cierre | en curso | baterías, §28, relevo final, push |
 
 ## Decisión de diseño de F1
 
@@ -85,6 +85,26 @@ duración», no puede (viene del plan) y el reintento no convergería.
 
 Lista completa con el párrafo exacto de cada hallazgo: `prueba/bloqueantes_27.md` (generada de
 `ab1_final4.json`, no escrita a mano).
+
+## Resultados de la noche
+
+| Frente | Qué se midió | Resultado |
+|---|---|---|
+| F1 | `duracion_minima` sobre las 12 guías reales | 12/12 con el mínimo esperado; 137/137 pruebas |
+| F1 | Despliegue | `LastModified` 2026-10-24T03:47:49, hash `44efcc5088167ec7`, 5/5 con el módulo descargado |
+| F2 | Informe | 19 bloqueantes con párrafo, causa y mínimo; anexo con los 10 falsos negativos |
+| F3 | `step_structure` | **6.715 avisos** (no 291) en 1.298 guías; 922 limpias; es plantilla, no contenido |
+| F4 | Altas de A1 | 43/43 verdaderos positivos; 31 en `prerequisites`; 0 falsos positivos |
+
+**F3 — corrección del registro.** La cifra de «291» era de una medición parcial. El validador exige
+`**Objective:**`, `**Instructions:**` y `**Verification:**`; las guías usan `**Objetivo:**` (1.100) y
+`**Verificación:**` (826), pero `**Instructions:**` solo en 39. Es un `WARNING` de un validador que
+no está en el camino de generación: **no se toca**.
+
+**F4 — las tres que parecían ruido.** `requirements.txt` («proveer un archivo … en el repositorio del
+curso»), `docker-compose.yml` («el repositorio del curso contiene …») y
+`data/raw/atenciones_historicas.csv` («archivo de entrada oficial») son material del curso que el
+temario no declara. **43/43 son verdaderos positivos; A1 no se toca.**
 
 ## Decisiones pendientes para la mañana
 

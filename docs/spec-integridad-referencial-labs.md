@@ -2085,3 +2085,86 @@ descargado de la Lambda ejecuta los cinco casos: 5/5.
 - `probar_estrechamientos3.py`: los cinco casos del marcador y de los ejemplos, aislados.
 - `verificar_desplegado27.py` y `probar_desplegado27.py`: el artefacto de la Lambda.
 - `test_referent_check.py`: 136/136.
+
+## 28. Lo que cerró la noche del 23 al 24/10 (24/10/2026)
+
+Tres frentes y un triaje, todos medidos sobre la salida real. El plan y el estado de cada uno
+quedaron en `docs/relevo-noche-2026-10-23.md`.
+
+### 28.1 B6 dice el mínimo de duración
+
+El hallazgo de B6 ya no solo dice «12 minutos para 8 pasos y 27 bloques»: añade
+`duracion_minima = ceil(max(pasos × 2,0, bloques × 0,75))`, el valor a partir del cual la duración
+deja de ser contradictoria. Es **informativo**: no entra en `mensaje_de_correccion` (hay una prueba
+que lo fija), porque la duración viene del plan y pedirle al Writer que la cambie no convergería.
+
+Se llama **mínima** y no «sugerida» a propósito: en `260728-angular-essentials`/`06-00-02` da 14
+minutos para un laboratorio que, leído, necesita bastante más. Responde «¿por debajo de qué es
+imposible?», que es la pregunta de B6, no «¿cuánto tarda?».
+
+| Laboratorio | Declara | Mínimo |
+|---|---|---|
+| `260924-…fortinet…` / `02-00-01` | 15 | **49** |
+| `260924-…fortinet…` / `02-00-03` | 15 | **44** |
+| `251215-virtualizacion` / `02-00-01` | 15 | **27** |
+| `260728-angular-essentials` / `06-00-01` | 12 | **21** |
+| `261008-LFS158` / `01-00-01` | 5 | **24** |
+| `260617-TPRACT-DES-COPCHAT` / `04-00-02` | 9 | **12** |
+
+Verificado sobre las **12 guías reales**, no sobre el sintético: `12/12` con el mínimo esperado
+(`prueba/duracion_minima.txt`). Pruebas: **137/137**. Despliegue verificado sobre el artefacto de la
+Lambda: `LastModified` 2026-10-24T03:47:49, las dos copias de `referent_check.py` idénticas
+(`sha256[:16] = 44efcc5088167ec7`) y el módulo descargado ejecuta los cinco casos de §27 y §28 (5/5).
+
+Queda anotada una inconsistencia que no se toca: el mensaje de corrección pide «3 minutos por paso y
+1 por bloque», mientras la regla marca por debajo de 2,0 y 0,75. El margen parece deliberado —pedir
+más de lo mínimo para que el reintento converja—, y moverlo exigiría medir reintentos reales.
+
+### 28.2 `step_structure`: no son 291, son 6.715, y no son contenido
+
+La cifra que arrastraba la lista de pendientes era de una medición parcial. Sobre **1.298 guías**,
+`ContentValidator.validate_lab` emite **6.715 avisos** `step_structure`; 922 guías no tienen
+ninguno y el resto reparte hasta 141.
+
+El patrón no es un defecto de las guías: el validador exige `**Objective:**`, `**Instructions:**` y
+`**Verification:**` en cada paso. Las guías usan `**Objetivo:**` en 1.100 casos y `**Verificación:**`
+en 826, pero `**Instructions:**` solo en 39: el Writer no emite esa etiqueta, escribe la instrucción
+como prosa numerada con bloques.
+
+Es un `WARNING` de un validador que **no está en el camino de generación** (el Writer valida con
+`referent_check`), así que no bloquea ni dispara reintentos. **Decisión: no se toca.** Si algún día
+entra en el pipeline, el arreglo es alinear la etiqueta o aceptar la forma en español —no relajar la
+comprobación sin medir qué deja pasar.
+
+### 28.3 Las 43 altas de A1: no hay ruido que quitar
+
+Se agruparon por campo: 31 en `prerequisites`, 2 en `scope`, 9 en `special_considerations` y 1 en
+`software_requirements[].installation_notes`. Las tres que parecían artefactos de proyecto se
+leyeron:
+
+- `requirements.txt` — «Proveer un archivo requirements.txt con versiones fijadas en el repositorio
+  del curso»: es material del curso que el temario no declara.
+- `docker-compose.yml` — «El repositorio del curso contiene docker-compose.yml, configuraciones de
+  Logstash…»: lo mismo.
+- `data/raw/atenciones_historicas.csv` — «Archivo de entrada oficial… los participantes no deben
+  sobrescribirlo»: es el dataset de entrada, el caso más claro de todos.
+
+**43/43 son verdaderos positivos**: el plan pide material que el temario no declara. No hay patrón
+que estrechar, y por tanto **no se cambia A1**. La causa es la misma que la de los 7 B1 de §27: el
+temario no declara su material. A1 lo detecta antes de que exista la guía, que es su sitio.
+
+### 28.4 Informe para autores
+
+`docs/informe-bloqueantes-2026-10-23.md`: los 19 bloqueantes con su párrafo exacto, por qué son
+reales y, en B6, el mínimo de duración; más un anexo con los 10 laboratorios que la regla no marca y
+también son imposibles. Generado de `ab1_final4.json`, no redactado de memoria.
+
+### 28.5 Lo que sigue
+
+1. **La decisión de producto**: ¿la duración del temario es un presupuesto (el Writer acorta el
+   laboratorio) o una estimación (entonces B6 no debería bloquear)? Los 12 B6 ya llevan el mínimo;
+   falta decidir qué se hace con él.
+2. **Los temarios**: 19 bloqueantes y 43 altas de A1 son, en el fondo, el mismo defecto de contenido.
+   El informe de 28.4 es el traspaso.
+3. **Fase 3 (A2/B7/B8)**: sigue sin definir; necesita su propia spec.
+4. Sin cambios: C1 de enlaces y manifiesto de entradas con hash.
