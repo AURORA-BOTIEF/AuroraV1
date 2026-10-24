@@ -139,6 +139,14 @@ laboratorio (suelo de 12 min, calibrado). Se guarda en `metadata.preflight_durac
 Medido sobre 165 temarios: 65 con aviso (39,4 %), y **5 de los 6** proyectos con B6 de alta quedan
 avisados antes de generar. 145/145 pruebas (incluido el camino vivo del handler).
 
+**A2 (spec §31).** El temario manda en las cantidades. En el **plan**: `reconciliar_cantidades` copia
+la cifra del temario antes de auditar (determinista, como A3/A5) y `auditar_plan` verifica. En la
+**guía**: `auditar_cantidades` con reintento. Medido: 146 hallazgos en la versión ingenua → 11 con
+filtros de instrucciones/genericos → **2** con la regla de pluralidad; los 2 son el caso del informe
+(`260915`: temario «seis fondos… Fondo A-F» con CIBEST CAPITAL, plan y guías «tres fondos»). En el
+plan: **1 de 165**, corregido; **0 A2 restantes**. 156/156 pruebas y despliegue verificado
+(`21:35:14`, `2fc2071e138bffc2`, 4/4).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

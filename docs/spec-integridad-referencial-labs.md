@@ -2329,3 +2329,87 @@ bloques para 15 minutos. Es exactamente la clase de defecto que solo B6 puede ve
    generación. Es la diferencia entre «avisar» y «evitar».
 2. **B8**: censo de marcadores y decisión de vocabulario.
 3. Sin cambios: el suelo de la banda de §29 y Fase 3 (A2/B7/B8).
+
+## 31. A2: el temario manda en las cantidades (24/10/2026)
+
+El informe del instructor describe dos fallos que ninguna regla cubría: «cambió el escenario de
+**seis fondos a tres**» y «sustituyó **CIBEST CAPITAL** por Northstar Digital». Este apartado ataca el
+primero. Y lo hace en el plano donde nace: el **plan**, no la guía.
+
+### 31.1 Qué se hizo
+
+| Dónde | Qué |
+|---|---|
+| `auditar_plan` (planificador) | añade violaciones `A2` cuando el plan cambia una cantidad del temario; el mensaje de corrección las separa de A1 |
+| `reconciliar_cantidades` (planificador) | **copia** del temario la cifra desviada antes de auditar: `«tres fondos» → «6 fondos»`. Como A3 con la duración y A5 con el objetivo, no depende de que el modelo acierte |
+| `auditar_cantidades` (Writer) | segunda línea: si la guía cambia la cifra, `A2` con confianza alta y reintento |
+
+La extracción compara **cifra + sustantivo** en prosa (nunca dentro de bloques de código) y solo
+cuando el sustantivo es el mismo en el temario y en el artefacto. El temario es la fuente; si no
+declara la cantidad, no se comprueba nada.
+
+### 31.2 Los filtros, y por qué están (medidos)
+
+La primera versión era ingenua y produjo **146 hallazgos**. Leídos, casi todos eran ruido de tres
+clases:
+
+1. **Palabras función y unidades** como sustantivo («dos con», «30 min»).
+2. **Cantidades dentro de instrucciones**: «documenta 3 escenarios», «anticipa al menos 10
+   escenarios», «cree una tabla con diez mensajes». No describen el escenario: lo mandan.
+3. **Contenedores genéricos** con otro sentido: «escenario», «idea», «etapa», «enfoque».
+
+Con esos filtros, 146 → **11**. Al leerlos, apareció la pauta que faltaba: **9 de los 11 tenían un
+«1» a un lado** («1 idea» en el temario frente a «tres ideas» en la guía), que es otro referente, no
+un cambio de escenario. Se exige **pluralidad a pluralidad** (`min(esperado, obtenido) ≥ 2`):
+
+| Versión | Hallazgos en guías |
+|---|---|
+| Ingenua | 146 |
+| Con función/unidades + instrucciones + genéricos | 11 |
+| \+ pluralidad (regla final) | **2** |
+
+Y los 2 son el caso real. En el plan: **1 de 165 planes**, la misma course, en
+`lab_plans[0].scope`.
+
+### 31.3 El caso real, verificado en el temario
+
+`260915-Custom-MS-4019-ESP-CC-LD-Priv`:
+
+- **Temario:** «…en el contexto de CIBEST CAPITAL… una revisión interna de **seis fondos
+  multiactivo** ficticios… archivos con seis fondos denominados **Fondo A-F**».
+- **Plan:** «Los estudiantes trabajarán con un conjunto de datos simulados de **tres fondos**
+  (Fondo A, B y C)».
+- **Guías 02-00-01 y 02-00-02:** «análisis comparativo de **tres fondos**».
+
+Es exactamente la queja del informe, y el desvío está en el plan. Con A2 el plan se **corrige a 6
+antes** de la auditoría (`reconciliar_cantidades`), y las guías se comprueban después como segunda
+línea. Tras reconciliar los 165 planes, **quedan 0 A2**.
+
+### 31.4 Límites, explícitos
+
+- **Solo cantidades.** Los **nombres** («CIBEST CAPITAL» → «Northstar Digital») son A2 v2 y necesitan
+  su propia medición: hay nombres de producto y encabezados que se confunden con entidades.
+- **Solo pluralidad a pluralidad.** Un cambio de «1» a «N» no se marca; medido: 9 de 11 eran ruido de
+  ese tipo.
+- **Solo prosa.** Una cifra dentro de un bloque de código o de una salida no es una afirmación.
+- **Lista de genéricos basada en evidencia.** Puede crecer; cada entrada nueva debe venir de un
+  hallazgo leído, no de una intuición.
+
+### 31.5 Verificación
+
+- `test_referent_check.py`: **156/156**. Nuevas: la guía que cambia la cifra, la misma cantidad en
+  palabra o dígito, los sustantivos de estructura, el bloque de código, la fuente que no declara, el
+  singular frente a lista, el plan que desvía, el plan correcto y la reconciliación (unidad y **camino
+  vivo del planificador**, que guarda `quantity_integrity` y el `scope` ya corregido).
+- Corpus: 2 en guías, 1 en planes, 1 corrección, 0 restantes.
+- Despliegue verificado sobre el artefacto de la Lambda: `LastModified` 2026-10-24T21:35:14, copias
+  idénticas (`sha256[:16] = 2fc2071e138bffc2`), el planificador lleva la reconciliación y
+  `quantity_integrity`, y el módulo descargado ejecuta los cuatro casos (**4/4**).
+
+### 31.6 Lo que sigue
+
+1. **A2 v2: nombres propios** que no aparecen en el temario ni en el manual, con los filtros de A1
+   (productos conocidos, encabezados, código). Medir antes de bloquear.
+2. **B4: estabilidad entre laboratorios** — la misma entidad o cifra no cambia de una práctica a otra.
+3. El mapa de conformidad de §30.2 queda con una fila menos pendiente: entidades y cantidades ya
+   tienen regla para las cantidades.
