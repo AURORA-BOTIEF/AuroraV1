@@ -1176,6 +1176,18 @@ _LENGUAJES_ACCION = _LENGUAJES_SHELL | frozenset(
 # imposibles (instalar Kali en 15 min; `ng new` + 77 líneas de CSS en 12 min).
 _MINUTOS_POR_PASO_ACCION = 2.0
 _MINUTOS_POR_BLOQUE = 0.75
+# Tolerancia de la duración declarada, decidida el 24/10/2026: la duración del temario
+# se debe garantizar, con desviaciones admitidas pero no exageradas. El ejemplo que la
+# define: un laboratorio declarado en 60 minutos puede durar en la realidad 50, 70 o como
+# máximo 80. De ahí el techo en 4/3 y el suelo en 5/6.
+#
+# El **techo** se comprueba: si ni con los ritmos mínimos el trabajo cabe en 4/3 de lo
+# declarado, la desviación es segura. El **suelo** no se comprueba todavía: la carga
+# (pasos × bloques) es una cota inferior del tiempo, sirve para demostrar «no cabe» pero
+# no «sobra tiempo». Medido el 24/10/2026: aplicarlo marcaría 361 de 647 laboratorios,
+# casi todos sesiones largas con pocos bloques.
+_TOLERANCIA_TECHO = 4 / 3
+_TOLERANCIA_SUELO = 5 / 6
 _PASOS_ACCION_MINIMOS = 3
 
 
@@ -1264,26 +1276,22 @@ def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
     minutos_bloque = duracion / unidades["bloques"]
     informe["minutos_por_paso"] = round(minutos_paso, 2)
     informe["minutos_por_bloque"] = round(minutos_bloque, 2)
-    if (
-        minutos_paso < _MINUTOS_POR_PASO_ACCION
-        and minutos_bloque < _MINUTOS_POR_BLOQUE
-    ):
+    # El tiempo que el trabajo necesita como mínimo y el que el hueco admite como
+    # máximo (declarada × 4/3). La desviación es segura cuando incluso el mínimo
+    # supera el techo: no hay forma de que el laboratorio quepa en su franja.
+    minimo = max(
+        unidades["con_accion"] * _MINUTOS_POR_PASO_ACCION,
+        unidades["bloques"] * _MINUTOS_POR_BLOQUE,
+    )
+    techo = duracion * _TOLERANCIA_TECHO
+    informe["duracion_minima"] = math.ceil(minimo)
+    informe["duracion_maxima"] = math.floor(techo)
+    if minimo > techo:
         informe["ok"] = False
-        # Mínimo con el que la duración deja de ser contradictoria: el mayor de los
-        # dos suelos que impone la regla. Es **informativo** —no es una estimación
-        # realista ni entra en el mensaje de corrección—, pero convierte el hallazgo
-        # en algo accionable para quien corrige el temario: «12 minutos no; 21 como
-        # mínimo». Se redondea hacia arriba porque un mínimo no puede quedarse corto.
-        informe["duracion_minima"] = math.ceil(
-            max(
-                unidades["con_accion"] * _MINUTOS_POR_PASO_ACCION,
-                unidades["bloques"] * _MINUTOS_POR_BLOQUE,
-            )
-        )
         informe["motivo"] = (
-            f"{duracion} minutos para {unidades['con_accion']} pasos con accion y "
-            f"{unidades['bloques']} bloques de comando o codigo "
-            f"({minutos_paso:.1f} min/paso, {minutos_bloque:.2f} min/bloque)"
+            f"{duracion} minutos declarados: el trabajo necesita al menos "
+            f"{math.ceil(minimo)} y el hueco admite hasta {math.floor(techo)} "
+            f"({unidades['con_accion']} pasos con accion, {unidades['bloques']} bloques)"
         )
     return informe
 
@@ -1724,6 +1732,7 @@ def auditar_laboratorio(
                 "pasos": duracion["con_accion"],
                 "bloques": duracion["bloques"],
                 "duracion_minima": duracion.get("duracion_minima"),
+                "duracion_maxima": duracion.get("duracion_maxima"),
             }
         )
 
@@ -1884,6 +1893,15 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
     b6 = [v for v in violaciones if v.get("verificacion") == "B6"]
     if b6:
         lineas = [f"- {v['valor']}" for v in b6]
+        # El objetivo es el techo, no una regla de tres por unidad: la duración
+        # declarada admite hasta 4/3, y el laboratorio tiene que caber ahí.
+        techos = [v["duracion_maxima"] for v in b6 if v.get("duracion_maxima")]
+        objetivo = (
+            f"\nDebe caber en {techos[0]} minutos: con 2 minutos por paso y 0,75 por "
+            "bloque, sobran pasos o bloques."
+            if techos
+            else ""
+        )
         intro = (
             "La duración declarada no es compatible con el trabajo que pide el laboratorio. "
             "Corrige el volumen, no la duración del plan:\n"
@@ -1891,8 +1909,8 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "que no sean imprescindibles;\n"
             "- conserva todos los entregables que produce el estudiante y los pasos de "
             "verificación;\n"
-            "- no cambies la duración del plan ni el número de laboratorio.\n"
-            "Cada paso con acción debe tener al menos 3 minutos y cada bloque, al menos 1."
+            "- no cambies la duración del plan ni el número de laboratorio."
+            + objetivo
         )
         bloques.append(intro + "\n" + "\n".join(lineas))
 

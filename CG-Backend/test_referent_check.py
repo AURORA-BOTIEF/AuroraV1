@@ -2611,22 +2611,53 @@ def test_b6_no_marca_el_mismo_caso_angular_con_45_minutos():
     assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
     assert informe["duracion"]["minutos_por_paso"] == 5.62
     assert informe["duracion"]["minutos_por_bloque"] == 1.67
-    assert "duracion_minima" not in informe["duracion"]
+    assert informe["duracion"]["duracion_minima"] == 21
+    assert informe["duracion"]["duracion_maxima"] == 60
 
 
-def test_el_minimo_de_b6_es_informativo_y_no_entra_en_la_correccion():
-    """El mínimo accionable no puede pedirle al Writer que cambie la duración.
+def test_b6_admite_una_desviacion_dentro_del_techo():
+    """60 minutos declarados admiten hasta 80: 100 bloques son 75 minutos y caben."""
+    lab = _lab_con_bloques(pasos=5, bloques_por_paso=20, duracion=60)
+    informe = auditar_laboratorio(lab, "")
+    assert informe["ok"] is True, informe["violaciones"]
+    assert informe["duracion"]["duracion_minima"] == 75
+    assert informe["duracion"]["duracion_maxima"] == 80
 
-    La duración viene del plan; si el mensaje de corrección pidiera «pon 21
-    minutos», el reintento no podría obedecerlo y no convergería.
+
+def test_b6_marca_cuando_el_trabajo_pasa_del_techo():
+    """Los mismos 60 minutos con 108 bloques (81 minutos) ya no admiten la desviación."""
+    lab = _lab_con_bloques(pasos=6, bloques_por_paso=18, duracion=60)
+    informe = auditar_laboratorio(lab, "")
+    b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
+    assert len(b6) == 1, informe["violaciones"]
+    assert b6[0]["duracion_minima"] == 81
+    assert b6[0]["duracion_maxima"] == 80
+
+
+def test_b6_una_desviacion_pequena_no_marca():
+    """La forma de `06-00-02`: 13 minutos con 14 de mínimo y 17 de techo no es desviación."""
+    lab = _lab_con_bloques(pasos=6, bloques_por_paso=3, duracion=13)
+    informe = auditar_laboratorio(lab, "")
+    duracion = informe["duracion"]
+    assert duracion["duracion_minima"] == 14
+    assert duracion["duracion_maxima"] == 17
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
+
+
+def test_el_mensaje_de_b6_pide_el_techo_y_no_cambiar_la_duracion():
+    """El reintento debe saber cuánto recortar, y que la duración no se toca.
+
+    La duración viene del plan: pedir «pon 21 minutos» no convergería. El mensaje da
+    el techo del hueco (4/3 de lo declarado) y pide reducir el volumen.
     """
     lab = _lab_tipo_angular(12)
     informe = auditar_laboratorio(lab, "")
     b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
     assert b6[0]["duracion_minima"] == 21
+    assert b6[0]["duracion_maxima"] == 16
     mensaje = mensaje_de_correccion(informe["violaciones"], "laboratorio")
-    assert "duracion_minima" not in mensaje
-    assert "21" not in mensaje
+    assert "16 minutos" in mensaje
+    assert "no cambies la duración del plan" in mensaje
 
 
 def test_la_nota_al_instructor_que_pide_verificar_exime_el_material():
