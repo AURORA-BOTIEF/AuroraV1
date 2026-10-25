@@ -3048,6 +3048,33 @@ def test_el_planner_reconcilia_la_cantidad_del_temario():
     ]
 
 
+def test_el_marcador_por_validar_exime_el_referente():
+    """La familia `[X POR VALIDAR]` es la misma señal que `[POR CONFIRMAR]`.
+
+    Medido el 24/10/2026: 63 apariciones de `[VERSIÓN POR VALIDAR]` en 23 guías y
+    variantes como `[VALIDAR CON FUENTE]`, `[POR VALIDAR]` o `[X64/ARM64 POR VALIDAR]`.
+    """
+    lab = (
+        "### Paso 1: Abrir el material\n"
+        "Abra el archivo `Datos_Privados_Q3.xlsx` [VERSIÓN POR VALIDAR] y revise las hojas.\n"
+    )
+    informe = auditar_laboratorio(lab, _FUENTES)
+    assert informe["violaciones"] == [], informe["violaciones"]
+    assert informe["marcados"], informe["marcados"]
+
+
+def test_una_palabra_que_contiene_pendiente_no_es_un_marcador():
+    """«DEPENDIENTE» no es «PENDIENTE»: el marcador se busca por palabra completa."""
+    lab = (
+        "### Paso 1: Abrir el material\n"
+        "Abra el archivo `Datos_Privados_Q3.xlsx` y complete "
+        "[NOMBRE DE TAREA DEPENDIENTE].\n"
+    )
+    informe = auditar_laboratorio(lab, _FUENTES)
+    b1 = [v for v in informe["violaciones"] if v["verificacion"] == "B1"]
+    assert len(b1) == 1, informe["violaciones"]
+
+
 def test_un_listado_de_python_no_es_un_marcador():
     """`['pendientes']` exoneraba un fichero de salida real: el marcador va en
     mayúsculas, o el corchete **es** la marca. Medido sobre el corpus."""

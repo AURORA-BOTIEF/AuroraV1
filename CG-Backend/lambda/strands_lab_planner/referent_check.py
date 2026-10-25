@@ -997,7 +997,7 @@ _MARCAS_CONFIRMACION = (
 # amplio exoneraba 70 referentes, casi todos por esas dos confusiones.
 _MAYUSCULAS = "A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00d1"
 _MARCADOR_MAYUSCULAS_RE = re.compile(
-    rf"\[(?=[^\]\n]*(?:CONFIRMAR|PENDIENTE)[^\]\n]*\])"
+    rf"\[(?=[^\]\n]*\b(?:CONFIRMAR|PENDIENTE|VALIDAR)\b[^\]\n]*\])"
     rf"[{_MAYUSCULAS}0-9 _./:\-]{{2,60}}\]"
 )
 # La misma idea escrita en minúsculas, pero solo si el corchete **es** la marca.
