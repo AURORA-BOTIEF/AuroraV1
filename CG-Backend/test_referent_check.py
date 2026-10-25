@@ -3075,6 +3075,63 @@ def test_una_palabra_que_contiene_pendiente_no_es_un_marcador():
     assert len(b1) == 1, informe["violaciones"]
 
 
+def test_el_setup_guide_no_pierde_software_por_subcadena():
+    """«GitHub Copilot» no puede caer porque exista «Git».
+
+    Medido el 24/10/2026: 65 de 172 planes perdían software con la deducción por
+    subcadena («MongoDB Compass» por «mongodb», «python-dotenv» por «python»).
+    """
+    modulo = _cargar_modulo(
+        "setup_guide_builder", os.path.join("lambda", "setup_guide_builder")
+    )
+    plan = {
+        "software_requirements": [
+            {"name": "Git", "version": "2.43"},
+            {"name": "GitHub Copilot", "version": "1.0"},
+            {"name": "Python", "version": "3.12"},
+            {"name": "python-dotenv", "version": "1.0"},
+            {"name": "MongoDB", "version": "7.0"},
+            {"name": "MongoDB Compass", "version": "1.40"},
+        ]
+    }
+    nombres = [item["name"] for item in modulo.build_software(plan)]
+    assert nombres == [
+        "Git",
+        "GitHub Copilot",
+        "Python",
+        "python-dotenv",
+        "MongoDB",
+        "MongoDB Compass",
+    ], nombres
+
+
+def test_el_setup_guide_deduplica_lo_repetido():
+    """La deducción sigue existiendo: el plan se agrega por lotes y repite entradas."""
+    modulo = _cargar_modulo(
+        "setup_guide_builder", os.path.join("lambda", "setup_guide_builder")
+    )
+    plan = {
+        "software_requirements": [
+            {"name": "Docker", "version": "24.0"},
+            {"name": "docker", "version": "24.0"},
+        ]
+    }
+    assert [item["name"] for item in modulo.build_software(plan)] == ["Docker"]
+
+
+def test_el_setup_guide_no_trunca_las_consideraciones():
+    """110 de 172 planes declaran más de 12 consideraciones; no se recortan."""
+    modulo = _cargar_modulo(
+        "setup_guide_builder", os.path.join("lambda", "setup_guide_builder")
+    )
+    plan = {
+        "special_considerations": [
+            f"Acceso {indice}: valor {indice}" for indice in range(1, 16)
+        ]
+    }
+    assert len(modulo.build_accesses(plan)) == 15
+
+
 def test_un_listado_de_python_no_es_un_marcador():
     """`['pendientes']` exoneraba un fichero de salida real: el marcador va en
     mayúsculas, o el corchete **es** la marca. Medido sobre el corpus."""

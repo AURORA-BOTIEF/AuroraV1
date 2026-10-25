@@ -524,8 +524,12 @@ def build_software(master_plan):
         name_norm = _normalize_for_dedup(name)
         if not name_norm:
             continue
-        # El master plan se agrega por lotes: deduplicar por nombre normalizado
-        if any(name_norm == existing or name_norm in existing or existing in name_norm for existing in seen_names):
+        # Deduplicar por nombre normalizado **exacto**: el plan se agrega por lotes
+        # y puede repetir la misma entrada. Comparar por subcadena colapsaba
+        # herramientas distintas —«GitHub Copilot» caía por «git», «MongoDB Compass»
+        # por «mongodb», «python-dotenv» por «python»—: medido el 24/10/2026, 65 de
+        # 172 planes perdían software en la Setup Guide.
+        if name_norm in seen_names:
             continue
         seen_names.append(name_norm)
         raw_version = clean_inline(item.get("version") or "")
@@ -561,7 +565,10 @@ def build_accesses(master_plan):
             {"element": "Contraseña inicial", "definition": "Credencial temporal para laboratorio aislado"},
             {"element": "Internet", "definition": "[DOMINIOS, PUERTOS, DNS Y PROXY POR VALIDAR]"},
         ]
-    return rows[:12]
+    # No se trunca: 110 de 172 planes declaran más de 12 consideraciones y el
+    # recorte silencioso dejaba fuera accesos que el laboratorio necesita. El PDF
+    # pagina la tabla.
+    return rows
 
 
 DEFAULT_TROUBLESHOOTING = [
