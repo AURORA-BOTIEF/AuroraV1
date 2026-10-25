@@ -163,6 +163,13 @@ meses»). Ninguna se despliega. A cambio, la prueba de camino vivo destapó un f
 de instrucciones se comía el encabezado del paso; acotado a la frase, A2 pasa de 2 a 3 hallazgos
 (los tres del caso real). 156/156 y despliegue verificado (`23:46:13`, `7ea6374c7505ec5d`, 3/3).
 
+**B7 (spec §34).** El Setup Guide perdía lo que el curso necesita por dos causas deterministas:
+`build_software` deduplicaba por **subcadena** («GitHub Copilot» caía por «git», «MongoDB Compass» por
+«mongodb», «python-dotenv» por «python»): **65 de 172 planes** perdían software; y `build_accesses`
+truncaba a 12 (**110 de 172** con más de 12). Arreglado: dedup por nombre exacto y sin tope. Medido:
+software perdido **65 → 0**; accesos incompletos **110 → 1**, y ese uno es una deducción real. 161/161
+y artefacto verificado (`SetupGuideBuilderFunction`, `03:09:40`).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

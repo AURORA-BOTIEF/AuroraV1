@@ -2571,3 +2571,71 @@ ahí se decidirá si el Setup Guide se audita con las mismas reglas o solo se ma
 2. El censo de marcadores deja una decisión de vocabulario: hoy conviven «por confirmar» y «por
    validar»; unificarlas es cosmético y puede esperar.
 3. C1, manifiesto de entradas y observación en producción: sin cambios.
+
+## 34. B7: el Setup Guide no pierde lo que el curso necesita (25/10/2026)
+
+B7 pide que el Setup Guide y los laboratorios concuerden **en ambos sentidos**: todo prerrequisito
+que un laboratorio asume está en la guía, y todo lo de la guía está justificado por el plan o los
+laboratorios. La segunda dirección es cierta por construcción: la guía se genera del plan. La primera
+tenía dos agujeros deterministas, y los dos se han cerrado.
+
+### 34.1 Lo que se encontró
+
+**`build_software` deduplicaba por subcadena.** El plan se agrega por lotes y puede repetir entradas;
+el código comparaba `nombre in existente or existente in nombre`. Eso colapsa herramientas distintas:
+
+| Se caía | Porque ya estaba |
+|---|---|
+| GitHub Copilot | `git` |
+| MongoDB Compass | `mongodb` |
+| python-dotenv | `python` |
+| OpenAI Python SDK | `python` |
+| Amazon Bedrock Agents | `amazon bedrock` |
+| VirtualBox Guest Additions | `virtualbox` |
+| MySQL JDBC Driver | `mysql` |
+| Databricks Workspace | `azure databricks workspace` |
+
+Medido sobre los 172 planes reales: **65 perdían software**. En un curso de Copilot, la guía de
+instalación no listaba Copilot.
+
+**`build_accesses` truncaba a 12.** `return rows[:12]`. **110 de 172 planes** declaran más de 12
+consideraciones, así que la guía dejaba fuera accesos que el laboratorio necesita.
+
+### 34.2 El arreglo
+
+- La deducción compara el nombre normalizado **exacto**: sigue eliminando los duplicados de lote
+  («Docker» / «docker»), pero no confunde herramientas parecidas.
+- Los accesos no se truncan: el PDF pagina la tabla.
+
+### 34.3 La medición
+
+Tras el arreglo, sobre los mismos 172 planes:
+
+| | Antes | Después |
+|---|---|---|
+| Planes con software declarado que no llega a la guía | **65** | **0** |
+| Planes con accesos incompletos | **110** | **1**, y es una deducción real (consideraciones repetidas) |
+
+`test_referent_check.py`: **161/161**. Tres pruebas nuevas: que «GitHub Copilot» no caiga por «Git»,
+que el duplicado exacto sí se deduplica, y que no se truncan las consideraciones.
+
+### 34.4 Por qué no hace falta una regla nueva
+
+B5 ya compara los requisitos que los laboratorios exigen con los que declara el plan. Con la guía
+incluyendo **todo** el software del plan, la cadena queda cerrada: laboratorio → plan → guía. La guía
+no se audita con el chequeo referencial porque es determinista y bebe de la misma fuente; añadir una
+regla ahí sería comprobar el plan dos veces.
+
+### 34.5 Verificación
+
+- Despliegue verificado sobre el artefacto de la Lambda (`SetupGuideBuilderFunction`, `LastModified`
+  2026-10-25T03:09:40): no queda la deducción por subcadena ni el `rows[:12]`, y el módulo descargado
+  conserva las seis herramientas del plan de prueba y los quince accesos.
+
+### 34.6 Lo que sigue
+
+1. **C1** (enlaces vivos) y el **manifiesto de entradas con hash**: los dos pendientes que quedan de
+   la lista original.
+2. **Observación en producción**: sin ejecuciones reales desde los despliegues, no hay nada que
+   observar todavía.
+3. Fase 3 queda cerrada salvo B8 (hecho en §33) y B7 (aquí).
