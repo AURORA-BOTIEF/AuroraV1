@@ -2505,3 +2505,69 @@ positivos.
 2. **Nombres y estabilidad** solo si el negocio decide que el temario declare el escenario (lista de
    entidades y cifras). Es una decisión de producto; la regla no puede sustituirla.
 3. El resto de §25.7: C1, manifiesto de entradas y observación en producción.
+
+## 33. B8: la familia «por validar» (24/10/2026)
+
+B8 pide que todo específico no declarado vaya marcado y que **el marcador cuente como señal**. El
+chequeo referencial ya reconocía `[POR CONFIRMAR]` y sus variantes en prosa; el resto de la familia,
+no. Este apartado la reconoce y, de paso, cierra un agujero del detector.
+
+### 33.1 El censo
+
+1.298 guías, **160 marcadores, 56 formas**:
+
+| Forma | Apariciones | Guías |
+|---|---|---|
+| `[VERSIÓN POR VALIDAR]` | 63 | 23 |
+| `[POR CONFIRMAR]` | 9 | 2 |
+| `[A CONFIRMAR]` | 6 | 1 |
+| `[VALIDAR CON FUENTE AUTORIZADA]` | 6 | 1 |
+| `[VALIDAR CON FUENTE]` | 5 | 1 |
+| `[PENDIENTE]` | 5 | 3 |
+| `[X64/ARM64 POR VALIDAR]` | 4 | 2 |
+| `[VALIDAR]` | 3 | 1 |
+| `[POR VALIDAR]` | 2 | 1 |
+
+Y varios corchetes que **parecen** marcadores y no lo son: listas de código (`["COMPLETADO",
+"PENDIENTE"]`), pruebas de shell (`[ "$PENDIENTES" -EQ 0 ]`) y `[NOMBRE DE TAREA DEPENDIENTE]`.
+
+### 33.2 Qué se cambió
+
+`_MARCADOR_MAYUSCULAS_RE` acepta `VALIDAR` además de `CONFIRMAR` y `PENDIENTE`, y exige **palabra
+completa**:
+
+- `[VERSIÓN POR VALIDAR]`, `[VALIDAR CON FUENTE]`, `[POR VALIDAR]`, `[X64/ARM64 POR VALIDAR]` eximen
+  el referente (nivel 3) y aparecen en `marcados`.
+- `[NOMBRE DE TAREA DEPENDIENTE]` **deja de ser** un marcador. Antes casaba dentro de
+  «DE**PENDIENTE**» y exoneraba lo que hubiera en el párrafo: un falso negativo del detector, no del
+  chequeo.
+
+### 33.3 La medición
+
+- `test_referent_check.py`: **158/158**.
+- Corpus: referentes exonerados **20 → 21**. El nuevo es `/labs/taskflow-app` en
+  `261005-DESAPP-AVZ`/`02-00-01`, un **directorio de trabajo** (no material del curso) y de confianza
+  baja: no oculta ningún defecto real. Las altas de B1 **no cambian (7)**; ningún exonerado nuevo es
+  bloqueante.
+- El arreglo de la palabra completa no cambia el corpus actual (no hay `[X DEPENDIENTE]` junto a un
+  referente), pero cierra el agujero para el futuro.
+
+### 33.4 Dónde queda B8
+
+El Setup Guide genera sus propios marcadores desde `setup_guide_builder` (`[VERSION POR VALIDAR]`,
+`[LICENCIA POR VALIDAR]`, `[DOMINIOS, PUERTOS Y PROXY POR VALIDAR]`). Ahora la familia es reconocible
+por el chequeo referencial, pero **el Setup Guide no pasa por él**: eso es B7, el siguiente frente, y
+ahí se decidirá si el Setup Guide se audita con las mismas reglas o solo se marca.
+
+### 33.5 Verificación
+
+- Despliegue verificado sobre el artefacto de la Lambda: `LastModified` 2026-10-25T02:22:07, copias
+  idénticas (`sha256[:16] = e6e8b71c57760da1`), y el módulo descargado ejecuta los tres casos
+  (**3/3**).
+
+### 33.6 Lo que sigue
+
+1. **B7**: Setup Guide contra laboratorios, en ambos sentidos. Es el último frente de Fase 3.
+2. El censo de marcadores deja una decisión de vocabulario: hoy conviven «por confirmar» y «por
+   validar»; unificarlas es cosmético y puede esperar.
+3. C1, manifiesto de entradas y observación en producción: sin cambios.

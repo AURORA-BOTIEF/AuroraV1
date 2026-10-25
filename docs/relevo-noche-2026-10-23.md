@@ -147,6 +147,14 @@ filtros de instrucciones/genericos → **2** con la regla de pluralidad; los 2 s
 plan: **1 de 165**, corregido; **0 A2 restantes**. 156/156 pruebas y despliegue verificado
 (`21:35:14`, `2fc2071e138bffc2`, 4/4).
 
+**B8 (spec §33).** Censo: **160 marcadores en 56 formas** sobre 1.298 guías. La familia
+`[X POR VALIDAR]` (63 de `[VERSIÓN POR VALIDAR]` en 23 guías, más `[VALIDAR CON FUENTE]`,
+`[POR VALIDAR]`, `[X64/ARM64 POR VALIDAR]`) ya cuenta como marcador y exime el referente. De paso se
+cerró un falso negativo del detector: `[NOMBRE DE TAREA DEPENDIENTE]` casaba dentro de
+«DE**PENDIENTE**»; ahora la marca exige palabra completa. Medido: exonerados 20 → 21 (el nuevo es
+`/labs/taskflow-app`, un directorio de trabajo), altas de B1 sin cambios (7). 158/158 y despliegue
+verificado (`02:22:07`, `e6e8b71c57760da1`, 3/3).
+
 **A2 v2 y B4 (spec §32): descartadas por medición.** Nombres propios: **1.246 guías, el 100 % con
 candidatos, 14.670 nombres**; «no está en el temario» es casi todo (productos, encabezados, personas
 de ejemplo). Estabilidad entre prácticas: **312 discrepancias en 99 proyectos** contra el temario y
