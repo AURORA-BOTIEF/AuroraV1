@@ -199,6 +199,19 @@ muertos, 449 no verificables; el crudo era ruido (hosts internos, IPs privadas, 
 namespaces). No bloquea: 831 candidatos serían un falso positivo masivo. 7/7 + 7/7 + 15/15 y
 despliegue verificado (`03:23:49`).
 
+**Prueba real de punta a punta (spec §40).** Curso completo sobre `271027-prueba-a6-a7` (temario
+Docker copiado de `260515-Docker-desde-cero`, sin manual) con la petición «Docker 24.0, Compose v2,
+Ubuntu 24.04, sin Docker Desktop»: `prueba-a6-a7-1793118636` **SUCCEEDED** en ~20 min, 217 eventos,
+25 tareas. A6: `context_topics` 4 y 4, cobertura **100 % y 82 %** (mediana del corpus 70 %). A7:
+`additional_requirements` literal en plan y guía; Ubuntu 24.04 LTS, Docker Engine 24.0.9, Compose
+2.24.5, nada pendiente; «Docker Desktop» solo como prohibición; «Compose v2» llega como requisito de
+entorno (plugin 2.24.5), no como ejercicio, que el temario no pide. Flujo con `InvokeSetupGuide` e
+`InvokePostGenerationAudit`; manifiesto 1/0/1/2/2. Único hallazgo: 2 «muertos» que eran la misma
+plantilla `hub.docker.com/r/<usuario>/…` cortada por `<` y por `\`; `urls_de` la descarta ahora
+(8/8) y, reauditado el proyecto con el código desplegado, **16 públicos, 15 vivos, 0 muertos, 1 no
+verificable**. Los 4 `[POR CONFIRMAR]` están en hardware `recommended` (el temario no los declara):
+previstos, no defecto. Duración 72/120 min, sin aviso de pre-flight.
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

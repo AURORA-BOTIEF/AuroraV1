@@ -2907,3 +2907,81 @@ problema sea la invención; la mayoría de los muertos son fuentes que se movier
   `260911-curso-android-avanzado` (prefijo `prueba-auditoria-2026-10-26`, borrado al terminar):
   **22 enlaces públicos, 11 vivos, 1 muerto, 10 no verificables**; manifiesto con **1 temario y 7
   laboratorios**. `PostGenerationAuditFunction` con `LastModified` 2026-10-27T03:23:49.
+
+## 40. Ejecución real de punta a punta (27/10/2026)
+
+Prueba de aceptación sobre una salida real de los cambios §35 (A6), §36 (A7), §38 (flujo) y §39
+(manifiesto y enlaces). No es una simulación: es una ejecución completa del flujo desplegado contra
+Bedrock.
+
+### 40.1 Material y petición
+
+| Elemento | Valor |
+|---|---|
+| Proyecto | `271027-prueba-a6-a7` |
+| Temario | `outline/Docker_desde_cero.yaml`, copiado de `260515-Docker-desde-cero` |
+| Tamaño | 2 módulos, 4 lecciones, 8 tópicos, 2 laboratorios de módulo, 120 min declarados |
+| Manual | ninguno (el caso normal del corpus) |
+| `content_type` | `labs` |
+| Petición | «Usar Docker 24.0 y Docker Compose v2. El laboratorio debe ejecutarse en Ubuntu 24.04; no usar Docker Desktop.» |
+
+Ejecución `prueba-a6-a7-1793118636`: **SUCCEEDED**, 217 eventos, 25 tareas, sin fallos.
+
+### 40.2 A6: los tópicos llegan
+
+El plan trae `context_topics` en los dos laboratorios (4 y 4, todos los del módulo). La cobertura
+medida sobre el markdown generado —los mismos tokens del §37— es **100 %** y **82 %**, frente a la
+mediana de **70 %** del corpus en laboratorios de módulo.
+
+### 40.3 A7: la petición llega
+
+- `additional_requirements` en el plan y en la guía es **idéntico** a la petición, literal.
+- El plan resolvió la petición en software con versión: Ubuntu 24.04 LTS, Docker Engine **24.0.9**,
+  Docker Compose **2.24.5**; la guía repite esas versiones y **ninguna** queda pendiente.
+- Los laboratorios citan «24.0» 35 y 18 veces y «ubuntu 24.04» 9 y 6.
+- «Docker Desktop» aparece **solo como prohibición** («sin Docker Desktop»), nunca como instrucción.
+- «Compose v2» no aparece literal: el laboratorio instala el plugin `docker-compose-plugin` 2.24.5 y
+  la guía lo fija como versión requerida. La petición se cumple como requisito de entorno; no se
+  convirtió en un ejercicio de `docker compose`, que el temario no pide.
+
+### 40.4 Flujo, manifiesto y enlaces
+
+- Estados visitados: `InvokeLabPlanner` → `ExpandLabsToBatches` → `GenerateLabBatch` (×2) →
+  `ValidateLabContent` → `InvokeLabGuideBuilder` → `InvokeSetupGuide` →
+  `InvokePostGenerationAudit` → `NotifyCompletion`.
+- Manifiesto: 1 temario, 0 manuales, 1 plan, 2 laboratorios, 2 artefactos de guía.
+- Enlaces: 18 públicos, 15 vivos, **2 muertos**, 1 no verificable.
+- Repetida la auditoría sobre el mismo proyecto con el código corregido: **16 públicos, 15 vivos,
+  **0 muertos**, 1 no verificable** (el 302 de `hub.docker.com/settings/security`, que exige sesión).
+
+### 40.5 Hallazgo: dos «muertos» que eran una plantilla
+
+Los dos muertos eran la misma plantilla del laboratorio 2:
+
+```
+https://hub.docker.com/r/<dockerhub-username>/static-webapp/tags
+https://hub.docker.com/r/\<dockerhub-username\>/static-webapp/tags
+```
+
+El extractor corta en `<`, así que la primera quedaba como `https://hub.docker.com/r/` y la segunda
+como `https://hub.docker.com/r/\`; ambas dan 404 y entraban como enlaces públicos. No son enlaces
+rotos: son ejemplos con marcador. `urls_de` descarta ahora una URL seguida de un marcador de
+plantilla (`<` o `\`) y la que termina en `\`. Prueba nueva en `test_post_generation_audit.py`
+(**8/8**); sobre el markdown real de la prueba, las dos plantillas desaparecen.
+
+### 40.6 Marcadores de la guía
+
+Los 4 `[POR CONFIRMAR]` están en `infrastructure.hardware[].recommended`: el temario declara mínimos
+(RAM 4 GB, disco 20 GB) pero no recomendados. El mínimo se conserva, el estado es «Requiere
+confirmación» y el marcador es el previsto en §33; no es un defecto.
+
+### 40.7 Duración
+
+72 min de laboratorios (36 + 36) sobre 120 declarados: 60 % de práctica. El pre-flight del §30 no
+emitió aviso.
+
+### 40.8 Límites de la prueba
+
+Un solo curso y una sola ejecución: mide el camino, no la distribución. El temario es pequeño y sin
+manual, así que no ejercita la precedencia manual > temario del §35. La prueba no sustituye la
+observación en producción.
