@@ -1502,6 +1502,43 @@ def _contrato_declarado(lab_plan: dict) -> str:
     return "\n".join(lineas) + "\n"
 
 
+def _resumen_de_labs(lab_plans: List[Dict[str, Any]]) -> str:
+    """Resumen de los laboratorios para el prompt, con los tópicos de su temario.
+
+    Los tópicos llegan del outline a través del plan (``context_topics``). Son el
+    ancla de materia: el laboratorio puede añadir procedimiento (comandos, pasos,
+    comprobaciones), no materia nueva. Antes no se imprimían y la alineación
+    dependía solo del ``scope`` y del texto de la teoría.
+    """
+    labs_summary = []
+    for lab in lab_plans:
+        is_demo = is_demo_plan(lab)
+        lab_title_formatted = ensure_demo_title(lab['lab_title']) if is_demo else lab['lab_title']
+        demo_tag = " (TIPO: DEMOSTRACIÓN / DEMO DEL INSTRUCTOR)" if is_demo else ""
+        topicos = [
+            " ".join(str(t).split())
+            for t in (lab.get('context_topics') or [])
+            if str(t).strip()
+        ]
+        topicos_linea = (
+            "\n- Lesson topics (the lab MUST exercise these; do not introduce subject "
+            f"matter beyond them): {'; '.join(topicos[:12])}"
+            if topicos
+            else ""
+        )
+        labs_summary.append(f"""
+**Lab {lab['lab_id']}: {lab_title_formatted}**{demo_tag}
+- Duration: {lab['estimated_duration']} minutes
+- Complexity: {lab.get('complexity', 'medium')}
+- Bloom Level: {lab['bloom_level']}
+- Objectives: {', '.join(lab['objectives'])}
+- Scope: {lab['scope']}
+- Prerequisites: {', '.join(lab.get('prerequisites', []))}
+- Technologies: {', '.join(lab.get('key_technologies', []))}{topicos_linea}
+{_contrato_declarado(lab)}""")
+    return "".join(labs_summary)
+
+
 def generate_all_labs_batch(
     lab_plans: List[Dict[str, Any]],
     master_context: dict,
@@ -1518,22 +1555,7 @@ def generate_all_labs_batch(
     lesson_context_section = _lesson_context_block(lesson_content)
 
     # Build comprehensive prompt for ALL labs
-    labs_summary = []
-    for lab in lab_plans:
-        is_demo = is_demo_plan(lab)
-        lab_title_formatted = ensure_demo_title(lab['lab_title']) if is_demo else lab['lab_title']
-        demo_tag = " (TIPO: DEMOSTRACIÓN / DEMO DEL INSTRUCTOR)" if is_demo else ""
-        labs_summary.append(f"""
-**Lab {lab['lab_id']}: {lab_title_formatted}**{demo_tag}
-- Duration: {lab['estimated_duration']} minutes
-- Complexity: {lab.get('complexity', 'medium')}
-- Bloom Level: {lab['bloom_level']}
-- Objectives: {', '.join(lab['objectives'])}
-- Scope: {lab['scope']}
-- Prerequisites: {', '.join(lab.get('prerequisites', []))}
-- Technologies: {', '.join(lab.get('key_technologies', []))}
-{_contrato_declarado(lab)}""")
-    labs_summary_text = "".join(labs_summary)
+    labs_summary_text = _resumen_de_labs(lab_plans)
 
     if len(lab_plans) == 1:
         print("📎 Using compact single-lab prompt (smaller input, faster generation).")

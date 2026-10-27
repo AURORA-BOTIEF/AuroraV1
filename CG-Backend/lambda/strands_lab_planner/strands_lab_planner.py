@@ -508,6 +508,23 @@ def call_bedrock_agent(prompt: str, model_id: str) -> str:
         raise
 
 
+def _heredar_del_temario(lab_plan: dict, original_lab: dict) -> None:
+    """Copia al plan del laboratorio lo que solo el temario sabe.
+
+    El modelo devuelve los lab_plans sin ``context_topics``: los tópicos se
+    extraen del outline (lección, o todas las lecciones del módulo si el lab es
+    de módulo) y se perdían al agregar los lotes. Sin ellos, el writer solo tenía
+    el ``scope`` y la teoría como ancla de materia.
+    """
+    lab_plan['lab_title'] = original_lab['lab_title']
+    lab_plan['module_number'] = original_lab.get('module_number')
+    lab_plan['context_topics'] = original_lab.get('context_topics') or []
+    lab_plan['lesson_title'] = original_lab.get('lesson_title') or ''
+    lab_plan['module_title'] = original_lab.get('module_title') or ''
+    if original_lab.get('is_demo'):
+        lab_plan['is_demo'] = True
+
+
 def build_fallback_lab_plans_from_outline(
     labs: List[Dict[str, Any]],
     course_language: str = "es",
@@ -583,6 +600,9 @@ def build_fallback_lab_plans_from_outline(
                 "expected_outcomes": outcomes,
                 "complexity": "medium",
                 "module_number": lab.get("module_number"),
+                "context_topics": topics,
+                "lesson_title": lesson_title,
+                "module_title": lab.get("module_title") or "",
             }
         )
     return out
@@ -864,12 +884,8 @@ BE SPECIFIC. Include all {len(batch_labs)} labs. Return ONLY JSON.
                 # Find the original lab from outline to get exact title and module number
                 original_lab = next((l for l in batch_labs if l['lab_id'] == lab_id), None)
                 if original_lab:
-                    # Override with exact outline title
-                    lab_plan['lab_title'] = original_lab['lab_title']
-                    # Add module_number from original lab or extract from lab_id
-                    lab_plan['module_number'] = original_lab.get('module_number')
-                    if original_lab.get('is_demo'):
-                        lab_plan['is_demo'] = True
+                    # El título y los tópicos son del temario, no del modelo.
+                    _heredar_del_temario(lab_plan, original_lab)
                     print(f"  ✓ Lab {lab_id}: Module {lab_plan['module_number']}, Title '{original_lab['lab_title']}', Demo={lab_plan.get('is_demo', False)}")
                 elif lab_id:
                     # Fallback: Extract module number from lab_id (format: MM-LL-NN)

@@ -3132,6 +3132,89 @@ def test_el_setup_guide_no_trunca_las_consideraciones():
     assert len(modulo.build_accesses(plan)) == 15
 
 
+def _lab_de_prueba(**extra):
+    lab = {
+        "lab_id": "01-00-01",
+        "lab_title": "Alta de fondos",
+        "estimated_duration": 60,
+        "complexity": "medium",
+        "bloom_level": "Apply",
+        "objectives": ["Crear fondos"],
+        "scope": "Alta de fondos de una cartera",
+        "prerequisites": [],
+        "key_technologies": ["Python"],
+    }
+    lab.update(extra)
+    return lab
+
+
+def test_el_prompt_del_lab_incluye_los_topicos_de_su_temario():
+    """El writer no veía los tópicos: `context_topics` moría en el planificador."""
+    modulo = _cargar_modulo(
+        "strands_lab_writer", os.path.join("lambda", "strands_lab_writer")
+    )
+    resumen = modulo._resumen_de_labs(
+        [
+            _lab_de_prueba(
+                context_topics=["Alta de fondos", "Consulta de saldos"]
+            )
+        ]
+    )
+    assert "Lesson topics" in resumen, resumen
+    assert "Alta de fondos" in resumen
+    assert "Consulta de saldos" in resumen
+
+
+def test_el_prompt_del_lab_no_inventa_topicos_si_no_hay():
+    modulo = _cargar_modulo(
+        "strands_lab_writer", os.path.join("lambda", "strands_lab_writer")
+    )
+    resumen = modulo._resumen_de_labs([_lab_de_prueba()])
+    assert "Lesson topics" not in resumen, resumen
+
+
+def test_el_planificador_hereda_los_topicos_del_temario():
+    """El modelo devuelve lab_plans sin tópicos; se copian del outline."""
+    modulo = _cargar_modulo(
+        "strands_lab_planner", os.path.join("lambda", "strands_lab_planner")
+    )
+    lab_plan = {"lab_id": "01-00-01", "lab_title": "Título del modelo"}
+    modulo._heredar_del_temario(
+        lab_plan,
+        {
+            "lab_title": "Alta de fondos",
+            "module_number": 1,
+            "context_topics": ["Alta de fondos", "Consulta de saldos"],
+            "lesson_title": "Module Lab",
+            "module_title": "Cartera",
+        },
+    )
+    assert lab_plan["lab_title"] == "Alta de fondos"
+    assert lab_plan["context_topics"] == ["Alta de fondos", "Consulta de saldos"]
+    assert lab_plan["module_number"] == 1
+
+
+def test_el_plan_de_respaldo_conserva_los_topicos():
+    modulo = _cargar_modulo(
+        "strands_lab_planner", os.path.join("lambda", "strands_lab_planner")
+    )
+    salida = modulo.build_fallback_lab_plans_from_outline(
+        [
+            {
+                "lab_id": "01-00-01",
+                "lab_title": "Alta de fondos",
+                "duration_minutes": 60,
+                "context_topics": ["Alta de fondos"],
+                "module_number": 1,
+                "module_title": "Cartera",
+            }
+        ],
+        course_language="es",
+    )
+    assert salida[0]["context_topics"] == ["Alta de fondos"]
+    assert salida[0]["module_title"] == "Cartera"
+
+
 def test_un_listado_de_python_no_es_un_marcador():
     """`['pendientes']` exoneraba un fichero de salida real: el marcador va en
     mayúsculas, o el corchete **es** la marca. Medido sobre el corpus."""
