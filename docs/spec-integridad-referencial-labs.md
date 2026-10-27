@@ -2799,3 +2799,111 @@ razón de diseño, no una consecuencia de la métrica.
 Necesitaría un denominador por laboratorio —su título y su alcance, no el módulo entero— o una
 comparación semántica, no solapamiento de términos. Queda como idea, no como backlog: hoy no hay
 evidencia de que el problema exista.
+
+## 38. La Setup Guide entra en la máquina de estados (26/10/2026)
+
+### 38.1 El orden
+
+El flujo termina ahora así:
+
+```
+InvokeLabGuideBuilder → InvokeSetupGuide → InvokePostGenerationAudit → NotifyCompletion
+```
+
+La guía va **después** de los laboratorios porque los consume: `list_lab_files()` lee los
+`lab-*.md`, `build_lab_matrix()` saca de ellos la matriz y `build_preparation()` los usa para los pasos
+de instalación. Antes se invocaba a mano y podía quedar desactualizada respecto al curso.
+
+### 38.2 No bloquea
+
+Un fallo de la guía **no invalida un curso ya generado**. El estado lleva `Catch` a
+`NotifyCompletion` con `ResultPath: $.setup_guide_error`; el flujo sigue y el error queda en la salida
+de la ejecución. La auditoría posterior hace lo mismo (`$.audit_error`).
+
+### 38.3 De paso, un ARN frágil
+
+`InvokeLabGuideBuilder` llevaba el ARN de la Lambda escrito a mano
+(`crewai-course-generator-stack-LabGuideBuilder-3G4pm9YpQeCp`). Ahora usa `${LabGuideBuilderArn}`, que
+ya estaba en `DefinitionSubstitutions`; los dos estados nuevos usan `${SetupGuideBuilderArn}` y
+`${PostGenerationAuditArn}`. Si el stack se recrea, el flujo no se rompe.
+
+### 38.4 Verificación
+
+- `test_state_machine.py`: **7/7**. La simulación recorre los tres flujos (teoría, laboratorios, ambos)
+  y exige que cada tarea encuentre los campos que consume; la prueba nueva fija el orden y el
+  `Catch` no bloqueante.
+- Despliegue verificado sobre la definición (`describe-state-machine`): **46 estados**,
+  `InvokeSetupGuide` e `InvokePostGenerationAudit` presentes y los tres ARN resueltos
+  (`LabGuideBuilder`, `SetupGuideBuilderFunction`, `PostGenerationAuditFunction`).
+
+## 39. Auditoría posterior: manifiesto con hash y enlaces (26/10/2026)
+
+Se ejecuta después de la guía y escribe dos artefactos de evidencia. No bloquea y no reescribe nada.
+
+### 39.1 El manifiesto
+
+`{proyecto}/labguide/inputs-manifest.json`:
+
+| Bloque | Contenido |
+|---|---|
+| `inputs.outline` | cada `.yaml` del temario, con SHA-256 y bytes |
+| `inputs.manual` | `manual.txt`, con SHA-256 y bytes |
+| `outputs.plan` | `lab-master-plan.json`, con SHA-256 |
+| `outputs.labs` | cada `lab-MM-LL-NN-*.md`, con SHA-256 |
+| `outputs.setup_guide` | `setup-guide.json` y `Setup_Guide.pdf`, con SHA-256 |
+
+Para una actualización basta comparar: si el hash del temario cambió, el plan y los laboratorios
+pueden estar obsoletos; si solo cambió un laboratorio, se regenera ese. Sin el manifiesto hay que
+releer y comparar el curso entero.
+
+La petición del curso **no** se hashea aparte: el plan la conserva en `additional_requirements` y su
+hash ya la cubre. El intento de leer `lab_requirements`/`lesson_requirements` en este estado lo
+detuvo la simulación del flujo: los `Pass` intermedios no los conservan, y forzarlos por el cableado
+no aportaba nada.
+
+### 39.2 Los enlaces
+
+Medición sobre 1.313 laboratorios: **5.150 enlaces públicos**, 3.870 vivos, **831 muertos**
+(404/410/DNS inexistente) y **449 no verificables** (403/429/5xx/timeout). El crudo engaña: 3.710
+eran hosts internos (`es01:9200`, `schema-registry:8081`), 734 IPs privadas (`10.10.10.100`), 821
+plantillas (`$CB_HOST`, `tu-usuario`) y 133 namespaces XML (`maven.apache.org/POM/4.0.0`).
+
+El filtro descarta todo eso y clasifica:
+
+| Clase | Criterio |
+|---|---|
+| `muerto` | 404, 410 o DNS inexistente |
+| `no_verificable` | 401/403/429/5xx y timeouts: el servidor existe y puede bloquear bots |
+| `vivo` | 2xx/3xx |
+
+Informe en `{proyecto}/labguide/enlaces.json` con `resumen`, `muertos` y `no_verificables`, cada uno
+con la URL, el estado y los laboratorios donde aparece. Prueba en seco sobre tres cursos reales:
+
+| Curso | Públicos | Vivos | Muertos | No verificables |
+|---|---|---|---|---|
+| `251018-JS-06` | 68 | 55 | 8 | 5 |
+| `260911-curso-android-avanzado` | 22 | 11 | 1 | 10 |
+| `251031-databricks-ciencia-datos` | 76 | 63 | 8 | 5 |
+
+Los muertos son reales: páginas de Microsoft Learn que se movieron, `owasp.org/www-project-api-security/`,
+`docs.databricks.com/en/delta/data-quality.html`.
+
+### 39.3 Por qué no bloquea
+
+Un 404 hoy puede ser un movimiento de página o un bloqueo temporal; con 831 candidatos y 449 no
+verificables, convertirlo en `ERROR` sería el falso positivo masivo que la disciplina del proyecto
+prohíbe. El informe es **evidencia para el instructor**, no una puerta. Tampoco reescribe las guías:
+arreglar un enlace roto exige cambiar el contenido del laboratorio, y eso no lo decide un chequeo de red.
+
+Si en el futuro se quiere cerrar el círculo, el camino no es el bloqueo sino la regla de origen: que
+el writer no invente URLs y solo cite las del manual y el temario. Hoy no hay evidencia de que el
+problema sea la invención; la mayoría de los muertos son fuentes que se movieron.
+
+### 39.4 Verificación
+
+- `test_post_generation_audit.py`: **7/7** (hash, filtros, agrupación por laboratorio, handler).
+- `test_state_machine.py`: **7/7**; `test_content_validator.py`: **15/15**.
+- Despliegue verificado: definición con los estados nuevos y prueba real sobre una **copia** de
+  `260911-curso-android-avanzado` (prefijo `prueba-auditoria-2026-10-26`, borrado al terminar):
+  **22 enlaces públicos, 11 vivos, 1 muerto, 10 no verificables**; manifiesto con **1 temario y 7
+  laboratorios**. `PostGenerationAuditFunction` con `LastModified` 2026-10-27T03:23:49.

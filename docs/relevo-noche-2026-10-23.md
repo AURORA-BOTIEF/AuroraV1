@@ -189,6 +189,16 @@ tópicos en inglés y laboratorio en español, y de los 29 restantes casi todos 
 denominador son todos los tópicos del módulo (un lab no cubre ocho lecciones). **No se crea el
 marcador**: sería ruido, como A2 v2 y B4. El arreglo de §35 se queda por diseño.
 
+**Setup Guide en el flujo y auditoría posterior (spec §38–§39).** La guía ya no se invoca a mano:
+`InvokeLabGuideBuilder → InvokeSetupGuide → InvokePostGenerationAudit → NotifyCompletion`, con
+`Catch` a `NotifyCompletion` en los dos estados nuevos (un fallo no invalida un curso ya generado).
+De paso, el ARN escrito a mano de `InvokeLabGuideBuilder` pasa a `${LabGuideBuilderArn}`. La auditoría
+escribe `labguide/inputs-manifest.json` (SHA-256 de temario, manual, plan, laboratorios y guía) y
+`labguide/enlaces.json`. C1 medido sobre 1.313 laboratorios: 5.150 enlaces públicos, 3.870 vivos, 831
+muertos, 449 no verificables; el crudo era ruido (hosts internos, IPs privadas, plantillas,
+namespaces). No bloquea: 831 candidatos serían un falso positivo masivo. 7/7 + 7/7 + 15/15 y
+despliegue verificado (`03:23:49`).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.
