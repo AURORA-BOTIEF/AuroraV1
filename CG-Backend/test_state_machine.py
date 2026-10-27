@@ -231,6 +231,36 @@ def test_los_lotes_de_laboratorio_siguen_siendo_secuenciales():
         )
 
 
+def test_la_setup_guide_se_genera_despues_de_los_labs_y_no_bloquea():
+    """La guía consume el plan y los ``lab-*.md``: va después del escritor.
+
+    Un fallo de la guía no puede invalidar un curso ya generado: el ``Catch``
+    vuelve a ``NotifyCompletion`` y deja el error en ``$.setup_guide_error``.
+    """
+    estados = _definicion()["States"]
+    assert estados["InvokeLabGuideBuilder"]["Next"] == "InvokeSetupGuide"
+    guia = estados["InvokeSetupGuide"]
+    assert guia["Next"] == "InvokePostGenerationAudit"
+    assert guia["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
+    assert guia["Parameters"]["Payload"]["course_bucket.$"] == "$.course_bucket"
+    atrapa = guia["Catch"][0]
+    assert atrapa["Next"] == "NotifyCompletion", (
+        "un fallo de la Setup Guide no debe invalidar el curso"
+    )
+    assert atrapa["ResultPath"] == "$.setup_guide_error"
+
+
+def test_la_auditoria_posterior_cierra_el_flujo_sin_bloquear():
+    """Manifiesto y enlaces son evidencia: un fallo no invalida el curso."""
+    estados = _definicion()["States"]
+    assert estados["InvokeSetupGuide"]["Next"] == "InvokePostGenerationAudit"
+    auditoria = estados["InvokePostGenerationAudit"]
+    assert auditoria["Next"] == "NotifyCompletion"
+    assert auditoria["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
+    assert auditoria["Catch"][0]["Next"] == "NotifyCompletion"
+    assert auditoria["Catch"][0]["ResultPath"] == "$.audit_error"
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     pruebas = [

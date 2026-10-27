@@ -974,6 +974,33 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  PostGenerationAuditFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PostGenerationAuditFunction
+      Description: Manifiesto de entradas con hash y estado de los enlaces de los laboratorios
+      Runtime: python3.12
+      Handler: post_generation_audit.lambda_handler
+      CodeUri: ./lambda/post_generation_audit/
+      Architectures:
+        - arm64
+      MemorySize: 512
+      Timeout: 300
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
   LoadBookFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1363,6 +1390,8 @@ Resources:
         ImagesGenArn: !GetAtt ImagesGen.Arn
         BookBuilderArn: !GetAtt BookBuilder.Arn
         LabGuideBuilderArn: !GetAtt LabGuideBuilder.Arn
+        SetupGuideBuilderArn: !GetAtt SetupGuideBuilderFunction.Arn
+        PostGenerationAuditArn: !GetAtt PostGenerationAuditFunction.Arn
         StrandsLabPlannerArn: !GetAtt StrandsLabPlanner.Arn
         StrandsLabWriterArn: !GetAtt StrandsLabWriter.Arn
         StrandsNotificationArn: !GetAtt StrandsNotification.Arn
@@ -1383,6 +1412,8 @@ Resources:
                 - !GetAtt ImagesGen.Arn
                 - !GetAtt BookBuilder.Arn
                 - !GetAtt LabGuideBuilder.Arn
+                - !GetAtt SetupGuideBuilderFunction.Arn
+                - !GetAtt PostGenerationAuditFunction.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
                 - !GetAtt StrandsNotification.Arn

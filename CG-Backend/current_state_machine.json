@@ -808,9 +808,9 @@
     },
     "InvokeLabGuideBuilder": {
       "Comment": "Build lab guide book with all lab exercises",
-      "Next": "NotifyCompletion",
+      "Next": "InvokeSetupGuide",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:crewai-course-generator-stack-LabGuideBuilder-3G4pm9YpQeCp",
+        "FunctionName": "${LabGuideBuilderArn}",
         "Payload": {
           "course_bucket.$": "$.course_bucket",
           "project_folder.$": "$.project_folder"
@@ -837,6 +837,77 @@
           ],
           "Next": "NotifyFailure",
           "ResultPath": "$.error"
+        }
+      ],
+      "Type": "Task"
+    },
+    "InvokeSetupGuide": {
+      "Comment": "Build the consolidated Setup Guide (JSON + PDF) from the plan and the labs. Non-blocking: the course is already built, so a guide failure is recorded and the flow continues.",
+      "Next": "InvokePostGenerationAudit",
+      "Parameters": {
+        "FunctionName": "${SetupGuideBuilderArn}",
+        "Payload": {
+          "author": "Aurora AI",
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder"
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.setup_guide_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyCompletion",
+          "ResultPath": "$.setup_guide_error"
+        }
+      ],
+      "Type": "Task"
+    },
+    "InvokePostGenerationAudit": {
+      "Comment": "Write the inputs manifest (SHA-256) and the link report. Non-blocking: it is evidence, not a gate.",
+      "Next": "NotifyCompletion",
+      "Parameters": {
+        "FunctionName": "${PostGenerationAuditArn}",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder"
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.audit_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyCompletion",
+          "ResultPath": "$.audit_error"
         }
       ],
       "Type": "Task"
