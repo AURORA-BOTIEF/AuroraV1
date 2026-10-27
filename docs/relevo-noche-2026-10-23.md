@@ -184,6 +184,11 @@ y en el PDF, solo si existe. La unión software plan ∪ herramientas de los lab
 se despliega**: el escáner no distingue host de invitado (`npm` dentro de un contenedor no exige Node).
 167/167 y artefacto verificado (`02:32:37`).
 
+**Cobertura de tópicos (spec §37).** Los 39 labs por debajo del 34 % no son 39 desalineados: 10 tienen
+tópicos en inglés y laboratorio en español, y de los 29 restantes casi todos son labs de módulo cuyo
+denominador son todos los tópicos del módulo (un lab no cubre ocho lecciones). **No se crea el
+marcador**: sería ruido, como A2 v2 y B4. El arreglo de §35 se queda por diseño.
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

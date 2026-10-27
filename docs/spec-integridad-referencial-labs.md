@@ -2698,8 +2698,8 @@ La mayoría ya estaba alineada por el `scope` y la teoría; hay una cola real de
 
 1. **Setup Guide**: leer `additional_requirements` y unir plan ∪ laboratorios ∪ petición; medir
    cuántas herramientas de los labs faltan hoy en la guía.
-2. **Marcador de cobertura < 34 %** (39 laboratorios) tras revisar una muestra; si la muestra es
-   limpia, se queda como marcador, no como bloqueo.
+2. **Marcador de cobertura < 34 %** (39 laboratorios): revisado en §37; **no se crea** (el idioma y
+   el denominador de módulo lo contaminan).
 3. La cobertura **después** del arreglo se mide en la próxima generación real: no se regeneran los
    cursos existentes.
 
@@ -2760,5 +2760,42 @@ el plan declare la herramienta o que la regla sepa distinguir host de invitado.
 
 ### 36.5 Lo que sigue
 
-1. **Marcador de cobertura < 34 %** (39 laboratorios de 1.246) tras revisar una muestra.
+1. **Marcador de cobertura < 34 %**: revisado en §37; **no se crea**.
 2. Decidir si la Setup Guide entra en la máquina de estados como paso posterior al writer.
+
+## 37. El marcador de cobertura no se crea (26/10/2026)
+
+§35 midió 39 laboratorios con cobertura de tópicos por debajo del 34 % y dejó abierto convertirlo en
+marcador. La revisión de esos 39 dice que **no**: el número no aísla la desalineación.
+
+### 37.1 La revisión
+
+| Grupo | Labs | Lectura |
+|---|---|---|
+| Tópicos en inglés, laboratorio en español | 10 | Artefacto de idioma, no de contenido |
+| Mismo idioma | 29 | Casi todos, laboratorios de módulo |
+
+En los 29 de mismo idioma, el denominador es **todo el módulo** (el planificador agrega los tópicos de
+todas las lecciones para los labs `MM-00-NN`). Un módulo con ocho lecciones no se cubre con un
+laboratorio, así que la fracción baja sin que el laboratorio esté desalineado. Ejemplos:
+
+- `lab-03-00-02-práctica-9-rolling-update-y-rollback`: 31 %, y el laboratorio es exactamente eso.
+- `lab-03-00-03-práctica-10-jobs-y-cronjobs`: 31 %, idem.
+- `lab-02-00-01-practica-2-crear-una-api-rest-simple-en-fastapi`: 33 %, idem.
+
+El único laboratorio con cobertura cero esperaba un solo término, «capítulo»: también ruido.
+
+### 37.2 La decisión
+
+No se despliega marcador de cobertura. Sería un falso positivo masivo, como A2 v2 y B4. La medición
+sirvió para saber que la alineación **existe** en la mayoría (mediana 70 % en módulo, 83 % en lección),
+no para bloquear.
+
+El arreglo de §35 se queda: el writer **debe** ver los tópicos de su lección o módulo, y eso es una
+razón de diseño, no una consecuencia de la métrica.
+
+### 37.3 Si se quisiera una comprobación real
+
+Necesitaría un denominador por laboratorio —su título y su alcance, no el módulo entero— o una
+comparación semántica, no solapamiento de términos. Queda como idea, no como backlog: hoy no hay
+evidencia de que el problema exista.
