@@ -170,6 +170,13 @@ truncaba a 12 (**110 de 172** con más de 12). Arreglado: dedup por nombre exact
 software perdido **65 → 0**; accesos incompletos **110 → 1**, y ese uno es una deducción real. 161/161
 y artefacto verificado (`SetupGuideBuilderFunction`, `03:09:40`).
 
+**A6 (spec §35).** El temario es la fuente principal, no la única: petición (opcional) → plan →
+laboratorios → Setup Guide. Hallazgo: el planificador extraía `context_topics` y los usaba en su
+prompt, pero **no los guardaba** en el plan, y el writer no los imprimía. La alineación dependía del
+`scope` y la teoría. Medición sobre 1.246 labs: cobertura mediana **70 %** (módulo) y **83 %**
+(lección); **39 labs por debajo del 34 %** (3,1 %). Arreglo: `_heredar_del_temario` en el planificador
+y `_resumen_de_labs` en el writer. 165/165 y artefactos verificados (`02:07:41`).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

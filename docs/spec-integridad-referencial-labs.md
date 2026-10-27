@@ -2639,3 +2639,66 @@ regla ahí sería comprobar el plan dos veces.
 2. **Observación en producción**: sin ejecuciones reales desde los despliegues, no hay nada que
    observar todavía.
 3. Fase 3 queda cerrada salvo B8 (hecho en §33) y B7 (aquí).
+
+## 35. A6: los tópicos del temario llegan al writer (26/10/2026)
+
+El modelo de fuentes queda explícito, porque el temario es la fuente principal pero no la única:
+
+| # | Fuente | Qué manda |
+|---|---|---|
+| 1 | Temario (módulo, lección, tópicos) | **Qué** se enseña: el laboratorio puede añadir procedimiento, no materia nueva |
+| 2 | Petición (`lab_requirements`, opcional) | **Con qué**: versiones, equipamiento |
+| 3 | Plan | Deriva de 1 y 2: labs, alcance, requisitos |
+| 4 | Laboratorios | Evidencia de lo que se hace de verdad |
+| 5 | Setup Guide | Deriva de 3 + 4 (+2): no puede omitir lo que los labs usan |
+
+Regla de conflicto: la petición manda en el **entorno**; el temario manda en el **alcance**.
+
+### 35.1 El hallazgo
+
+El planificador extrae los tópicos del outline (`context_topics`, lección o todas las lecciones del
+módulo si el laboratorio es de módulo) y **los usa en su propio prompt** (línea 757). Pero el modelo
+devuelve los `lab_plans` sin ese campo y el agregador solo sobrescribía título, módulo y demo: los
+tópicos se perdían al guardar el plan. Comprobado en seis planes reales: ninguna entrada de
+`lab_plans` tenía `context_topics`.
+
+El writer tampoco los imprimía: la palabra «topic» no aparecía ni una vez en `strands_lab_writer.py`.
+La alineación dependía del `scope` del plan (derivado) y del texto de la teoría, no del temario.
+
+### 35.2 La medición
+
+Sobre 1.246 laboratorios reales, con el ancla correcta (lección si `LL>0`, módulo si `LL=0`):
+
+| Ancla | Labs | Cobertura mediana | p10 | Cobertura < 34 % |
+|---|---|---|---|---|
+| Lección | 98 | 83 % | 51 % | — |
+| Módulo | 1.148 | 70 % | 45 % | 39 |
+| Total | 1.246 | — | — | **39 (3,1 %)** |
+
+Un solo laboratorio con cobertura cero, y su tópico era «capítulo» (genérico): ruido del medidor.
+La mayoría ya estaba alineada por el `scope` y la teoría; hay una cola real de 39 laboratorios.
+
+### 35.3 El arreglo
+
+- **Planificador:** `_heredar_del_temario` copia del outline el título, `module_number`,
+  `context_topics`, `lesson_title`, `module_title` e `is_demo`. El plan de respaldo también los
+  conserva.
+- **Writer:** `_resumen_de_labs` imprime, por laboratorio, `Lesson topics (the lab MUST exercise
+  these; do not introduce subject matter beyond them)`, con un tope de 12 tópicos.
+
+### 35.4 Verificación
+
+- `test_referent_check.py`: **165/165** (cuatro pruebas nuevas: el resumen incluye los tópicos, no
+  los inventa si faltan, la herencia del planificador y el plan de respaldo).
+- Despliegue verificado sobre los artefactos (`StrandsLabPlanner` y `StrandsLabWriter`,
+  `LastModified` 2026-10-27T02:07:41): están `_heredar_del_temario`, la copia de
+  `context_topics` en el plan de respaldo, `_resumen_de_labs` y la línea `Lesson topics`.
+
+### 35.5 Lo que sigue
+
+1. **Setup Guide**: leer `additional_requirements` y unir plan ∪ laboratorios ∪ petición; medir
+   cuántas herramientas de los labs faltan hoy en la guía.
+2. **Marcador de cobertura < 34 %** (39 laboratorios) tras revisar una muestra; si la muestra es
+   limpia, se queda como marcador, no como bloqueo.
+3. La cobertura **después** del arreglo se mide en la próxima generación real: no se regeneran los
+   cursos existentes.
