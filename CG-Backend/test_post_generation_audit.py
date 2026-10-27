@@ -155,6 +155,16 @@ def test_urls_de_limpia_el_enfasis_y_la_puntuacion():
     ]
 
 
+def test_urls_de_descarta_plantillas_con_marcador():
+    modulo = _modulo()
+    texto = (
+        "Ver https://hub.docker.com/r/<usuario>/app/tags y "
+        "https://hub.docker.com/r/\\<usuario\\>/app/tags."
+    )
+    assert list(modulo.urls_de(texto)) == []
+    assert list(modulo.urls_de("<https://owasp.org/x>")) == ["https://owasp.org/x"]
+
+
 def test_revisar_enlaces_no_repite_urls_y_agrupa_los_labs():
     modulo = _modulo()
     s3 = _S3Simulado(

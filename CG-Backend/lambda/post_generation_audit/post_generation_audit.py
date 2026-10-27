@@ -140,8 +140,17 @@ def construir_manifest(bucket, project_folder):
 
 
 def urls_de(texto):
-    """URLs de un markdown, sin el énfasis ni la puntuación que las envuelve."""
-    for cruda in URL.findall(texto or ""):
+    """URLs de un markdown, sin el énfasis ni la puntuación que las envuelve.
+
+    Una URL seguida de un marcador de plantilla (``<...>`` o ``\\<...>``) se
+    descarta: es un ejemplo, no un enlace navegable.
+    """
+    texto = texto or ""
+    for coincidencia in URL.finditer(texto):
+        cruda = coincidencia.group(0)
+        siguiente = texto[coincidencia.end():coincidencia.end() + 1]
+        if cruda.endswith("\\") or siguiente in ("<", "\\"):
+            continue
         yield cruda.strip().rstrip(".,;:*")
 
 
