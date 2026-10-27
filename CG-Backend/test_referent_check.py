@@ -3132,6 +3132,58 @@ def test_el_setup_guide_no_trunca_las_consideraciones():
     assert len(modulo.build_accesses(plan)) == 15
 
 
+def _contexto_minimo_de_la_guia(**extra):
+    contexto = {
+        "logo_path": "",
+        "course_title": "Curso",
+        "course_key": "X",
+        "version": "1",
+        "status": "BORRADOR",
+        "last_validation": "—",
+        "description": "",
+        "date": "Octubre 2026",
+        "repo_url": "",
+        "identification": {"links": []},
+        "previous_knowledge": {"network": []},
+        "infrastructure": {"hardware": [], "network": []},
+        "counters": [],
+        "software": [],
+        "accesses": [],
+        "preparation": [],
+        "validation": {"checklist": [], "full_test": "", "troubleshooting": []},
+        "lab_matrix": [],
+        "references": [],
+    }
+    contexto.update(extra)
+    return contexto
+
+
+def test_el_setup_guide_incluye_los_requisitos_adicionales():
+    """La petición del curso es fuente: 18 de 172 planes la traen y la guía la ignoraba."""
+    from jinja2 import Template
+
+    modulo = _cargar_modulo(
+        "setup_guide_builder", os.path.join("lambda", "setup_guide_builder")
+    )
+    html = Template(modulo.SETUP_GUIDE_TEMPLATE).render(
+        _contexto_minimo_de_la_guia(
+            additional_requirements="Usar Docker 24.0 y AWS CLI"
+        )
+    )
+    assert "REQUISITOS ADICIONALES DEL CURSO" in html, html[:500]
+    assert "Usar Docker 24.0 y AWS CLI" in html
+
+
+def test_el_setup_guide_no_inventa_requisitos_si_no_hay():
+    from jinja2 import Template
+
+    modulo = _cargar_modulo(
+        "setup_guide_builder", os.path.join("lambda", "setup_guide_builder")
+    )
+    html = Template(modulo.SETUP_GUIDE_TEMPLATE).render(_contexto_minimo_de_la_guia())
+    assert "REQUISITOS ADICIONALES DEL CURSO" not in html
+
+
 def _lab_de_prueba(**extra):
     lab = {
         "lab_id": "01-00-01",

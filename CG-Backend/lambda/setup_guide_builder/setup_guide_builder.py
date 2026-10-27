@@ -782,6 +782,13 @@ def build_setup_guide(bucket, project_folder, outline_key, outline_data, master_
             "network": previous_knowledge["network"],
         },
         "software": software,
+        # La petición del curso es fuente de requisitos (opcional): si el cliente
+        # pidió versiones o equipamiento, la guía debe decirlo aunque el plan no lo
+        # haya convertido en fila de software. Medido el 26/10/2026: 18 de 172 planes
+        # la traen y la guía la ignoraba por completo.
+        "additional_requirements": " ".join(
+            str(master_plan.get("additional_requirements") or "").split()
+        ),
         "accesses": accesses,
         "preparation": preparation,
         "validation": validation,
@@ -844,6 +851,7 @@ def render_pdf(doc, bucket, author="Aurora AI"):
         "infrastructure": doc["infrastructure"],
         "counters": doc["infrastructure"]["counters"],
         "software": doc["software"],
+        "additional_requirements": doc.get("additional_requirements", ""),
         "accesses": doc["accesses"],
         "preparation": doc["preparation"],
         "validation": doc["validation"],

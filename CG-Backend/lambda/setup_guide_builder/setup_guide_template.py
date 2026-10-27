@@ -395,6 +395,15 @@ SETUP_GUIDE_TEMPLATE = """
     </td></tr>
 </table>
 
+{% if additional_requirements %}
+<table class="callout">
+    <tr><td class="callout-info">
+        <span class="callout-title">REQUISITOS ADICIONALES DEL CURSO</span>
+        {{ additional_requirements }}
+    </td></tr>
+</table>
+{% endif %}
+
 {% if accesses %}
 <h2 class="sub">Cuentas, accesos y seguridad</h2>
 <table class="data">
