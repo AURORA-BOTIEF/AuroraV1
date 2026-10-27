@@ -177,6 +177,13 @@ prompt, pero **no los guardaba** en el plan, y el writer no los imprimía. La al
 (lección); **39 labs por debajo del 34 %** (3,1 %). Arreglo: `_heredar_del_temario` en el planificador
 y `_resumen_de_labs` en el writer. 165/165 y artefactos verificados (`02:07:41`).
 
+**A7 (spec §36).** La Setup Guide se genera después de los laboratorios (consume la matriz y la
+preparación de los `lab-*.md`), pero ignoraba la petición del curso: **18 de 172 planes** traen
+`additional_requirements` y la guía solo leía `software_requirements`. Ahora entra literal en el JSON
+y en el PDF, solo si existe. La unión software plan ∪ herramientas de los laboratorios se midió y **no
+se despliega**: el escáner no distingue host de invitado (`npm` dentro de un contenedor no exige Node).
+167/167 y artefacto verificado (`02:32:37`).
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

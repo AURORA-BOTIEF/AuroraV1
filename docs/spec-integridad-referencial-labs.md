@@ -2702,3 +2702,63 @@ La mayoría ya estaba alineada por el `scope` y la teoría; hay una cola real de
    limpia, se queda como marcador, no como bloqueo.
 3. La cobertura **después** del arreglo se mide en la próxima generación real: no se regeneran los
    cursos existentes.
+
+## 36. A7: la Setup Guide incorpora la petición (26/10/2026)
+
+### 36.1 El orden: después de los laboratorios
+
+La guía se genera **después** de los laboratorios, y no por comodidad: consume el plan y los
+laboratorios. `list_lab_files()` lee los `lab-*.md`, `build_lab_matrix()` saca de ellos la matriz y
+`build_preparation()` los usa para los pasos de instalación. Generarla antes dejaría la matriz vacía y
+el software sería una lista de deseos que los laboratorios podrían contradecir.
+
+Lo que **no** está resuelto es la invocación: el builder no está en la máquina de estados; se llama a
+mano. Si la guía forma parte del material entregado, debería ser un paso tras el writer. Queda como
+decisión, no como cambio.
+
+### 36.2 La petición del curso
+
+`additional_requirements` es el texto libre que el cliente envía al pedir el curso (versiones,
+equipamiento). El planificador lo usa en su prompt y el writer lo inyecta como requisito crítico, pero
+la guía lo ignoraba: solo leía `software_requirements`.
+
+Medido: **18 de 172 planes** lo traen, con hasta 2.497 caracteres. Arreglado: la guía lo incluye
+**literal** en el JSON (`additional_requirements`) y en el PDF, como bloque
+«REQUISITOS ADICIONALES DEL CURSO», solo cuando existe. Así el caso detectado (un curso de Copilot que
+pide Excel y el plan no lo lista) queda cubierto aunque el planificador no lo convierta en fila.
+
+### 36.3 La unión con los laboratorios, medida y no desplegada
+
+Se extrajo el primer token de cada línea de comando de los bloques de código y se comparó con el
+software del plan: **1.313 laboratorios, 172 proyectos**. El crudo asusta —Kubernetes 6.071 usos con
+92 sin declarar, `kind` 807/215, Git 1.308/42—, pero al bajarlo a proyectos y afinar alias:
+
+| Herramienta | Labs sin declarar | Proyectos | Lectura |
+|---|---|---|---|
+| `kind` | 41 | 9 | Cluster local; el plan lista Kubernetes pero no `kind` |
+| `python` | 14 | 11 | Fragmentos sueltos |
+| `git` | 12 | 6 | `git clone` de material |
+| `node.js` | 11 | 10 | **Dentro** del contenedor: el alumno no instala Node |
+| `vscode` | 7 | 7 | Editor |
+| `kubernetes` | 3 | 1 | GKE sin `kubectl` en el plan |
+| `docker` | 3 | 3 | Dentro de una VM Linux |
+| `mysql` | 2 | 2 | Cliente de Cloud SQL |
+
+No se despliega la unión automática: el escáner **no distingue host de invitado**. Un `npm install`
+dentro de un contenedor no exige Node en el equipo del alumno, y meterlo en la guía sería ruido, como
+pasó con A2 v2 y B4. El límite queda documentado: el software de la guía sale del plan; la matriz y la
+preparación salen de los laboratorios. Si el negocio quiere cerrar también esa rendija, hace falta que
+el plan declare la herramienta o que la regla sepa distinguir host de invitado.
+
+### 36.4 Verificación
+
+- `test_referent_check.py`: **167/167** (dos pruebas nuevas: el bloque aparece con la petición y no se
+  inventa cuando no hay).
+- Despliegue verificado sobre el artefacto (`SetupGuideBuilderFunction`, `LastModified`
+  2026-10-27T02:32:37): el builder lee `additional_requirements` y la plantilla desplegada renderiza
+  el bloque con el texto de la petición.
+
+### 36.5 Lo que sigue
+
+1. **Marcador de cobertura < 34 %** (39 laboratorios de 1.246) tras revisar una muestra.
+2. Decidir si la Setup Guide entra en la máquina de estados como paso posterior al writer.
