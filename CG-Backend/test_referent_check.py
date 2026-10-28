@@ -40,6 +40,7 @@ from referent_check import (  # noqa: E402
     auditar_plan,
     canonico,
     duracion_declarada,
+    entorno_de_peticion,
     extraer_referentes,
     mensaje_de_correccion,
     preflight_duracion,
@@ -2666,6 +2667,110 @@ def test_el_mensaje_de_b6_pide_caber_en_lo_declarado_y_no_cambiar_la_duracion():
     assert "16 minutos" in mensaje
     assert "6 pasos" in mensaje
     assert "no cambies la duración del plan" in mensaje
+
+
+def test_el_parser_lee_la_peticion_de_compatibilidad():
+    """La petición real de IA-SK declara tudo lo que C2 necesita.
+
+    Caso de producción (28/10/2026, curso de Agent Skills): Windows exigido,
+    Bash/Linux/WSL prohibidos, etiqueta ``powershell`` y lista de mandatos.
+    """
+    peticion = (
+        "Genera todos los laboratorios para realizarse en sistema operativo Windows.\n"
+        "- Identifica los bloques de comandos con la etiqueta powershell.\n"
+        "- No utilices comandos exclusivos de Bash/Linux, como heredocs <<EOF, sed, grep, "
+        "awk, chmod, sudo, export.\n"
+        "- No requieras Linux, WSL, Git Bash ni máquinas virtuales.\n"
+        "- No presentes Visual Studio Code y PowerShell como dos aplicaciones abiertas.\n"
+        "- Utiliza curl.exe para evitar confusiones con alias de PowerShell.\n"
+        "- No consideres suficiente cambiar la etiqueta bash por powershell."
+    )
+    entorno = entorno_de_peticion(peticion)
+    assert entorno["os_requerido"] == ["windows"]
+    assert entorno["os_prohibido"] == ["bash", "git bash", "linux", "wsl"]
+    assert entorno["etiquetas"] == ["powershell"]
+    for mandato in ("sed", "grep", "awk", "chmod", "sudo", "export", "heredoc", "heredocs"):
+        assert mandato in entorno["prohibidos"], (mandato, entorno["prohibidos"])
+    for ruido in ("dos", "adapta", "prerrequisito"):
+        assert ruido not in entorno.get("prohibidos", [])
+
+
+def test_el_parser_silencia_peticiones_sin_entorno():
+    """Una petición de acceso o de Docker Desktop no inventa una regla."""
+    assert entorno_de_peticion("Usar Docker 24.0 y Docker Compose v2. El laboratorio debe ejecutarse en Ubuntu 24.04; no usar Docker Desktop.") == {
+        "os_requerido": ["ubuntu"]
+    }
+    assert entorno_de_peticion("Acceso a Microsoft 365 Copilot Premium durante la sesión.") == {}
+    assert entorno_de_peticion("") == {}
+
+
+def _lab_bash(pasos=5, con_sed=True):
+    cuerpo = []
+    for i in range(1, pasos + 1):
+        cuerpo.append(f"### Paso {i}: Verificar\n\n```bash\nnode --version\n```")
+    if con_sed:
+        cuerpo.append("```bash\nsed -n '1,240p' archivo.md\n```")
+    return "# Lab 01-00-01: X\n\n| **Duration** | 30 minutes |\n\n" + "\n\n".join(cuerpo)
+
+
+def test_c2_marca_el_shell_prohibido_y_los_mandatos_prohibidos():
+    """Bloques bash frente a PowerShell pedido y sed en una cerca: alta."""
+    lab = _lab_bash()
+    informe = auditar_laboratorio(
+        lab,
+        "",
+        entorno={
+            "os_requerido": ["windows"],
+            "os_prohibido": ["bash", "linux", "wsl"],
+            "etiquetas": ["powershell"],
+            "prohibidos": ["sed"],
+        },
+    )
+    c2 = [v for v in informe["violaciones"] if v["verificacion"] == "C2" and v["confianza"] == "alta"]
+    valores = " | ".join(v["valor"] for v in c2)
+    assert "no usa ninguna de esas etiquetas" in valores
+    assert "bloques etiquetados bash" in valores
+    assert "prohíbe `sed`" in valores
+    assert informe["entorno"]["ok"] is False
+    dudosos = [v["valor"] for v in informe["violaciones"] if v["verificacion"] == "C2" and v["confianza"] == "baja"]
+    assert dudosos == [], dudosos
+
+
+def test_c2_el_laboratorio_gui_y_la_prosa_exenta_no_marcan():
+    """Sin cercas suficientes (GUI) no hay veredicto de etiqueta; la prosa es baja."""
+    gui = "# Lab\n\n| **Duration** | 5 minutes |\n\nAbre el Copilot y pega el prompt listo."
+    informe = auditar_laboratorio(
+        gui,
+        "",
+        entorno={"etiquetas": ["powershell"], "os_prohibido": ["bash"]},
+    )
+    altas = [v for v in informe["violaciones"] if v.get("confianza") == "alta"]
+    assert altas == [], [v["valor"] for v in altas]
+
+    explicativo = "\n\n".join(
+        ["## Pasos", "```powershell", "Get-Date", "```", "No utilices `sed` (prohibido por la petición)."]
+    )
+    informe = auditar_laboratorio(
+        explicativo,
+        "",
+        entorno={"prohibidos": ["sed"], "etiquetas": ["powershell"]},
+    )
+    bajas = [v["valor"] for v in informe["violaciones"] if v.get("confianza") == "baja"]
+    assert any("prosa" in v for v in bajas), bajas
+
+
+def test_el_mensaje_de_c2_pide_etiquetar_y_equivalentes():
+    """El reintento debe decir qué convertir, no que borre pasos."""
+    lab = _lab_bash(con_sed=False)
+    informe = auditar_laboratorio(
+        lab,
+        "",
+        entorno={"etiquetas": ["powershell"], "os_prohibido": ["bash"]},
+    )
+    mensaje = mensaje_de_correccion(informe["violaciones"], "laboratorio")
+    assert "entorno que la petición del usuario declara" in mensaje
+    assert "reescribe su sintaxis" in mensaje
+    assert "no cambies el objetivo" in mensaje
 
 
 def test_el_presupuesto_reparte_la_duracion_declarada():

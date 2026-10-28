@@ -342,6 +342,47 @@ def test_el_prompt_vivo_declara_el_presupuesto_de_duracion():
     assert "La tabla de metadatos debe declarar exactamente 45 minutos" in prompt
 
 
+def test_el_prompt_vivo_declara_el_entorno_de_la_peticion():
+    """C2: las restricciones de la petición se repiten como reglas operativas.
+
+    Producción (28/10/2026): con la petición textual el modelo ignoró las
+    prohibiciones; el bloque determinista las vectoriza.
+    """
+    modulo = _cargar_writer_sin_aws()
+    lab_plan = {
+        "lab_id": "01-00-01",
+        "lab_title": "Crear una skill",
+        "objectives": ["definir la skill"],
+        "scope": "skills",
+        "estimated_duration": 60,
+        "complexity": "medium",
+        "bloom_level": "Apply",
+        "prerequisites": [],
+        "key_technologies": ["Codex"],
+    }
+    master_context = {
+        "target_language": "Spanish (Español)",
+        "manual_reference_text": "",
+        "additional_requirements": (
+            "Genera todos los laboratorios para realizarse en sistema operativo Windows.\n"
+            "No utilices comandos exclusivos de Bash/Linux, como sed, grep, awk, chmod, sudo.\n"
+            "Identifica los bloques de comandos con la etiqueta powershell."
+        ),
+        "hardware_requirements": [],
+        "software_requirements": [],
+        "special_considerations": [],
+        "overall_objectives": [],
+    }
+
+    prompt = modulo._compact_single_lab_prompt(lab_plan, master_context, "", "resumen del lab")
+
+    assert "ENVIRONMENT CONSTRAINTS" in prompt
+    assert "Required operating system: windows" in prompt
+    assert "Label EVERY command code block with the language powershell" in prompt
+    for mandato in ("`sed`", "`grep`", "`sudo`"):
+        assert mandato in prompt, mandato
+
+
 def test_el_handler_del_writer_siempre_usa_el_prompt_compacto():
     """Invariante del que depende el test anterior: el handler pasa UN lab por llamada."""
     with open(

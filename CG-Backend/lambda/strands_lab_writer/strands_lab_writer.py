@@ -26,6 +26,7 @@ from manual_context import select_manual_context, flatten_to_text
 from referent_check import (
     auditar_laboratorio,
     duracion_declarada,
+    entorno_de_peticion,
     mensaje_de_correccion,
     presupuesto_de_duracion,
     referencias_a_labs_posteriores,
@@ -77,6 +78,13 @@ def _reintento_duracion_habilitado() -> bool:
 def _reintento_requisitos_habilitado() -> bool:
     """Interruptor operativo propio de B5: ``REQUIREMENTS_RETRY=0`` deja solo registro."""
     return os.getenv("REQUIREMENTS_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _reintento_entorno_habilitado() -> bool:
+    """Interruptor operativo propio de C2: ``ENTORNO_RETRY=0`` deja solo registro."""
+    return os.getenv("ENTORNO_RETRY", "1").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -1358,6 +1366,40 @@ USER REQUIREMENTS (CRITICAL - MUST BE INCORPORATED):
         else ""
     )
 
+    # C2: lo que la petición declara del entorno se extrae de forma determinista
+    # y se repite como reglas operativas. Medido en producción (28/10/2026, curso
+    # de Agent Skills): con la petición textual en el prompt el modelo ignoró las
+    # prohibiciones (277 bloques bash frente a un pedido de PowerShell).
+    entorno = entorno_de_peticion(add_req)
+    if entorno:
+        lineas_entorno = [
+            "ENVIRONMENT CONSTRAINTS (from the user request — the lab is audited against these):"
+        ]
+        if entorno.get("os_requerido"):
+            lineas_entorno.append(
+                f"- Required operating system: {', '.join(entorno['os_requerido'])}."
+            )
+        if entorno.get("os_prohibido"):
+            lineas_entorno.append(f"- Prohibited systems/shells: {', '.join(entorno['os_prohibido'])}.")
+        if entorno.get("etiquetas"):
+            lineas_entorno.append(
+                "- Label EVERY command code block with the language "
+                f"{' or '.join(entorno['etiquetas'])}; never use another shell label."
+            )
+        if entorno.get("prohibidos"):
+            lineas_entorno.append(
+                "- Absolutely no use of: "
+                + ", ".join("`" + p + "`" for p in entorno["prohibidos"])
+                + "."
+            )
+        lineas_entorno.append(
+            "- Every command must run as written on the machine the user request defines; "
+            "no workarounds with another shell."
+        )
+        entorno_section = "\n".join(lineas_entorno) + "\n"
+    else:
+        entorno_section = ""
+
     presupuesto = presupuesto_de_duracion(
         lab_plan.get("estimated_duration") or lab_plan.get("duration_minutes")
     )
@@ -1434,6 +1476,7 @@ COURSE CONTEXT (brief):
 - Typical software: {sw_line}
 - Notes: {spec_line}
 {add_req_section}
+{entorno_section}
 {manual_section}
 {correction_section}
 LAB SPECIFICATION:
@@ -2425,6 +2468,11 @@ def lambda_handler(event, context):
                                 master_context.get("hardware_requirements"),
                             ),
                             expected_outcomes=lab_plan.get("expected_outcomes"),
+                            # C2: lo que la petición declara del entorno (SO, shells
+                            # y mandatos prohibidos) se audita contra el laboratorio.
+                            entorno=entorno_de_peticion(
+                                master_context.get("additional_requirements") or ""
+                            ),
                         )
                         referential_reports[lab_id] = referential_report
                         altas = [
@@ -2442,6 +2490,10 @@ def lambda_handler(event, context):
                             and (
                                 v.get("verificacion") != "B3p"
                                 or _reintento_entregables_habilitado()
+                            )
+                            and (
+                                v.get("verificacion") != "C2"
+                                or _reintento_entorno_habilitado()
                             )
                         ]
                         print(

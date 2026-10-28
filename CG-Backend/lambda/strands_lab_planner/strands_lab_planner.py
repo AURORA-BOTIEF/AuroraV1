@@ -24,6 +24,7 @@ from referent_check import (
     auditar_contrato,
     auditar_duraciones_curso,
     auditar_plan,
+    entorno_de_peticion,
     mensaje_de_correccion,
     preflight_duracion,
     presupuesto_de_duracion,
@@ -1388,6 +1389,9 @@ def lambda_handler(event, context):
                 'corregidos': cantidades['corregidos'],
             },
             'preflight_duracion': preflight,
+            # C2: el entorno que la petición declara, extraído de forma
+            # determinista. Es la misma lista que auditará el Writer.
+            'entorno_declarado': entorno_de_peticion(lab_requirements),
         }
 
         guardar_informe_referencial(course_bucket, project_folder, referential_report)

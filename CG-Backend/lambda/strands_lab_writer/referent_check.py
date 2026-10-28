@@ -1360,6 +1360,222 @@ def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Entorno declarado en la petición (C2)
+# --------------------------------------------------------------------------- #
+
+# Sistemas y shells que una petición puede exigir o prohibir. Los shells
+# (bash/powershell) van aparte porque en las laboratorios son etiquetas de casa de
+# código, no un «sistema» en el sentido de B5.
+_SISTEMAS_RE = re.compile(
+    r"\b(windows(?: server)?|macos|mac os|apple ios|ubuntu|linux|unix|debian|centos|"
+    r"red hat enterprise linux|rhel|fedora|rocky|android)\b",
+    re.IGNORECASE,
+)
+_SHELLS_RE = re.compile(r"\b(bash|powershell|wsl|git bash)\b", re.IGNORECASE)
+# Un sistema se prohibe cuando un marcador de prohibición está inmediatamente
+# antes (120 caracteres) y no hay un verbo benigno en medio: «No presentes
+# Visual Studio Code y PowerShell…» y «para evitar confusiones con alias de
+# PowerShell» mencionan el sistema sin prohibirlo.
+_MARCADOR_PROHIBICION_RE = re.compile(
+    r"(?i)\b(?:no|nunca|prohibit\w*|prohibid\w*|evit\w*|sin |exclusiv\w* de|restringid\w*)"
+)
+_BENIGNO_ENTRE_RE = re.compile(
+    r"(?i)\b(?:presentes|presenta|presente|presentar|incluy\w*|interpreta|interpretar|"
+    r"lea|mencione|mencionar|presuponga|presupongas|confusion|confusión| "+
+    r"distingue|separable|separadamente)\b"
+)
+# La etiqueta de «cambiar la etiqueta bash por powershell» no es una etiqueta
+# pedida: la negación de la frase manda.
+_NEGACION_RE = re.compile(r"(?i)\b(?:no|nunca|prohibit\w*|prohibid\w*|evit\w*)\b|^sin\b")
+# Un sistema se exige cuando la frase lo dice como lugar de ejecución: «para
+# realizarse en sistema operativo Windows», «debe ejecutarse en Ubuntu 24.04».
+_FRASE_REQUERIDO_RE = re.compile(
+    r"(?i)(?:realizarse|llevarse|ejecutarse|ejecutar|correr|desarrollarse|"
+    r"sistema operativo)\s+"
+    r"(?:todas?\s+las\s+|ellas?\s+|"
+    r"en\s+(?:el\s+|la\s+)?(?:sistema\s+operativo\s+)?|"
+    r"sistema\s+operativo\s+)"
+    r"((?:windows(?: server)?|macos|mac os|apple ios|ubuntu|linux|unix|debian|centos|red hat enterprise linux|rhel|fedora|rocky|android))\b"
+)
+# Frase en la que el sistema aparece prohibido: verbo de prohibición + objeto.
+_PROHIBICION_CON_LISTA_RE = re.compile(
+    r"(?i)\b(?:no|nunca|prohibit\w*|prohibid\w*|evit\w*)\b[^.:\n]{0,160}?"
+    r"(?:como|:)\s*([^.:\n]+)",
+)
+_ETIQUETA_RE = re.compile(r"(?i)\betiqueta[s]?\s+(?:de\s+|como\s+)?([a-z0-9+#\-]{2,24})")
+# Palabras que sobran al trocear una lista de prohibiciones. No van mandatos
+# reales: «export» o «git» sí pueden estar prohibidos y no se filtran.
+_DENSOES = frozenset(
+    {
+        "comandos", "operadores", "operador", "construcciones", "construccion", "sintaxis",
+        "version", "ni", "o", "y", "etc", "etcetera", "correspondiente", "correspondientes",
+        "siguientes", "exclusivos", "exclusivo", "prohibidos", "restringidos", "cualquier",
+        "otro", "otra", "otras", "otros", "su", "sus", "python", "nota", "ejemplo", "campo",
+        "texto", "bloques", "resultado", "archivo", "archivos", "rutas", "procesos",
+        "dos", "el", "adapta", "adaptar", "ajusta", "presuponga", "presupongas", "presupuesto",
+        "prerrequisito", "prerrequisitos", "credenciales", "servicios", "herramientas",
+        "carpetas", "previamente", "declararlos", "configurados",
+    }
+)
+_TOKEN_PROHIBIDO_RE = re.compile(r"^/[\w.\-]+(/[.\w\-]+)*$|^[a-z0-9+\-_.!]{3,40}$")
+
+
+def _fragmentos(peticion: str):
+    for linea in re.split(r"\n+", peticion or ""):
+        for fragmento in re.split(r"(?<=[.;])\s+", linea):
+            if fragmento.strip():
+                yield fragmento
+
+
+def entorno_de_peticion(peticion: str) -> dict:
+    """Lo que la petición declara del entorno, frase por frase.
+
+    Solo se pronuncia lo **escrito**, con la forma de cada frase:
+
+    - Sistema exigido: la frase de ejecución lo nombra como lugar («para
+      realizarse en sistema operativo Windows»).
+    - Sistema prohibido: el marcador de prohibición está justo antes del nombre
+      y ningún verbo benigno lo separa («No requieras Linux, WSL, Git Bash»,
+      «exclusivos de Bash/Linux»; el «no presentes…» no prohibe).
+    - Etiquetas de bloque: «con la etiqueta powershell» en una frase sin
+      negación (en «cambiar la etiqueta bash por powershell» la negación manda).
+    - Mandatos prohibidos: la lista tras «como» o «:» de una frase prohibitoria.
+
+    Sin declaraciones devuelve ``{}``: sin prohibición explícita no hay regla.
+    """
+    peticion = peticion or ""
+    informe: dict[str, list] = {}
+    requerido: set[str] = set()
+    prohibido: set[str] = set()
+    for fragmento in _fragmentos(peticion):
+        for match in _FRASE_REQUERIDO_RE.finditer(fragmento):
+            requerido.add(match.group(1).lower())
+        for matches in (_SISTEMAS_RE.finditer(fragmento), _SHELLS_RE.finditer(fragmento)):
+            for m in matches:
+                sistema = m.group(1).lower()
+                if sistema in requerido:
+                    continue
+                # Ventana corta: el marcador de prohibición lleva al sistema como
+                # objeto («No requieras Linux», «exclusivos de Bash/Linux»). Con
+                # seis palabras en medio el nombre no es el objeto («no presentes
+                # … PowerShell», «cambiar la etiqueta bash por powershell») y
+                # además un verbo benigno en medio exime.
+                entre = fragmento[max(0, m.start() - 50):m.start()]
+                palabras_entre = len(re.findall(r"[a-záéíóúñü]+", entre, re.IGNORECASE))
+                tiene_marca = bool(_MARCADOR_PROHIBICION_RE.search(entre))
+                tiene_benigno = bool(_BENIGNO_ENTRE_RE.search(entre))
+                if tiene_marca and palabras_entre <= 5 and not tiene_benigno:
+                    prohibido.add(sistema)
+    etiquetas: set[str] = set()
+    for fragmento in _fragmentos(peticion):
+        if _NEGACION_RE.search(fragmento):
+            continue
+        for m in _ETIQUETA_RE.finditer(fragmento):
+            token = m.group(1).lower().strip(".")
+            if len(token) >= 2 and token not in _DENSOES:
+                etiquetas.add(token)
+    prohibidos: set[str] = set()
+    for m in _PROHIBICION_CON_LISTA_RE.finditer(peticion):
+        for crudo in re.split(r"[,;]|\s+y\s+|\s+o\s+", m.group(1)):
+            token = re.sub(r"\s+.*$", "", crudo.strip().strip(".").lower())
+            if not _TOKEN_PROHIBIDO_RE.match(token) or token in _DENSOES:
+                continue
+            prohibidos.add(token)
+            if token.endswith("s") and len(token) > 4:
+                prohibidos.add(token[:-1])
+    if requerido:
+        informe["os_requerido"] = sorted(requerido)
+    if prohibido:
+        informe["os_prohibido"] = sorted(prohibido)
+    if etiquetas:
+        informe["etiquetas"] = sorted(etiquetas)
+    if prohibidos:
+        informe["prohibidos"] = sorted(prohibidos)
+    return informe
+
+
+def auditar_entorno(laboratorio_md: str, entorno: dict) -> dict:
+    """C2: ¿el laboratorio respeta el entorno que la petición declara?
+
+    Lo contrastable es el **uso real**: las etiquetas de los bloques de código y
+    los mandatos prohibidos dentro de una cerca. La mención en prosa se registra
+    con baja («esta explicación del `sed` es legítima» puede ser un error del
+    escritor); un bloque ```bash cuando la petición exige PowerShell es alta,
+    porque ese bloque se ejecutará en el terminal del alumno.
+
+    Sin entorno declarado devuelve ``ok`` sin pronunciarse.
+    """
+    informe = {"contradicciones": [], "dudosos": [], "ok": True}
+    if not entorno:
+        return informe
+    texto = laboratorio_md or ""
+    cercas = _BLOQUE_RE.findall(texto)
+    lenguajes = [(l or "text").lower() for l, _cuerpo in cercas]
+    prosa = _PROSA_RE.sub(" ", texto)
+    etiquetas_pedidas = entorno.get("etiquetas") or []
+
+    # 1. Etiquetas: la petición las nombra y el laboratorio no las usa. Con
+    # menos de tres cercas (laboratorios GUI) no se dice nada: no hay etiquetas
+    # suficientes para saber si les obedece.
+    if etiquetas_pedidas and len(lenguajes) >= 3:
+        usadas = {l for l in lenguajes if l in etiquetas_pedidas}
+        if not usadas:
+            conteo = sorted({l for l in lenguajes if l != "text"})
+            informe["contradicciones"].append(
+                "la petición pide etiquetar los bloques "
+                + " y ".join(etiquetas_pedidas)
+                + " y el laboratorio no usa ninguna de esas etiquetas ("
+                + str(len(lenguajes))
+                + f" bloques, como {', '.join(conteo[:4])})"
+            )
+
+    # 2. Sistema prohibido: un bloque con esa etiqueta se ejecutará en él. La
+    # prosa puede ser la aclaración legítima («sin WSL»), así que va con baja.
+    for sistema in entorno.get("os_prohibido") or []:
+        usados_como_etiqueta = [(l or "text").lower() for l, _cuerpo in cercas].count(sistema)
+        if usados_como_etiqueta:
+            informe["contradicciones"].append(
+                f"la petición prohíbe {sistema} y el laboratorio usa {usados_como_etiqueta} "
+                f"bloques etiquetados {sistema}"
+            )
+            continue
+        patron = re.compile(r"\b" + re.escape(sistema) + r"\b", re.IGNORECASE)
+        if any(patron.search(cuerpo) for _l, cuerpo in cercas):
+            informe["dudosos"].append(
+                f"la petición prohíbe {sistema} y una cerca lo menciona"
+            )
+
+    # 3. Mandatos prohibidos: sólo cuentan las cercas que el alumno **ejecuta**
+    # (las de salida no) y fuera de posición de ruta: el «cmdline-tools\latest\bin»
+    # del SDK de Android es una carpeta, no la versión prohibida. En prosa la
+    # mención puede ser la propia regla repetida («no uses `latest`») y va con baja.
+    for mandato in entorno.get("prohibidos") or []:
+        patron = re.compile(r"\b" + re.escape(mandato) + r"\b", re.IGNORECASE)
+        en_cercas = 0
+        for lenguaje, cuerpo in cercas:
+            if (lenguaje or "text").lower() not in _LENGUAJES_ACCION:
+                continue
+            en_cercas += len(
+                [
+                    m
+                    for m in patron.finditer(cuerpo)
+                    if cuerpo[max(0, m.start() - 1):m.start()] not in ("/", "\\")
+                    and cuerpo[m.end():m.end() + 1] not in ("/", "\\")
+                ]
+            )
+        if en_cercas:
+            informe["contradicciones"].append(
+                f"la petición prohíbe `{mandato}` y el laboratorio lo usa en {en_cercas} cerca(s) de ejecución"
+            )
+        elif patron.search(prosa):
+            informe["dudosos"].append(
+                f"la petición prohíbe `{mandato}`; el laboratorio lo menciona en prosa"
+            )
+
+    informe["ok"] = not informe["contradicciones"]
+    return informe
+
+
 # Requisitos técnicos del laboratorio contra los del plan (B5)
 # --------------------------------------------------------------------------- #
 
@@ -1661,6 +1877,7 @@ def auditar_laboratorio(
     duracion_min=None,
     requisitos_texto=None,
     expected_outcomes=None,
+    entorno: dict | None = None,
 ) -> dict:
     """B1/B2/B3/B6: cierre de referentes y de duración.
 
@@ -1871,6 +2088,30 @@ def auditar_laboratorio(
             }
         )
 
+    # C2: lo que la petición declara del entorno manda en el laboratorio. La
+    # contradicción de uso es de alta confinanza; la mención en prosa va con baja.
+    resultado_entorno = auditar_entorno(laboratorio_md or "", entorno or {})
+    for hallazgo in resultado_entorno["contradicciones"]:
+        violaciones.append(
+            {
+                "valor": hallazgo,
+                "tipo": "entorno",
+                "inicio": 0,
+                "confianza": "alta",
+                "verificacion": "C2",
+            }
+        )
+    for hallazgo in resultado_entorno["dudosos"]:
+        violaciones.append(
+            {
+                "valor": hallazgo,
+                "tipo": "entorno",
+                "inicio": 0,
+                "confianza": "baja",
+                "verificacion": "C2",
+            }
+        )
+
     # Forma débil de B2: menciones explícitas a un laboratorio posterior. No son
     # violaciones (una hoja de ruta es normal): van en su propia clave del informe.
     menciones_posteriores = list(referencias_posteriores or ())
@@ -1884,6 +2125,7 @@ def auditar_laboratorio(
         "duracion": duracion,
         "requisitos": requisitos,
         "entregables": entregables,
+        "entorno": resultado_entorno,
         "ok": not violaciones,
     }
 
@@ -1997,6 +2239,20 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             "- no cambies el escenario, los nombres ni las cifras que el temario fija."
         )
         bloques.append(intro + "\n" + "\n".join(lineas))
+
+    c2 = [v for v in violaciones if v.get("verificacion") == "C2"]
+    if c2:
+        lineas = [f"- {v['valor']}" for v in c2]
+        bloques.append(
+            "El laboratorio contradice el entorno que la petición del usuario declara. La "
+            "petición es contrato: el laboratorio debe correr en el entorno del estudiante.\n"
+            "- etiqueta todos los bloques de comando con el shell pedido y reescribe su "
+            "sintaxis a la del shell pedido;\n"
+            "- elimina los mandatos prohibidos usando su equivalente en el shell pedido;\n"
+            "- no cambies el objetivo ni recortes resultados para lograrlo; si el paso no cabe "
+            "en el shell, sustituye el mandato, no el paso.\n"
+            + "\n".join(lineas)
+        )
 
     b6 = [v for v in violaciones if v.get("verificacion") == "B6"]
     if b6:
@@ -2580,4 +2836,3 @@ def auditar_contrato(master_plan: dict, labs) -> dict:
         "conflictos": conflictos,
         "ok": not conflictos,
     }
-
