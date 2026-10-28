@@ -26,6 +26,7 @@ from referent_check import (
     auditar_plan,
     mensaje_de_correccion,
     preflight_duracion,
+    presupuesto_de_duracion,
     reconciliar_cantidades,
     reconciliar_contrato,
     reconciliar_duraciones,
@@ -1296,6 +1297,13 @@ def lambda_handler(event, context):
             print(
                 f"⏱️  A3: {len(duraciones['corregidos'])} duración(es) del plan "
                 f"ajustadas a lo que declara el temario"
+            )
+        # Presupuesto de volumen por laboratorio: cuántos pasos y bloques caben en
+        # la duración ya fijada. Viaja en el plan para que el Writer (y quien revise
+        # el curso) vea el mismo número, calculado una sola vez.
+        for plan_lab in master_plan.get("lab_plans") or ():
+            plan_lab["presupuesto_duracion"] = presupuesto_de_duracion(
+                plan_lab.get("estimated_duration") or plan_lab.get("duration_minutes")
             )
         duraciones_curso = auditar_duraciones_curso(
             master_plan, labs, course_info.get("total_duration_minutes")

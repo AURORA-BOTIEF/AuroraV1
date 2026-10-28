@@ -27,6 +27,7 @@ from referent_check import (
     auditar_laboratorio,
     duracion_declarada,
     mensaje_de_correccion,
+    presupuesto_de_duracion,
     referencias_a_labs_posteriores,
     referentes_creados,
     requisitos_declarados,
@@ -1357,6 +1358,32 @@ USER REQUIREMENTS (CRITICAL - MUST BE INCORPORATED):
         else ""
     )
 
+    presupuesto = presupuesto_de_duracion(
+        lab_plan.get("estimated_duration") or lab_plan.get("duration_minutes")
+    )
+    if presupuesto and is_spanish:
+        presupuesto_section = f"""
+PRESUPUESTO DE DURACIÓN (REQUISITO DURO: LOS TIEMPOS DEL TEMARIO SE CUMPLEN):
+El laboratorio está declarado en {presupuesto['declarada']} minutos y debe caber en ellos. El trabajo
+se mide a 2 minutos por paso con acción y 0,75 por bloque de código:
+- Máximo {presupuesto['pasos_max']} pasos con acción y {presupuesto['bloques_max']} bloques: por encima, el laboratorio no cabe en su hueco.
+- Objetivo: unos {presupuesto['pasos_objetivo']} pasos y {presupuesto['bloques_objetivo']} bloques. El resto del tiempo es lectura, verificación, diagnóstico y los dos casos de solución de problemas.
+- No añadas comandos para llenar tiempo ni recortes los tópicos del temario para ahorrarlo: si no cabe, prioriza y dilo en el Resumen.
+- La tabla de metadatos debe declarar exactamente {presupuesto['declarada']} minutos.
+"""
+    elif presupuesto:
+        presupuesto_section = f"""
+DURATION BUDGET (HARD REQUIREMENT: THE COURSE TIMES MUST HOLD):
+This lab is declared at {presupuesto['declarada']} minutes and must fit in them. Work is measured at
+2 minutes per action step and 0.75 per code block:
+- At most {presupuesto['pasos_max']} action steps and {presupuesto['bloques_max']} code blocks: beyond that, the lab does not fit.
+- Target: about {presupuesto['pasos_objetivo']} steps and {presupuesto['bloques_objetivo']} blocks. The remaining time is reading, verification, diagnosis and the two troubleshooting cases.
+- Do not add commands just to fill time, and do not drop the syllabus topics to save it: if it does not fit, prioritise and say so in the Summary.
+- The metadata table MUST declare exactly {presupuesto['declarada']} minutes.
+"""
+    else:
+        presupuesto_section = ""
+
     # Paso 0 de calidad: este es el builder que el handler SIEMPRE usa (el handler
     # llama a generate_all_labs_batch con UN solo lab, línea ~1946). Antes el manual
     # llegaba aquí por accidente: el planner lo colaba en additional_requirements
@@ -1416,6 +1443,7 @@ LAB SPECIFICATION:
 {demo_section}
 
 {structure_block}
+{presupuesto_section}
 QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
 
 {THOR_QUALITY_RULES}
@@ -1509,6 +1537,9 @@ def _resumen_de_labs(lab_plans: List[Dict[str, Any]]) -> str:
     ancla de materia: el laboratorio puede añadir procedimiento (comandos, pasos,
     comprobaciones), no materia nueva. Antes no se imprimían y la alineación
     dependía solo del ``scope`` y del texto de la teoría.
+
+    La duración lleva su presupuesto de volumen (pasos y bloques que caben): el
+    writer debe llenar el hueco, no desbordarlo.
     """
     labs_summary = []
     for lab in lab_plans:
@@ -1526,9 +1557,18 @@ def _resumen_de_labs(lab_plans: List[Dict[str, Any]]) -> str:
             if topicos
             else ""
         )
+        presupuesto = presupuesto_de_duracion(
+            lab.get('estimated_duration') or lab.get('duration_minutes')
+        )
+        presupuesto_linea = (
+            f" (budget: up to {presupuesto['pasos_max']} action steps and "
+            f"{presupuesto['bloques_max']} code blocks)"
+            if presupuesto
+            else ""
+        )
         labs_summary.append(f"""
 **Lab {lab['lab_id']}: {lab_title_formatted}**{demo_tag}
-- Duration: {lab['estimated_duration']} minutes
+- Duration: {lab['estimated_duration']} minutes{presupuesto_linea}
 - Complexity: {lab.get('complexity', 'medium')}
 - Bloom Level: {lab['bloom_level']}
 - Objectives: {', '.join(lab['objectives'])}

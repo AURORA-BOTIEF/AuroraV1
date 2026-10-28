@@ -43,6 +43,7 @@ from referent_check import (  # noqa: E402
     extraer_referentes,
     mensaje_de_correccion,
     preflight_duracion,
+    presupuesto_de_duracion,
     reconciliar_cantidades,
     reconciliar_contrato,
     reconciliar_duraciones,
@@ -2646,20 +2647,60 @@ def test_b6_una_desviacion_pequena_no_marca():
     assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
 
 
-def test_el_mensaje_de_b6_pide_el_techo_y_no_cambiar_la_duracion():
+def test_el_mensaje_de_b6_pide_caber_en_lo_declarado_y_no_cambiar_la_duracion():
     """El reintento debe saber cuánto recortar, y que la duración no se toca.
 
-    La duración viene del plan: pedir «pon 21 minutos» no convergería. El mensaje da
-    el techo del hueco (4/3 de lo declarado) y pide reducir el volumen.
+    La duración viene del plan: pedir «pon 21 minutos» no convergería. El mensaje
+    apunta a la duración **declarada** (12), da el techo como límite duro (16) y
+    el volumen máximo que cabe (6 pasos, 16 bloques).
     """
     lab = _lab_tipo_angular(12)
     informe = auditar_laboratorio(lab, "")
     b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
     assert b6[0]["duracion_minima"] == 21
     assert b6[0]["duracion_maxima"] == 16
+    assert b6[0]["presupuesto"]["pasos_max"] == 6
+    assert b6[0]["presupuesto"]["bloques_max"] == 16
     mensaje = mensaje_de_correccion(informe["violaciones"], "laboratorio")
+    assert "12 minutos" in mensaje
     assert "16 minutos" in mensaje
+    assert "6 pasos" in mensaje
     assert "no cambies la duración del plan" in mensaje
+
+
+def test_el_presupuesto_reparte_la_duracion_declarada():
+    """60 minutos: 30 pasos y 80 bloques caben; el objetivo deja margen para leer."""
+    presupuesto = presupuesto_de_duracion(60)
+    assert presupuesto == {
+        "declarada": 60,
+        "suelo": 50,
+        "techo": 80,
+        "pasos_max": 30,
+        "bloques_max": 80,
+        "pasos_objetivo": 21,
+        "bloques_objetivo": 56,
+    }
+    assert presupuesto_de_duracion(0) == {}
+    assert presupuesto_de_duracion(None) == {}
+
+
+def test_el_presupuesto_garantiza_que_el_minimo_quepa_en_lo_declarado():
+    """`pasos_max` y `bloques_max` se derivan de los ritmos de B6, no de una regla aparte."""
+    for minutos in (5, 12, 20, 36, 60, 90, 288):
+        presupuesto = presupuesto_de_duracion(minutos)
+        assert presupuesto["pasos_max"] * 2.0 <= minutos
+        assert presupuesto["bloques_max"] * 0.75 <= minutos
+        assert presupuesto["pasos_objetivo"] <= presupuesto["pasos_max"]
+        assert presupuesto["bloques_objetivo"] <= presupuesto["bloques_max"]
+
+
+def test_b6_informa_el_ratio_y_el_presupuesto():
+    """El informe deja la densidad a la vista sin bloquear: mínimo/declarada y presupuesto."""
+    lab = _lab_con_bloques(pasos=6, bloques_por_paso=18, duracion=60)
+    duracion = auditar_laboratorio(lab, "")["duracion"]
+    assert duracion["ratio_minimo"] == 1.35
+    assert duracion["presupuesto"]["pasos_max"] == 30
+    assert duracion["presupuesto"]["bloques_max"] == 80
 
 
 def test_la_nota_al_instructor_que_pide_verificar_exime_el_material():

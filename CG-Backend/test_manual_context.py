@@ -306,6 +306,42 @@ def test_el_prompt_vivo_del_writer_incluye_el_manual():
     assert len(prompt) < len(_MANUAL), "el prompt vivo mete el manual entero"
 
 
+def test_el_prompt_vivo_declara_el_presupuesto_de_duracion():
+    """El writer debe saber cuántos pasos y bloques caben en la duración del plan.
+
+    Sin este bloque solo veía «45 minutes» y escribía pegado al techo de la banda
+    (4/3); en la prueba real del 27/10/2026 los dos laboratorios quedaron en 1,17
+    y 0,97 de carga mínima sobre lo declarado.
+    """
+    modulo = _cargar_writer_sin_aws()
+    lab_plan = {
+        "lab_id": "01-00-01",
+        "lab_title": "Configurar memoria swap persistente",
+        "objectives": ["crear swapfile con fallocate"],
+        "scope": "gestion de memoria en Linux",
+        "estimated_duration": 45,
+        "complexity": "medium",
+        "bloom_level": "Apply",
+        "prerequisites": [],
+        "key_technologies": ["Linux"],
+    }
+    master_context = {
+        "target_language": "Spanish (Español)",
+        "manual_reference_text": "",
+        "additional_requirements": "",
+        "hardware_requirements": [],
+        "software_requirements": [],
+        "special_considerations": [],
+        "overall_objectives": [],
+    }
+
+    prompt = modulo._compact_single_lab_prompt(lab_plan, master_context, "", "resumen del lab")
+
+    assert "PRESUPUESTO DE DURACIÓN" in prompt
+    assert "Máximo 22 pasos con acción y 60 bloques" in prompt
+    assert "La tabla de metadatos debe declarar exactamente 45 minutos" in prompt
+
+
 def test_el_handler_del_writer_siempre_usa_el_prompt_compacto():
     """Invariante del que depende el test anterior: el handler pasa UN lab por llamada."""
     with open(

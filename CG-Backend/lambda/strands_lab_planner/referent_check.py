@@ -1207,6 +1207,49 @@ _MINUTOS_POR_BLOQUE = 0.75
 _TOLERANCIA_TECHO = 4 / 3
 _TOLERANCIA_SUELO = 5 / 6
 _PASOS_ACCION_MINIMOS = 3
+# Presupuesto de volumen: cuántos pasos y bloques caben en la duración declarada.
+# El objetivo es la **declarada**, no el techo: el 4/3 es el límite duro; el
+# presupuesto reparte la declarada entre pasos y bloques a los ritmos mínimos, para
+# que el trabajo mínimo quepa en el hueco. Medido el 27/10/2026 sobre 625
+# laboratorios comparables: el trabajo mínimo mediano es 0,57 de la declarada (p75
+# 0,88; p90 1,30). El objetivo se fija en 0,7 × declarada, entre la mediana y el
+# p75: el resto del tiempo es lectura, verificación y diagnóstico, que el alumno
+# también hace. Sin esto el writer solo veía «N minutos» y escribía pegado al techo.
+_OBJETIVO_PRESUPUESTO = 0.7
+
+
+def presupuesto_de_duracion(minutos) -> dict:
+    """Volumen que cabe en la duración declarada, a los ritmos mínimos de B6.
+
+    ``pasos_max`` y ``bloques_max`` garantizan por construcción que el trabajo
+    mínimo no supere la duración declarada; ``*_objetivo`` deja margen para lo que
+    el alumno hace además de ejecutar. Devuelve ``{}`` sin duración.
+    """
+    try:
+        declarada = int(minutos or 0)
+    except (TypeError, ValueError):
+        declarada = 0
+    if declarada <= 0:
+        return {}
+    pasos_max = int(declarada // _MINUTOS_POR_PASO_ACCION)
+    bloques_max = int(declarada // _MINUTOS_POR_BLOQUE)
+    pasos_objetivo = min(
+        pasos_max,
+        max(1, round(declarada * _OBJETIVO_PRESUPUESTO / _MINUTOS_POR_PASO_ACCION)),
+    )
+    bloques_objetivo = min(
+        bloques_max,
+        max(1, round(declarada * _OBJETIVO_PRESUPUESTO / _MINUTOS_POR_BLOQUE)),
+    )
+    return {
+        "declarada": declarada,
+        "suelo": math.ceil(declarada * _TOLERANCIA_SUELO),
+        "techo": math.floor(declarada * _TOLERANCIA_TECHO),
+        "pasos_max": pasos_max,
+        "bloques_max": bloques_max,
+        "pasos_objetivo": pasos_objetivo,
+        "bloques_objetivo": bloques_objetivo,
+    }
 
 
 def duracion_declarada(laboratorio_md: str) -> int | None:
@@ -1304,6 +1347,8 @@ def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
     techo = duracion * _TOLERANCIA_TECHO
     informe["duracion_minima"] = math.ceil(minimo)
     informe["duracion_maxima"] = math.floor(techo)
+    informe["ratio_minimo"] = round(minimo / duracion, 2)
+    informe["presupuesto"] = presupuesto_de_duracion(duracion)
     if minimo > techo:
         informe["ok"] = False
         informe["motivo"] = (
@@ -1751,6 +1796,8 @@ def auditar_laboratorio(
                 "bloques": duracion["bloques"],
                 "duracion_minima": duracion.get("duracion_minima"),
                 "duracion_maxima": duracion.get("duracion_maxima"),
+                "ratio_minimo": duracion.get("ratio_minimo"),
+                "presupuesto": duracion.get("presupuesto"),
             }
         )
 
@@ -1954,13 +2001,17 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
     b6 = [v for v in violaciones if v.get("verificacion") == "B6"]
     if b6:
         lineas = [f"- {v['valor']}" for v in b6]
-        # El objetivo es el techo, no una regla de tres por unidad: la duración
-        # declarada admite hasta 4/3, y el laboratorio tiene que caber ahí.
-        techos = [v["duracion_maxima"] for v in b6 if v.get("duracion_maxima")]
+        # El objetivo es la duración declarada, no el techo: el 4/3 es el límite duro
+        # y el presupuesto dice cuántos pasos y bloques caben en la declarada.
+        presupuesto = next(
+            (v.get("presupuesto") for v in b6 if v.get("presupuesto")), {}
+        )
         objetivo = (
-            f"\nDebe caber en {techos[0]} minutos: con 2 minutos por paso y 0,75 por "
-            "bloque, sobran pasos o bloques."
-            if techos
+            f"\nDebe caber en {presupuesto['declarada']} minutos, no en el techo de "
+            f"{presupuesto['techo']} minutos: como máximo {presupuesto['pasos_max']} pasos con "
+            f"acción y {presupuesto['bloques_max']} bloques; apunta a "
+            f"{presupuesto['pasos_objetivo']} y {presupuesto['bloques_objetivo']}."
+            if presupuesto
             else ""
         )
         intro = (
