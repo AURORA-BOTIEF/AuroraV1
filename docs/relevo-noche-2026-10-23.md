@@ -212,6 +212,17 @@ plantilla `hub.docker.com/r/<usuario>/…` cortada por `<` y por `\`; `urls_de` 
 verificable**. Los 4 `[POR CONFIRMAR]` están en hardware `recommended` (el temario no los declara):
 previstos, no defecto. Duración 72/120 min, sin aviso de pre-flight.
 
+**B6 como presupuesto (spec §41).** El negocio confirma que los tiempos del temario se cumplen. La
+medición lo explicó: sobre 625 laboratorios comparables la carga mínima mediana es **0,57** de la
+declarada (p90 1,30) y la prueba real del §40 había dado **1,15 y 0,96**: el Writer no se quedaba
+corto, escribía pegado al techo (4/3) porque solo veía «Duration: N minutes». `presupuesto_de_duracion`
+deriva de los ritmos de B6 cuántos pasos y bloques caben (36 min → máximo 18 y 48; objetivo 13 y 34)
+y llega al plan, al prompt, al resumen y al reintento, que ahora apunta a la declarada. Repetida la
+ejecución con la misma petición: ratio **0,92 y 0,79**, pasos 8 → 13 y 7 → 13, bloques 55 → 44 y 46 →
+38, cobertura 100 % y 73 % (la caída es vocabulario del título, no contenido), sin reintentos. El
+suelo sigue sin comprobarse: con el ritmo holgado marcaría el 55,7 % del corpus. 170/170 + 18/18 +
+15/15 + 7/7 y despliegue verificado.
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.

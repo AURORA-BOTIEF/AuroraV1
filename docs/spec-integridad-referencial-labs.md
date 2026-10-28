@@ -2985,3 +2985,98 @@ emitió aviso.
 Un solo curso y una sola ejecución: mide el camino, no la distribución. El temario es pequeño y sin
 manual, así que no ejercita la precedencia manual > temario del §35. La prueba no sustituye la
 observación en producción.
+
+## 41. B6 como presupuesto: la duración manda (27/10/2026)
+
+Decisión del negocio: **los tiempos del temario se cumplen**. Los instructores se quejan de que los
+cursos no encajan en los tiempos definidos. Hasta hoy la banda del §29 era el único límite que el
+Writer conocía, así que escribía pegado a ella.
+
+### 41.1 La medición que lo explica
+
+Sobre los 625 laboratorios comparables del corpus (duración declarada, al menos 3 pasos con acción y
+1 bloque), con el ritmo mínimo de B6 (`max(pasos × 2,0, bloques × 0,75)`):
+
+| Ratio mínimo / declarada | Valor |
+|---|---|
+| p25 | 0,33 |
+| Mediana | **0,57** |
+| p75 | 0,88 |
+| p90 | 1,30 |
+| Por encima de 1,0 | 120 (19,2 %) |
+| Por encima de 4/3 | 59 (9,4 %) |
+
+La prueba real del §40 dio **1,17** y **0,97** (42 y 35 minutos de trabajo mínimo sobre 36
+declarados; el primer laboratorio usaba 55 bloques de código). No es que THOR se quede corto: escribe
+más denso que el material histórico y se apoya en el techo. El hueco no estaba en la regla sino en lo
+que el Writer sabía: solo recibía «Duration: 36 minutes».
+
+### 41.2 El presupuesto
+
+`presupuesto_de_duracion(minutos)` deriva de los mismos ritmos de B6:
+
+| Campo | Fórmula | 36 min | 60 min |
+|---|---|---|---|
+| `suelo` | ⌈5/6 × N⌉ | 30 | 50 |
+| `techo` | ⌊4/3 × N⌋ | 48 | 80 |
+| `pasos_max` | ⌊N / 2,0⌋ | 18 | 30 |
+| `bloques_max` | ⌊N / 0,75⌋ | 48 | 80 |
+| `pasos_objetivo` | 0,7 × N / 2,0 | 13 | 21 |
+| `bloques_objetivo` | 0,7 × N / 0,75 | 34 | 56 |
+
+Los máximos **garantizan por construcción** que el trabajo mínimo no supere la duración declarada
+(`pasos_max × 2,0 ≤ N` y `bloques_max × 0,75 ≤ N`), que es la definición de «cabe». El objetivo se
+fija en 0,7 × N, entre la mediana del corpus (0,57) y el p75 (0,88): el resto del tiempo es lectura,
+verificación y diagnóstico, que el alumno también hace. Sin duración devuelve `{}`.
+
+### 41.3 Dónde llega el presupuesto
+
+| Artefacto | Qué recibe |
+|---|---|
+| Plan | `presupuesto_duracion` por laboratorio, calculado una vez tras A3 |
+| Prompt del Writer | «PRESUPUESTO DE DURACIÓN»: máximos, objetivo, prohibición de rellenar con comandos o recortar tópicos, y la duración exacta en la tabla de metadatos |
+| Resumen de laboratorios | `Duration: N minutes (budget: up to A action steps and B code blocks)` |
+| Reintento de B6 | «Debe caber en N minutos, no en el techo de T»: los máximos y el objetivo |
+| Informe de B6 | `ratio_minimo` y `presupuesto`, informativos |
+
+### 41.4 Lo que no se hace
+
+- **El suelo no se comprueba.** La carga es una cota inferior del tiempo: sirve para demostrar «no
+  cabe», no «sobra». Con el ritmo holgado (3,0/1,0) el suelo marcaría el 55,7 % del corpus; con el
+  mínimo, el 72,2 %. No hay señal, y forzarla sería el falso positivo masivo que el proyecto evita.
+- **No se sube el reintento a ratio > 1,0.** La banda acordada (60 → 50–80) sigue vigente y la
+  estimación tiene error; el presupuesto evita el desbordamiento en origen, no persigue el decimal.
+- **No se tocan los temarios ni los cursos existentes.** Si el hueco es absurdo, el pre-flight del
+  §30 avisa y el sistema entrega un laboratorio que cabe, no el imposible.
+
+### 41.5 Verificación
+
+- `test_referent_check.py`: **170/170**. Nuevas: el presupuesto para 60 y 36, la garantía
+  `máximo × ritmo ≤ declarada` en siete duraciones, el `ratio_minimo` del informe y el mensaje de
+  reintento con la declarada y los máximos.
+- `test_manual_context.py`: **18/18**, con el bloque del prompt vivo (`Máximo 22 pasos y 60
+  bloques` para 45 minutos). `test_content_validator.py`: **15/15**. `test_state_machine.py`: **7/7**.
+- Despliegue verificado sobre el zip publicado (`StrandsLabWriter` y `StrandsLabPlanner`,
+  `LastModified` 2026-10-28T02:39:55).
+- Ejecución real `prueba-b6-1793155243` (mismo temario y misma petición que el §40): **SUCCEEDED**,
+  **82 eventos** frente a 217 (la anterior esperó el lock de proveedor quince veces), **sin
+  reintentos de B6**: los dos laboratorios cupieron a la primera.
+
+| Laboratorio | Ratio antes | Ratio después | Pasos | Bloques | Cobertura de tópicos |
+|---|---|---|---|---|---|
+| `01-00-01` | 1,15 | **0,92** | 8 → 13 | 55 → 44 | 100 % → 100 % |
+| `02-00-01` | 0,96 | **0,79** | 7 → 13 | 46 → 38 | 82 % → 73 %\* |
+
+\* La caída de 9 puntos es de vocabulario del título («básicas», «construcción», «introducción»), no
+de contenido: el laboratorio cubre FROM/RUN/CMD/COPY, `docker build`, Docker Hub y push/pull con 13
+pasos en vez de 7; `docker push` y `docker pull` aparecen 7 y 5 veces. Dos de esos tres términos ya
+faltaban antes.
+
+El efecto colateral es el buscado: menos caracteres (32 k → 23 k) y pasos más granulares en lugar de
+bloques largos. El plan guarda `presupuesto_duracion` (36 → máximo 18 pasos y 48 bloques, objetivo 13
+y 34) y la guía repite la petición literal con Compose 2.24.6; el flujo cierra con `InvokeSetupGuide`
+e `InvokePostGenerationAudit` (enlaces 12/12/0/0).
+
+Límite de la evidencia: dos laboratorios y una ejecución por versión. §10 recuerda que la varianza
+entre ejecuciones del mismo laboratorio supera al efecto; esto mide la dirección, no la distribución.
+La confirmación es la observación en producción (§40.8).
