@@ -3080,3 +3080,76 @@ e `InvokePostGenerationAudit` (enlaces 12/12/0/0).
 Límite de la evidencia: dos laboratorios y una ejecución por versión. §10 recuerda que la varianza
 entre ejecuciones del mismo laboratorio supera al efecto; esto mide la dirección, no la distribución.
 La confirmación es la observación en producción (§40.8).
+
+## 42. Primera observación en producción (28/10/2026)
+
+Lo que el corpus no podía decir: usuarios reales generando cursos por la noche del 26 y el 27/10,
+después del despliegue de §35–§39 y antes del despliegue del presupuesto de §41. Cuatro ejecuciones,
+todas **SUCCEEDED**:
+
+| Curso | Labs | Duración | Flujo de §38 |
+|---|---|---|---|
+| `261027-SEM-M365-COP-CHAT-AGENT-BA-LD-MSV-Priv` | 25 (M365 Copilot, GUI) | 22 min | completo |
+| `261026-IA-SK-PC-Priv` | 11 (CLI: Skills, Codex, Bedrock) | 14,5 min | completo |
+| `261027-Custom-MS-4019-ESP-BA-LD-MSV-Priv` | 7 (M365 Copilot, GUI) | 23 min | completo |
+| `261026-POWR-AUTO-COP-STDIO` | 4 (Power Automate, GUI) | 20 min | antiguo: corrió antes del despliegue, sin guía ni auditoría |
+| `261027-CUSTOM-CRISC-ESP-Priv` | 0 | 55 min | teoría: el temario no declara `lab_activities` |
+
+### 42.1 B6: la banda no marca en producción
+
+`duration-integrity.json` en los tres: `suma_plan ≤ total_curso` y el número de laboratorios cuadra,
+sin correcciones A3. Pre-flight 1 aviso (IA-SK). Sobre la banda:
+
+| Curso | Comparables | Ratio mínimo/declarada | Desviaciones |
+|---|---|---|---|
+| IA-SK | 11 de 11 | 0,26 – 0,67 (mediana 0,45) | 0 |
+| SEM-M365 | 0 de 25 | — (laboratorios GUI sin bloques de acción) | 0 |
+| MS-4019 | 0 de 7 | — | 0 |
+
+Dos lecturas opuestas y las dos verdaderas: la prueba Docker de §40 escribió **denso** (ratio 1,15),
+estos cursos escribieron **holgado** (0,26–0,67). El writer depende del material: para M365 Copilot
+el «trabajo» son clics en la interfaz y no hay bloques shell que contar. Lo que el corpus no dijo:
+**17 laboratorios GUI de producción son invisibles para la carga de B6 y también para el
+presupuesto de §41**. La duración declarada en los metadatos coincide con el plan en los 43.
+
+### 42.2 El hueco de A7: la petición llega a la guía, no al laboratorio
+
+IA-SK pidió **3.981 caracteres** de compatibilidad: Windows, PowerShell y una lista explícita de
+prohibiciones («No utilices heredocs, `sed`, `grep`, `awk`, `chmod`, `sudo` …»; «Identifica los
+bloques con la etiqueta `powershell`»). La guía la copia literal. Los laboratorios la ignoraron:
+
+| Medida en los 11 laboratorios | Valor |
+|---|---|
+| Bloques `\`\`\`bash` | **277** |
+| Bloques `\`\`\`powershell` | **0** |
+| `sed -n …` como instrucción | presente en los tres módulos |
+| `chmod` / `sudo` | 2 / 1 |
+| `grep` | 89 |
+
+La petición estaba en el prompt (`USER REQUIREMENTS`) y el modelo no la siguió. Este es el patrón
+exacto de la queja de instructores: el laboratorio no corre en el entorno del alumno. El eslabón
+viable no es la guía: es una regla que, cuando la petición declara un entorno (OS, shells y
+mandatos prohibidos), audite el laboratorio contra esa lista; y un recordatorio determinista en el
+prompt formateado a partir de la petición. Se calibra antes de bloquear como siempre.
+
+### 42.3 El resto: valides, referentes y enlaces
+
+- Validación: **43/43 laboratorios válidos, cero ERROR**. Avisos: `step_structure` 86 (los
+  «Paso» en H4 que §28 decidió no tocar), `vague_version` 16, `code_block_language` 6,
+  `unmeasurable_validation` 3.
+- Referentes del **plan** (A1): 106 menciones de ficheros con nombre inventado —
+  `BancaMovil_Semana4.docx`, `Reporte_Ejecutivo_TransformacionDigital.pptx`,
+  `ChangeLog.md`, rutas `C:\LabFiles\…`—, todas de **baja** confianza y solo en el plan (0 en los
+  laboratorios, `labs-referential-integrity` limpio en los tres). Es la mayor fabricación que la
+  observación trae: dicen qué archivo usará cada práctica y el temario no declara ninguno.
+- Enlaces: 134 públicos, 96 vivos, **17 muertos** y 21 no verificables. Los muertos son reales
+  (páginas de Microsoft Learn en `es-es`, `git-scm.com/docs/RelNotes/2.44.0`,
+  `copilot-studio`), no plantillas. El informe cumple su función de evidencia sin bloquear.
+
+### 42.4 Qué hace falta después de esta observación
+
+1. **Auditar el entorno declarado en la petición** (§42.2): es el caso de queja real y hay demanda
+   escrita en los cursos.
+2. **Medir el presupuesto de §41 en producción** (estos cursos lo preceden en horas).
+3. Los GUI labs: la duración declarada no tiene contraste de carga; sin una lista de actividades
+   del temario, ni la banda ni el presupuesto pueden decir nada — el suelo sigue sin señal (§29.5).

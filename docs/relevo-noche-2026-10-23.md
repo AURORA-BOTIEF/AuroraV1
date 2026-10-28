@@ -223,6 +223,16 @@ ejecución con la misma petición: ratio **0,92 y 0,79**, pasos 8 → 13 y 7 →
 suelo sigue sin comprobarse: con el ritmo holgado marcaría el 55,7 % del corpus. 170/170 + 18/18 +
 15/15 + 7/7 y despliegue verificado.
 
+**Primera observación en producción (spec §42).** Cuatro cursos reales del 26–27/10, todos
+`SUCCEEDED` (25+11+7+4 labs y un curso de teoría). La banda de §29 marca **cero desviaciones** sobre
+43 laboratorios: 11 comparables de IA-SK quedan holgados (0,26–0,67, mediana 0,45) y los GUI de
+M365 Copilot no tienen bloques que contar. A7 tiene un hueco medido: la petición de 3.981 caracteres
+de IA-SK prohíbe `sed`/`grep`/`chmod`/`sudo` y pide bloques `powershell`, y los laboratorios usan
+277 bloques `bash` y 0 `powershell` — esa es la queja de los instructores, en producción. Validez
+43/43 sin ERROR; referentes limpios en los laboratorios pero 106 ficheros con nombre inventado en
+los planes (baja confianza); 17 enlaces muertos reales de Learn. Estos cursos corrieron antes del
+presupuesto de §41: tocará remedirlo con el próximo lote.
+
 ## Decisiones pendientes para la mañana
 
 1. Los 7 B1 son defectos de **contenido**: el temario no declara ficheros que el laboratorio usa.
