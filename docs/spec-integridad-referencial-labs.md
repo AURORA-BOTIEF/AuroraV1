@@ -3153,3 +3153,87 @@ prompt formateado a partir de la petición. Se calibra antes de bloquear como si
 2. **Medir el presupuesto de §41 en producción** (estos cursos lo preceden en horas).
 3. Los GUI labs: la duración declarada no tiene contraste de carga; sin una lista de actividades
    del temario, ni la banda ni el presupuesto pueden decir nada — el suelo sigue sin señal (§29.5).
+
+## 43. C2: la petición mide, presupuesto en producción y los ficheros del plan (28/10/2026)
+
+Implementación de las tres tareas que la observación de §42 dejó propuestas, cada una con su número.
+
+### 43.1 C2: el entorno de la petición se audita
+
+§42.2 midió el hueco: la petición de 3.981 caracteres de IA-SK declaraba Windows y prohibía
+`sed`, `grep`, `chmod`, `sudo` y la etiqueta bash, y los 11 laboratorios usaban 277 bloques `bash` y
+0 `powershell`. C2 lo cierra con cuatro piezas:
+
+| Pieza | Qué hace |
+|---|---|
+| `entorno_de_peticion` | Parser determinista: sistema exigido sólo en frases de ejecución («para realizarse en sistema operativo Windows»), prohibido cuando el marcador está a ≤5 palabras del nombre y sin verbo benigno en medio («No utilices … exclusivos de Bash/Linux» sí; «no presentes … PowerShell как dos aplicaciones» y «para evitar confusiones con alias de PowerShell» no), etiquetas de bloque de frases sin negación y mandatos prohibidos de la lista tras «como» o «:» |
+| `auditar_entorno` | Alta: bloques etiquetados con el shell prohibido, mandatos prohibidos en cercas **de ejecución** (las de salida no) y **fuera de posición de ruta**; baja: menciones en prosa |
+| Prompt | Un bloque determinista «ENVIRONMENT CONSTRAINTS» repite las restricciones; la petición textual ya estaba y el modelo la ignoró |
+| Reintento | Las C2 de alta disparan el ciclo con un mensaje que pide reetiquetar y reescribir sintaxis, sin recortar pasos; interruptor `ENTORNO_RETRY` |
+
+Calibración sobre los 178 planes del bucket: **5 peticiones declaran entorno** (IA-SK, dos cursos de
+Android que prohiben `latest` y las dos ejecuciones de prueba Docker). Los Android: **0 falsos
+positivos** — el `latest` que marcaba era la carpeta `cmdline-tools\latest\bin` del SDK; en el
+lab aparecía además el propio enunciado de la regla («no uses `latest`»), que queda como baja.
+IA-SK: **35 hallazgos reales**. Desviación honesta: el parser no puede distinguir «sin WSL» de una
+instalación de WSL; eso queda en baja y se registra.
+
+### 43.2 La verificación en la ejecución real
+
+Mismo temario (Agent Skills), misma petición, los **dos laboratorios del módulo 5** de la
+producción original, ejecución `prueba-entorno-1793231766` (**SUCCEEDED en 7 min 03 s**, flujo
+completo, sin reintentos). El primer intento falló porque el input original era una regeneración
+(`lab_ids_to_regenerate` heredado del arrastre): el plan nuevo no existía y el planificador repelió
+correcto. Anulado el campo, la ejecución corrió.
+
+| Medida en el módulo 5 | Producción (261026) | Prueba entorno (271028) |
+|---|---|---|
+| `entorno_declarado` en el plan | — | `{"os_requerido": ["windows"], "os_prohibido": ["git bash", "linux", "wsl"], "etiquetas": ["powershell"], "prohibidos": ["/dev/null", "awk", "chmod", "export", "grep", "heredoc", "heredocs", "sed", "sudo"]}` |
+| Cercas `bash` | 13 y 22 | **0 y 0** |
+| Cercas `powershell` | 0 | **41 y 29** |
+| Mandatos prohibidos en cercas de ejecución | `grep` 4–8, `sed` 1–5 | **ninguno** |
+| C2 | 2 altas por laboratorio | **0 altas, 0 dudosos** |
+
+El laboratorio de Windows se produce en punta a punta: la Setup Guide la copia literal, el plan
+declara el entorno y los laboratorios administran PowerShell.
+
+### 43.3 El presupuesto de §41 medido en producción
+
+Los laboratorios del módulo 5 salieron con el presupuesto en el plan y a los valores que se pedía:
+
+| Laboratorio | Ratio antes | Ratio después | Pasos (objetivo) | Bloques (objetivo, techo) |
+|---|---|---|---|---|
+| `05-00-01` (40 min) | 0,30 | **0,81** | 6 → 14 (14) | 12 → 43 (37; 53) |
+| `05-00-02` (30 min) | 0,53 | **0,70** | 6 → 9 (10) | 21 → 28 (28) |
+
+Era el hueco: la producción original escribía **holgado** (0,45 mediana con el mismo material); con
+el presupuesto el writer llena el hueco hasta la declarada. La cobertura de tópicos va con el
+denominador del módulo de §37 (10 tópicos): 69 %›77 % en un lab y 66 %›54 % en el otro, con los
+tópicos faltantes ajenos a la propia lección (gobierno, mantenimiento, bibliotecas compartidas).
+
+### 43.4 Los ficheros que el plan inventa (la señal de §42.3)
+
+Medido para cuándo merece regla; medido también contra los laboratorios, porque B1 legítima el
+invento via plan (el plan es fuente): si el lab lo usa sin crearlo, el defecto llega al alumno.
+
+| Curso | Inventos del plan | Se usan en los labs |
+|---|---|---|
+| `261027-SEM-M365-…-Priv` | 18 | **15** (los `.docx`/`.xlsx` que el estudiante no tiene) |
+| `261026-IA-SK-PC-Priv` | 61 | 0 (los pasos los crean dentro del lab; B1 los exime) |
+| `261027-Custom-MS-4019-…-Priv` | 0 | 0 |
+
+El criterio que separa el invento **inofensivo** (decora `expected_outcomes`) del **con coste** (el
+estudiante no tiene el fichero) es «aparece en un lab y ningún paso lo crea». La señal merece
+regla y hay que calibrarla en más cursos antes de convertirla en bloqueo: queda en informe, y la
+cuenta ya está en `{proyecto}/validation/referential-integrity.json`.
+
+### 43.5 Verificación
+
+- `test_referent_check.py`: **175/175**. Nuevas: el parser sobre la petición real de IA-SK con sus
+  prohibiciones y ruidos descartados, el parser silencioso sin entorno declarado, C2 de alta para
+  el shell prohibido y `sed` en cerca, C2 silencioso en labs GUI y con prosa, y el mensaje del
+  reintento.
+- `test_manual_context.py`: **19/19** con el bloque «ENVIRONMENT CONSTRAINTS» del prompt vivo.
+  `test_content_validator.py`: **15/15**. `test_state_machine.py`: **7/7**.
+- Despliegue verificado en el zip de las dos Lambdas (planner y writer, `LastModified`
+  2026-10-28T23:53:18).

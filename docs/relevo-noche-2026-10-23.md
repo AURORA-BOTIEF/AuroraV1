@@ -223,6 +223,19 @@ ejecución con la misma petición: ratio **0,92 y 0,79**, pasos 8 → 13 y 7 →
 suelo sigue sin comprobarse: con el ritmo holgado marcaría el 55,7 % del corpus. 170/170 + 18/18 +
 15/15 + 7/7 y despliegue verificado.
 
+**C2, presupuesto en producción y ficheros del plan (spec §43).** Implementadas las tres tareas:
+1) `entorno_de_peticion` + `auditar_entorno`: parser determinista (frases de ejecución, ventana de
+prohibición de ≤5 palabras con verbo benigno, etiquetas de frases sin negación, lista tras «como»),
+auditando bloques de ejecución fuera de rutas; prompt con «ENVIRONMENT CONSTRAINTS» y reintento
+C2 (`ENTORNO_RETRY`). Calibración: 178 planes, 5 declaran entorno, 0 falsos positivos (el `latest`
+de Android era ruta del SDK); IA-SK 35 hallazgos reales. Verificación en producción (módulo 5 de
+IA-SK, ejecución `prueba-entorno-1793231766`, SUCCEEDED en 7 min): 0 cercas bash frente a 13–22
+antes, 41/29 cercas `powershell`, 0 mandatos prohibidos, C2 limpia. 2) El presupuesto de §41 medido
+con material real: ratio 0,30→0,81 y 0,53→0,70, pasos al objetivo (14 y 9), bloques al objetivo.
+3) Números de los ficheros que el plan inventa: 15 de 18 aparecen en los labs de SEM-M365 (defecto
+real), 0 de 61 en IA-SK (los pasos los crean); queda en informe a la espera de más cursos. Prueba
+desplegada verificado: 175/175 + 19/19 + 15/15 + 7/7 (`LastModified` 2026-10-28T23:53:18).
+
 **Primera observación en producción (spec §42).** Cuatro cursos reales del 26–27/10, todos
 `SUCCEEDED` (25+11+7+4 labs y un curso de teoría). La banda de §29 marca **cero desviaciones** sobre
 43 laboratorios: 11 comparables de IA-SK quedan holgados (0,26–0,67, mediana 0,45) y los GUI de
