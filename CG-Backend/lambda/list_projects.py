@@ -13,6 +13,7 @@ Optimizations:
 import json
 import os
 import re
+from datetime import date, datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import boto3
@@ -343,33 +344,63 @@ def build_project_row(s3_client, bucket_name, project_folder):
     }
 
 
-def extract_date_from_folder(folder_name):
-    """Extract date from folder name if it starts with YYMMDD."""
-    match = re.match(r"^(\d{2})(\d{2})(\d{2})", folder_name)
-    if match:
-        year, month, day = match.groups()
-        return f"20{year}-{month}-{day}"
-    return None
+_ZONA_CDMX = timezone(timedelta(hours=-6))  # CDMX sin horario de verano desde 2022
+
+
+def extract_date_from_folder(folder_name, hoy=None):
+    """Fecha del prefijo del folder, aceptando las dos convenciones del equipo.
+
+    El prefijo de 6 dígitos se ha escrito de dos formas: **YYMMDD** (``260911`` =
+    2026-09-11) y **DDMMYY** (``271030`` = 2026-10-30). Leer YY fijo inventaba
+    2027 (el caso '30/10/2027' reportado el 30/10/2026). Se prueban las dos
+    lecturas y gana la plausible: dentro de los últimos 10 años y menos de una
+    semana al futuro; entre válidas, la más cercana a hoy. ``hoy`` es inyectable
+    para las pruebas.
+    """
+    hoy = hoy or datetime.now(timezone.utc).date()
+    m = re.match(r"^(\d{2})(\d{2})(\d{2})", folder_name or "")
+    if not m:
+        return None
+    a, b, c = m.groups()
+    candidatos = []
+    for anio, mes, dia in ((a, b, c), (c, b, a)):
+        try:
+            fecha = date(2000 + int(anio), int(mes), int(dia))
+        except ValueError:
+            continue
+        diferencia = (hoy - fecha).days
+        if -7 <= diferencia <= 3650:
+            candidatos.append(fecha)
+    if not candidatos:
+        return None
+    elegida = min(candidatos, key=lambda f: abs((hoy - f).days))
+    return elegida.strftime("%Y-%m-%d")
 
 
 def get_project_creation_date(s3_client, bucket_name, project_folder, metadata=None):
-    """Get exact creation date from folder prefix, metadata, or S3 object timestamps."""
-    folder_date = extract_date_from_folder(project_folder)
-    if folder_date:
-        return folder_date
+    """Fecha real de generación, no la etiqueta del nombre.
+
+    Orden: la fecha explícita del metadata (si quien creó el curso la escribió),
+    el objeto **más antiguo** del proyecto con marca de S3 convertida a la zona de
+    CDMX (S3 guarda UTC y el cliente trabaja en UTC-6), y solo si no hay objetos,
+    la lectura plausible del prefijo del folder.
+    """
     if metadata and metadata.get("created"):
-        created_val = str(metadata["created"])
-        if len(created_val) >= 10:
-            return created_val[:10]
+        creado = str(metadata["created"])
+        if len(creado) >= 10:
+            return creado[:10]
     try:
-        res = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=f"{project_folder}/", MaxKeys=5)
-        contents = res.get("Contents", [])
-        if contents:
-            dates = [obj["LastModified"] for obj in contents]
-            return min(dates).strftime("%Y-%m-%d")
+        fechas = []
+        for pagina in s3_client.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket_name, Prefix=f"{project_folder}/"
+        ):
+            for objeto in pagina.get("Contents", []):
+                fechas.append(objeto["LastModified"])
+        if fechas:
+            return min(fechas).astimezone(_ZONA_CDMX).strftime("%Y-%m-%d")
     except Exception:
         pass
-    return ""
+    return extract_date_from_folder(project_folder)
 
 
 def load_project_metadata(s3_client, bucket_name, project_folder):

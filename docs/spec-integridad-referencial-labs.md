@@ -3302,3 +3302,24 @@ funcionó en el artefacto nuevo, tal como se diseño.
 - Corrida real `prueba-decks-1793415131` (`content_type: both`): **SUCCEEDED** en ~22 min, flujo
   completo con `InvokeDeckBuilder` visitado; su deck falló por la arquitectura (§44.3) y el Catch
   mantuvo el curso sano. Verificado de nuevo con el binario correcto y los artefactos reales.
+
+## 45. La fecha de creación en el listado (30/10/2026, noche)
+
+El UI mostraba «Creado: 30/10/2027» para cursos generados el 30/10/2026. Cadena completa:
+
+- El listado (list_projects.py) derivaba la fecha **del nombre del folder** leyéndolo como
+  YYMMDD fijo. La convención real del equipo es YYMMDD (`260911` = 2026-09-11) y se ve bien; los
+  prefijos pinchados día-primero (`271030`) escribían un 2027 imposible.
+
+
+Arreglo: `get_project_creation_date` ahora es (1) fecha explícita en metadata.created si existe,
+(2) el **objeto más antiguo del proyecto** con su marca de S3 convertida a UTC-6 — Ciudad de México
+sin horario de verano desde 2022, (3) sólo sin objetos, la lectura **plausible** del prefijo, que
+adapta ambas convenciones (YYMMDD y DDMMYY) y elige la que cae en los últimos 10 años sin más de una
+semana al futuro; `extract_date_from_folder` es inyectable con `hoy` para pruebas. El mismo
+arreglo replica en list_infographics.py. 	est_list_projects.py: **4/4**, con el caso que motivó
+el reporte: una marca de S3 del 31/10 03:22 UTC se presenta **2026-10-30** en el listado del curso
+cuyo nombre ambiguo sugería 2027.
+
+Nota operativa: los folders de prueba mal bautizados (`271027` en vez de `271026`) quedan
+cubiertos de todos modos: la marca S3 manda y el listado muestra la fecha real, no la del nombre.

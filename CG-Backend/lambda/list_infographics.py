@@ -5,7 +5,7 @@ import os
 import json
 import boto3
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Max parallel S3 calls (avoid throttling)
@@ -253,15 +253,35 @@ def enrich_single_infographic(s3_client, bucket_name, item):
         'model_provider': metadata.get('model_provider', 'bedrock')
     }
 
-def extract_date_from_folder(folder_name):
-    """Extract date from folder name if it starts with YYMMDD."""
-    # Match YYMMDD at start of string
-    match = re.match(r'^(\d{2})(\d{2})(\d{2})', folder_name)
-    if match:
-        year, month, day = match.groups()
-        # Assume 20xx for year
-        return f"20{year}-{month}-{day}"
-    return None
+_ZONA_CDMX = timezone(timedelta(hours=-6))  # CDMX sin horario de verano desde 2022
+
+
+def extract_date_from_folder(folder_name, hoy=None):
+    """Fecha del prefijo del folder: YYMMDD (equipo) o DDMMYY, la plausible manda.
+
+    Leer YY fijo inventaba 2027 en nombres pinchados día-primero. Como en
+    list_projects: se prueban las dos lecturas y gana la que cae en los últimos
+    10 años sin más de una semana de futuro; ``hoy`` inyectable para pruebas.
+    """
+    hoy = hoy or datetime.now(timezone.utc).date()
+    match = re.match(r"^(\d{2})(\d{2})(\d{2})", folder_name or "")
+    if not match:
+        return None
+    a, b, c = match.groups()
+    candidatos = []
+    for anio, mes, dia in ((a, b, c), (c, b, a)):
+        try:
+            fecha = date(2000 + int(anio), int(mes), int(dia))
+        except ValueError:
+            continue
+        diferencia = (hoy - fecha).days
+        if -7 <= diferencia <= 3650:
+            candidatos.append(fecha)
+    if not candidatos:
+        return None
+    elegida = min(candidatos, key=lambda f: abs((hoy - f).days))
+    return elegida.strftime("%Y-%m-%d")
+
 
 def load_outline_data(s3_client, bucket_name, project_folder):
     """Load course outline from S3 if available."""
