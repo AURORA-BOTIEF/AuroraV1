@@ -45,7 +45,7 @@ def _texto(clave, bucket=None):
 
 
 def _limpiar(texto: str) -> str:
-    texto = _MD_LIMPIO.sub("", texto or "")
+    texto = _MD_LIMPIO.sub(" ", texto or "")
     return re.sub(r"\s+", " ", texto).strip()
 
 

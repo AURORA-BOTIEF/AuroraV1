@@ -1351,7 +1351,8 @@ def is_valid_glossary_definition(definition: str, is_spanish: bool) -> bool:
     generic = generic_es if is_spanish else generic_en
     if any(g in d for g in generic):
         return False
-    return True
+    # Filas de tabla coladas: « | Tipo | Descripción | Acceso |…» no es una definición.
+    return " | " not in definition
 
 
 def extract_definition_after_heading(lines: list, heading_idx: int) -> str:
@@ -1387,7 +1388,7 @@ def is_valid_glossary_term(term: str, is_spanish: bool = True) -> bool:
 
     forbidden_common = (
         r'^(objetivos de aprendizaje|introducci[oó]n|resumen(?: del cap[ií]tulo)?|bibliograf[íi]a|metadatos|'
-        r'puntos clave|detalles t[eé]cnicos|referencias bibliogr[aá]ficas|visi[oó]n general del concepto|'
+        r'puntos clave|nota importante|tabla de comparaci[oó]n|detalles t[eé]cnicos|referencias bibliogr[aá]ficas|visi[oó]n general del concepto|'
         r'aplicaci[oó]n pr[aá]ctica|recursos adicionales|pr[oó]ximos pasos|nota|advertencia|ejemplo|observaci[oó]n|'
         r'precio|compatibilidad t[eé]cnica|madurez del ecosistema|latencia geogr[aá]fica|'
         r'learning objectives|introduction|summary|chapter summary|bibliography|metadata|table of contents|'
