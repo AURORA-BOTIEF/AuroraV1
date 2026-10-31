@@ -1001,6 +1001,35 @@ Resources:
                 - arn:aws:s3:::crewai-course-artifacts
                 - arn:aws:s3:::crewai-course-artifacts/*
 
+  DeckBuilderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: DeckBuilderFunction
+      Description: Decks Glosario y Tips & Tricks desde book/glosario.json y la seccion de problemas de los labs
+      Runtime: python3.12
+      Handler: deck_builder.lambda_handler
+      CodeUri: ./lambda/deck_builder/
+      Architectures:
+        - arm64
+      Layers:
+        - !Ref PPTLayer
+      MemorySize: 512
+      Timeout: 300
+      Environment:
+        Variables:
+          COURSE_BUCKET: crewai-course-artifacts
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::crewai-course-artifacts
+                - arn:aws:s3:::crewai-course-artifacts/*
+
   LoadBookFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1392,6 +1421,7 @@ Resources:
         LabGuideBuilderArn: !GetAtt LabGuideBuilder.Arn
         SetupGuideBuilderArn: !GetAtt SetupGuideBuilderFunction.Arn
         PostGenerationAuditArn: !GetAtt PostGenerationAuditFunction.Arn
+        DeckBuilderArn: !GetAtt DeckBuilderFunction.Arn
         StrandsLabPlannerArn: !GetAtt StrandsLabPlanner.Arn
         StrandsLabWriterArn: !GetAtt StrandsLabWriter.Arn
         StrandsNotificationArn: !GetAtt StrandsNotification.Arn
@@ -1414,6 +1444,7 @@ Resources:
                 - !GetAtt LabGuideBuilder.Arn
                 - !GetAtt SetupGuideBuilderFunction.Arn
                 - !GetAtt PostGenerationAuditFunction.Arn
+                - !GetAtt DeckBuilderFunction.Arn
                 - !GetAtt StrandsLabPlanner.Arn
                 - !GetAtt StrandsLabWriter.Arn
                 - !GetAtt StrandsNotification.Arn

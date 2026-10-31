@@ -299,7 +299,10 @@ def lambda_handler(event, context):
         full_book_content += stats_content
 
         # Add end-of-course glossary
-        glossary_content = generate_course_glossary(sorted_modules, is_spanish)
+        glossary_entries = extract_glossary_entries(
+            sorted_modules, is_spanish=is_spanish, max_entries=80, outline_data=outline_data
+        )
+        glossary_content = format_glossary_section(glossary_entries, is_spanish)
         full_book_content += glossary_content
 
         # Save the complete book to S3
@@ -373,6 +376,26 @@ def lambda_handler(event, context):
             's3_key': book_filename,
             'bucket': course_bucket
         }
+
+        # Artículo legible por máquina para el DeckBuilder (y para revisión).
+        glossary_key = f"{project_folder}/book/glosario.json"
+        s3_client.put_object(
+            Bucket=course_bucket,
+            Key=glossary_key,
+            Body=json.dumps(
+                {
+                    "terminos": glossary_entries,
+                    "total": len(glossary_entries),
+                    "por_fuente": {
+                        "temario": sum(1 for e in glossary_entries if e["fuente"] == "temario"),
+                        "leccion": sum(1 for e in glossary_entries if e["fuente"] == "leccion"),
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ).encode("utf-8"),
+            ContentType="application/json",
+        )
 
         book_json_key = f"{project_folder}/book/{book_title.replace(' ', '_')}_data.json"
         s3_client.put_object(
@@ -934,9 +957,11 @@ def generate_module_summary(module_num: int, module_title: str, module_lessons: 
     return '\n'.join(lines).strip() + '\n'
 
 
-def generate_course_glossary(sorted_modules: list, is_spanish: bool) -> str:
-    """Generate glossary with term definitions inferred from lesson content."""
-    glossary_entries = extract_glossary_entries(sorted_modules, is_spanish=is_spanish, max_entries=20)
+def generate_course_glossary(sorted_modules: list, is_spanish: bool, outline_data: dict | None = None) -> str:
+    """Sección de glosario del book; el JSON de términos lo escribe el handler."""
+    glossary_entries = extract_glossary_entries(
+        sorted_modules, is_spanish=is_spanish, max_entries=80, outline_data=outline_data
+    )
     glossary_title = "Glosario" if is_spanish else "Glossary"
 
     lines = [f"\n## {glossary_title}\n"]
@@ -944,9 +969,21 @@ def generate_course_glossary(sorted_modules: list, is_spanish: bool) -> str:
         lines.extend(generate_default_glossary_lines(is_spanish))
         return "\n".join(lines) + "\n"
 
-    for term, definition in glossary_entries:
-        lines.append(f"- **{term}**: {definition}")
+    for entrada in glossary_entries:
+        lines.append(f"- **{entrada['term']}**: {entrada['definition']}")
 
+    return "\n".join(lines) + "\n"
+
+
+def format_glossary_section(entries: list, is_spanish: bool) -> str:
+    """Sección de glosario desde pares estructurados."""
+    glossary_title = "Glosario" if is_spanish else "Glossary"
+    lines = [f"\n## {glossary_title}\n"]
+    if not entries:
+        lines.extend(generate_default_glossary_lines(is_spanish))
+        return "\n".join(lines) + "\n"
+    for entrada in entries:
+        lines.append(f"- **{entrada['term']}**: {entrada['definition']}")
     return "\n".join(lines) + "\n"
 
 
@@ -1118,12 +1155,17 @@ def extract_module_objectives(module_lessons: list, max_items: int = 4) -> list:
     return objectives
 
 
-def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries: int = 20) -> list:
-    """Extract high-confidence term-definition pairs from real lesson content."""
-    term_set = set()
+def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries: int = 20, outline_data: dict | None = None) -> list:
+    """Pares término-definición de alta confianza, anclados al temario y a las lecciones.
+
+    Tres [@:pasos:] en este orden: los tópicos del **temario** (la materia aprobada
+    por el instructor; las definiciones se infieren de la lección correspondiente),
+    después las viñetas de glosario explícitas y después encabezados con párrafo.
+    Cada entrada lleva su fuente para el auditor: ``temario`` o ``leccion``.
+    """
     entries = []
 
-    def add_entry(term: str, definition: str, source_content: str = ""):
+    def add_entry(term: str, definition: str, source_content: str = "", fuente: str = "leccion"):
         cleaned_term = clean_glossary_term(term)
         if not is_valid_glossary_term(cleaned_term, is_spanish=is_spanish):
             return
@@ -1137,11 +1179,32 @@ def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries
             return
 
         norm = cleaned_term.lower()
-        if norm in term_set:
+        if norm in {e["term"].lower() for e in entries}:
             return
 
-        term_set.add(norm)
-        entries.append((cleaned_term, cleaned_def))
+        entries.append({"term": cleaned_term, "definition": cleaned_def, "fuente": fuente})
+
+    # Paso 0: tópicos del temario. El código del tópico (N.M.K) identifica el
+    # módulo y la lección: la definición se infiere de esa lección concreta.
+    for module_idx, modulo in enumerate((outline_data or {}).get("modules") or ()):
+        lesson_data = (sorted_modules[module_idx][1] or {}) if module_idx < len(sorted_modules) else {}
+        contenido_por_leccion = {
+            int(leccion.get('lesson_number') or 0): leccion.get('content', '')
+            for leccion in lesson_data.get('lessons', [])
+            if str(leccion.get('lesson_number') or '').strip().isdigit()
+        }
+        for leccion in modulo.get('lessons') or ():
+            contenido = contenido_por_leccion.get(int(leccion.get('lesson_number') or 0), "")
+            for topico in leccion.get('topics') or ():
+                titulo = topico.get('title') if isinstance(topico, dict) else str(topico)
+                if titulo:
+                    add_entry(titulo, "", contenido, fuente="temario")
+                for subtopico in (topico.get('subtopics') or ()):
+                    subtitulo = subtopico.get('title') if isinstance(subtopico, dict) else str(subtopico)
+                    if subtitulo:
+                        add_entry(subtitulo, "", contenido, fuente="temario")
+                if len(entries) >= max_entries:
+                    return entries[:max_entries]
 
     for _, module_data in sorted_modules:
         for lesson in module_data.get('lessons', []):
@@ -1176,6 +1239,7 @@ def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries
                 if len(entries) >= max_entries:
                     return entries[:max_entries]
 
+    entries.sort(key=lambda e: e["term"].lower())
     return entries[:max_entries]
 
 

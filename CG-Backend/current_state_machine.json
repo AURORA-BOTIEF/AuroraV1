@@ -879,7 +879,7 @@
     },
     "InvokePostGenerationAudit": {
       "Comment": "Write the inputs manifest (SHA-256) and the link report. Non-blocking: it is evidence, not a gate.",
-      "Next": "NotifyCompletion",
+      "Next": "InvokeDeckBuilder",
       "Parameters": {
         "FunctionName": "${PostGenerationAuditArn}",
         "Payload": {
@@ -1448,7 +1448,6 @@
       ],
       "Type": "Map"
     },
-
     "NotifyCompletion": {
       "Comment": "Send completion notification to user and admin",
       "Next": "SuccessState",
@@ -1593,6 +1592,41 @@
         "lesson_to_generate": null,
         "lesson_requirements": null
       }
+    },
+    "InvokeDeckBuilder": {
+      "Comment": "Genera Glosario.pptx y Tips_and_Tricks.pptx desde el book y los labs. No bloquea.",
+      "Next": "NotifyCompletion",
+      "Parameters": {
+        "FunctionName": "${DeckBuilderArn}",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder"
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.decks_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyCompletion",
+          "ResultPath": "$.decks_error"
+        }
+      ],
+      "Type": "Task"
     }
   }
 }

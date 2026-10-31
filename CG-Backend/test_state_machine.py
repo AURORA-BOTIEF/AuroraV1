@@ -255,10 +255,24 @@ def test_la_auditoria_posterior_cierra_el_flujo_sin_bloquear():
     estados = _definicion()["States"]
     assert estados["InvokeSetupGuide"]["Next"] == "InvokePostGenerationAudit"
     auditoria = estados["InvokePostGenerationAudit"]
-    assert auditoria["Next"] == "NotifyCompletion"
+    assert auditoria["Next"] == "InvokeDeckBuilder"
     assert auditoria["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert auditoria["Catch"][0]["Next"] == "NotifyCompletion"
     assert auditoria["Catch"][0]["ResultPath"] == "$.audit_error"
+
+
+def test_los_decks_se_generan_tras_la_auditoria_y_no_bloquean():
+    """Glosario y Tips & Tricks son evidencia adicional: su fallo no invalida el curso."""
+    estados = _definicion()["States"]
+    assert estados["InvokePostGenerationAudit"]["Next"] == "InvokeDeckBuilder"
+    decks = estados["InvokeDeckBuilder"]
+    assert decks["Next"] == "NotifyCompletion"
+    assert decks["Parameters"]["FunctionName"] == "${DeckBuilderArn}"
+    assert decks["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
+    assert decks["Parameters"]["Payload"]["course_bucket.$"] == "$.course_bucket"
+    atrapa = decks["Catch"][0]
+    assert atrapa["Next"] == "NotifyCompletion"
+    assert atrapa["ResultPath"] == "$.decks_error"
 
 
 if __name__ == "__main__":
