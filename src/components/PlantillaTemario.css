@@ -1,0 +1,110 @@
+.pt-container {
+  width: 100%;
+}
+
+.pt-title {
+  margin: 0 0 12px 0;
+}
+
+.pt-footer {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.pt-ok {
+  color: #1f7a1f;
+  margin-top: 10px;
+}
+
+.pt-err {
+  color: #b00020;
+  margin-top: 10px;
+}
+
+/* Modal versiones */
+.pt-modal {
+  width: 92%;
+  max-width: 1100px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 18px 14px 18px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.2);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.pt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #e9eef3;
+  padding-bottom: 10px;
+}
+
+.pt-modal-header h3 {
+  margin: 0;
+}
+
+.pt-modal-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.pt-modal-close:hover {
+  background: #f3f6f9;
+}
+
+.pt-modal-body {
+  margin-top: 12px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.pt-table-wrap {
+  width: 100%;
+  overflow: auto;
+  max-height: 62vh;
+  border: 1px solid #e9eef3;
+  border-radius: 10px;
+}
+
+.pt-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px; /* evita que se colapse y se desalineen columnas */
+}
+
+.pt-table thead th {
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 2;
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid #e9eef3;
+  font-weight: 700;
+}
+
+.pt-table tbody td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f3f6;
+  vertical-align: top;
+}
+
+.pt-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+/* Notas: que se vean bien */
+.pt-notas {
+  white-space: normal;
+  word-break: break-word;
+  max-width: 420px;
+}

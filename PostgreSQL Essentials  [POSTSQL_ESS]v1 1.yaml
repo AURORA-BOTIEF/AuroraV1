@@ -1,0 +1,323 @@
+course:
+  title: Base de datos PostgreSQL
+  description: "Curso práctico de SQL usando el manejador de bases de datos Postgresql v18. Se expondrán los temas básicos de diseño, creación y modificación de bases de datos.\n Posteriormente se expondrán los conceptos básicos de la utilización del lenguaje SQL para la inserción, modificación, eliminación y consulta de los registros de la base de datos. \nTodo lo anterior usando ejemplos prácticos donde el participante podrá aplicar los conceptos vistos en clase."
+  language: es
+  level: intermediate
+  audience:
+  - Curso dirigido a personal que inicia su capacitación en el tema de las bases de datos relacionales.
+  - Personal con conocimientos en otros manejadores de base de datos que desea explorar  Postgresql
+  prerequisites:
+  - Conocimientos básicos de informática
+  - Computador con acceso a internet
+  total_duration_minutes: 1260
+  learning_outcomes:
+  - Conocer los aspectos más relevantes de Postgresql como manejador de bases de datos.
+  - Realizar el diseño de bases de datos de mediana complejidad.
+  - Crear, modificar y eliminar bases de datos en Postgresql.
+  - Realizar la inserción, actualización y borrado de registros.
+  - Realizar consultas usando el lenguaje SQL
+  hours_total: 21.0
+  hours_theory: 6.3
+  hours_practice: 14.7
+modules:
+- title: 'Capítulo 1: Introducción a la base de datos Postgresql versión 18'
+  duration_minutes: 180
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 15
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 1.1 ¿Qué son las bases de datos?
+    duration_minutes: null
+    topics:
+    - 1.1 ¿Qué son las bases de datos?
+    bloom_level: Comprender
+  - title: 1.2 Tipos de bases de datos
+    duration_minutes: 10
+    topics:
+    - 1.2 Tipos de bases de datos
+    bloom_level: Comprender
+  - title: 1.3 ¿Qué es Postgresql?
+    duration_minutes: 20
+    topics:
+    - 1.3 ¿Qué es Postgresql?
+    bloom_level: Aplicar
+  - title: 1.4 ¿Cómo se liberan las versiones de Postgresql?
+    duration_minutes: 10
+    topics:
+    - 1.4 ¿Cómo se liberan las versiones de Postgresql?
+    bloom_level: Aplicar
+  - title: 1.5 Características avanzadas del lenguaje
+    duration_minutes: 20
+    topics:
+    - 1.5 Características avanzadas del lenguaje
+    bloom_level: Comprender
+  - title: 1.6 El lenguaje SQL
+    duration_minutes: 20
+    topics:
+    - 1.6 El lenguaje SQL
+    bloom_level: Aplicar
+  - title: 1.7 Tipos de sentencias SQL
+    duration_minutes: 10
+    topics:
+    - 1.7 Tipos de sentencias SQL
+    bloom_level: Aplicar
+  - title: Resumen
+    duration_minutes: 15
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Instalación de Postgresql y Pgadmin en Windows'
+  bloom_level: Aplicar
+- title: 'Capítulo 2: Diseño de bases de datos relacionales'
+  duration_minutes: 180
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 15
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 2.1 Pasos para diseñar una base de datos relacional
+    duration_minutes: null
+    topics:
+    - 2.1 Pasos para diseñar una base de datos relacional
+    bloom_level: Crear
+  - title: 2.2 Tipos de relaciones entre entidades
+    duration_minutes: 30
+    topics:
+    - 2.2 Tipos de relaciones entre entidades
+    bloom_level: Comprender
+  - title: 2.3 Normalización de tablas
+    duration_minutes: 15
+    topics:
+    - 2.3 Normalización de tablas
+    bloom_level: Comprender
+  - title: 2.4 Diagrama Entidad Relación
+    duration_minutes: 20
+    topics:
+    - 2.4 Diagrama Entidad Relación
+    bloom_level: Comprender
+  - title: Resumen
+    duration_minutes: 10
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Diseño de una base de datos relacional para una tienda de barrio o conveniencia'
+  bloom_level: Crear
+- title: 'Capítulo 3: Creación de bases de datos y tablas'
+  duration_minutes: 180
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 15
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 3.1 Creación de bases de datos
+    duration_minutes: null
+    topics:
+    - 3.1 Creación de bases de datos
+    bloom_level: Aplicar
+  - title: 3.2 Creación de tablas
+    duration_minutes: 15
+    topics:
+    - 3.2 Creación de tablas
+    bloom_level: Aplicar
+  - title: 3.3 Tipos de campos
+    duration_minutes: 15
+    topics:
+    - 3.3 Tipos de campos
+    bloom_level: Comprender
+  - title: 3.4 Inserción de registros
+    duration_minutes: 15
+    topics:
+    - 3.4 Inserción de registros
+    bloom_level: Comprender
+  - title: 3.5 Modificación de tablas
+    duration_minutes: 30
+    topics:
+    - 3.5 Modificación de tablas
+    bloom_level: Aplicar
+  - title: 3.6 Borrado de tablas
+    duration_minutes: 15
+    topics:
+    - 3.6 Borrado de tablas
+    bloom_level: Comprender
+  - title: Resumen
+    duration_minutes: 15
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Creación de la base de datos diseñada en la práctica anterior'
+  bloom_level: Aplicar
+- title: 'Capítulo 4: Consultas a la base de datos'
+  duration_minutes: 180
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 15
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 4.1 La sentencia SELECT
+    duration_minutes: null
+    topics:
+    - 4.1 La sentencia SELECT
+    bloom_level: Aplicar
+  - title: 4.2 Tipos de sentencias SELECT
+    duration_minutes: 15
+    topics:
+    - 4.2 Tipos de sentencias SELECT
+    bloom_level: Aplicar
+  - title: 4.3 Sentencia SELECT con funciones
+    duration_minutes: 15
+    topics:
+    - 4.3 Sentencia SELECT con funciones
+    bloom_level: Aplicar
+  - title: 4.4 Filtros
+    duration_minutes: 20
+    topics:
+    - 4.4 Filtros
+    bloom_level: Aplicar
+  - title: 4.5 Ordenamientos, limit
+    duration_minutes: 20
+    topics:
+    - 4.5 Ordenamientos, limit
+    bloom_level: Aplicar
+  - title: 4.6 Agrupamientos y funciones de agregación
+    duration_minutes: 45
+    topics:
+    - 4.6 Agrupamientos y funciones de agregación
+    bloom_level: Analizar
+  - title: Resumen
+    duration_minutes: 20
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Ejercicios aplicados a la base de datos del curso'
+  bloom_level: Analizar
+- title: 'Capítulo 5: Modificación y eliminación de registros'
+  duration_minutes: 105
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 30
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 5.1 La sentencia UPDATE
+    duration_minutes: null
+    topics:
+    - 5.1 La sentencia UPDATE
+    bloom_level: Aplicar
+  - title: 5.2 La sentencia DELETE FROM
+    duration_minutes: 15
+    topics:
+    - 5.2 La sentencia DELETE FROM
+    bloom_level: Aplicar
+  - title: Resumen
+    duration_minutes: 15
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Ejercicios aplicados a la base de datos del curso'
+  bloom_level: Aplicar
+- title: 'Capítulo 6: Consultas Avanzadas'
+  duration_minutes: 255
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 45
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 6.1 Joins
+    duration_minutes: null
+    topics:
+    - 6.1 Joins
+    bloom_level: Analizar
+  - title: 6.2 Vistas
+    duration_minutes: 15
+    topics:
+    - 6.2 Vistas
+    bloom_level: Analizar
+  - title: 6.3 Consultas anidadas
+    duration_minutes: 15
+    topics:
+    - 6.3 Consultas anidadas
+    bloom_level: Analizar
+  - title: 6.4 Subqueries
+    duration_minutes: 15
+    topics:
+    - 6.4 Subqueries
+    bloom_level: Analizar
+  - title: 6.5 Conjuntos
+    duration_minutes: 30
+    topics:
+    - 6.5 Conjuntos
+    bloom_level: Comprender
+  - title: '6.6 Condicionales: SELECT CASE()'
+    duration_minutes: 15
+    topics:
+    - '6.6 Condicionales: SELECT CASE()'
+    bloom_level: Aplicar
+  - title: '6.7 Funciones que retornan un conjunto de datos: SRF'
+    duration_minutes: 15
+    topics:
+    - '6.7 Funciones que retornan un conjunto de datos: SRF'
+    bloom_level: Comprender
+  - title: 6.8 Funciones Window
+    duration_minutes: 30
+    topics:
+    - 6.8 Funciones Window
+    bloom_level: Analizar
+  - title: 6.9 Common Table Expressions
+    duration_minutes: 30
+    topics:
+    - 6.9 Common Table Expressions
+    bloom_level: Comprender
+  - title: Resumen
+    duration_minutes: null
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Ejercicios aplicados a la base de datos del curso'
+  bloom_level: Analizar
+- title: 'Capítulo 7: Taller de aplicación de lo aprendido en el curso'
+  duration_minutes: 180
+  percent_theory: 30
+  percent_practice: 70
+  lessons:
+  - title: Introducción
+    duration_minutes: 40
+    topics:
+    - Introducción
+    bloom_level: Comprender
+  - title: 7.1 Diseñar una base de datos para un sistema de reserva de alojamientos
+    duration_minutes: null
+    topics:
+    - 7.1 Diseñar una base de datos para un sistema de reserva de alojamientos
+    bloom_level: Crear
+  - title: Resumen
+    duration_minutes: 45
+    topics:
+    - Resumen
+    bloom_level: Comprender
+  lab_activities:
+  - 'Práctica: Aplicación de lo aprendido en el curso'
+  bloom_level: Crear

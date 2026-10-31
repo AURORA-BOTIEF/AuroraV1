@@ -1,0 +1,17 @@
+{
+    "executionArn": "arn:aws:states:us-east-1:746434296869:execution:CourseGeneratorStateMachine:course-gen-unknown-user-1761528890",
+    "stateMachineArn": "arn:aws:states:us-east-1:746434296869:stateMachine:CourseGeneratorStateMachine",
+    "name": "course-gen-unknown-user-1761528890",
+    "status": "FAILED",
+    "startDate": "2025-10-26T20:34:50.316000-05:00",
+    "stopDate": "2025-10-26T20:35:31.225000-05:00",
+    "input": "{\"course_topic\": \"Custom Course\", \"course_duration_hours\": 40, \"modules_to_generate\": [1], \"total_modules\": 1, \"lesson_to_generate\": null, \"performance_mode\": \"balanced\", \"model_provider\": \"bedrock\", \"user_id\": \"unknown-user\", \"user_email\": \"unknown@example.com\", \"request_timestamp\": \"2025-10-27T01:34:50.113868\", \"content_source\": \"s3\", \"outline_s3_key\": \"uploads/1761528886699-mini_cisco.yaml\", \"course_bucket\": \"crewai-course-artifacts\", \"project_folder\": \"20251027-mini-cisco\", \"allow_openai_fallback\": true, \"content_type\": \"both\", \"lab_requirements\": \"\"}",
+    "inputDetails": {
+        "included": true
+    },
+    "traceHeader": "Root=1-68fecc38-4793b91311ecb7ef0beeea86;Parent=5267c4d1ec148ca0;Sampled=0",
+    "error": "Runtime.ImportModuleError",
+    "cause": "{\"errorMessage\":\"Unable to import module 'batch_expander': No module named 'yaml'\",\"errorType\":\"Runtime.ImportModuleError\",\"requestId\":\"\",\"stackTrace\":[]}",
+    "redriveCount": 0,
+    "redriveStatus": "REDRIVABLE"
+}
