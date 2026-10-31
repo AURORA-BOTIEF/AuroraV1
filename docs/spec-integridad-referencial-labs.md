@@ -3237,3 +3237,68 @@ cuenta ya está en `{proyecto}/validation/referential-integrity.json`.
   `test_content_validator.py`: **15/15**. `test_state_machine.py`: **7/7**.
 - Despliegue verificado en el zip de las dos Lambdas (planner y writer, `LastModified`
   2026-10-28T23:53:18).
+
+
+## 44. Glosario y Tips & Tricks: el requerimiento del cliente (30/10/2026)
+
+El cliente pide glosarios robustos y una presentación de Tips & Tricks servidos desde THOR. El
+glosario actual era el de `book_builder.py`: 20 términos inferidos a mano al final, **sin** fuente
+ni trazabilidad. El diseño de reemplazo mantiene los dos principios del proyecto: **temario primero** e
+**informe trazable**.
+
+### 44.1 El glosario endurecido
+
+`extract_glossary_entries` hace ahora cuatro pasos en orden, con la fuente etiquetada en cada término (`temario` o `leccion`):
+
+1. **Paso 0 — temario**: cada tópico (y subtema) del temario se convierte en término (`_termino_del_temario`
+   quita numeración, paréntesis e interrogación: «Arquitectura de Docker (Cliente, Host, Registry)»
+   → «Arquitectura de Docker»). La definición **no se inventa**: se toma del párrafo bajo el
+   encabezado que titula ese tópico en el material generado (`_definicion_por_encabezado`), cor-
+   tado a 250 caracteres (el validador exige ≤260). La búsqueda corre sobre **todo el módulo**, no
+   sobre una lección alineada: el temario agrupa sus tópicos distinto que el book (medido, no supuesto).
+2. Viñetas explícitas de glosario en las lecciones.
+3. Encabezados con párrafo.
+4. Negritas sueltas en prosa.
+
+El resultado queda en **`{proyecto}/book/glosario.json`** (término, definición, fuente) para que el
+DeckBuilder y el instructor lo consuman sin parsear markdown. Orden alfabético y 80 máximo.
+
+**Con el curso Docker real (271030-prueba-decks): 22 términos (8 temario + 14 lección)** frente a
+20 sin ninguna trazabilidad. En el camino salieron tres defectos propios que sin la corrida real
+no se habrían visto: el paso 0 leía `modules` en la raíz del temario cuando viven en `course.modules`;
+alineaba lecciones por un `lesson_number` que el temario no declara; y el extractor se detenía en el
+subtítulo «Visión General del Concepto» en lugar de saltarlo.
+
+### 44.2 Los decks
+
+Lambda nueva **`DeckBuilderFunction`** (capa PPT, python-pptx; 47 estados):
+
+| Artefacto | Fuente | Salida |
+|---|---|---|
+| `deck/Glosario.pptx` | `book/glosario.json` (o la sección del book como respaldo) | 4 términos por lámina |
+| `deck/Tips_and Tricks.pptx` | sección «Solución de Problemas» de cada `lab-*.md`: título, "Causa" y "Solución" (tolerante a paréntesis y a remedio sin etiqueta) | 2 tips por lámina |
+| `deck/resumen.json` | ambos | contadores auditables |
+
+El estado `InvokeDeckBuilder` corre tras `InvokePostGenerationAudit` con `Catch` a `NotifyCompletion`
+y `ResultPath: $.decks_error`: un fallo de deck no invalida un curso (mismo comportamiento que la
+guía y la auditoría). Cuando no hay fuentes, no escribe pptx vacíos.
+
+### 44.3 La arquitectura del deck (lo que casi se olvidaría)
+
+El primer intento en producción falló con el mismo error de la capa PDF del runbook:
+`cannot import name 'etree' from 'lxml'`. La **PPTLayer publica wheels x86_64** y la Lambda se
+montó en **arm64**. DeckBuilderFunction pasa a **x86_64** (la capa manda la arquitectura, no el artefacto).
+El fallo quedó registrado por el `Catch` del flujo y el curso `SUCCEEDED`: la disciplina no-bloqueo
+funcionó en el artefacto nuevo, tal como se diseño.
+
+### 44.4 Verificación
+
+- `test_deck_builder.py`: **4/4** con python-pptx real y S3 simulado (los decks cubren el resumen,
+  no pptx vacíos sin fuentes, `project_folder` requerido, y nada de markdown dentro).
+- `test_state_machine.py`: **8/8** con la cadena nueva
+  (`InvokePostGenerationAudit → InvokeDeckBuilder → NotifyCompletion`), 47 estados.
+- Despliegue verificado: `DeckBuilderFunction` creada, los zips con las cuatro piezas y la state machine
+  desplegada con `InvokePostGenerationAudit.Next = InvokeDeckBuilder`.
+- Corrida real `prueba-decks-1793415131` (`content_type: both`): **SUCCEEDED** en ~22 min, flujo
+  completo con `InvokeDeckBuilder` visitado; su deck falló por la arquitectura (§44.3) y el Catch
+  mantuvo el curso sano. Verificado de nuevo con el binario correcto y los artefactos reales.

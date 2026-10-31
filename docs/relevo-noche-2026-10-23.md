@@ -261,3 +261,5 @@ presupuesto de §41: tocará remedirlo con el próximo lote.
 2. Comprobar `git status`, `git log -3` y que `testing` = `origin/testing`.
 3. Si hay una medición a medias, su artefacto está en `prueba/`.
 4. Continuar por la primera fase «pendiente».
+
+**Glosario y Tips & Tricks (spec §44).** El requerimiento del cliente entró esta noche y ya está desplegado: glosario endurecido en el book (paso 0 del temario, fuente etiquetada, `book/glosario.json`) y Lambda `DeckBuilderFunction` que construye `Glosario.pptx` y `Tips_and_Tricks.pptx` desde el glosario y las secciones de problemas de los labs; estado `InvokeDeckBuilder` en el flujo, no bloqueante (47 estados). Dos hallazgos de la corrida real ya corregidos: el paso 0 leía la raíz equivocada del temario y la Lambda estaba en arm64 cargando una capa x86_64 (lxml). Pendiente inmediato: re-ejecutar el deck sobre `271030-prueba-decks` con el glosario regenerado (22 términos) y validar los pptx abiertos.
