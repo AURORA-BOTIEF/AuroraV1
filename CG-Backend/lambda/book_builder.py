@@ -1155,6 +1155,58 @@ def extract_module_objectives(module_lessons: list, max_items: int = 4) -> list:
     return objectives
 
 
+def _definicion_por_encabezado(contenido: str, titulo: str) -> str:
+    """Párrafo explicativo bajo el encabezado que titula el tópico del temario.
+
+    Las lecciones titulan sus secciones `` ## <tópico>`` y a continuación ponen un
+    párrafo (``### Visión General del Concepto``). Eso es una definición real: se
+    toma de ahí, no se inventa. Sin encabezado, vacío (el término se descarta o
+    se infere del contenido con el validador normal).
+    """
+    limpio = clean_glossary_term(titulo)
+    if not limpio or not contenido:
+        return ""
+    patron = re.compile(r"(?im)^\s*#{1,4}\s.*" + re.escape(limpio) + r".*$")
+    coincidencia = patron.search(contenido)
+    if not coincidencia:
+        return ""
+    # El bloque respira: ``## topico`` / ``### Visión General del Concepto`` / párrafo.
+    # Los ``###`` internos se saltan; una ``## `` nueva o una cerca terminan.
+    for salida in contenido[coincidencia.end():].splitlines():
+        salida = salida.strip()
+        if not salida:
+            continue
+        if re.match(r"^##\s+", salida):
+            break  # se salió de la sección del tópico
+        if salida.startswith("```") or salida.startswith("---"):
+            break
+        if re.match(r"^###\s", salida):
+            continue  # etiqueta interna del bloque
+        if re.match(r"^\s*[-*]\s", salida):
+            continue  # lista de objetivos u otros puntos
+        if len(salida) < 25:
+            continue
+        return salida[:250]
+    return ""
+
+
+def _termino_del_temario(titulo) -> str:
+    """Tópico del temario a término aceptable: sin numeración, paréntesis ni ¿?.
+
+    «Arquitectura de Docker (Cliente, Host, Registry)» → «Arquitectura de Docker»;
+    «¿Qué es una imagen en Docker?» → «Imagen de Docker». La definición conserva
+    el detalle; el término queda corto y buscable.
+    """
+    if not titulo:
+        return ""
+    texto = titulo.strip()
+    texto = re.sub(r"[\(\(][^)]*\)", " ", texto)
+    texto = texto.replace("¿", "").replace("?", "")
+    texto = re.sub(r"^\s*\d+(?:[\.-]\d+)+\s*", " ", texto)
+    texto = " ".join(texto.split())
+    return texto.strip()
+
+
 def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries: int = 20, outline_data: dict | None = None) -> list:
     """Pares término-definición de alta confianza, anclados al temario y a las lecciones.
 
@@ -1186,23 +1238,35 @@ def extract_glossary_entries(sorted_modules: list, is_spanish: bool, max_entries
 
     # Paso 0: tópicos del temario. El código del tópico (N.M.K) identifica el
     # módulo y la lección: la definición se infiere de esa lección concreta.
-    for module_idx, modulo in enumerate((outline_data or {}).get("modules") or ()):
+    temario = (outline_data or {}).get("course") if isinstance((outline_data or {}).get("course"), dict) else (outline_data or {})
+    for module_idx, modulo in enumerate(temario.get("modules") or ()):
         lesson_data = (sorted_modules[module_idx][1] or {}) if module_idx < len(sorted_modules) else {}
-        contenido_por_leccion = {
-            int(leccion.get('lesson_number') or 0): leccion.get('content', '')
-            for leccion in lesson_data.get('lessons', [])
-            if str(leccion.get('lesson_number') or '').strip().isdigit()
-        }
+        # El temario agrupa los topicos distinto que el book: no se alinean lección a
+        # lección. La búsqueda del encabezado corre sobre TODO el módulo.
+        contenido_modulo = "\n\n".join(
+            leccion.get('content', '') for leccion in lesson_data.get('lessons', [])
+        )
         for leccion in modulo.get('lessons') or ():
-            contenido = contenido_por_leccion.get(int(leccion.get('lesson_number') or 0), "")
+            contenido = contenido_modulo
             for topico in leccion.get('topics') or ():
                 titulo = topico.get('title') if isinstance(topico, dict) else str(topico)
                 if titulo:
-                    add_entry(titulo, "", contenido, fuente="temario")
+                    termino = _termino_del_temario(titulo) or titulo
+                    add_entry(
+                        termino,
+                        _definicion_por_encabezado(contenido, titulo),
+                        contenido,
+                        fuente="temario",
+                    )
                 for subtopico in (topico.get('subtopics') or ()):
                     subtitulo = subtopico.get('title') if isinstance(subtopico, dict) else str(subtopico)
                     if subtitulo:
-                        add_entry(subtitulo, "", contenido, fuente="temario")
+                        add_entry(
+                            _termino_del_temario(subtitulo) or subtitulo,
+                            _definicion_por_encabezado(contenido, subtitulo),
+                            contenido,
+                            fuente="temario",
+                        )
                 if len(entries) >= max_entries:
                     return entries[:max_entries]
 

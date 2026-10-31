@@ -1009,8 +1009,11 @@ Resources:
       Runtime: python3.12
       Handler: deck_builder.lambda_handler
       CodeUri: ./lambda/deck_builder/
+      # La capa PPTLayer publica wheels x86_64 (lxml): una funcion arm64 no puede
+      # importarla ('cannot import name etree from lxml'). Determinista y rapida:
+      # x86_64 es seguro aqu[i.
       Architectures:
-        - arm64
+        - x86_64
       Layers:
         - !Ref PPTLayer
       MemorySize: 512
