@@ -1,6 +1,10 @@
 # Fase 3 — borrador de alcance (A2, B7, B8)
 
-**Estado:** borrador, sin código. 24/10/2026. Nace de §28.5: la fase 3 necesita su propia spec y,
+**Estado: IMPLEMENTADA Y CERRADA (31/10/2026).** A2 quedó en §31/§32 (fuente: cantidades
+de temario; A2 v2 y B4 descartadas por medición), B7 en §34 y B8 en §33. Este borrador solo
+queda por la trazabilidad de la decisión de alcance.
+
+— Documento original del 24/10/2026 — Nace de §28.5: la fase 3 necesita su propia spec y,
 antes, decidir de dónde salen sus entradas.
 
 La restricción de siempre: **nada de campos obligatorios nuevos en el temario** y ningún cambio que
