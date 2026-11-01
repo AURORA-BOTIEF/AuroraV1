@@ -1220,9 +1220,14 @@ def lambda_handler(event, context):
                         "headers": headers,
                         "body": json.dumps({"error": f"El curso {project_folder} no tiene plan de laboratorios; lance la generación completa primero."}),
                     }
-            leccion_individual = f"{lecciones[0]}" if (len(lecciones) == 1 and not laboratorios) else None
-            modules_auto = sorted({int(x.split('-')[0]) for x in lecciones if re.fullmatch(r"\d{1,2}-\d{1,3}", str(x))})
-            modules_final = modules_auto if lecciones else [1]
+            # Módulos = unión de los de lecciones y de labs: el planner necesita
+            # módulos que contengan los labs pedidos (extract_all_labs itera módulos).
+            patron_modulo = re.compile(r"\d{1,2}")
+            modules_set = set()
+            for x in lecciones + laboratorios:
+                if re.fullmatch(patron_modulo, str(x).split('-')[0]):
+                    modules_set.add(int(str(x).split('-')[0]))
+            modules_final = sorted(modules_set) if modules_set else [1]
             update_input = {
                 "course_topic": f"Actualización {project_folder}",
                 "course_duration_hours": 0,
