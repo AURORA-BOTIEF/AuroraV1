@@ -3355,3 +3355,42 @@ previo se conserva como diff y los artefactos no pedidos conservan su SHA.
 - Despliegue verificado en los zips (`BatchExpander`, `PostGenerationAuditFunction`,
   `StarterApiFunction`, máquina de estados) y la verificación de una ejecución real queda
   para cuando haya un curso con material a actualizar.
+
+### 46.3 Verificación real sobre un curso viejo (31/10/2026)
+
+Curso elegido: **`260223-Docker-desde-cero`** (generado el 23/02/2026, 4 lecciones, 2 labs de
+60 min). Petición: actualizar la lección `01-02` (Operaciones con contenedores) y el lab
+`02-00-01` (Dockerizando una aplicación web). Seis ejecuciones en total; las primeras cinco
+destaparon cinco defectos de cableado, cada uno corregido y desplegado:
+
+| # | Hallazgo | Arreglo |
+|---|---|---|
+| 1 | `IsNotNull` no existe en Step Functions | `Not`/`IsNull` (§33 ya lo había visto) |
+| 2 | `lesson_ids_to_update` quedó fuera del `Payload` de la tarea | movido dentro |
+| 3 | módulos derivados solo de las lecciones: el lab del módulo 2 no existía para el planner | módulos = unión de lecciones y labs |
+| 4 | `LAB_SKIP_IF_EXISTS=true` hacía que el writer saltara el lab pedido | en modo actualización no salta |
+| 5 | `ExpandLabsToBatches(Both)` no llevaba `update_mode` al expander | payload añadido |
+
+La sexta ejecución (`update-260223-Docker-desde-cero-1793506341`) **SUCCEEDED en 6 min 59 s**
+(una generación completa de este curso toma ~20 min) y dejó el diff que pide el feature:
+
+```
+resumen: {actualizados: 4, nuevos: 0, no_tocados: 2, eliminados: 0}
+actualizados:
+  lab-02-00-01-laboratorio-2-dockerizando-una-aplicación-web.md  b56b21d324 → 7f6b68ad51
+  lab-master-plan.json                                           401e88e779 → ff9b705ddf
+  setupguide/Setup_Guide.pdf                                     d6ccacd496 → 8d70a96e29
+  setupguide/setup-guide.json                                    2b390a0bf5 → 5ee6a65a81
+no_tocados:
+  lab-01-00-01-laboratorio-1-mi-primer-entorno-aislado.md        9d8c3da1e4 (idéntico)
+  outline/Docker_desde_cero.yaml                                 9c0b15d6c1 (idéntico)
+```
+
+El lab pedido cambió de hash; el lab **no** pedido quedó con el mismo SHA; el temario intacto.
+La lección `01-02` se regeneró (verificado en los intentos 3–5: `lessons/module-1-lesson-2-…md`
+con timestamp nuevo y contenido nuevo) pero **no aparece en el diff**: el manifiesto no rastrea
+`lessons/` ni `book/` (§39 los dejó fuera). Es el límite conocido del registro; añadirlos al
+manifiesto es la mejora natural cuando el instructor pida ver lecciones en el diff.
+
+Costo de la actualización selectiva: **~2–7 min** frente a ~20 min de generación completa, con
+una fracción de las llamadas a Bedrock (1 lección + 1 lab en lugar del curso entero).
