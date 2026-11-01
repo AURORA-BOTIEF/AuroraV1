@@ -1536,16 +1536,10 @@
       "Type": "Choice",
       "Choices": [
         {
-          "And": [
-            {
-              "Variable": "$.lesson_ids_to_update",
-              "IsPresent": true
-            },
-            {
-              "Variable": "$.lesson_ids_to_update",
-              "IsNotNull": true
-            }
-          ],
+          "Not": {
+            "Variable": "$.lesson_ids_to_update",
+            "IsNull": true
+          },
           "Next": "CheckIfLessonRequirementsPresent",
           "Comment": "Update mode - lesson_ids_to_update has items"
         },

@@ -126,6 +126,10 @@ def _resolver(datos, ruta):
 
 
 def _cumple(condicion, datos):
+    if "Not" in condicion:
+        return not _cumple(condicion["Not"], datos)
+    variable = condicion.get("Variable")
+    valor = _resolver(datos, variable)
     variable = condicion.get("Variable")
     valor = _resolver(datos, variable)
     if condicion.get("IsPresent"):
