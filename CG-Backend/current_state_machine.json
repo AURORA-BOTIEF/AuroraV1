@@ -695,9 +695,9 @@
           "image_model.$": "$.image_model",
           "course_language.$": "$.course_language",
           "lesson_to_generate.$": "$.lesson_to_generate",
-          "lesson_requirements.$": "$.lesson_requirements"
-        },
-        "lesson_ids_to_update.$": "$.lesson_ids_to_update"
+          "lesson_requirements.$": "$.lesson_requirements",
+          "lesson_ids_to_update.$": "$.lesson_ids_to_update"
+        }
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.batch_expansion",
