@@ -1,0 +1,18 @@
+{
+  "body": "{\"course_bucket\": \"crewai-course-artifacts\", \"outline_s3_key\": \"uploads/test.yaml\", \"project_folder\": \"test-project\", \"module_to_generate\": 3, \"lesson_to_generate\": 1, \"model_provider\": \"bedrock\", \"max_images\": 3}",
+  "resource": "/start-job",
+  "path": "/start-job",
+  "httpMethod": "POST",
+  "headers": {
+    "Content-Type": "application/json",
+    "Host": "648uy54fs1.execute-api.us-east-1.amazonaws.com"
+  },
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "test-user-id",
+        "email": "test@example.com"
+      }
+    }
+  }
+}

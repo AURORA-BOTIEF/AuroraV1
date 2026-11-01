@@ -58,6 +58,19 @@ function VistaPreviaTemario({ temario }) {
             {cap?.porcentaje_teoria_practica_capitulo && <li><strong>Distribución:</strong> {cap.porcentaje_teoria_practica_capitulo}</li>}
           </ul>
 
+          {cap?.objetivos_capitulo && (
+            <div className="objetivos-capitulo-seccion">
+              <h4>Objetivos del Capítulo</h4>
+              {Array.isArray(cap.objetivos_capitulo) ? (
+                <ul>
+                  {cap.objetivos_capitulo.map((obj, i) => <li key={i}>{obj}</li>)}
+                </ul>
+              ) : (
+                <div style={{whiteSpace: 'pre-wrap'}}>{cap.objetivos_capitulo}</div>
+              )}
+            </div>
+          )}
+
           <table className="subcapitulos-tabla">
             <thead><tr><th>Tema</th><th>Sesión</th><th>Duración</th></tr></thead>
             <tbody>

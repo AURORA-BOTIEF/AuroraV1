@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quality Enhancements Test</title>
+    <style>
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #F8F9FA;
+            padding: 20px;
+        }
+        
+        /* Slide container - EXACT presentation dimensions */
+        .slide {
+            width: 1280px;
+            height: 720px;
+            margin: 0 auto 20px auto;
+            background: white;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            page-break-after: always;
+            /* Note: overflow visible to allow modal popup */
+        }
+        
+        /* Slide header */
+        .slide-header {
+            padding: 30px 50px;
+            background: linear-gradient(135deg, #003366, #4682B4);
+            color: white;
+            min-height: 120px;
+            position: relative;
+            z-index: 10; /* Ensure header stays above content */
+        }
+        
+        .slide-title {
+            font-size: 36pt;
+            font-weight: 700;
+            margin-bottom: 10px;
+            line-height: 1.2;
+        }
+        
+        .slide-subtitle {
+            font-size: 24pt;
+            opacity: 0.9;
+            line-height: 1.3;
+        }
+        
+        /* Content area - OPTIMIZED HEIGHT LIMITS */
+        .slide-content {
+            padding: 20px 50px 40px 50px; /* Reduced bottom padding */
+            max-height: 520px; /* Optimized: 720 - 120 header - 40 footer - 40 padding = 520px */
+            overflow: hidden; /* Clip content that exceeds bounds */
+            position: relative;
+        }
+        
+        .slide-content.with-subtitle {
+            max-height: 500px; /* With subtitle: 520 - 20 = 500px */
+        }
+        
+        /* Bullet lists - EXACT CSS that matches our calculations */
+        .bullets {
+            list-style: none;
+            margin: 20px 0;
+        }
+        
+        .bullets li {
+            font-size: 20pt;
+            line-height: 1.4; /* 20pt × 1.4 = 28pt ≈ 38px */
+            padding: 4px 0 4px 35px; /* 8px total vertical padding */
+            margin-bottom: 4px; /* 4px margin */
+            position: relative;
+            /* Total height per bullet: 38px + 8px + 4px = 50px */
+        }
+        
+        .bullets > li:before {
+            content: '▸';
+            position: absolute;
+            left: 0;
+            color: #FFC000;
+            font-size: 16pt;
+        }
+        
+        /* Nested bullets for agenda (second level) */
+        .bullets li ul {
+            list-style: none;
+            margin: 8px 0 0 0;
+            padding-left: 30px;
+        }
+        
+        .bullets li ul li {
+            font-size: 18pt;
+            line-height: 1.4;
+            padding: 2px 0;
+            margin-bottom: 2px;
+            position: relative;
+        }
+        
+        .bullets li ul li:before {
+            content: '○';
+            position: absolute;
+            left: -20px;
+            color: #003366;
+            font-size: 12pt;
+        }
+        
+        /* Headings */
+        .content-heading {
+            font-size: 24pt;
+            font-weight: 600;
+            color: #003366;
+            margin: 20px 0 10px 0;
+            line-height: 1.3;
+            /* Total height: ~65px */
+        }
+        
+        /* Callout boxes */
+        .callout {
+            background: #FFC000;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0 60px 0; /* Extra bottom margin for logo clearance */
+            font-size: 20pt;
+            line-height: 1.3;
+            /* Total height: ~75px minimum */
+        }
+        
+        /* Tables */
+        .slide-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 16pt;
+        }
+        
+        .slide-table th {
+            background: #003366;
+            color: white;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            border: 1px solid #4682B4;
+        }
+        
+        .slide-table td {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            line-height: 1.3;
+        }
+        
+        .slide-table tr:nth-child(even) {
+            background: #f5f5f5;
+        }
+        
+        .slide-table tr:hover {
+            background: #eef4fa;
+        }
+        
+        /* Code blocks - dark theme for professional appearance */
+        .code-block {
+            background: #1e1e1e;
+            border-radius: 8px;
+            margin: 10px 0 20px 0;
+            overflow: hidden;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            position: relative;
+            /* Height controlled by layout - no max-height here */
+        }
+        
+        /* Code block in text-code layout (with bullets above) */
+        .layout-text-code .code-block {
+            max-height: 320px; /* Reduced to leave space for logo */
+            overflow: hidden;
+        }
+        
+        /* Code block in code-full layout (standalone) */
+        .layout-code-full .code-block,
+        .slide-content:not(.layout-text-code) .code-block {
+            max-height: 440px; /* Reduced to leave space for logo */
+            overflow: hidden;
+        }
+        
+        .code-block-header {
+            background: #2d2d2d;
+            padding: 8px 16px;
+            font-size: 12pt;
+            color: #9cdcfe;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .code-block-language {
+            background: #FFC000;
+            color: #003366;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10pt;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .code-zoom-btn {
+            background: #f5a623;
+            border: none;
+            color: #1e1e1e;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12pt;
+            font-weight: 600;
+            transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            position: relative;
+            z-index: 200;
+            pointer-events: auto;
+            text-decoration: none;
+        }
+        
+        .code-zoom-btn:hover {
+            background: #4d4d4d;
+        }
+        
+        .code-content {
+            padding: 12px 16px;
+            overflow-x: auto;
+            overflow-y: auto;
+            /* Height inherited from parent .code-block minus header (~45px) */
+        }
+        
+        /* Code content heights based on layout - reduced to avoid logo overlap */
+        .layout-text-code .code-content {
+            max-height: 280px; /* Reduced from 300 */
+        }
+        
+        .layout-code-full .code-content,
+        .slide-content:not(.layout-text-code) .code-content {
+            max-height: 400px; /* Reduced from 420 */
+        }
+        
+        .code-content pre {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+        
+        .code-content code {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            font-size: 13pt;
+            line-height: 1.5;
+            white-space: pre;
+            display: block;
+            color: #f8f8f2; /* Light text for dark background - prevents invisible black text */
+        }
+        
+        /* Pygments uses inline styles, but we ensure base text color */
+        .code-content code span {
+            font-family: inherit;
+        }
+        
+        /* Override any black text from Pygments to ensure visibility */
+        .code-content code span[style*="color: #000"],
+        .code-content code span[style*="color:#000"],
+        .code-content code span[style*="color: black"],
+        .code-content code span[style*="color:black"] {
+            color: #f8f8f2 !important;
+        }
+        
+        /* Code fullscreen modal - MAX Z-INDEX for iframe visibility */
+        .code-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 2147483647; /* Max z-index to break out of iframe stacking */
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+        }
+        
+        .code-modal.active {
+            display: flex;
+        }
+        
+        .code-modal-content {
+            background: #1e1e1e;
+            border-radius: 12px;
+            max-width: 95%;
+            max-height: 90%;
+            overflow: auto;
+            position: relative;
+        }
+        
+        .code-modal-header {
+            background: #2d2d2d;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        
+        .code-modal-close {
+            background: #e74c3c;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14pt;
+            font-weight: 600;
+        }
+        
+        .code-modal-close:hover {
+            background: #c0392b;
+        }
+        
+        .code-modal-body {
+            padding: 20px 30px;
+        }
+        
+        .code-modal-body pre {
+            margin: 0;
+        }
+        
+        .code-modal-body code {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+            font-size: 16pt;
+            line-height: 1.6;
+            color: #f8f8f2;
+        }
+        
+        /* Images */
+        .slide-image {
+            max-width: 100%;
+            max-height: 450px; /* Expanded to fill available space */
+            display: block;
+            margin: 10px auto;
+            object-fit: contain;
+        }
+        
+        .image-caption {
+            text-align: center;
+            font-size: 16pt;
+            color: #666;
+            margin-top: 10px;
+            font-style: italic;
+        }
+        
+        /* ============================================
+           STRICT PREDEFINED LAYOUTS (Validated by AI)
+           CRITICAL: All containers must have overflow:hidden
+           to prevent content from overlapping the logo!
+           ============================================ */
+           
+        /* L1: Text Only (1160x480) - reduced to avoid logo overlap */
+        .layout-text-only .bullets {
+            max-width: 1160px;
+            max-height: 440px; /* Reduced from 480 to leave space for logo */
+            overflow: hidden;
+        }
+
+        /* L2: Image Left (Img: 550x420, Text: 520x420) - reduced heights */
+        .image-layout.image-left .image-column {
+            width: 550px;
+            max-height: 420px; /* Reduced from 460 */
+        }
+        .image-layout.image-left .slide-image {
+            max-height: 400px; /* Reduced from 460 */
+            width: auto;
+            max-width: 100%;
+        }
+        .image-layout.image-left .bullets-column {
+            width: 520px;
+            max-height: 420px; /* Reduced from 460 */
+            overflow: hidden; /* CRITICAL: Clip overflowing content */
+        }
+        
+        /* L3: Image Right (Text: 520x420, Img: 550x420) - reduced heights */
+        .image-layout.image-right .bullets-column {
+            width: 520px;
+            max-height: 420px; /* Reduced from 460 */
+            overflow: hidden; /* CRITICAL: Clip overflowing content */
+        }
+        .image-layout.image-right .image-column {
+            width: 550px;
+            max-height: 420px; /* Reduced from 460 */
+        }
+        .image-layout.image-right .slide-image {
+            max-height: 400px; /* Reduced from 460 */
+            width: auto;
+            max-width: 100%;
+        }
+
+        /* L4: Text + Code (Text: 1160x100, Code: 1160x340) */
+        .layout-text-code .bullets {
+            max-height: 100px; /* Reduced from 120 */
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        .layout-text-code .code-block {
+            max-height: 320px; /* Reduced from 340 to leave space for logo */
+            overflow: hidden;
+        }
+        .layout-text-code .code-content {
+            max-height: 280px; /* Reduced from 300 */
+            overflow: auto;
+        }
+        
+        /* L5: Code Only (Code: 1160x440) - reduced to avoid logo overlap */
+        .layout-code-full .code-block {
+            max-height: 440px; /* Reduced from 480 */
+            overflow: hidden;
+        }
+        .layout-code-full .code-content {
+            max-height: 400px; /* Reduced from 440 */
+            overflow: auto;
+        }
+        
+        /* General Utils */
+        .slide-content {
+            /* Ensure we use flex/grid where appropriate if needed, 
+               but for now relying on existing layout logic + these strict constraints. */
+            position: relative;
+        }
+        
+        /* Two-column layout */
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 20px 0;
+        }
+        
+        /* Image layouts */
+        .image-layout {
+            display: grid;
+            gap: 30px;
+            align-items: center;
+            height: 100%;
+        }
+        
+        .image-layout.image-left {
+            grid-template-columns: 1fr 1fr;
+        }
+        
+        .image-layout.image-right {
+            grid-template-columns: 1fr 1fr;
+        }
+        
+        .image-layout.image-full {
+            grid-template-columns: 1fr;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+        
+        .image-layout .image-column {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+        
+        .image-layout .bullets-column {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }
+        
+        .image-layout .bullets-column ul.bullets {
+            margin: 0;
+        }
+        
+        .image-layout.image-full .slide-image {
+            max-width: 100%;
+            max-height: 480px; /* Optimized for 520px content area */
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }
+        
+        /* ============================================
+           LAYOUT-SPECIFIC CONTAINER SIZES
+           These match the layouts.py specifications
+           ============================================ */
+        
+        /* TEXT-ONLY Layout: Full width for bullets */
+        .layout-text-only {
+            height: 520px;
+            overflow: hidden;
+        }
+        
+        /* TEXT-CODE Layout: Bullets above, code below */
+        .layout-text-code {
+            display: flex;
+            flex-direction: column;
+            height: 520px;
+        }
+        
+        .layout-text-code .text-area {
+            height: 140px;
+            overflow: hidden;
+        }
+        
+        .layout-text-code .code-area {
+            height: 360px;
+            overflow: hidden;
+        }
+        
+        /* CODE-FULL Layout: Large code block */
+        .layout-code-full {
+            height: 520px;
+        }
+        
+        .layout-code-full .code-area {
+            height: 460px;
+            overflow: hidden;
+        }
+        
+        .layout-code-full .caption-area {
+            height: 60px;
+            overflow: hidden;
+        }
+        
+        /* IMAGE-CODE Layout: Side by side */
+        .layout-image-code {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            height: 520px;
+        }
+        
+        .layout-image-code .image-area,
+        .layout-image-code .code-area {
+            height: 520px;
+            overflow: hidden;
+        }
+        
+        /* TABLE Layout */
+        .layout-table {
+            height: 520px;
+        }
+        
+        .layout-table .table-area {
+            height: 440px;
+            overflow: auto;
+        }
+        
+        .layout-table .notes-area {
+            height: 80px;
+            overflow: hidden;
+        }
+        
+        /* Logo positioning */
+        .slide-logo {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            width: 120px;
+            height: auto;
+            opacity: 0.9;
+            z-index: 500; /* High z-index to stay above all content */
+        }
+        
+        /* COURSE TITLE SLIDE - Main branded opening */
+        .course-title-slide {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(135deg, #003366, #4682B4);
+            color: white;
+            text-align: center;
+            padding: 80px;
+            position: relative;
+        }
+        
+        .course-title-slide .title {
+            font-size: 72pt;
+            font-weight: 700;
+            margin-bottom: 40px;
+            line-height: 1.1;
+        }
+        
+        .course-title-slide .logo {
+            position: absolute;
+            top: 40px;
+            right: 40px;
+            width: 150px;
+            height: auto;
+            opacity: 1;
+        }
+        
+        /* MODULE TITLE SLIDE - Section divider */
+        .module-title-slide {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(to right, #003366, #4682B4);
+            color: white;
+            padding: 100px 80px;
+            position: relative;
+        }
+        
+        .module-title-slide .title {
+            font-size: 56pt;
+            font-weight: 700;
+            margin-top: 80px;
+            text-align: left;
+            width: 100%;
+            border-left: 8px solid #FFC000;
+            padding-left: 30px;
+        }
+        
+        .module-title-slide .logo {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            height: auto;
+            opacity: 0.95;
+        }
+        
+        /* LESSON TITLE SLIDE - Topic introduction */
+        .lesson-title-slide {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            height: 100%;
+            background: white;
+            color: #003366;
+            padding: 60px 80px;
+            position: relative;
+            border-top: 10px solid #FFC000;
+        }
+        
+        .lesson-title-slide .title {
+            font-size: 48pt;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #003366;
+        }
+        
+        .lesson-title-slide .subtitle {
+            font-size: 28pt;
+            color: #4682B4;
+            opacity: 0.8;
+            text-align: center;
+        }
+        
+        .lesson-title-slide .logo {
+            position: absolute;
+            top: 40px;
+            right: 40px;
+            width: 100px;
+            height: auto;
+            opacity: 0.85;
+        }
+        
+        /* MODULE-END LOGO SLIDE - White background, centered logo, no frame */
+        .module-end-logo-slide {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            background: white;
+            padding: 0;
+            position: relative;
+        }
+        
+        .module-end-logo-slide .centered-logo {
+            width: 300px;
+            height: auto;
+            opacity: 1;
+        }
+        
+        /* Legacy branded-title (for thank you slide) */
+        .branded-title {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(135deg, #003366, #4682B4);
+            color: white;
+            text-align: center;
+            padding: 80px;
+        }
+        
+        .branded-title .title {
+            font-size: 64pt;
+            font-weight: 700;
+            margin-bottom: 30px;
+        }
+        
+        .branded-title .subtitle {
+            font-size: 32pt;
+            opacity: 0.9;
+        }
+        
+        /* Overflow detection (for debugging) */
+        .slide-content.overflow {
+            border: 4px solid red !important;
+        }
+        
+        /* Print styles */
+        @media print {
+            body { background: white; padding: 0; }
+            .slide { 
+                margin: 0;
+                box-shadow: none;
+                page-break-after: always;
+            }
+        }
+        
+        /* Slide counter */
+        .slide-number {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            font-size: 14pt;
+            color: #999;
+        }
+        
+    </style>
+    <script>
+        // Code block zoom functionality - inline for maximum compatibility
+        function openCodeModal(codeId) {
+            console.log('openCodeModal called with:', codeId);
+            
+            var codeBlock = document.getElementById(codeId);
+            var modal = document.getElementById('codeModal');
+            var modalBody = document.getElementById('codeModalBody');
+            var modalLang = document.getElementById('codeModalLang');
+            
+            if (!codeBlock) {
+                console.error('Code block not found: ' + codeId);
+                return;
+            }
+            if (!modal) {
+                console.error('Modal not found');
+                return;
+            }
+            
+            var codeContent = codeBlock.querySelector('.code-content');
+            var langBadge = codeBlock.querySelector('.code-block-language');
+            
+            if (codeContent && modalBody) {
+                modalBody.innerHTML = codeContent.innerHTML;
+            }
+            if (langBadge && modalLang) {
+                modalLang.textContent = langBadge.textContent;
+            }
+            
+            modal.classList.add('active');
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            console.log('Modal opened successfully');
+        }
+        
+        function closeCodeModal() {
+            var modal = document.getElementById('codeModal');
+            if (modal) {
+                modal.classList.remove('active');
+                modal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+        }
+        
+        // Make functions globally available
+        window.openCodeModal = openCodeModal;
+        window.closeCodeModal = closeCodeModal;
+        
+        // Close on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeCodeModal();
+            }
+        });
+        
+        // Close on click outside modal content
+        document.addEventListener('click', function(e) {
+            var modal = document.getElementById('codeModal');
+            if (e.target === modal) {
+                closeCodeModal();
+            }
+        });
+        </script>
+</head>
+<body>
+    <!-- Code fullscreen modal -->
+    <div id="codeModal" class="code-modal">
+        <div class="code-modal-content">
+            <div class="code-modal-header">
+                <span id="codeModalLang" class="code-block-language">CODE</span>
+                <button class="code-modal-close" onclick="closeCodeModal()">✕ Close</button>
+            </div>
+            <div id="codeModalBody" class="code-modal-body"></div>
+        </div>
+    </div>
+    <h1 style="text-align: center; color: #003366; margin-bottom: 30px; font-size: 32pt;">Quality Enhancements Test</h1>
+<div class="slide" data-slide="1">
+  <div class="slide-header">
+    <div class="slide-title">Welcome to Slide Enhancements</div>
+    <div class="slide-subtitle">Testing new features</div>
+  </div>
+  <div class="slide-content layout-text-only">
+    <ul class="bullets">
+      <li>We have added summarization</li>
+      <li>We have added images</li>
+      <li>We have added tables</li>
+      <li>We have added code</li>
+    </ul>
+  </div>
+  <img src="https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png" class="slide-logo" alt="Logo">
+</div>
+<div class="slide" data-slide="2">
+  <div class="slide-header">
+    <div class="slide-title">Code Syntax Highlighting Test</div>
+    <div class="slide-subtitle">Should look like VS Code</div>
+  </div>
+  <div class="slide-content layout-code-full">
+    <div class="code-block" id="code-2-1">
+      <div class="code-block-header">
+        <span class="code-block-language">python</span>
+        <button type="button" class="code-zoom-btn" onclick="openCodeModal('code-2-1'); return false;">🔍 Zoom</button>
+      </div>
+      <div class="code-content">
+        <pre><code><span style="color: #66d9ef">def</span> <span style="color: #a6e22e">hello_world</span><span style="color: #f8f8f2">():</span>
+    <span style="color: #f8f8f2">print(</span><span style="color: #e6db74">&#39;Hello world!&#39;</span><span style="color: #f8f8f2">)</span>
+    <span style="color: #66d9ef">return</span> <span style="color: #66d9ef">True</span>
+
+<span style="color: #959077"># Test comment</span>
+<span style="color: #66d9ef">class</span> <span style="color: #a6e22e">Test</span><span style="color: #f8f8f2">:</span>
+    <span style="color: #66d9ef">pass</span>
+</code></pre>
+      </div>
+    </div>
+  </div>
+  <img src="https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png" class="slide-logo" alt="Logo">
+</div>
+<div class="slide" data-slide="3">
+  <div class="slide-header">
+    <div class="slide-title">Table Rendering Test</div>
+    <div class="slide-subtitle">Data representation</div>
+  </div>
+  <div class="slide-content layout-table">
+    <div class="content-heading">Example Data</div>
+    <table class="slide-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>City</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Alice</td>
+          <td>Admin</td>
+          <td>New York</td>
+        </tr>
+        <tr>
+          <td>Bob</td>
+          <td>User</td>
+          <td>London</td>
+        </tr>
+        <tr>
+          <td>Charlie</td>
+          <td>Editor</td>
+          <td>Paris</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <img src="https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png" class="slide-logo" alt="Logo">
+</div>
+<div class="slide" data-slide="4">
+  <div class="slide-header">
+    <div class="slide-title">Image Inclusion Test</div>
+  </div>
+  <div class="slide-content image-layout image-left">
+    <div class="image-column">
+      <img src="https://via.placeholder.com/500x380.png?text=Test+Image" class="slide-image" alt="test_image">
+    </div>
+    <div class="bullets-column">
+      <div class="content-heading">Image Points</div>
+      <ul class="bullets">
+        <li>Point 1 about image</li>
+        <li>Point 2 about image</li>
+      </ul>
+    </div>
+  </div>
+  <img src="https://crewai-course-artifacts.s3.amazonaws.com/logo/LogoNetec.png" class="slide-logo" alt="Logo">
+</div>
+</body>
+</html>

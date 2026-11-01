@@ -1,0 +1,26 @@
+{
+    "project_name": "Aurora",
+    "aws_region": "us-east-1",
+    "account_id": "746434296869",
+    "environment": "production",
+    "state_resources": {
+        "course_artifacts_bucket_name": "crewai-course-artifacts",
+        "cognito_user_pool_id": "us-east-1_B7QVYyDGp",
+        "cognito_user_pool_arn": "arn:aws:cognito-idp:us-east-1:746434296869:userpool/us-east-1_B7QVYyDGp"
+    },
+    "compute_resources": {
+        "stack_name": "crewai-course-generator-stack",
+        "api_gateway": {
+            "cors_fix_enabled": true,
+            "drift_detected": "method_response_headers"
+        },
+        "lambda": {
+            "runtime": "python3.12",
+            "memory_size_drift": true
+        }
+    },
+    "frontend_resources": {
+        "create_new_bucket": true,
+        "bucket_name_prefix": "aurora-frontend-hosting"
+    }
+}

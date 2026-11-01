@@ -1,0 +1,6 @@
+beautifulsoup4==4.12.3
+python-pptx==0.6.23
+Pillow==10.4.0
+# Force rebuild 1763600985
+# Force rebuild 1763603463
+# Force rebuild 1763604480
