@@ -263,3 +263,11 @@ presupuesto de §41: tocará remedirlo con el próximo lote.
 4. Continuar por la primera fase «pendiente».
 
 **Glosario y Tips & Tricks (spec §44).** El requerimiento del cliente entró esta noche y ya está desplegado: glosario endurecido en el book (paso 0 del temario, fuente etiquetada, `book/glosario.json`) y Lambda `DeckBuilderFunction` que construye `Glosario.pptx` y `Tips_and_Tricks.pptx` desde el glosario y las secciones de problemas de los labs; estado `InvokeDeckBuilder` en el flujo, no bloqueante (47 estados). Dos hallazgos de la corrida real ya corregidos: el paso 0 leía la raíz equivocada del temario y la Lambda estaba en arm64 cargando una capa x86_64 (lxml). Pendiente inmediato: re-ejecutar el deck sobre `271030-prueba-decks` con el glosario regenerado (22 términos) y validar los pptx abiertos.
+
+**Actualizar contenidos ≠ regenerar (spec §46).** Requerimiento de producto: para re-entregar
+un curso viejo se conservan las lecciones/labs vigentes y se regenera sólo lo pedido. API
+(`/start-job` con `operation: "update-contents"`, lecciones `"MM-LL"`, labs `"MM-LL-NN"`),
+BatchExpander con `lesson_ids_to_update` (lotes exactos con force; módulos sin selección **no se
+tocan**), y la auditoría escribe `labguide/updates-manifest.json` con el diff de SHA (antes/des después,
+nuevos, no tocados, eliminados). Orden laboral de los tests: 8/8 + 8/8 (exp, state) y 4/4
+(diff). Despliegue en curso; la verificación con un curso real es el paso siguiente.
