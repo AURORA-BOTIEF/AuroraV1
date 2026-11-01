@@ -169,7 +169,10 @@ def lambda_handler(event, context):
                 # temario (para la verificación de integridad referencial B1).
                 'outline_s3_key': outline_s3_key,
                 'manual_text_s3_key': manual_text_s3_key,
-                'additional_requirements': additional_requirements
+                'additional_requirements': additional_requirements,
+                # Actualización selectiva: el Writer regenera aunque exista.
+                'update_mode': event.get('update_mode') or False,
+                'force_regenerate': event.get('update_mode') or False,
             }
             
             all_batches.append(batch_task)

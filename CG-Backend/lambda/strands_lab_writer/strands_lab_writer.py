@@ -2377,7 +2377,13 @@ def lambda_handler(event, context):
             # curso: no debe arrastrarse al siguiente.
             master_context.pop("referential_correction", None)
 
-            if _lab_skip_if_exists_enabled():
+            # En actualización selectiva el lab pedido SE regenera, aunque exista:
+            # el skip-if-exists solo aplica a la generación normal.
+            en_actualizacion = (
+                bool(event.get("update_mode"))
+                or bool(event.get("force_regenerate"))
+            )
+            if _lab_skip_if_exists_enabled() and not en_actualizacion:
                 existing_key = _find_existing_lab_guide_key(
                     course_bucket, project_folder, lab_id
                 )
