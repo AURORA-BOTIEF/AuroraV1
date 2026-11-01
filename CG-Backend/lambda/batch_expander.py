@@ -33,6 +33,7 @@ Output:
 """
 
 import json
+import re
 import boto3
 import yaml
 from typing import List, Dict, Any
@@ -97,6 +98,39 @@ def lambda_handler(event, context):
                     print(f"🎯 Regenerating specific lesson: Module {specific_module}, Lesson {specific_lesson_idx + 1}")
             except (ValueError, IndexError) as e:
                 print(f"⚠️  Warning: Could not parse lesson_to_generate '{lesson_to_generate}': {e}")
+
+        # Actualización de contenidos: varias lecciones en una ejecución ("MM-LL").
+        # La lista manda sobre la individual; las lecciones no pedidas quedan como
+        # están en {project}/lessons (el resto del curso no se toca).
+        lesson_ids_to_update = event.get("lesson_ids_to_update") or []
+        en_actualizacion = bool(lesson_ids_to_update)
+        lecciones_por_modulo = {}
+        if lesson_ids_to_update:
+            especifico_descartado = True if (specific_module is not None) else False
+            if especifico_descartado:
+                print("ℹ️  lesson_ids_to_update presente: prevalece sobre lesson_to_generate")
+                specific_module = None
+                specific_lesson_idx = None
+            patron_leccion = re.compile(r"^(\d{1,2})-(\d{1,3})$")
+            for identificador in lesson_ids_to_update:
+                m = patron_leccion.match(str(identificador).strip())
+                if not m:
+                    print(f"⚠️  lesson_ids_to_update: '{identificador}' no es 'MM-LL'; se ignora")
+                    continue
+                modulo_n, leccion_n = int(m.group(1)), int(m.group(2))
+                if leccion_n < 1:
+                    print(f"⚠️  lesson_ids_to_update: '{identificador}' lección 0 no existe; se ignora")
+                    continue
+                lecciones_por_modulo.setdefault(modulo_n, set()).add(leccion_n - 1)
+            if lecciones_por_modulo:
+                print(
+                    "🎯 Actualización de contenidos: "
+                    + ", ".join(
+                        f"mod {mod}: lecciones {sorted(i + 1 for i in idx)}" for mod, idx in sorted(lecciones_por_modulo.items())
+                    )
+                )
+            elif en_actualizacion:
+                print("⚠️  lesson_ids_to_update sin identificadores válidos: el bloque de normal no se expande")
         
         print(f"\n📥 Loading outline from S3...")
         print(f"  Bucket: {course_bucket}")
@@ -176,23 +210,79 @@ def lambda_handler(event, context):
                 print(f"\n  Module {module_num}: Regenerating specific lesson {specific_lesson_idx + 1} only")
                 print(f"    Batch 1/1: Lesson {specific_lesson_idx + 1}")
                 continue  # Skip normal batch expansion for this module
-            
-            # Calculate number of batches needed
+
+            # Actualización selectiva: lotes que cubren EXACTAMENTE las lecciones
+            # pedidas (grupos contiguos), con force_regenerate. El resto del curso
+            # queda como está en {project}/lessons.
+            if en_actualizacion:
+                seleccionadas = sorted(
+                    i for i in lecciones_por_modulo.get(module_num, ()) if i < num_lessons
+                )
+                if not seleccionadas:
+                    motivo = (
+                        "sin lecciones a actualizar"
+                        if module_num not in lecciones_por_modulo
+                        else "sin selección válida (todo fuera de rango)"
+                    )
+                    print(f"⏭️  Módulo {module_num}: {motivo}; no se toca")
+                    continue
+
+                grupos = []
+                inicio = anterior = seleccionadas[0]
+                for idx in seleccionadas[1:]:
+                    if idx == anterior + 1:
+                        anterior = idx
+                        continue
+                    grupos.append((inicio, anterior + 1))
+                    inicio = anterior = idx
+                grupos.append((inicio, anterior + 1))
+
+                for indice_lote, (start_idx, end_idx) in enumerate(grupos, start=1):
+                    batch_task = {
+                        'module_number': module_num,
+                        'batch_index': indice_lote,
+                        'total_batches': len(grupos),
+                        'batch_start_idx': start_idx,
+                        'batch_end_idx': end_idx,
+                        'course_bucket': course_bucket,
+                        'outline_s3_key': outline_s3_key,
+                        'project_folder': project_folder,
+                        'model_provider': model_provider,
+                        'content_source': content_source,
+                        'image_model': image_model,
+                        'course_language': course_language,
+                        'lesson_requirements': lesson_requirements,
+                        'manual_s3_keys': manual_s3_keys,
+                        'manual_text_s3_key': manual_text_s3_key,
+                        'course_duration_hours': course_duration_hours,
+                        'force_regenerate': True,
+                        'update_contents': True,
+                    }
+                    all_batches.append(batch_task)
+                    lecciones_txt = ", ".join(
+                        str(idx + 1) for idx in range(start_idx, end_idx)
+                    )
+                    print(
+                        f"\n  Module {module_num}: Actualización (batch {indice_lote}/"
+                        f"{len(grupos)}): lecciones {lecciones_txt}"
+                    )
+                continue
+            # Calculate number of batches needed (flujo normal: módulo completo)
             num_batches = (num_lessons + MAX_LESSONS_PER_BATCH - 1) // MAX_LESSONS_PER_BATCH
-            
+
             print(f"\n  Module {module_num}: {num_lessons} lessons → {num_batches} batch(es)")
-            
+
             # Create batch tasks
             for batch_idx in range(num_batches):
                 start_idx = batch_idx * MAX_LESSONS_PER_BATCH
                 end_idx = min(start_idx + MAX_LESSONS_PER_BATCH, num_lessons)
-                
+
                 batch_task = {
                     'module_number': module_num,
-                    'batch_index': batch_idx + 1,  # 1-based for logging
+                    'batch_index': batch_idx + 1,
                     'total_batches': num_batches,
-                    'batch_start_idx': start_idx,  # 0-based index
-                    'batch_end_idx': end_idx,  # Python slice style (exclusive)
+                    'batch_start_idx': start_idx,
+                    'batch_end_idx': end_idx,
                     'course_bucket': course_bucket,
                     'outline_s3_key': outline_s3_key,
                     'project_folder': project_folder,
@@ -200,22 +290,19 @@ def lambda_handler(event, context):
                     'content_source': content_source,
                     'image_model': image_model,
                     'course_language': course_language,
-                    'lesson_requirements': lesson_requirements,  # Pass additional requirements to content generator
+                    'lesson_requirements': lesson_requirements,
                     'manual_s3_keys': manual_s3_keys,
                     'manual_text_s3_key': manual_text_s3_key,
                     'course_duration_hours': course_duration_hours,
                     # Safeguard: Force regeneration ONLY if a specific lesson was requested
                     'force_regenerate': bool(lesson_to_generate)
                 }
-                
+
                 all_batches.append(batch_task)
-                
+
                 print(f"    Batch {batch_idx + 1}/{num_batches}: Lessons {start_idx + 1}-{end_idx}")
-        
-        print(f"\n✅ Expanded {len(modules_to_generate)} module(s) into {len(all_batches)} batch(es)")
-        print(f"📊 With MaxConcurrency=2, expected time: ~{(len(all_batches) / 2) * 7:.0f} minutes")
-        print("=" * 70)
-        
+
+
         return {
             'statusCode': 200,
             'batches': all_batches,

@@ -38,7 +38,8 @@ ENTRADA = {
     "lab_ids_to_regenerate", "lab_requirements", "lesson_requirements",
     "lesson_to_generate", "manual_s3_keys", "manual_text_s3_key", "model_provider",
     "modules_to_generate", "outline_s3_key", "performance_mode", "project_folder",
-    "request_timestamp", "total_modules", "user_email", "user_id",
+    "request_timestamp", "total_modules", "update_mode", "user_email", "user_id",
+    "lesson_ids_to_update",
 }
 
 AUSENTE = object()
@@ -93,6 +94,8 @@ def _datos_del_flujo(modo, resume):
     datos = {
         "content_type": modo,
         "lesson_to_generate": None,
+        "lesson_ids_to_update": None,
+        "update_mode": None,
         "lesson_requirements": "",
         "resume_from": "post_theory" if resume else None,
         "provider_lock": {"acquired": True},

@@ -1168,6 +1168,116 @@ def lambda_handler(event, context):
                 })
             }
 
+        # === ACTUALIZACIÓN SELECTIVA DE CONTENIDOS ================================
+        # operation: 'update-contents'. Se conservan las lecciones/labs que el
+        # instructor marca como vigentes y se regenera sólo lo pedido. La auditoría
+        # posterior escribe labguide/updates-manifest.json con el diff de hashes.
+        if body.get('operation') == 'update-contents':
+            project_folder = str(body.get('project_folder') or '').strip()
+            lecciones = [
+                str(x).strip()
+                for x in (body.get('lessons_to_update') or [])
+                if str(x).strip()
+            ]
+            laboratorios = [
+                str(x).strip()
+                for x in (body.get('labs_to_update') or [])
+                if str(x).strip()
+            ]
+            headers = {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                "Access-Control-Allow-Methods": "OPTIONS,POST",
+            }
+            if not project_folder:
+                return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "project_folder es requerido"})}
+            if not lecciones and not laboratorios:
+                return {
+                    "statusCode": 400,
+                    "headers": headers,
+                    "body": json.dumps({"error": "lessons_to_update y/o labs_to_update son requeridos"}),
+                }
+            state_machine_arn_state = os.environ.get('STATE_MACHINE_ARN')
+            if not state_machine_arn_state:
+                return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": "STATE_MACHINE_ARN environment variable not set"})}
+            content_type = 'both'
+            if lecciones and not laboratorios:
+                content_type = 'theory'
+            if laboratorios and not lecciones:
+                content_type = 'labs'
+            if laboratorios:
+                # El plan debe existir: los labs se filtran de él (LabBatchExpander).
+                s3_checker = boto3.client('s3')
+                try:
+                    s3_checker.head_object(
+                        Bucket=body.get('course_bucket') or os.getenv('COURSE_BUCKET', 'crewai-course-artifacts'),
+                        Key=f"{project_folder}/labguide/lab-master-plan.json",
+                    )
+                except Exception:
+                    return {
+                        "statusCode": 400,
+                        "headers": headers,
+                        "body": json.dumps({"error": f"El curso {project_folder} no tiene plan de laboratorios; lance la generación completa primero."}),
+                    }
+            leccion_individual = f"{lecciones[0]}" if (len(lecciones) == 1 and not laboratorios) else None
+            modules_auto = sorted({int(x.split('-')[0]) for x in lecciones if re.fullmatch(r"\d{1,2}-\d{1,3}", str(x))})
+            modules_final = modules_auto if lecciones else [1]
+            update_input = {
+                "course_topic": f"Actualización {project_folder}",
+                "course_duration_hours": 0,
+                "modules_to_generate": modules_final,
+                "total_modules": len(modules_final),
+                "lesson_to_generate": None,
+                "lesson_ids_to_update": lecciones or None,
+                "lab_ids_to_regenerate": laboratorios or None,
+                "update_mode": True,
+                "performance_mode": body.get('performance_mode', 'balanced'),
+                "model_provider": body.get('model_provider', 'bedrock'),
+                "user_id": body.get('user_id'),
+                "user_email": body.get('user_email'),
+                "request_timestamp": datetime.now().isoformat(),
+                "content_source": 's3',
+                "outline_s3_key": body.get('outline_s3_key'),
+                "manual_s3_keys": [],
+                "manual_text_s3_key": "",
+                "course_bucket": body.get('course_bucket') or 'crewai-course-artifacts',
+                "project_folder": project_folder,
+                "allow_openai_fallback": body.get('allow_openai_fallback', True),
+                "content_type": content_type,
+                "lab_requirements": body.get('lab_requirements') or "",
+                "lesson_requirements": body.get('lesson_requirements') or "",
+                "course_language": body.get('course_language', 'es'),
+                "image_model": body.get('image_model') or 'models/gemini-2.5-flash-image',
+            }
+            nombre_ejecucion = f"update-{project_folder}-{int(datetime.now().timestamp())}"
+            sfnc = boto3.client('stepfunctions')
+            try:
+                respuesta = sfnc.start_execution(
+                    stateMachineArn=state_machine_arn_state,
+                    name=nombre_ejecucion,
+                    input=json.dumps(update_input),
+                )
+            except Exception as exc:
+                return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": f"No se pudo iniciar la ejecución: {exc}"})}
+            return {
+                "statusCode": 200,
+                "headers": headers,
+                "body": json.dumps(
+                    {
+                        "ok": True,
+                        "operation": "update-contents",
+                        "executionArn": respuesta["executionArn"],
+                        "execution_name": nombre_ejecucion,
+                        "lessons_to_update": lecciones,
+                        "labs_to_update": laboratorios,
+                        "content_type": content_type,
+                        "project_folder": project_folder,
+                    },
+                    default=str,
+                ),
+            }
+
         # Check if this is an async background execution
         is_async = body.get('async_processing', False)
         resume_from = body.get('resume_from')

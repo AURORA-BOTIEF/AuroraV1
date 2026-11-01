@@ -139,6 +139,63 @@ def construir_manifest(bucket, project_folder):
     }
 
 
+def diferencia_de_manifest(previo: dict, nuevo: dict) -> dict:
+    """Diferencia de dos manifiestos: qué cambió por categoría.
+
+    Los manifiestos listan artefactos con ``clave`` y ``sha256``. Una clave que
+    ya no está se elimina; una clave nueva es nuevo; clave con un hash distinto
+    fue actualizado; igual, no tocado. Es el registro de la actualización
+    selectiva: instructor puede ver qué se regeneró y qué quedó vigilado.
+    """
+    entradas_previas = {}
+    for categoria, ficheros in {**(previo.get("inputs") or {}), **(previo.get("outputs") or {})}.items():
+        for entrada in ficheros or ():
+            entradas_previas[entrada.get("key")] = entrada
+    entradas_nuevas = {}
+    for categoria, ficheros in {**(nuevo.get("inputs") or {}), **(nuevo.get("outputs") or {})}.items():
+        for entrada in ficheros or ():
+            entradas_nuevas[entrada.get("key")] = entrada
+
+    actualizados, nuevos, no_tocados = [], [], []
+    for clave, entrada in sorted(entradas_nuevas.items()):
+        previa = entradas_previas.get(clave)
+        if previa is None:
+            nuevos.append(entrada)
+        elif previa.get("sha256") != entrada.get("sha256"):
+            actualizados.append(
+                {
+                    **entrada,
+                    "sha256_antes": previa.get("sha256"),
+                    "sha256_despues": entrada.get("sha256"),
+                }
+            )
+        else:
+            no_tocados.append(entrada)
+    eliminados = [
+        entrada for clave, entrada in sorted(entradas_previas.items()) if clave not in entradas_nuevas
+    ]
+    return {
+        "actualizados": actualizados,
+        "nuevos": nuevos,
+        "no_tocados": no_tocados,
+        "eliminados": eliminados,
+        "resumen": {
+            "actualizados": len(actualizados),
+            "nuevos": len(nuevos),
+            "no_tocados": len(no_tocados),
+            "eliminados": len(eliminados),
+        },
+    }
+
+
+def _texto_de_s3(bucket: str, clave: str) -> str | None:
+    """Cuerpo del objeto como texto, o None si no existe."""
+    try:
+        return s3.get_object(Bucket=bucket, Key=clave)["Body"].read().decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
 def urls_de(texto):
     """URLs de un markdown, sin el énfasis ni la puntuación que las envuelve.
 
@@ -255,9 +312,34 @@ def lambda_handler(event, context):
         return {"statusCode": 400, "body": json.dumps({"error": "project_folder es requerido"})}
     bucket = body.get("course_bucket") or BUCKET_POR_DEFECTO
 
+    update_mode = bool(body.get("update_mode"))
     try:
         manifest = construir_manifest(bucket, project_folder)
         manifest_key = f"{project_folder}/labguide/inputs-manifest.json"
+        updates_key = None
+        if update_mode:
+            previo = _texto_de_s3(bucket, manifest_key)
+            if previo:
+                try:
+                    diff = diferencia_de_manifest(json.loads(previo), manifest)
+                    updates_key = f"{project_folder}/labguide/updates-manifest.json"
+                    s3.put_object(
+                        Bucket=bucket,
+                        Key=updates_key,
+                        Body=json.dumps(
+                            {
+                                "version": 1,
+                                "generated_at": manifest["generated_at"],
+                                "project_folder": project_folder,
+                                **diff,
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ).encode("utf-8"),
+                        ContentType="application/json",
+                    )
+                except json.JSONDecodeError:
+                    logger.warning("Manifiesto previo ilegible: no hay diff de actualización")
         s3.put_object(
             Bucket=bucket,
             Key=manifest_key,
@@ -284,6 +366,7 @@ def lambda_handler(event, context):
         return {
             "statusCode": 200,
             "manifest_key": manifest_key,
+            "updates_key": updates_key,
             "enlaces_key": enlaces_key,
             "resumen_enlaces": enlaces["resumen"],
         }

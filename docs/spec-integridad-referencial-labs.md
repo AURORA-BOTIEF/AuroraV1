@@ -3323,3 +3323,35 @@ cuyo nombre ambiguo sugería 2027.
 
 Nota operativa: los folders de prueba mal bautizados (`271027` en vez de `271026`) quedan
 cubiertos de todos modos: la marca S3 manda y el listado muestra la fecha real, no la del nombre.
+
+## 46. Actualizar contenidos (≠ regenerar): revisiting de curso vigente (31/10/2026)
+
+Requerimiento de producto: si un curso se generó meses atrás, para volver a entregarlo se
+mantienen las lecciones/labs **vigentes** y se regenera solo lo pedido — sin una ejecución
+(ni pago) de generación completa. La ejecución recibe nombre `update-<folder>-<ts>` y deja **traza auditable**: el manifiesto
+previo se conserva como diff y los artefactos no pedidos conservan su SHA.
+
+### 46.1 Cómo funciona
+
+| Palo | Qué hace |
+|---|---|
+| API (`/start-job` con `operation: "update-contents"`) | Recibe `project_folder`, `lessons_to_update` (lista `"MM-LL"`) y/o `labs_to_update` (`"MM-LL-NN"`). Deriva `content_type` (both/theory/labs) y exige plan de laboratorios si hay labs. Arranca `update-<folder>-<ts>`. |
+| `BatchExpander` | Acepta **lista** `lesson_ids_to_update`: por módulo crea lotes contiguos que cubren *exactamente* las lecciones pedidas (con `force_regenerate` y `update_contents`); módulos fuera de la lista **no se tocan**, y si nada es válido devuelve cero lotes (sin derrames). El caso individual `lesson_to_generate` queda igual. |
+| Plano de labs | Ya existía: `lab_ids_to_regenerate` filtra el plan (§27: `LabBatchExpander`). Ahora la lista viaja desde el nuevo endpoint. |
+| Otras partes del flujo | Invocar el resto del flujo normal: el BookBuilder recompila el book desde `lessons/` con las no tocadas y las actualizadas; auditoría y decks corren como siempre. |
+| Auditoría (§39) | Con `update_mode`, escribe `labguide/updates-manifest.json` con el diff por artefacto (actualizados con `sha256_antes`/`sha256_despues`, nuevos, no tocados, eliminados) — evidencia de la actualización para el instructor. |
+
+### 46.2 Verificación
+
+- `test_batch_expander.py`: **8/8** (la lista cubre exactamente lo pedido; lecciones contiguas
+  se juntan; módulos sin selección no se tocan; la lista prevalece sobre `lesson_to_generate`;
+  inválidos/fuera de rango se ignoran sin derrame).
+- `test_audit_diff.py`: **4/4** (el diff y sus cuatro clases con hashes; sin `update_mode` no
+  escribe; sin manifiesto previo tampoco).
+- `test_post_generation_audit.py`: **8/8** (los colores viejos intactos).
+- `test_state_machine.py`: **8/8** con el cableado nuevo (`CheckIfRegenerationMode` acepta la
+  lista; los tres Pass de combinación y los pas del modo resumen llevan `update_mode` y
+  `lesson_ids_to_update` hasta el auditor).
+- Despliegue verificado en los zips (`BatchExpander`, `PostGenerationAuditFunction`,
+  `StarterApiFunction`, máquina de estados) y la verificación de una ejecución real queda
+  para cuando haya un curso con material a actualizar.
