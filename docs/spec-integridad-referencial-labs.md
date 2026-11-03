@@ -3349,9 +3349,10 @@ previo se conserva como diff y los artefactos no pedidos conservan su SHA.
 - `test_audit_diff.py`: **4/4** (el diff y sus cuatro clases con hashes; sin `update_mode` no
   escribe; sin manifiesto previo tampoco).
 - `test_post_generation_audit.py`: **8/8** (los colores viejos intactos).
-- `test_state_machine.py`: **8/8** con el cableado nuevo (`CheckIfRegenerationMode` acepta la
+- `test_state_machine.py`: **9/9** con el cableado nuevo (`CheckIfRegenerationMode` acepta la
   lista; los tres Pass de combinación y los pas del modo resumen llevan `update_mode` y
-  `lesson_ids_to_update` hasta el auditor).
+  `lesson_ids_to_update` hasta el auditor; la simulación ahora también exige que cada `Pass`
+  encuentre los campos que resuelve, y un test lee el propio Starter).
 - Despliegue verificado en los zips (`BatchExpander`, `PostGenerationAuditFunction`,
   `StarterApiFunction`, máquina de estados) y la verificación de una ejecución real queda
   para cuando haya un curso con material a actualizar.
@@ -3394,3 +3395,43 @@ manifiesto es la mejora natural cuando el instructor pida ver lecciones en el di
 
 Costo de la actualización selectiva: **~2–7 min** frente a ~20 min de generación completa, con
 una fracción de las llamadas a Bedrock (1 lección + 1 lab en lugar del curso entero).
+
+### 46.4 Regresión: la actualización selectiva rompió la generación normal (03/11/2026)
+
+Síntoma: cinco ejecuciones `course-gen-unknown-user-*` seguidas, todas muertas entre 1 min 20 s y
+1 min 40 s, sin un solo artefacto nuevo en S3:
+
+```
+An error occurred while executing the state 'BothTheoryAndLabsBranch' (event id #20).
+The JSONPath '$.lesson_ids_to_update' specified for the field 'lesson_ids_to_update.$'
+could not be found in the input
+```
+
+El input de esas ejecuciones traía todo lo de siempre y **ni `lesson_ids_to_update` ni
+`update_mode`**. Causa: el §46 añadió ambos campos a nueve estados (`BothTheoryAndLabsBranch`,
+los tres `Combine*`, los dos `Prepare*`, `ResumePostTheoryBranch`, y los `Payload` de
+`ExpandModulesToBatches`, `ExpandLabsToBatches(Both)` y `InvokePostGenerationAudit`), y el
+`StarterApi` sólo los mandaba en la rama `operation: update-contents`. En ASL, `campo.$` es un
+contrato de **existencia**: la ruta ausente aborta el estado con `States.Runtime` (una `Choice`
+con `IsPresent` sí toleraría el hueco, un `Parameters` no).
+
+Por qué la batería estaba en verde: las seis ejecuciones del §46.3 eran de actualización, y la
+simulación de `test_state_machine.py` parte de `ENTRADA` —«lo que el Starter manda»— sin
+comprobar nunca al Starter. El único camino que nadie ejercitó fue el normal.
+
+Arreglo:
+
+- `execution_input` del Starter incluye **siempre** `lesson_ids_to_update: None` y
+  `update_mode: False` (una generación normal los manda vacíos; el modo actualización los llena).
+- En la rama de reanudación (`skip_theory_generation`), `master_lab_plan_result` va siempre, con
+  `None` si el plan no existe: antes se omitía y `ResumePostTheoryBranch` habría muerto igual;
+  ahora quien decide es el `Choice` `ValidateLabPlanExists`, con motivo legible.
+- `test_state_machine.py` cierra el punto ciego por los dos lados: la simulación valida también
+  los `.$` de cada `Pass` (antes sólo los `Payload` de las tareas) y un test con `ast` lee el dict
+  del Starter y exige que envíe todas las claves de `ENTRADA` (y las de la rama de reanudación).
+  **9/9**; verificado que con el Starter anterior ese test falla señalando exactamente las dos
+  claves que faltaban.
+
+Regla para el futuro: un campo nuevo que viaje por `.$` debe llegar nulo desde el productor, no
+omitirse; y el contrato se prueba contra el productor real, no contra una constante de la prueba.
+

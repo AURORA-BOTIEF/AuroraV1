@@ -1603,15 +1603,23 @@ def lambda_handler(event, context):
             "lab_ids_to_regenerate": body.get('lab_ids_to_regenerate'),  # NEW: Always include (None if not provided)
             "course_language": course_language,
             "image_model": image_model,
+            # Modo actualización selectiva (§46): la state machine los resuelve con
+            # JSONPath (``$.lesson_ids_to_update`` / ``$.update_mode``) en los Pass y en
+            # los Payload, así que deben existir SIEMPRE; una generación normal los
+            # manda vacíos. Si faltan, Step Functions muere con States.Runtime antes de
+            # generar nada ("The JSONPath ... could not be found").
+            "lesson_ids_to_update": None,
+            "update_mode": False,
         }
 
         if skip_theory_generation:
             execution_input["resume_from"] = "post_theory"
-            master_lab_plan_result = load_master_lab_plan_result(
+            # ``ResumePostTheoryBranch`` resuelve ``$.master_lab_plan_result`` con
+            # JSONPath: debe existir aunque el plan no se encuentre (el Choice
+            # ``ValidateLabPlanExists`` es quien decide y falla con motivo legible).
+            execution_input["master_lab_plan_result"] = load_master_lab_plan_result(
                 s3_client, course_bucket, project_folder, model_provider
             )
-            if master_lab_plan_result:
-                execution_input["master_lab_plan_result"] = master_lab_plan_result
             print("♻️ Starting post-theory resume execution (book + labs from existing S3 artifacts)")
         
         # Only include optional parameters if they were provided

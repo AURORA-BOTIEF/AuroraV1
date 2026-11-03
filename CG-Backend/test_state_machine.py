@@ -22,6 +22,7 @@ sin que ese consumidor sea alcanzable desde él. La simulación evalúa las
 condiciones y sólo exige el contrato en los caminos que de verdad se recorren.
 """
 
+import ast
 import json
 import os
 import sys
@@ -44,6 +45,10 @@ ENTRADA = {
 
 AUSENTE = object()
 
+# Claves que el Starter añade sólo en la rama ``skip_theory_generation``
+# (``execution_input["resume_from"]`` y ``master_lab_plan_result``).
+ENTRADA_REANUDADA = {"resume_from", "master_lab_plan_result"}
+
 
 def _definicion():
     with open(_RUTA_DEFINICION, encoding="utf-8") as fichero:
@@ -55,15 +60,19 @@ def _raiz(ruta):
     return ruta[2:].split(".")[0].split("[")[0]
 
 
-def _raices_consumidas(estado):
-    """Campos de la entrada que el estado resuelve con JSONPath."""
-    payload = (estado.get("Parameters") or {}).get("Payload") or {}
+def _raices_resueltas(parametros):
+    """Raíces de entrada que un objeto ``Parameters`` resuelve con JSONPath."""
     raices = set()
-    for clave, ruta in payload.items():
+    for clave, ruta in parametros.items():
         if clave.endswith(".$") and isinstance(ruta, str) and ruta.startswith("$."):
             if _raiz(ruta):
                 raices.add(_raiz(ruta))
     return raices
+
+
+def _raices_consumidas(estado):
+    """Campos de la entrada que la tarea resuelve con JSONPath en su ``Payload``."""
+    return _raices_resueltas((estado.get("Parameters") or {}).get("Payload") or {})
 
 
 def _raices_de_parametros(parametros):
@@ -88,6 +97,38 @@ def _result_path(estado, claves):
             f"campos siguen disponibles después de la tarea"
         )
     claves.add(_raiz(ruta))
+
+
+def _claves_que_envia_el_starter():
+    """Claves que el Starter deja en ``execution_input``/``update_input``.
+
+    Recoge el dict literal y las asignaciones por índice (``execution_input["x"]``),
+    que es como se añaden los campos opcionales.
+    """
+    ruta = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "lambda", "starter_api.py"
+    )
+    with open(ruta, encoding="utf-8") as fichero:
+        arbol = ast.parse(fichero.read())
+    objetivos = ("execution_input", "update_input")
+    enviados = {}
+    for nodo in ast.walk(arbol):
+        if not isinstance(nodo, ast.Assign):
+            continue
+        for destino in nodo.targets:
+            if isinstance(destino, ast.Name) and destino.id in objetivos:
+                if isinstance(nodo.value, ast.Dict):
+                    enviados[destino.id] = {
+                        clave.value
+                        for clave in nodo.value.keys
+                        if isinstance(clave, ast.Constant)
+                    }
+            elif isinstance(destino, ast.Subscript):
+                nombre = getattr(destino.value, "id", None)
+                clave = getattr(destino.slice, "value", None)
+                if nombre in objetivos and isinstance(clave, str):
+                    enviados.setdefault(nombre, set()).add(clave)
+    return enviados
 
 
 def _datos_del_flujo(modo, resume):
@@ -150,7 +191,7 @@ def _cumple(condicion, datos):
 def _recorrer(estados, modo, resume=False):
     """Sigue el camino que tomaría el motor y valida cada tarea que visita."""
     datos = _datos_del_flujo(modo, resume)
-    claves = set(ENTRADA)
+    claves = set(ENTRADA) | (ENTRADA_REANUDADA if resume else set())
     actual = _definicion()["StartAt"]
     visitados = []
 
@@ -172,6 +213,12 @@ def _recorrer(estados, modo, resume=False):
             _result_path(estado, claves)
         elif tipo == "Pass":
             if estado.get("Parameters"):
+                faltan = _raices_resueltas(estado["Parameters"]) - claves
+                assert not faltan, (
+                    f"en el flujo content_type='{modo}', el Pass '{actual}' resuelve "
+                    f"{sorted(faltan)} con JSONPath y la entrada ya no los tiene: en "
+                    f"ejecución fallaría con States.Runtime"
+                )
                 claves = _raices_de_parametros(estado["Parameters"])
         elif tipo == "Choice":
             destino = estado.get("Default")
@@ -220,6 +267,36 @@ def test_el_flujo_reanudado_tras_la_teoria_llega_al_final_sin_perder_campos():
     assert visitados[-1] == "SuccessState", visitados[-1]
     assert "ResumePostTheoryBranch" in visitados
     assert "ExpandLabsToBatchesBoth" in visitados
+
+
+def test_el_starter_envia_las_claves_que_el_flujo_exige():
+    """La simulación asume que el Starter siempre manda ``ENTRADA``: hay que verificarlo.
+
+    Fallo real que fija esta prueba (03/11/2026): el §46 añadió ``update_mode`` y
+    ``lesson_ids_to_update`` a los ``Pass`` y a los ``Payload``, y la simulación —que
+    parte de ``ENTRADA``— seguía en verde. Pero ``execution_input`` del Starter no los
+    incluía: **toda** generación nueva (y todo reanudado tras la teoría) moría en
+    ``BothTheoryAndLabsBranch`` con ``States.Runtime`` a los pocos segundos, cinco
+    ejecuciones seguidas, antes de pagar una sola llamada al modelo.
+
+    Se lee el fuente con ``ast`` (importar el módulo arrastraría boto3 y S3): los
+    literales de ``execution_input``/``update_input`` son el contrato con el cableado.
+    """
+    enviados = _claves_que_envia_el_starter()
+    for nombre in ("execution_input", "update_input"):
+        assert nombre in enviados, (
+            f"no se encontró el dict literal '{nombre}' en lambda/starter_api.py"
+        )
+        faltan = ENTRADA - enviados[nombre]
+        assert not faltan, (
+            f"'{nombre}' no envía {sorted(faltan)}, que el flujo resuelve con JSONPath: "
+            f"la ejecución fallaría con States.Runtime"
+        )
+    faltan = ENTRADA_REANUDADA - enviados["execution_input"]
+    assert not faltan, (
+        f"'execution_input' no añade {sorted(faltan)} en la rama de reanudación: "
+        f"ResumePostTheoryBranch fallaría con States.Runtime"
+    )
 
 
 def test_los_lotes_de_laboratorio_siguen_siendo_secuenciales():
