@@ -36,8 +36,10 @@ for _ruta in (_CARPETA_WRITER, _CARPETA_PLANNER, "lambda"):
 from referent_check import (  # noqa: E402
     auditar_contrato,
     auditar_duraciones_curso,
+    auditar_duracion,
     auditar_laboratorio,
     auditar_plan,
+    carga_de_laboratorio,
     canonico,
     duracion_declarada,
     entorno_de_peticion,
@@ -2646,6 +2648,73 @@ def test_b6_una_desviacion_pequena_no_marca():
     assert duracion["duracion_minima"] == 14
     assert duracion["duracion_maxima"] == 17
     assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
+
+
+def _lab_copilot_prosa(duracion, palabras_totales=3400, pasos=3):
+    """Laboratorio Copilot solo prosa, sin bloques de shell ni código."""
+    palabras_por_paso = max(
+        1, (palabras_totales - pasos * 175) // pasos
+    )
+    cabecera = (
+        f"# Lab 05-00-01: Copilot en Excel\n\n"
+        f"| **Duración** | {duracion} minutos |\n\n"
+    )
+    cuerpo = []
+    for paso in range(1, pasos + 1):
+        lectura = " ".join(f"t{j}" for j in range(palabras_por_paso))
+        cuerpo.extend(
+            [
+                f"### Paso {paso}: Analizar ventas con Copilot\n",
+                "**Objetivo:** Usar Copilot para resumir datos.\n",
+                "1. Abra el archivo compartido en Excel de escritorio.\n",
+                "2. Haga clic en Copilot en la cinta de opciones.\n",
+                f"3. Lea el contexto del escenario y siga las indicaciones.\n\n{lectura}\n",
+                "**Prompt para Copilot:**\n",
+                "```prompt\n",
+                "Resume las ventas por región y propone tres acciones de seguimiento.\n",
+                "```\n",
+                "**Verificación:** Copilot devuelve un resumen con al menos tres regiones.\n",
+            ]
+        )
+    return cabecera + "\n".join(cuerpo)
+
+
+def test_b6_cuenta_carga_gui_y_lectura_en_laboratorio_copilot():
+    lab = _lab_copilot_prosa(15, palabras_totales=3600)
+    carga = carga_de_laboratorio(lab)
+    assert carga["bloques"] == 0
+    assert carga["pasos"] == 3
+    assert carga["pasos_gui"] == 3
+    assert carga["prompts"] >= 3
+    assert carga["validaciones"] == 3
+    assert carga["minutos_lectura"] >= 17
+
+
+def test_b6_marca_un_copilot_prosa_que_solo_cabe_en_17_minutos_declarado_15():
+    """17 minutos solo de lectura no caben en 15 declarados (auditoría THOR, ítem 5)."""
+    lab = _lab_copilot_prosa(15, palabras_totales=3600)
+    informe = auditar_laboratorio(lab, "")
+    b6 = [v for v in informe["violaciones"] if v["verificacion"] == "B6"]
+    assert len(b6) == 1, informe["violaciones"]
+    assert b6[0]["confianza"] == "alta"
+    assert informe["duracion"]["minutos_lectura"] >= 17
+    assert informe["duracion"]["ok"] is False
+
+
+def test_b6_marca_el_caso_de_auditoria_10_minutos_y_17_de_lectura():
+    """Tres pasos Copilot sin cercas: antes B6 devolvía ok por falta de bloques."""
+    lab = _lab_copilot_prosa(10, palabras_totales=3600)
+    resultado = auditar_duracion(lab, 10)
+    assert resultado["ok"] is False
+    assert resultado["motivo"] != "sin pasos de acción suficientes para comparar"
+
+
+def test_b6_no_marca_un_copilot_prosa_que_cabe_en_lo_declarado():
+    lab = _lab_copilot_prosa(20, palabras_totales=2400)
+    informe = auditar_laboratorio(lab, "")
+    assert [v for v in informe["violaciones"] if v["verificacion"] == "B6"] == []
+    assert informe["duracion"]["minutos_lectura"] <= 14
+    assert informe["duracion"]["duracion_maxima"] == 26
 
 
 def test_el_mensaje_de_b6_pide_caber_en_lo_declarado_y_no_cambiar_la_duracion():
