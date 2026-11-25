@@ -4510,7 +4510,8 @@ def generate_complete_course(
         logger.warning(f"⚠️ fix_image_only_slides failed: {e}")
 
     if is_final_batch:
-        import os
+        # ``os`` is the module import. A local ``import os`` here made it
+        # local to the whole function and crashed every deck (UnboundLocalError).
         import sys
 
         _lambda_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
