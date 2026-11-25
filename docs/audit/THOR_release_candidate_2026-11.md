@@ -44,7 +44,8 @@ After the twelve merges, integration commit `c8cbae73` joins the behaviors that 
 
 - `0bcc6104` (MS-4019): the currency check treats a surface named by the syllabus the same as one named by the manual. Deprecated catalog names still block.
 - `14b4ff2e` (MS-4018): an operating system offered on the same line as an alternative to the declared one (`Windows 10/11 o macOS`) is not a B5 contradiction. A different OS alone still is. Both `referent_check.py` copies stay identical.
-- `311518e9` (COPCHAT_LD): removed the function-local `import os` inside `generate_complete_course`. That import made `os` local to the whole function, so `os.environ` raised `UnboundLocalError` and every PPT batch failed.
+- `311518e9` (COPCHAT_LD): removed the function-local `import os` inside `generate_complete_course` in the infographic generator. That import made `os` local to the whole function, so `os.environ` raised `UnboundLocalError` and every PPT batch failed.
+- `bf0feb63` (MS-4019 rerun): generic agent-type words (`agente de IA`, `agente de Microsoft 365`, `agente personalizado`) are on the currency stoplist, so they are not unknown product names. A named agent such as "agente Magic Scheduler" still blocks. The same `import os` was removed from the `ppt_merger` copy of `html_first_generator.py`, and the shadowing guard now covers that file.
 
 - `clasificar_hallazgos_de_plan` treats a lab-count gap as a low-confidence warning when the format budget merged labs (`ajustado`) or a selective update still carries `syllabus_items_combined` (`conteo_preservado`), the total does not exceed the course, and `sobran == 0`. An unexplained shortfall or `excede_total` stays high-confidence A3.
 - Selective regeneration counts `extract_all_labs(..., modules_to_generate="all")`, not the filtered lab list, so regenerating one lab is not "extra labs".
@@ -223,4 +224,4 @@ Items 2, 4, and 6 moved for the live-QA fixes above. This is still an estimate o
 - The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
 - Item 10 is still open, and item 11 has no new generated evidence. The 70.0% figure is the estimate in the table above.
 - To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. To restore block-on-first-dead-link, set `LINK_REPAIR=0`.
-- Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), and the `import os` that crashed every deck is gone (`311518e9`). Those three are not remaining blockers.
+- Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), and "agente de IA" is not an unknown product (`bf0feb63`). Those are not remaining blockers.
