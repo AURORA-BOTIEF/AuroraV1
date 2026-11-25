@@ -33,6 +33,7 @@ from referent_check import (
     referentes_creados,
     requisitos_declarados,
     salidas_de_laboratorios,
+    texto_de_anclajes,
 )
 
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
@@ -1466,6 +1467,13 @@ omítelo o escríbelo como [POR CONFIRMAR]. No introduzcas nombres de fichero ni
         else ""
     )
 
+    # A2e: names, places, deliverables and prohibitions the syllabus states.
+    # The block is empty when nothing was declared, so a normal guide is unchanged.
+    anclajes_section = texto_de_anclajes(
+        master_context.get("syllabus_text") or "",
+        en_espanol=is_spanish,
+    )
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1477,6 +1485,7 @@ COURSE CONTEXT (brief):
 - Notes: {spec_line}
 {add_req_section}
 {entorno_section}
+{anclajes_section}
 {manual_section}
 {correction_section}
 LAB SPECIFICATION:
@@ -2358,7 +2367,9 @@ def lambda_handler(event, context):
             'overall_objectives': master_plan.get('overall_objectives', []),
             'target_language': target_language,  # NEW: Pass language to prompt
             'manual_reference_text': manual_reference_text,
-            'additional_requirements': additional_requirements
+            'additional_requirements': additional_requirements,
+            # Raw syllabus. The prompt prints only the locked anchors, not this text.
+            'syllabus_text': outline_reference_text,
         }
         
         # Step 2: Generate lab guides ONE AT A TIME for reliability
@@ -2479,6 +2490,9 @@ def lambda_handler(event, context):
                             entorno=entorno_de_peticion(
                                 master_context.get("additional_requirements") or ""
                             ),
+                            # A2e reads the syllabus only. The manual is not a list of
+                            # scenario entities.
+                            temario=outline_reference_text,
                         )
                         referential_reports[lab_id] = referential_report
                         altas = [
