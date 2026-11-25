@@ -5,6 +5,7 @@ import { getBlobUrlForS3Object } from '../utils/s3ImageLoader';
 import './InfographicViewer.css';
 
 import { API_BASE } from '../utils/apiConfig';
+import { pptExportMessage } from '../utils/pptExportMessage.mjs';
 
 function InfographicViewer() {
     const { folder } = useParams();
@@ -817,7 +818,7 @@ function InfographicViewer() {
 
                                 if (!response.ok) {
                                     const errorData = await response.json().catch(() => ({}));
-                                    throw new Error(errorData.error || `Error: ${response.status}`);
+                                    throw new Error(pptExportMessage(response.status, errorData));
                                 }
 
                                 const data = await response.json();

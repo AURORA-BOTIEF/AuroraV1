@@ -420,6 +420,9 @@ def test_el_planner_reduce_las_11_practicas_antes_de_guardar():
     assert presupuesto["suma_antes"] == 330
     assert presupuesto["suma_despues"] <= 30
     assert presupuesto["excede"] is False
+    # Merging the extra labs is the product rule. It must not look like an
+    # unexplained syllabus-count mismatch to the quality gate.
+    assert plan["metadata"]["quality_gate"]["quality_status"] == "passed", plan["metadata"]["quality_gate"]
 
 
 def test_el_planner_no_deja_pasar_ms_4018_ms_4023_ni_ai_3025():
@@ -517,6 +520,30 @@ def test_una_actualizacion_selectiva_no_reune_practicas():
     assert len(plan["lab_plans"]) == 11
     assert plan["metadata"]["format_budget"]["ajustado"] is False
     assert plan["metadata"]["format_budget"]["motivo"] == "actualizacion_selectiva"
+    # The cap does not run on a selective update, so a plan that still exceeds
+    # the course is a real A3 failure, not a count mismatch from merging.
+    puerta = plan["metadata"]["quality_gate"]
+    assert puerta["quality_status"] == "needs_review", puerta
+    assert any(h["verificacion"] == "A3" and h["campo"] == "duration" for h in puerta["quality_findings"])
+    assert all(h.get("campo") != "format_budget" for h in puerta["quality_findings"])
+
+
+def test_regenerar_un_lab_no_cuenta_el_plan_completo_como_sobra():
+    """lab_ids_to_regenerate still runs the gate, against the whole syllabus.
+
+    A plan that already fits is not needs_review just because only one lab was
+    sent back through the planner.
+    """
+    outline = _outline_conferencia(2, 15)
+    planes = _planes_modelo(2, 15)
+    plan = _handler(
+        outline,
+        planes[:1],
+        evento_extra={"lab_ids_to_regenerate": ["01-00-01"]},
+        plan_existente={"lab_plans": planes, "additional_requirements": "", "metadata": {}},
+    )
+    assert len(plan["lab_plans"]) == 2
+    assert plan["metadata"]["quality_gate"]["quality_status"] == "passed", plan["metadata"]["quality_gate"]
 
 
 if __name__ == "__main__":

@@ -12,6 +12,25 @@ ses_client = boto3.client('ses')
 ADMIN_EMAIL = "juan.ossa@netec.com"
 
 
+def _compuerta_de_enlaces_muertos(event) -> bool:
+    """True when the post-generation audit says dead public links must fail the course."""
+    fuentes = [event]
+    entrada = event.get("input") if isinstance(event, dict) else None
+    if isinstance(entrada, dict):
+        fuentes.append(entrada)
+    for fuente in fuentes:
+        auditoria = fuente.get("audit_result") if isinstance(fuente, dict) else None
+        if not isinstance(auditoria, dict):
+            continue
+        payload = auditoria.get("Payload")
+        if not isinstance(payload, dict):
+            continue
+        compuerta = payload.get("gate")
+        if isinstance(compuerta, dict) and compuerta.get("bloquea") is True:
+            return True
+    return False
+
+
 def construir_notificacion(
     status,
     project_folder,
@@ -31,7 +50,17 @@ def construir_notificacion(
     detalle = error_message or "Hallazgos de alta confianza pendientes de revisión."
     arn = execution_arn or "N/A"
     parciales = [p for p in (advertencias_parciales or []) if p]
-    if status == "needs_review":
+    if status == "link_audit_failed":
+        subject = f"🚫 Curso no entregado por enlaces muertos: {proyecto}"
+        intro = (
+            f"La generación del curso para el proyecto '{proyecto}' no se entregó. "
+            "La auditoría encontró enlaces públicos muertos (HTTP 404, 410 o un dominio "
+            "que no existe). Los códigos 403, 429 y 5xx no detienen el curso. "
+            "El detalle está en validation/link-audit.json."
+        )
+        color = "#d32f2f"
+        titulo = "Enlaces públicos muertos"
+    elif status == "needs_review":
         subject = f"⚠️ Curso pendiente de revisión: {proyecto}"
         intro = (
             f"La generación del curso para el proyecto '{proyecto}' no se entregó. "
@@ -235,15 +264,24 @@ def lambda_handler(event, context):
         if event.get(warning_key) is not None or workflow_input.get(warning_key) is not None:
             partial_warnings.append(label)
 
+    estado_correo = status
+    if _compuerta_de_enlaces_muertos(event):
+        estado_correo = "link_audit_failed"
+        if not error_message or error_message == "Error desconocido":
+            error_message = (
+                "Enlaces públicos muertos (404, 410 o DNS). "
+                "Revise validation/link-audit.json."
+            )
+
     logger.info(
         "QUALITY GATE notification status=%s project=%s detail=%s warnings=%s",
-        status,
+        estado_correo,
         project_folder,
         error_message,
         partial_warnings,
     )
     subject, body_text, body_html = construir_notificacion(
-        status,
+        estado_correo,
         project_folder,
         error_message,
         execution_arn,

@@ -568,6 +568,9 @@ Resources:
           LAB_BEDROCK_MAX_OUTPUT_TOKENS: '20000'
           BEDROCK_READ_TIMEOUT: '860'
           LAB_SKIP_IF_EXISTS: 'true'
+          COPILOT_CATALOG_RETRIEVAL: '0'
+          CURRENCY_RETRY: '1'
+          VALIDATION_EVIDENCE_RETRY: '1'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -989,6 +992,7 @@ Resources:
       Environment:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
+          LINK_AUDIT_GATE: '1'
       Policies:
         - Version: '2012-10-17'
           Statement:

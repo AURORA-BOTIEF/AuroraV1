@@ -1122,6 +1122,7 @@ def clasificar_hallazgos_de_plan(
     duraciones_curso: dict,
     contrato_informe: dict,
     preflight: dict | None = None,
+    ajuste_formato: dict | None = None,
 ) -> dict:
     """Plan-level gate after the last A1 retry and the A2/A3/A5 copies.
 
@@ -1129,6 +1130,10 @@ def clasificar_hallazgos_de_plan(
     duration mismatch that reconciliation did not clear (A2/A3), and an
     objective or other contract field that still disagrees (A5). Low-confidence
     referents and pre-flight signals stay warnings.
+
+    A shorter lab count is not a mismatch when the format budget merged or
+    dropped practices on purpose, or when a selective update kept a plan that
+    already records that merge. A total that still exceeds the course stays blocking.
     """
     bloquean: List[dict] = []
     advertencias: List[dict] = []
@@ -1142,19 +1147,41 @@ def clasificar_hallazgos_de_plan(
             advertencias.append(ficha)
 
     if duraciones_curso and not duraciones_curso.get("ok", True):
-        bloquean.append({
-            "verificacion": "A3",
-            "confianza": "alta",
-            "valor": (
-                f"cantidad/duracion: plan {duraciones_curso.get('suma_plan')} min "
-                f"frente a curso {duraciones_curso.get('total_curso')}; "
-                f"{duraciones_curso.get('labs_plan')} laboratorio(s) frente a "
-                f"{duraciones_curso.get('labs_temario')} practica(s) del temario "
-                f"(faltan {duraciones_curso.get('faltan')}, sobran {duraciones_curso.get('sobran')})"
-            ),
-            "lab_id": None,
-            "campo": "duration",
-        })
+        ajuste = ajuste_formato or {}
+        conteo_del_formato = (
+            not duraciones_curso.get("excede_total")
+            and not duraciones_curso.get("sobran")
+            and (
+                bool(ajuste.get("ajustado"))
+                or bool(ajuste.get("conteo_preservado"))
+            )
+        )
+        detalle_conteo = (
+            f"cantidad/duracion: plan {duraciones_curso.get('suma_plan')} min "
+            f"frente a curso {duraciones_curso.get('total_curso')}; "
+            f"{duraciones_curso.get('labs_plan')} laboratorio(s) frente a "
+            f"{duraciones_curso.get('labs_temario')} practica(s) del temario "
+            f"(faltan {duraciones_curso.get('faltan')}, sobran {duraciones_curso.get('sobran')})"
+        )
+        if conteo_del_formato:
+            advertencias.append({
+                "verificacion": "A3",
+                "confianza": "baja",
+                "valor": (
+                    "el presupuesto de formato reunió prácticas del temario; "
+                    + detalle_conteo
+                )[:300],
+                "lab_id": None,
+                "campo": "format_budget",
+            })
+        else:
+            bloquean.append({
+                "verificacion": "A3",
+                "confianza": "alta",
+                "valor": detalle_conteo,
+                "lab_id": None,
+                "campo": "duration",
+            })
 
     for conflicto in (contrato_informe or {}).get("conflictos") or ():
         if not isinstance(conflicto, dict):
@@ -1384,9 +1411,11 @@ def lambda_handler(event, context):
 
         outline_fallback = master_plan.pop('_outline_fallback_used', False)
 
+        plan_previo = None
         if lab_ids_to_regenerate:
             regen_set = {x for x in lab_ids_to_regenerate if x}
             existing = load_master_plan_from_s3(course_bucket, project_folder)
+            plan_previo = existing
             if not existing or not existing.get("lab_plans"):
                 raise ValueError(
                     "lab_ids_to_regenerate requires existing "
@@ -1494,8 +1523,16 @@ def lambda_handler(event, context):
                 f"{preflight['modulos_con_aviso']} módulo(s) del temario"
             )
 
+        # Selective regeneration plans only the requested labs, then merges them
+        # into the saved plan. The count audit has to see the whole syllabus,
+        # not that subset, or every partial update looks like extra labs.
+        labs_para_conteo = labs
+        if lab_ids_to_regenerate:
+            labs_para_conteo = extract_all_labs(
+                outline_data, modules_to_generate="all"
+            )
         duraciones_curso = auditar_duraciones_curso(
-            master_plan, labs, course_info.get("total_duration_minutes")
+            master_plan, labs_para_conteo, course_info.get("total_duration_minutes")
         )
         if not duraciones_curso["ok"]:
             print(
@@ -1557,8 +1594,21 @@ def lambda_handler(event, context):
             'entorno_declarado': entorno_de_peticion(lab_requirements),
         }
 
+        ajuste_para_puerta = dict(ajuste_formato or {})
+        if lab_ids_to_regenerate and not ajuste_para_puerta.get("ajustado"):
+            presupuesto_previo = ((plan_previo or {}).get("metadata") or {}).get("format_budget") or {}
+            ya_reunido = bool(presupuesto_previo.get("ajustado")) or any(
+                isinstance(plan, dict) and plan.get("syllabus_items_combined")
+                for plan in (master_plan.get("lab_plans") or ())
+            )
+            if ya_reunido:
+                ajuste_para_puerta["conteo_preservado"] = True
         puerta = clasificar_hallazgos_de_plan(
-            referential_report, duraciones_curso, contrato_informe, preflight
+            referential_report,
+            duraciones_curso,
+            contrato_informe,
+            preflight,
+            ajuste_formato=ajuste_para_puerta,
         )
         master_plan['metadata']['quality_gate'] = puerta
         _registrar_puerta_de_plan(puerta)

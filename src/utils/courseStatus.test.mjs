@@ -46,3 +46,33 @@ test('a generic failure stays failed', () => {
     assert.equal(presented.code, 'failed');
     assert.equal(presented.detail, 'timeout');
 });
+
+test('setup-guide warnings are not a clean success', () => {
+    const presented = presentCourseStatus({
+        status: 'SUCCEEDED',
+        course_status: 'SUCCEEDED_WITH_WARNINGS',
+        quality_status: 'passed',
+        needs_review: false,
+        generation_warnings: [{ code: 'setup_guide_error', component: 'Setup Guide' }],
+    });
+    assert.equal(presented.code, 'succeeded_with_warnings');
+    assert.equal(presented.label, 'COMPLETADO CON ADVERTENCIAS');
+    assert.match(presented.headline, /guía de configuración/);
+    assert.match(presented.detail, /Setup Guide/);
+});
+
+test('link audit failure names dead links in Spanish and English', () => {
+    const body = {
+        status: 'FAILED',
+        course_status: 'link_audit_failed',
+        quality_status: 'failed',
+        error: 'Enlaces públicos muertos (404, 410 o DNS). El curso no se entregó.',
+    };
+    const es = presentCourseStatus(body, 'es');
+    assert.equal(es.code, 'link_audit_failed');
+    assert.equal(es.label, 'ENLACES ROTOS');
+    assert.match(es.headline, /no se entregó/);
+    const en = presentCourseStatus(body, 'en');
+    assert.equal(en.label, 'BROKEN LINKS');
+    assert.match(en.headline, /was not delivered/);
+});

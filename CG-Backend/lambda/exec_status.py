@@ -44,6 +44,9 @@ def estado_visible_del_curso(execution_status, sf_error=None, sf_cause=None, par
     if needs:
         quality_status = "needs_review"
         course_status = "needs_review"
+    elif sf_error == "LinkAuditFailed":
+        quality_status = "failed"
+        course_status = "link_audit_failed"
     elif execution_status == "FAILED":
         quality_status = "failed"
         course_status = "failed"

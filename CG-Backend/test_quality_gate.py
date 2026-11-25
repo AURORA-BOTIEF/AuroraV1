@@ -156,7 +156,12 @@ def _ejecutar_writer(plan, contenidos, max_intentos=1, objetos=None, requisitos=
     modulo._verify_and_refine_lab_guide = lambda guide, plan_, ctx, model_provider="bedrock": guide
     modulo._finalize_lab_markdown = lambda markdown, is_demo, is_spanish=True: markdown
     modulo.load_master_plan_from_s3 = lambda bucket, key: plan
-    modulo.save_lab_guide_to_s3 = lambda **kw: f"p/labguide/lab-{kw['lab_id']}.md"
+    def _guardar(**kw):
+        clave = f"p/labguide/lab-{kw['lab_id']}.md"
+        s3.objetos[clave] = kw["lab_guide"]
+        return clave
+
+    modulo.save_lab_guide_to_s3 = _guardar
     modulo._lab_skip_if_exists_enabled = lambda: False
     modulo._find_existing_lab_guide_key = lambda bucket, project, lab_id: None
     plan = dict(plan)
@@ -261,22 +266,25 @@ def test_alta_confianza_bloquea_y_baja_queda_en_aviso():
 
 
 def test_el_writer_no_entrega_el_xlsx_no_declarado_tras_el_ultimo_intento():
-    """Audit example: undeclared Ventas_MultiRegional_2024.xlsx is saved for review, not as passed."""
+    """An undeclared xlsx is inlined as a fictitious annex, so the finding does not remain.
+
+    The quality gate still fails the lab when a high-confidence finding is left
+    (duration, objective, environment). A file the annex can carry is no longer
+    one of those findings.
+    """
     _modulo, resultado, s3, log, contextos = _ejecutar_writer(
         {"lab_plans": [_LAB_PLAN]}, [_lab_xlsx()], max_intentos=1
     )
     assert resultado["statusCode"] == 200, resultado
-    assert resultado["quality_status"] == "needs_review", resultado
-    assert resultado["labs_needing_review"]
-    assert any(
-        "Ventas_MultiRegional_2024.xlsx" in (f.get("valor") or "")
-        for f in resultado["labs_needing_review"][0]["findings"]
-    )
-    assert "needs_review" in log
+    assert resultado["quality_status"] == "passed", resultado
+    assert resultado["labs_needing_review"] == []
+    guia = s3.objetos["p/labguide/lab-01-00-01.md"]
+    assert "Anexo (datos ficticios)" in guia
+    assert "Ventas_MultiRegional_2024.xlsx" in guia
     assert "QUALITY GATE" in log
     assert len(contextos) == 1
     informe = json.loads(s3.objetos["p/validation/labs-referential-integrity.json"])
-    assert informe["quality_status"] == "needs_review"
+    assert informe["quality_status"] == "passed"
 
 
 def test_el_writer_reintenta_y_solo_entonces_marca_needs_review():
@@ -289,13 +297,17 @@ def test_el_writer_reintenta_y_solo_entonces_marca_needs_review():
     assert corregido["quality_status"] == "passed", corregido
     assert contextos and len(contextos) == 2
 
-    _modulo, final, _s3, log, contextos = _ejecutar_writer(
+    _modulo, final, s3, log, contextos = _ejecutar_writer(
         {"lab_plans": [_LAB_PLAN]}, [malo, malo, malo], max_intentos=3
     )
     assert final["statusCode"] == 200
-    assert final["quality_status"] == "needs_review", final
+    # Attempts 1 and 2 ask the model to drop the file. The guide that ships
+    # still cannot depend on an undelivered workbook, so the annex inlines it
+    # and the gate passes.
     assert len(contextos) == 3
-    assert "will not be delivered as passed" in log
+    assert final["quality_status"] == "passed", final
+    assert "Anexo (datos ficticios)" in s3.objetos["p/labguide/lab-01-00-01.md"]
+    assert "referential_correction" in (contextos[1] or {})
 
 
 def test_cantidad_duracion_objetivo_entorno_y_omision_bloquean():
@@ -540,6 +552,23 @@ def test_el_estado_visible_separa_needs_review_de_un_fallo_generico():
     assert fallo["quality_status"] == "failed"
     assert fallo["course_status"] == "failed"
 
+    aviso = modulo.estado_visible_del_curso(
+        "SUCCEEDED", None, None, {"setup_guide_error": {"Error": "Runtime"}}
+    )
+    assert aviso["course_status"] == "SUCCEEDED_WITH_WARNINGS"
+    assert aviso["needs_review"] is False
+    assert aviso["error"] is None
+    assert aviso["generation_warnings"][0]["code"] == "setup_guide_error"
+
+    enlaces = modulo.estado_visible_del_curso(
+        "FAILED",
+        "LinkAuditFailed",
+        "Enlaces públicos muertos (404, 410 o DNS). El curso no se entregó.",
+        None,
+    )
+    assert enlaces["course_status"] == "link_audit_failed"
+    assert enlaces["needs_review"] is False
+
 
 def test_la_notificacion_de_needs_review_no_dice_que_el_curso_salio():
     _stub_boto3()
@@ -564,6 +593,18 @@ def test_la_notificacion_de_needs_review_no_dice_que_el_curso_salio():
         "success", "curso-fondos", "", "arn:exec"
     )
     assert "exitosamente" in texto_ok
+    asunto_aviso, texto_aviso, _html_aviso = modulo.construir_notificacion(
+        "success", "curso-fondos", "", "arn:exec", advertencias_parciales=["Setup Guide"]
+    )
+    assert "advertencias" in asunto_aviso.lower()
+    assert "Setup Guide" in texto_aviso
+    assert "exitosamente" not in texto_aviso
+    asunto_enlace, texto_enlace, _html_enlace = modulo.construir_notificacion(
+        "link_audit_failed", "curso-fondos", "404", "arn:exec"
+    )
+    assert "enlaces" in asunto_enlace.lower()
+    assert "no se entregó" in texto_enlace
+    assert "exitosamente" not in texto_enlace
 
 
 def test_un_aviso_del_validador_no_es_error_de_alta():

@@ -1663,7 +1663,7 @@
     },
     "NotifyFailure": {
       "Comment": "Send failure notification to user and admin",
-      "Next": "FailWorkflow",
+      "Next": "RouteTerminalFailure",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
         "Payload": {
@@ -1689,6 +1689,31 @@
         }
       ],
       "Type": "Task"
+    },
+    "RouteTerminalFailure": {
+      "Type": "Choice",
+      "Comment": "A dead-link gate is a failed delivery with its own error name. Every other NotifyFailure stays a generic workflow failure.",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.audit_result.Payload.gate.bloquea",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.audit_result.Payload.gate.bloquea",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "FailLinkAudit"
+        }
+      ],
+      "Default": "FailWorkflow"
+    },
+    "FailLinkAudit": {
+      "Type": "Fail",
+      "Error": "LinkAuditFailed",
+      "Cause": "Enlaces públicos muertos (404, 410 o DNS). El curso no se entregó. Revise validation/link-audit.json."
     },
     "SuccessState": {
       "Type": "Succeed"

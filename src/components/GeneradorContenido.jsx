@@ -109,9 +109,12 @@ const GeneradorContenido = () => {
                 if (response.status === 'RUNNING' || response.status === 'PENDING') {
                     // Continue polling
                     setTimeout(poll, pollInterval);
-                } else if (presented.code === 'needs_review') {
+                } else if (presented.code === 'needs_review' || presented.code === 'link_audit_failed') {
                     setSuccess('');
                     setError(`${presented.headline} ${presented.detail}`.trim());
+                } else if (presented.code === 'succeeded_with_warnings') {
+                    setError('');
+                    setSuccess(`${presented.headline} ${presented.detail}`.trim());
                 } else if (response.status === 'SUCCEEDED') {
                     setSuccess(`¡Generación completada exitosamente! Se generaron ${response.result?.content_statistics?.total_words || 0} palabras en ${response.result?.generated_lessons?.length || 0} lecciones.`);
                 } else {
@@ -132,6 +135,7 @@ const GeneradorContenido = () => {
         switch (tone) {
             case 'passed': return 'green';
             case 'needs_review': return '#ed6c02';
+            case 'warning': return '#ed6c02';
             case 'failed': return 'red';
             case 'running': return 'blue';
             case 'pending': return 'orange';
@@ -220,8 +224,8 @@ const GeneradorContenido = () => {
                             return (
                                 <>
                                     <p><strong>Estado:</strong> <span style={{ color: getStatusColor(presented.tone) }}>{presented.label}</span></p>
-                                    {presented.code === 'needs_review' && (
-                                        <p><strong>Revisión:</strong> {presented.headline} {presented.detail}</p>
+                                    {(presented.code === 'needs_review' || presented.code === 'link_audit_failed' || presented.code === 'succeeded_with_warnings') && (
+                                        <p><strong>{presented.code === 'needs_review' ? 'Revisión:' : presented.code === 'link_audit_failed' ? 'Enlaces:' : 'Advertencias:'}</strong> {presented.headline} {presented.detail}</p>
                                     )}
                                     {Array.isArray(executionStatus.quality_warnings) && executionStatus.quality_warnings.length > 0 && presented.code !== 'needs_review' && (
                                         <p><strong>Avisos:</strong> {executionStatus.quality_warnings.length} hallazgo(s) de baja confianza (no bloquean).</p>

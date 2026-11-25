@@ -372,6 +372,12 @@ def test_los_enlaces_muertos_son_compuerta_y_un_fallo_de_lambda_no():
     assert eleccion["Variable"] == "$.audit_result.Payload.gate.bloquea"
     assert eleccion["BooleanEquals"] is True
     assert eleccion["Next"] == "NotifyFailure"
+    assert estados["NotifyFailure"]["Next"] == "RouteTerminalFailure"
+    ruta = estados["RouteTerminalFailure"]
+    assert ruta["Choices"][0]["Next"] == "FailLinkAudit"
+    assert ruta["Default"] == "FailWorkflow"
+    assert estados["FailLinkAudit"]["Error"] == "LinkAuditFailed"
+    assert estados["FailLinkAudit"]["Type"] == "Fail"
 
 
 def _destino_de_choice(estado, datos):
