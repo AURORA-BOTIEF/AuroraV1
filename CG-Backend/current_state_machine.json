@@ -963,7 +963,7 @@
       "Type": "Task"
     },
     "InvokePostGenerationAudit": {
-      "Comment": "Write the inputs manifest and the link report. Dead links are gated by CheckLinkAudit. A Lambda crash still continues (Catch → NotifyCompletion) so the gate is the payload field, not an exception.",
+      "Comment": "Write the inputs manifest and the link report. A repair rewrites the lab files and applies the same URL edits to book/*LabGuide_complete.md and book/*LabGuide_data.json. Dead links that remain are gated by CheckLinkAudit. A Lambda crash still continues (Catch → NotifyCompletion) so the gate is the payload field, not an exception.",
       "Next": "CheckLinkAudit",
       "Parameters": {
         "FunctionName": "${PostGenerationAuditArn}",
