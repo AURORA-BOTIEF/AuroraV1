@@ -24,6 +24,7 @@ from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
 from audience_adaptation import adjust_presupuesto, writer_audience_block
+from golden_lab_example import build_golden_lab_prompt_section
 from referent_check import (
     auditar_laboratorio,
     duracion_declarada,
@@ -1469,6 +1470,8 @@ omítelo o escríbelo como [POR CONFIRMAR]. No introduzcas nombres de fichero ni
         else ""
     )
 
+    golden_section = build_golden_lab_prompt_section(lab_plan, master_context)
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1494,7 +1497,7 @@ LAB SPECIFICATION:
 QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
 
 {THOR_QUALITY_RULES}
-OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
+{golden_section}OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
 ---LAB_START---
 LAB_ID: {lid}
 ---MARKDOWN---
