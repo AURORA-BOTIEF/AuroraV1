@@ -30,6 +30,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
+from audience_adaptation import content_audience_block, resolve_audience_profile, scale_theory_target_words
 
 # Configure boto3 with extended timeouts for long-running LLM calls
 boto_config = Config(
@@ -373,7 +374,12 @@ def generate_batch_single_call(
     
     # Build course context
     spanish_course = is_spanish_course(course_data)
+    audience_profile = resolve_audience_profile(course_data)
     print(f"🌐 spanish_course={spanish_course} (outline language field={course_data.get('language', '')!r})")
+    print(
+        f"👥 audience_profile={audience_profile.get('profile')} "
+        f"(copilot_productivity={audience_profile.get('is_copilot_productivity')})"
+    )
     module_term = "Capítulo" if spanish_course else "Module"
     lesson_term = "Lección" if spanish_course else "Lesson"
     course_context = build_course_context(
@@ -397,7 +403,15 @@ def generate_batch_single_call(
     # Build lesson specifications
     lesson_specs = []
     for i, lesson in enumerate(batch_lessons, start=batch_start_idx):
+        l_is_lab = is_lab_lesson(lesson)
+        l_is_demo = is_demo_lesson(lesson)
         target_words = calculate_target_words(lesson, module_data)
+        if not l_is_lab and not l_is_demo:
+            target_words = scale_theory_target_words(
+                target_words,
+                audience_profile,
+                is_lab_or_demo=False,
+            )
 
         topics_list = lesson.get('topics', [])
         topics_formatted = []
@@ -421,8 +435,6 @@ def generate_batch_single_call(
                 labs_formatted.append(f"      - {str(l)}")
         labs_str = "\n".join(labs_formatted)
 
-        l_is_lab = is_lab_lesson(lesson)
-        l_is_demo = is_demo_lesson(lesson)
         if l_is_lab:
             l_title = lesson.get('title', 'Untitled')
             if l_is_demo:
@@ -811,9 +823,13 @@ CRÍTICO: El contenido de todas las lecciones DEBE estar 100% estrictamente alin
         else ""
     )
 
+    audience_adaptation_section = content_audience_block(audience_profile, spanish_course)
+
     prompt = f"""{role_line}
 
 {language_directive}
+
+{audience_adaptation_section}
 
 {manual_alignment_directive}
 
