@@ -43,6 +43,13 @@ from referent_check import (
     texto_de_anclajes,
 )
 from measurable_evidence import hallazgos_validacion_no_medible, mensaje_correccion_validacion
+from reading_budget import (
+    hallazgo_lectura,
+    medir_lectura,
+    mensaje_acortar,
+    reintento_habilitado as _reintento_lectura_habilitado,
+    texto_para_prompt as _texto_presupuesto_lectura,
+)
 
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
 # that boto3 does not abort a long generation and retry (which doubles wall time).
@@ -140,7 +147,8 @@ def partir_hallazgos(violaciones) -> tuple:
     High confidence (``confianza == "alta"``) blocks delivery after the final
     retry: syllabus quantity (A2), duration (B6), objective (A5), undeclared
     files (B1/B2), environment (C2), file-shaped omissions (B3p) and any other
-    high-confidence validator finding. Low confidence stays a warning.
+    high-confidence validator finding. Medium confidence (a reading-budget
+    overrun that survived the last attempt) and low confidence stay warnings.
     """
     bloquean: List[dict] = []
     advertencias: List[dict] = []
@@ -210,7 +218,7 @@ def _registrar_puerta_de_lab(lab_id: str, attempt: int, bloquean, advertencias) 
     if advertencias:
         print(
             f"  ⚠️  QUALITY GATE: lab {lab_id} passed with "
-            f"{len(advertencias)} low-confidence warning(s); not blocking."
+            f"{len(advertencias)} non-blocking warning(s)."
         )
         for ficha in advertencias[:8]:
             print(f"     ⚠️  {ficha['verificacion']} [{ficha['confianza']}] {ficha['valor']}")
@@ -1678,6 +1686,13 @@ This lab is declared at {presupuesto['declarada']} minutes and must fit in them.
     else:
         presupuesto_section = ""
 
+    minutos_lectura = lab_plan.get("estimated_duration") or lab_plan.get("duration_minutes")
+    lectura_section = _texto_presupuesto_lectura(minutos_lectura, en_espanol=is_spanish)
+    lectura_corr = master_context.get("reading_budget_correction", "")
+    lectura_corr_section = (
+        f"\n{lectura_corr}\n" if lectura_corr and str(lectura_corr).strip() else ""
+    )
+
     etiqueta_anexo = _TITULO_ANEXO_ES if is_spanish else _TITULO_ANEXO_EN
     # previous_lab_context_section is ignored: the live prompt must not tell the
     # model to reuse the previous lab's files or outputs.
@@ -1783,7 +1798,9 @@ LAB SPECIFICATION:
 
 {structure_block}
 {presupuesto_section}
-QUALITY: Be thorough and professional, but **concise**. Target about 4,000–8,000 words of useful content unless the Bloom level truly requires more. Do not pad with generic filler.
+{lectura_section}
+{lectura_corr_section}
+QUALITY: Be thorough and professional, but **concise**. Stay inside the reading budget above. Do not pad with generic filler.
 
 {THOR_QUALITY_RULES}
 {golden_section}OUTPUT FORMAT (required; use these exact ASCII delimiters, case-sensitive):
@@ -2716,6 +2733,7 @@ def lambda_handler(event, context):
             master_context.pop("referential_correction", None)
             master_context.pop("validation_evidence_correction", None)
             master_context.pop("currency_correction", None)
+            master_context.pop("reading_budget_correction", None)
 
             # En actualización selectiva el lab pedido SE regenera, aunque exista:
             # el skip-if-exists solo aplica a la generación normal.
@@ -2913,6 +2931,44 @@ def lambda_handler(event, context):
                                 f"{len(altas)} high-confidence finding(s)"
                             )
 
+                        # Reading budget: body prose and the fictitious annex are
+                        # counted apart. While attempts remain, ask for a shorter
+                        # draft with the actual counts. The last attempt records a
+                        # medium finding and still ships the lab.
+                        medida_lectura = medir_lectura(
+                            verified_guide,
+                            duracion_declarada(verified_guide)
+                            or lab_plan.get("estimated_duration")
+                            or lab_plan.get("duration_minutes"),
+                        )
+                        if medida_lectura.get("excede"):
+                            print(
+                                f"  🔎 Lectura de {lab_id}: "
+                                f"{medida_lectura.get('palabras')} palabras "
+                                f"(presupuesto {medida_lectura.get('palabras_max')}), "
+                                f"anexo {medida_lectura.get('palabras_anexo')} "
+                                f"(tope {medida_lectura.get('anexo_max')})"
+                            )
+                        if (
+                            medida_lectura.get("excede")
+                            and attempt < MAX_LAB_GENERATION_ATTEMPTS
+                            and _reintento_lectura_habilitado()
+                        ):
+                            master_context["reading_budget_correction"] = mensaje_acortar(
+                                medida_lectura,
+                                en_espanol=course_language.startswith("es"),
+                            )
+                            raise RuntimeError(
+                                f"Reading budget exceeded for {lab_id}: "
+                                f"{medida_lectura.get('palabras')} words "
+                                f"(max {medida_lectura.get('palabras_max')}), "
+                                f"annex {medida_lectura.get('palabras_anexo')} "
+                                f"(max {medida_lectura.get('anexo_max')})"
+                            )
+                        hallazgo_r1 = hallazgo_lectura(medida_lectura)
+                        if hallazgo_r1:
+                            referential_report.setdefault("violaciones", []).append(hallazgo_r1)
+
                         # C6: a Copilot feature, agent, or button must be in the
                         # verified catalog (or the uploaded manual). Unknown and
                         # deprecated names retry, and still fail the lab on the
@@ -3058,7 +3114,7 @@ def lambda_handler(event, context):
             print(f"✅ LAB WRITING COMPLETED")
             if avisos:
                 print(
-                    f"   ⚠️  {len(avisos)} lab(s) with low-confidence warnings only"
+                    f"   ⚠️  {len(avisos)} lab(s) with non-blocking warnings only"
                 )
         print(f"   Generated: {len(lab_guide_keys)}/{len(lab_plans)} labs")
         print(f"   quality_status: {quality_status}")

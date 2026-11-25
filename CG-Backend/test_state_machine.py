@@ -270,6 +270,61 @@ def test_el_flujo_solo_laboratorios_llega_al_final_sin_perder_campos():
     visitados = _recorrer(_definicion()["States"], "labs")
     assert visitados[-1] == "SuccessState", visitados[-1]
     assert "ExpandLabsToBatches" in visitados
+    assert "InvokePostGenerationAudit" in visitados
+    assert "CheckLinkAudit" in visitados
+
+
+def test_el_flujo_solo_laboratorios_pasa_por_la_compuerta_de_enlaces():
+    """Labs-only used to finish without a link check when the Setup Guide threw.
+
+    The happy path and the guide-failure catch both enter the audit, and a
+    dead-link payload still fails the execution as LinkAuditFailed.
+    """
+    estados = _definicion()["States"]
+    visitados = _recorrer(estados, "labs")
+    auditoria = visitados.index("InvokePostGenerationAudit")
+    compuerta = visitados.index("CheckLinkAudit")
+    assert auditoria < compuerta < visitados.index("SuccessState")
+    assert estados["InvokeSetupGuide"]["Catch"][0]["Next"] == "InvokePostGenerationAudit"
+    bloqueado = _destino_de_choice(estados["CheckLinkAudit"], {
+        "audit_result": {"Payload": {"gate": {"bloquea": True}}},
+    })
+    assert bloqueado == "NotifyFailure"
+    assert estados["FailLinkAudit"]["Error"] == "LinkAuditFailed"
+    assert "labguide/enlaces.json" in estados["FailLinkAudit"]["Cause"]
+    assert "validation/link-audit.json" not in estados["FailLinkAudit"]["Cause"]
+
+
+def test_todos_los_estados_siguen_siendo_alcanzables():
+    """Rewiring the guide catch must not orphan a state."""
+    definicion = _definicion()
+    estados = definicion["States"]
+    pendientes = [definicion["StartAt"]]
+    vistos = set()
+    while pendientes:
+        nombre = pendientes.pop()
+        if nombre in vistos:
+            continue
+        vistos.add(nombre)
+        estado = estados[nombre]
+        for clave in ("Next", "Default"):
+            destino = estado.get(clave)
+            if destino:
+                pendientes.append(destino)
+        for eleccion in estado.get("Choices") or []:
+            if eleccion.get("Next"):
+                pendientes.append(eleccion["Next"])
+        for atrapa in estado.get("Catch") or []:
+            if atrapa.get("Next"):
+                pendientes.append(atrapa["Next"])
+        iterador = (estado.get("Iterator") or {}).get("States") or {}
+        for interno in iterador.values():
+            for clave in ("Next", "Default"):
+                destino = interno.get(clave)
+                if destino and destino in estados:
+                    pendientes.append(destino)
+    faltan = set(estados) - vistos
+    assert not faltan, sorted(faltan)
 
 
 def test_el_flujo_teoria_y_laboratorios_llega_al_final_sin_perder_campos():
@@ -335,8 +390,10 @@ def test_los_lotes_de_laboratorio_siguen_siendo_secuenciales():
 def test_la_setup_guide_se_genera_despues_de_los_labs_y_no_bloquea():
     """La guía consume el plan y los ``lab-*.md``: va después del escritor.
 
-    Un fallo de la guía no puede invalidar un curso ya generado: el ``Catch``
-    vuelve a ``NotifyCompletion`` y deja el error en ``$.setup_guide_error``.
+    Un fallo de la guía no invalida el curso por sí solo: el ``Catch`` deja el
+    error en ``$.setup_guide_error`` y sigue hacia la auditoría de enlaces.
+    Si esa auditoría no bloquea, la ejecución llega a ``NotifyCompletion`` y
+    el estado visible es SUCCEEDED_WITH_WARNINGS.
     """
     estados = _definicion()["States"]
     assert estados["InvokeLabGuideBuilder"]["Next"] == "InvokeSetupGuide"
@@ -345,8 +402,8 @@ def test_la_setup_guide_se_genera_despues_de_los_labs_y_no_bloquea():
     assert guia["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert guia["Parameters"]["Payload"]["course_bucket.$"] == "$.course_bucket"
     atrapa = guia["Catch"][0]
-    assert atrapa["Next"] == "NotifyCompletion", (
-        "un fallo de la Setup Guide no debe invalidar el curso"
+    assert atrapa["Next"] == "InvokePostGenerationAudit", (
+        "un fallo del PDF no debe saltarse la auditoría de enlaces"
     )
     assert atrapa["ResultPath"] == "$.setup_guide_error"
 

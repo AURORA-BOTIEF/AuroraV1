@@ -255,6 +255,9 @@ def test_el_handler_marca_la_compuerta_sin_fallar_la_lambda():
         {"curso/labguide/lab-01-00-01-a.md": b"Ver https://learn.microsoft.com/old"}
     )
     modulo.s3 = s3
+    # The gate test mocks the audit report. Repair still asks the checker
+    # whether a catalog URL is alive, so the checker stays injected.
+    modulo.revisar_enlace = lambda url: ("muerto", 404)
     modulo.revisar_enlaces = lambda bucket, proyecto: {
         "resumen": {"publicos": 1, "vivos": 0, "muertos": 1, "no_verificables": 0},
         "muertos": [
@@ -277,6 +280,237 @@ def test_el_handler_marca_la_compuerta_sin_fallar_la_lambda():
     informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
     assert informe["gate"]["bloquea"] is True
     assert informe["muertos"][0]["estado"] == 404
+
+
+_URL_CHAT_INVENTADA = (
+    "https://learn.microsoft.com/es-es/copilot/microsoft-365/microsoft-365-copilot-chat"
+)
+_URL_CHAT_CATALOGO = "https://learn.microsoft.com/en-us/copilot/manage/researcher-agent"
+_URL_CHAT_MANUAL = (
+    "https://learn.microsoft.com/en-us/copilot/microsoft-365/microsoft-365-copilot-chat"
+)
+
+
+def _sin_red(modulo):
+    def _urlopen(*_args, **_kwargs):
+        raise AssertionError("offline test called urllib.request.urlopen")
+
+    modulo.urllib.request.urlopen = _urlopen
+
+
+def _checker(mapa):
+    def revisar(url):
+        return mapa.get(url, ("muerto", 404))
+
+    return revisar
+
+
+def test_el_catalogo_de_la_auditoria_es_el_del_writer():
+    aqui = os.path.dirname(os.path.abspath(__file__))
+    auditoria = os.path.join(
+        aqui, "lambda", "post_generation_audit", "copilot_feature_catalog.json"
+    )
+    writer = os.path.join(
+        aqui, "lambda", "strands_lab_writer", "copilot_feature_catalog.json"
+    )
+    with open(auditoria, "rb") as fichero:
+        izquierda = fichero.read()
+    with open(writer, "rb") as fichero:
+        derecha = fichero.read()
+    assert izquierda == derecha
+
+
+def test_copilot_chat_inventado_puntuacion_del_catalogo():
+    """The made-up Learn path ends in copilot-chat, so that catalog row wins."""
+    modulo = _modulo()
+    catalogo = modulo._catalogo_copilot()
+    puntuaciones = []
+    for feature in catalogo["features"]:
+        if feature.get("status") == "deprecated":
+            continue
+        aliases = [modulo._tokens_de_frase(feature.get("canonical_name") or "")]
+        aliases.extend(
+            modulo._tokens_de_frase(alias) for alias in (feature.get("aliases") or [])
+        )
+        puntuaciones.append((
+            modulo.puntuacion_de_reemplazo(
+                _URL_CHAT_INVENTADA, feature.get("doc_url") or "", aliases, "Copilot Chat"
+            ),
+            feature["id"],
+        ))
+    puntuaciones.sort(reverse=True)
+    assert puntuaciones[0][1] == "copilot-chat", puntuaciones[:3]
+    assert puntuaciones[0][0] >= modulo._UMBRAL_REEMPLAZO
+    manual = modulo.puntuacion_de_reemplazo(_URL_CHAT_INVENTADA, _URL_CHAT_MANUAL, [], "")
+    assert manual > puntuaciones[0][0]
+
+
+def test_un_enlace_muerto_se_cambia_por_el_del_catalogo_y_no_bloquea():
+    modulo = _modulo()
+    _sin_red(modulo)
+    lab = (
+        "# Lab\n\nConsulte [Copilot Chat]"
+        f"({_URL_CHAT_INVENTADA}) y siga.\n"
+    )
+    s3 = _S3Simulado({"curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8")})
+    modulo.s3 = s3
+    modulo.revisar_enlace = _checker({_URL_CHAT_CATALOGO: ("vivo", 200)})
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["statusCode"] == 200, respuesta
+    assert respuesta["gate"]["bloquea"] is False
+    assert respuesta["gate"]["muertos"] == 0
+    texto = s3.objetos["curso/labguide/lab-01-00-01-a.md"]
+    if isinstance(texto, bytes):
+        texto = texto.decode("utf-8")
+    assert _URL_CHAT_INVENTADA not in texto
+    assert _URL_CHAT_CATALOGO in texto
+    assert "Copilot Chat" in texto
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert informe["reparaciones"][0]["accion"] == "reemplazo"
+    assert informe["reparaciones"][0]["reemplazo"] == _URL_CHAT_CATALOGO
+
+
+def test_el_manual_vivo_gana_al_catalogo():
+    modulo = _modulo()
+    _sin_red(modulo)
+    lab = f"Vea [Copilot Chat]({_URL_CHAT_INVENTADA}).\n"
+    s3 = _S3Simulado({
+        "curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8"),
+        "curso/outline/temario.yaml": f"doc: {_URL_CHAT_MANUAL}\n".encode("utf-8"),
+        "curso/labguide/manual.txt": b"sin enlaces",
+    })
+    modulo.s3 = s3
+    modulo.revisar_enlace = _checker({
+        _URL_CHAT_CATALOGO: ("vivo", 200),
+        _URL_CHAT_MANUAL: ("vivo", 200),
+    })
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["gate"]["bloquea"] is False
+    texto = s3.objetos["curso/labguide/lab-01-00-01-a.md"]
+    if isinstance(texto, bytes):
+        texto = texto.decode("utf-8")
+    assert _URL_CHAT_MANUAL in texto
+    assert _URL_CHAT_CATALOGO not in texto
+
+
+def test_sin_parecido_se_quita_el_enlace_y_se_queda_el_texto():
+    modulo = _modulo()
+    _sin_red(modulo)
+    muerta = "https://owasp.org/pagina-inventada-sin-parecido"
+    lab = (
+        f"Consulte [la guía oficial]({muerta}) antes.\n"
+        f"Tambien vea {muerta}.\n"
+    )
+    s3 = _S3Simulado({"curso/labguide/lab-02-00-01-b.md": lab.encode("utf-8")})
+    modulo.s3 = s3
+    modulo.revisar_enlace = _checker({})
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["gate"]["bloquea"] is False, respuesta
+    texto = s3.objetos["curso/labguide/lab-02-00-01-b.md"]
+    if isinstance(texto, bytes):
+        texto = texto.decode("utf-8")
+    assert "http" not in texto
+    assert "la guía oficial" in texto
+    assert "pagina inventada sin parecido" in texto
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert {item["accion"] for item in informe["reparaciones"]} == {"retirado"}
+
+
+def test_si_el_reemplazo_sigue_muerto_la_compuerta_bloquea():
+    """Repair runs once. A link that is dead on the second audit still blocks."""
+    modulo = _modulo()
+    _sin_red(modulo)
+    veces = {"n": 0}
+
+    def revisar(url):
+        if url == _URL_CHAT_CATALOGO:
+            veces["n"] += 1
+            if veces["n"] == 1:
+                return "vivo", 200
+            return "muerto", 404
+        return "muerto", 404
+
+    lab = f"Consulte [Copilot Chat]({_URL_CHAT_INVENTADA}).\n"
+    s3 = _S3Simulado({"curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8")})
+    modulo.s3 = s3
+    modulo.revisar_enlace = revisar
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["statusCode"] == 200, respuesta
+    assert respuesta["gate"]["bloquea"] is True
+    assert respuesta["gate"]["muertos"] >= 1
+    texto = s3.objetos["curso/labguide/lab-01-00-01-a.md"]
+    if isinstance(texto, bytes):
+        texto = texto.decode("utf-8")
+    assert _URL_CHAT_CATALOGO in texto
+
+
+def test_un_fallo_de_reparacion_no_salta_la_compuerta():
+    modulo = _modulo()
+    _sin_red(modulo)
+    s3 = _S3Simulado({
+        "curso/labguide/lab-01-00-01-a.md": f"Vea {_URL_CHAT_INVENTADA}\n".encode("utf-8")
+    })
+    modulo.s3 = s3
+    modulo.revisar_enlace = _checker({})
+    modulo.revisar_enlaces = lambda bucket, proyecto: {
+        "resumen": {"publicos": 1, "vivos": 0, "muertos": 1, "no_verificables": 0},
+        "muertos": [{"url": _URL_CHAT_INVENTADA, "estado": 404, "labs": ["lab-01-00-01-a.md"]}],
+        "no_verificables": [],
+    }
+
+    def _rompe(*_args, **_kwargs):
+        raise RuntimeError("repair broke")
+
+    modulo.reparar_enlaces_muertos = _rompe
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+    assert respuesta["statusCode"] == 200, respuesta
+    assert respuesta["gate"]["bloquea"] is True
+
+
+def test_link_repair_apagado_no_reescribe_y_bloquea():
+    modulo = _modulo()
+    _sin_red(modulo)
+    anterior = os.environ.get("LINK_REPAIR")
+    os.environ["LINK_REPAIR"] = "0"
+    try:
+        lab = f"Consulte [Copilot Chat]({_URL_CHAT_INVENTADA}).\n"
+        s3 = _S3Simulado({"curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8")})
+        modulo.s3 = s3
+        modulo.revisar_enlace = _checker({_URL_CHAT_CATALOGO: ("vivo", 200)})
+        respuesta = modulo.lambda_handler(
+            {"project_folder": "curso", "course_bucket": "bucket"}, None
+        )
+    finally:
+        if anterior is None:
+            os.environ.pop("LINK_REPAIR", None)
+        else:
+            os.environ["LINK_REPAIR"] = anterior
+
+    assert respuesta["gate"]["bloquea"] is True
+    texto = s3.objetos["curso/labguide/lab-01-00-01-a.md"]
+    if isinstance(texto, bytes):
+        texto = texto.decode("utf-8")
+    assert _URL_CHAT_INVENTADA in texto
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert "reparaciones" not in informe
 
 
 if __name__ == "__main__":

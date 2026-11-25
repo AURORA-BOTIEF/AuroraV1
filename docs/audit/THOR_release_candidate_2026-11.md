@@ -60,7 +60,7 @@ After the twelve merges, integration commit `c8cbae73` joins the behaviors that 
 1. Planner and master-plan results: `quality_status == needs_review` stamps the plan, notifies, and fails with `LabQualityNeedsReview`.
 2. Writer batches: `CombineLabResults` → `EvaluateLabQualityGate` → `ValidateLabContent` → `CheckLabValidation`. A writer `needs_review` takes the same notify-and-fail path. Structural H1 or step failures still go to `NotifyFailure`. Shadow mode still bypasses to `InvokeLabGuideBuilder`.
 3. After a successful course body, `InvokePostGenerationAudit` → `CheckLinkAudit`. `gate.bloquea == true` goes to `NotifyFailure` → `RouteTerminalFailure` → `FailLinkAudit` (`LinkAuditFailed`). Otherwise `InvokeDeckBuilder`.
-4. Catches on Setup Guide, audit Lambda crash, and deck builder still go to `NotifyCompletion` with `setup_guide_error`, `audit_error`, or `decks_error`. Those become `SUCCEEDED_WITH_WARNINGS`. A Setup Guide catch therefore skips the link audit and the decks. That is the PR 5 non-blocking design, kept on purpose.
+4. The Setup Guide catch records `$.setup_guide_error` and continues to `InvokePostGenerationAudit`. A labs-only course whose PDF fails still has its links checked, then the decks, unless the link gate blocks. The execution can still reach `NotifyCompletion`, and `setup_guide_error` on a SUCCEEDED run is `SUCCEEDED_WITH_WARNINGS`. An audit Lambda crash and a deck-builder crash still go to `NotifyCompletion` (`audit_error`, `decks_error`). Theory-only (`CheckIfLabsNeeded` default) still skips the link audit.
 5. A currency failure is a Lambda exception inside the lab-batch map (`LabBatchFailState`), not `LabQualityNeedsReview` and not `LinkAuditFailed`. The lab is not saved. The email dumps the catch payload when it reaches `NotifyFailure`.
 
 ASL check (Python walker, not SAM): JSON parses; 57 top-level states, all reachable; map iterators `ProcessLabBatchesInParallelBoth` (3), `ProcessBatchesInParallel` (14), and `ProcessLabBatchesInParallel` (3), all reachable. `FailLinkAudit.Error` is `LinkAuditFailed`. `FailLabQualityGate.Error` is `LabQualityNeedsReview`.
@@ -84,15 +84,26 @@ ASL check (Python walker, not SAM): JSON parses; 57 top-level states, all reacha
 
 `InfographicViewer` throws that message instead of the API string `PPT quality validation failed`. `GeneradorContenido` treats `needs_review` and `link_audit_failed` as errors, and `SUCCEEDED_WITH_WARNINGS` as a success banner (tone warning), not a clean pass.
 
+## Live QA fixes
+
+Four gaps from the 25 Nov 2026 run on this head. None of them called a paid API, and nothing here was deployed.
+
+1. **Reading budget.** Student-facing prose is capped at `LAB_READING_WORDS_PER_MINUTE` (default 60) times the declared duration. A student reads technical Spanish at about 200 words per minute (`LAB_READING_SPEED_WPM`), so 60 words per minute is 30% of the slot and leaves most of the time for doing the lab. A 12-minute lab may contain 720 words of prose (about 4 minutes of reading). A 55-minute lab may contain 3,300. The fictitious-data annex is counted apart, fences included, under `LAB_ANNEX_MAX_WORDS` (default 500). The writer prompt states the ceilings. After generation, while attempts remain and `READING_BUDGET_RETRY` is on, the writer is asked again with the measured counts. The last attempt records R1 at medium confidence and still ships the lab. The quality gate blocks only on high confidence, so this is a warning, not `needs_review`. A lab with no declared duration is told to stay under 1,200 words.
+2. **Setup Guide PDF.** The lab cell is the lab id plus the title, truncated to about 60 characters. Every matrix cell is a reportlab Paragraph measured against an explicit column width (the eight widths sum to 420 pt, inside the A4 frame after padding). Estado inicial drops markdown table syntax. Evidencia is a short summary, not a pasted prompt. `render_pdf` raises on `LayoutError`, a pisa error, or a buffer that is not a PDF, so Step Functions keeps `setup_guide_error` and the client status is `SUCCEEDED_WITH_WARNINGS` when the rest of the run succeeds.
+3. **Labs-only link audit.** The happy path already visited `InvokePostGenerationAudit`. The hole was the Setup Guide catch, which jumped to `NotifyCompletion` and skipped the audit. That catch now goes to the audit. `CheckLinkAudit` is unchanged. Every top-level state stays reachable. Theory-only still does not audit links.
+4. **Dead-link repair.** Before the gate blocks, each 404/410/NXDOMAIN URL is replaced with the closest verified URL from the Copilot catalog (deprecated rows skipped), the manual, or the syllabus. An exact path, ignoring locale, outranks an alias. If nothing verified is close enough, the URL is removed and the anchor text stays. The labs are audited again. The gate blocks only when the second report still has dead links. `LINK_REPAIR=0` keeps the old block-on-first-report behavior. A repair exception keeps the first report, so the gate still runs. Offline tests inject `revisar_enlace` and do not call `urlopen`. `FailLinkAudit` and the failure email point at `labguide/enlaces.json`.
+
 ## Bigger gaps (not closed here)
 
 - Item 10, the evaluation form, is still outside this repository.
 - Item 11: the seven critical courses were not regenerated or re-scored. The manifest is still blind to lessons and the book.
-- Measurable-evidence findings retry, and the last attempt still ships. They are not referential violations, so they do not enter the quality gate. `ContentValidator` still records them as WARNING.
+- Measurable-evidence findings retry, and the last attempt still ships. They are not referential violations, so they do not enter the quality gate. `ContentValidator` still records them as WARNING. It also warns when a lab is under 1,000 words, so a 12-minute lab inside the 720-word reading budget can carry that warning. `CheckLabValidation` does not block on it.
 - Currency failures are a generic batch task failure. They do not get their own Step Functions error name.
-- A Setup Guide failure skips the link audit and the decks.
-- Selective update does not re-apply the format cap. A legacy over-budget plan cannot be patched one lab at a time until a full plan fits.
-- `COPILOT_CATALOG_RETRIEVAL` is off. Resolution is the checked-in catalog (`2026-11-25.1`) plus names the manual or the syllabus authorize. A moved Microsoft Learn page that answers 404 fails the course. That is the PR 12 rule (404/410/NXDOMAIN block; 403/429/5xx do not).
+- A reading overrun that survives the last attempt ships as a medium R1 warning. It does not set `needs_review`.
+- A Setup Guide PDF failure stays non-blocking (`SUCCEEDED_WITH_WARNINGS`). The link audit and the decks still run unless the link gate blocks.
+- Theory-only courses still skip the link audit.
+- Selective update does not re-apply the format cap, and it does not re-apply the reading budget to a lab that is not regenerated. A legacy over-budget plan cannot be patched one lab at a time until a full plan fits.
+- `COPILOT_CATALOG_RETRIEVAL` is off. Link repair uses the checked-in catalog (`2026-11-25.1`) plus URLs already in the manual or the syllabus, and only keeps a replacement the injected checker calls alive. A dead link that has no close verified replacement is removed. The course still fails if a dead link remains after that one pass. 403/429/5xx stay unverifiable and do not block.
 - The LPI-010 fixture is a structural stand-in in the writer prompt only. The planner prompt does not include it.
 - `DELIVERABLES_RETRY` stays off. A high-confidence B3p still blocks through the quality gate; it just does not get an extra model retry unless the flag is turned on.
 - April PPT leftovers outside the pagination and empty-table checks (typography, the GitHub Pages URL, `course_duration_hours` taken from the UI) were not re-verified on a generated deck.
@@ -102,6 +113,11 @@ ASL check (Python walker, not SAM): JSON parses; 57 top-level states, all reacha
 | Name | Where | Default | Effect |
 | --- | --- | --- | --- |
 | `LINK_AUDIT_GATE` | `PostGenerationAuditFunction` | `1` | `0` keeps dead links in the report and sets `gate.bloquea` false. |
+| `LINK_REPAIR` | `PostGenerationAuditFunction` | `1` | Before the gate blocks, replace a dead URL from the catalog, manual, or syllabus, or drop the URL and keep the text, then re-audit. `0` blocks on the first report. |
+| `READING_BUDGET_RETRY` | `StrandsLabWriter` | `1` | Over-budget prose retries with the measured counts. `0` records a medium finding and ships. The last attempt never fails the lab for length. |
+| `LAB_READING_WORDS_PER_MINUTE` | `StrandsLabWriter` | `60` | Student-facing words allowed per declared minute. 60 of a 200-word reading speed is 30% of the slot. |
+| `LAB_READING_SPEED_WPM` | `StrandsLabWriter` | `200` | Reading speed used to explain the budget. It is not the budget. |
+| `LAB_ANNEX_MAX_WORDS` | `StrandsLabWriter` | `500` | Cap for the fictitious-data annex. Counted apart from the body, fences included. |
 | `COPILOT_CATALOG_RETRIEVAL` | `StrandsLabWriter` | `0` | `1` refreshes the catalog from Microsoft Learn before the currency check. |
 | `CURRENCY_RETRY` | `StrandsLabWriter` | `1` | Blocking Copilot names retry. On the last attempt the lab is not saved and the batch fails. `0` records the finding and ships the lab. |
 | `VALIDATION_EVIDENCE_RETRY` | `StrandsLabWriter` | `1` | Retries a lab whose validation steps are not measurable, until the last attempt, which still ships. |
@@ -122,8 +138,8 @@ From `CG-Backend`, on a machine with AWS credentials, SAM CLI, and the Netec pro
 2. `powershell -ExecutionPolicy Bypass -File deploy.ps1` runs the PDF layer hash check, then `sam build`, then `sam deploy --no-confirm-changeset`. Use `-SkipDeploy` to rebuild the layer without deploying. Use `-ForceLayerRebuild` only if the PDF layer must be republished; `lambda-layers/pdf_layer/requirements.txt` did not change in this candidate.
 3. `sam build` without Docker builds layers for x86_64. The PDF layer is the prebuilt aarch64 zip. Do not replace it with the `sam build` output.
 4. The state machine definition is `current_state_machine.json` (`DefinitionUri`). A deploy updates `CourseGeneratorStateMachine` in place.
-5. After deploy, confirm the four flags above on the live Lambdas match this table before generating a client course.
-6. Generate one short non-client course and read `/exec-status`: a clean run is `passed`; a high-confidence lab finding is `needs_review` with error `LabQualityNeedsReview`; a 404 is `link_audit_failed`; a Setup Guide or deck error on an otherwise successful run is `SUCCEEDED_WITH_WARNINGS`.
+5. After deploy, confirm the flags in the table above on the live Lambdas before generating a client course. New on this pass: `READING_BUDGET_RETRY`, `LAB_READING_WORDS_PER_MINUTE`, `LAB_READING_SPEED_WPM`, `LAB_ANNEX_MAX_WORDS`, and `LINK_REPAIR`.
+6. Generate one short non-client course and read `/exec-status`: a clean run is `passed`; a high-confidence lab finding is `needs_review` with error `LabQualityNeedsReview`; a dead link that repair cannot clear is `link_audit_failed` and the email points at `labguide/enlaces.json`; a Setup Guide or deck error on an otherwise successful run is `SUCCEEDED_WITH_WARNINGS`.
 7. Export a deck that fails `ppt_quality` and confirm the UI shows the Spanish 422 text, not `PPT quality validation failed`.
 
 ### Rollback
@@ -134,7 +150,7 @@ To soften the new gates without a full rollback, set `LINK_AUDIT_GATE=0`, `CURRE
 
 ## Tests
 
-Run on 2026-11-25, Python 3.12, Node 22. Credentials unset. `AWS_DEFAULT_REGION=us-east-1`, `AWS_EC2_METADATA_DISABLED=true`. Log: offline suite exit 0 for every file below. Frontend `npm ci` and `npm run build` exited 0.
+Re-run on 2026-11-25 after the live-QA fixes, Python 3.12, Node 22. Credentials unset. `AWS_DEFAULT_REGION=us-east-1`, `AWS_EC2_METADATA_DISABLED=true`. Offline suite exit 0 for every file below. Frontend `npm ci` and `npm run build` exited 0.
 
 Not run, because they call Lambda, Bedrock, Gemini, Imagen, or send mail: `test_bedrock_models.py`, `test_gemini_3.5.py`, `test_imagen_4.py`, `test_notification.py`, `test_notification_gmail.py`.
 
@@ -142,11 +158,11 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 
 | Suite | Result |
 | --- | --- |
-| `test_audience_adaptation.py` | 1/1 |
+| `test_audience_adaptation.py` | 8/8 |
 | `test_audit_diff.py` | 4/4 |
 | `test_batch_expander.py` | 8/8 |
 | `test_content_validator.py` | 17/17 |
-| `test_copilot_currency.py` | 16/16 |
+| `test_copilot_currency.py` | 17/17 |
 | `test_course_generation_status.py` | 3/3 |
 | `test_deck_builder.py` | 4/4 |
 | `test_demos_support.py` | pytest 11 passed |
@@ -158,14 +174,16 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_measurable_evidence.py` | 6/6 |
 | `test_no_import_shadowing.py` | 1/1 |
 | `test_pixel_validation.py` | script OK |
-| `test_post_generation_audit.py` | 10/10 |
+| `test_post_generation_audit.py` | 18/18 |
 | `test_ppt_quality.py` | 8/8 |
 | `test_provider_lock.py` | pytest 16 passed |
 | `test_quality_gate.py` | 10/10 |
+| `test_reading_budget.py` | 6/6 |
 | `test_referent_check.py` | 198/198 |
 | `test_setup_guide_capabilities.py` | 6/6 |
+| `test_setup_guide_pdf.py` | 3/3 |
 | `test_starter_api_converter.py` | pytest 10 passed |
-| `test_state_machine.py` | 12/12 |
+| `test_state_machine.py` | 14/14 |
 | `test_visual_optimizer.py` | script OK |
 | `src/utils/courseStatus.test.mjs`, `pptExportMessage.test.mjs` | node:test 8/8 |
 | `npm run build` | exit 0 |
@@ -177,29 +195,32 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | # | Item | Baseline | Estimate | Weight | Points | What is still open |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Syllabus anchor | 40% | 78% | 14 | 10.92 | A2e only locks labeled entities. No corpus re-score. Last-attempt evidence gaps still ship. |
-| 2 | Time and format | 45% | 80% | 14 | 11.20 | Writer step budget is still the shell budget. GUI time is counted in B6, not given its own writer budget. Selective update does not re-cap a legacy plan. |
+| 2 | Time and format | 45% | 88% | 14 | 12.32 | Reading budget is 60 words per declared minute (30% of a 200 wpm read). The annex has its own 500-word cap. The last attempt still ships a medium R1. The step budget is unchanged. Selective update does not re-cap a legacy plan. |
 | 3 | Self-contained labs | 35% | 82% | 14 | 11.48 | Annex covers xlsx, docx, eml, csv, and SharePoint. Forward dependencies are not annexed. |
-| 4 | Setup Guide | 50% | 72% | 14 | 10.08 | A guide failure is visible and still non-blocking. B5 still compares the lab with the plan. An OS offered as an alternative on the same line is not a contradiction. |
+| 4 | Setup Guide | 50% | 80% | 14 | 11.20 | The lab cell is the id plus a title of about 60 characters, and cells wrap inside the frame. A PDF layout failure is `SUCCEEDED_WITH_WARNINGS` and no longer skips the link audit. The failure stays non-blocking. B5 still compares the lab with the plan. |
 | 5 | Verifiable validation | 30% | 68% | 14 | 9.52 | Retry is on. The last attempt does not fail the course. The validator stays WARNING. |
-| 6 | Currency and links | 30% | 75% | 5 | 3.75 | Catalog snapshot, retrieval off. Dead links fail the course. Currency failure is a generic batch error. |
+| 6 | Currency and links | 30% | 86% | 5 | 4.30 | Dead links are repaired from the catalog, manual, or syllabus, then re-audited. The gate blocks only if a dead link remains. Labs-only courses are audited even when the PDF fails. Theory-only still skips the audit. Retrieval stays off. Currency failure is a generic batch error. |
 | 7 | Audience | 20% | 65% | 5 | 3.25 | Prompt and duration scales for Copilot and short courses. Not a structural rewrite of theory into demos. |
 | 8 | PPT | 40% | 70% | 5 | 3.50 | Pagination, cap, empty and duplicate rejection, 422 in the UI. The `import os` crash is fixed. A deck-builder crash is still non-blocking. |
 | 9 | LPI-010 | 0% | 50% | 5 | 2.50 | Writer few-shot only, on a stand-in fixture. Planner prompt unchanged. |
 | 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
 | 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
 
-**Overall: 67.20 / 100 = 67.2%** (baseline 33.5%).
+**Overall: 69.99 / 100 = 70.0%** (baseline 33.5%, previous candidate estimate 67.2%).
 
-High-priority items 1–5: 53.20 / 70 = 76.0% (baseline 40%).
+High-priority items 1–5: 55.44 / 70 = 79.2% (baseline 40%, previous estimate 76.0%).
 
-Product items 1–9: 66.20 / 90 = 73.6% (baseline 36%).
+Product items 1–9: 68.99 / 90 = 76.7% (baseline 36%, previous estimate 73.6%).
+
+Items 2, 4, and 6 moved for the live-QA fixes above. This is still an estimate of wired checks, not a new instructor review.
 
 ## What blocks a production deploy
 
 - This candidate is not deployed. Deploy only after review, with `CG-Backend/deploy.ps1` against `crewai-course-generator-stack`.
 - `sam validate` and `sam build` were not run here. SAM CLI is not installed in the environment that built the branch.
-- `LINK_AUDIT_GATE=1` and `CURRENCY_RETRY=1` will fail courses that previously succeeded: a public 404/410/NXDOMAIN, or a Copilot surface name missing from the snapshot and not named by the manual or the syllabus.
+- `LINK_AUDIT_GATE=1` still fails a course when a public 404/410/NXDOMAIN remains after one repair pass. `LINK_REPAIR=1` replaces that URL from the catalog, the manual, or the syllabus, or removes it. `CURRENCY_RETRY=1` still fails a lab whose Copilot surface is missing from the snapshot and not named by the manual or the syllabus.
 - A selective content update of a plan that is still over the format budget now stops at `needs_review`. Those courses need a full regeneration so the planner can merge labs.
 - The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
-- Item 10 is still open, and item 11 has no new generated evidence. The 67.2% figure is the estimate in the table above.
+- Item 10 is still open, and item 11 has no new generated evidence. The 70.0% figure is the estimate in the table above.
+- To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. To restore block-on-first-dead-link, set `LINK_REPAIR=0`.
 - Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), and the `import os` that crashed every deck is gone (`311518e9`). Those three are not remaining blockers.

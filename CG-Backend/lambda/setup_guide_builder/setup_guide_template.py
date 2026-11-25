@@ -95,6 +95,8 @@ SETUP_GUIDE_TEMPLATE = """
         vertical-align: top;
     }
     table.data tr.alt td { background-color: #f4f5fb; }
+    table.lab-matrix { width: 420pt; }
+    table.lab-matrix th, table.lab-matrix td { font-size: 7.5px; padding: 2px 2px; }
     .tag { font-size: 8.5px; font-weight: bold; }
     .tag-ok { color: #1b7f3b; }
     .tag-pending { color: #b26a00; }
@@ -505,21 +507,21 @@ SETUP_GUIDE_TEMPLATE = """
 <h1 class="section">06 &nbsp; Ejecución de laboratorios</h1>
 <p class="lead">Una fila por práctica real del repositorio: qué se ejecuta, qué necesita y cómo se comprueba.</p>
 {% if lab_matrix %}
-<table class="data">
+<table class="data lab-matrix">
     <tr>
-        <th>Lab</th><th>Objetivo</th><th>Duración</th><th>Dependencias</th>
-        <th>Estado inicial</th><th>Resultado esperado</th><th>Evidencia</th><th>Acceso</th>
+        <th width="72">Lab</th><th width="66">Objetivo</th><th width="32">Duración</th><th width="54">Dependencias</th>
+        <th width="54">Estado inicial</th><th width="54">Resultado esperado</th><th width="52">Evidencia</th><th width="36">Acceso</th>
     </tr>
     {% for lab in lab_matrix %}
     <tr{% if loop.index0 % 2 == 1 %} class="alt"{% endif %}>
-        <td><strong>{{ lab.number }}</strong><br/>{{ lab.name }}</td>
-        <td>{{ lab.objective }}</td>
-        <td>{{ lab.duration }}</td>
-        <td>{{ lab.dependencies }}</td>
-        <td>{{ lab.initial_state }}</td>
-        <td>{{ lab.expected_result }}</td>
-        <td>{{ lab.evidence }}</td>
-        <td>{% if lab.access.url %}<a href="{{ lab.access.url }}">{{ lab.access.label }}</a>{% else %}<span class="pending">[ENLACE]</span>{% endif %}</td>
+        <td width="72">{{ lab.name }}</td>
+        <td width="66">{{ lab.objective }}</td>
+        <td width="32">{{ lab.duration }}</td>
+        <td width="54">{{ lab.dependencies }}</td>
+        <td width="54">{{ lab.initial_state }}</td>
+        <td width="54">{{ lab.expected_result }}</td>
+        <td width="52">{{ lab.evidence }}</td>
+        <td width="36">{% if lab.access.url %}<a href="{{ lab.access.url }}">{{ lab.access.label }}</a>{% else %}<span class="pending">[ENLACE]</span>{% endif %}</td>
     </tr>
     {% endfor %}
 </table>

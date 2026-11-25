@@ -604,6 +604,8 @@ def test_la_notificacion_de_needs_review_no_dice_que_el_curso_salio():
     )
     assert "enlaces" in asunto_enlace.lower()
     assert "no se entregó" in texto_enlace
+    assert "labguide/enlaces.json" in texto_enlace
+    assert "validation/link-audit.json" not in texto_enlace
     assert "exitosamente" not in texto_enlace
 
 

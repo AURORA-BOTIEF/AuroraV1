@@ -332,6 +332,249 @@ def revisar_enlaces(bucket, project_folder):
     }
 
 
+_GENERICOS_URL = frozenset({
+    "www", "com", "html", "htm", "en", "es", "learn", "microsoft", "docs",
+    "support", "copilot", "index", "default", "org", "net",
+})
+_LOCALES_URL = frozenset({
+    "es-es", "en-us", "es-mx", "en-gb", "pt-br", "fr-fr", "de-de", "es", "en",
+})
+_UMBRAL_REEMPLAZO = 8
+_ENLACE_MD = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+
+
+def _reparacion_activa():
+    """``LINK_REPAIR=0`` keeps the old behavior: a dead link blocks immediately."""
+    return os.getenv("LINK_REPAIR", "1").strip().lower() not in _APAGADO
+
+
+def _catalogo_copilot():
+    """Checked-in catalog. The audit package carries its own copy; the writer copy is the fallback in the repo."""
+    aqui = os.path.dirname(os.path.abspath(__file__))
+    for ruta in (
+        os.path.join(aqui, "copilot_feature_catalog.json"),
+        os.path.join(aqui, "..", "strands_lab_writer", "copilot_feature_catalog.json"),
+    ):
+        if os.path.isfile(ruta):
+            with open(ruta, encoding="utf-8") as fichero:
+                return json.load(fichero)
+    return {}
+
+
+def _tokens_de_url(url):
+    partes = urllib.parse.urlparse(url or "")
+    segmentos = [
+        segmento
+        for segmento in (partes.path or "").lower().split("/")
+        if segmento and segmento not in _LOCALES_URL
+    ]
+    tokens = []
+    for segmento in segmentos:
+        tokens.extend(pieza for pieza in re.split(r"[-_]+", segmento) if pieza)
+    return tokens
+
+
+def _tokens_de_frase(frase):
+    return [
+        pieza
+        for pieza in re.split(r"[^0-9a-záéíóúñü]+", (frase or "").lower())
+        if pieza
+    ]
+
+
+def puntuacion_de_reemplazo(url_muerta, url_candidata, aliases=None, ancla=""):
+    """Higher means the candidate is the same page or the catalog row the dead URL was inventing.
+
+    An exact path (ignoring locale) outranks an alias hit. A two-word catalog
+    name that is the tail of the dead path (``copilot-chat``) outranks a shorter
+    overlap such as ``microsoft`` + ``copilot`` alone.
+    """
+    tok_muerta = _tokens_de_url(url_muerta)
+    tok_candidata = _tokens_de_url(url_candidata)
+    distintivos_muerta = set(tok_muerta) - _GENERICOS_URL
+    distintivos_candidata = set(tok_candidata) - _GENERICOS_URL
+    comunes = distintivos_muerta & distintivos_candidata
+    union = distintivos_muerta | distintivos_candidata
+    jaccard = (len(comunes) / len(union)) if union else 0.0
+    score = jaccard * 10
+    if jaccard >= 0.99 and distintivos_muerta:
+        score += 40
+    bolsa = set(tok_muerta) | set(_tokens_de_frase(ancla))
+    vistos = []
+    for alias in aliases or ():
+        alias_set = [pieza for pieza in alias if pieza]
+        if not alias_set or alias_set in vistos:
+            continue
+        vistos.append(alias_set)
+        if len(alias_set) < 2 or not set(alias_set) <= bolsa:
+            continue
+        score += 5 * len(alias_set)
+        if len(tok_muerta) >= 2 and tok_muerta[-len(alias_set):] == alias_set:
+            score += 20
+    return score
+
+
+def _ancla_de(texto, url):
+    for coincidencia in _ENLACE_MD.finditer(texto or ""):
+        if url in coincidencia.group(2):
+            return coincidencia.group(1)
+    return ""
+
+
+def _texto_plano(url):
+    """Visible words for a bare URL that has no separate anchor. Not itself a URL."""
+    ruta = urllib.parse.urlparse(url or "").path.strip("/")
+    ultimo = ruta.split("/")[-1] if ruta else ""
+    palabras = re.sub(r"[-_]+", " ", ultimo).strip()
+    return palabras or "enlace"
+
+
+def _sustituir_url_exacta(texto, url, nueva):
+    """Replace ``url`` only when it is the whole URL, including one with a trailing period.
+
+    A longer URL that merely starts with this one (``.../foo`` inside ``.../foo.bar``)
+    stays. Sentence punctuation that ``urls_de`` strips (``. , ; : *``) does not.
+    """
+    patron = re.compile(
+        re.escape(url) + r"(?=(?:[.,;:*]+)?(?:\s|$|[)\]\"'<>`]))"
+    )
+    return patron.sub(lambda _coincidencia: nueva, texto)
+
+
+def aplicar_reparacion_en_texto(texto, url, reemplazo):
+    """Point the link at ``reemplazo``, or drop the URL and keep the anchor."""
+    if reemplazo:
+        return _sustituir_url_exacta(texto or "", url, reemplazo), "reemplazo"
+
+    def _quitar(coincidencia):
+        if url not in coincidencia.group(2):
+            return coincidencia.group(0)
+        ancla = coincidencia.group(1).strip()
+        if ancla.lower().startswith("http"):
+            return _texto_plano(url)
+        return ancla
+
+    sin_markdown = _ENLACE_MD.sub(_quitar, texto or "")
+    sin_angulos = sin_markdown.replace(f"<{url}>", _texto_plano(url))
+    return _sustituir_url_exacta(sin_angulos, url, _texto_plano(url)), "retirado"
+
+
+def _textos_de_fuentes(bucket, project_folder):
+    textos = []
+    for clave in listar(bucket, f"{project_folder}/outline/"):
+        if clave.endswith((".yaml", ".yml", ".md", ".txt")):
+            texto = _texto_de_s3(bucket, clave)
+            if texto:
+                textos.append(texto)
+    for clave in listar(bucket, f"{project_folder}/labguide/"):
+        nombre = clave.split("/")[-1].lower()
+        if nombre.endswith("manual.txt") or nombre.endswith(".md") and "manual" in nombre:
+            texto = _texto_de_s3(bucket, clave)
+            if texto:
+                textos.append(texto)
+    return textos
+
+
+def _candidatos_de_reemplazo(bucket, project_folder):
+    """(url, alias token lists) from the catalog, the manual and the syllabus."""
+    candidatos = []
+    for feature in (_catalogo_copilot().get("features") or []):
+        if feature.get("status") == "deprecated":
+            continue
+        url = (feature.get("doc_url") or "").strip()
+        if not url:
+            continue
+        aliases = []
+        nombres = [feature.get("canonical_name") or ""]
+        nombres.extend(feature.get("aliases") or [])
+        for nombre in nombres:
+            tokens = _tokens_de_frase(nombre)
+            if tokens:
+                aliases.append(tokens)
+        candidatos.append((url, aliases))
+    for texto in _textos_de_fuentes(bucket, project_folder):
+        for url in urls_de(texto):
+            host, _motivo = es_enlace_publico(url)
+            if host:
+                candidatos.append((url, []))
+    return candidatos
+
+
+def _claves_de_laboratorios(bucket, project_folder):
+    return [
+        clave
+        for clave in listar(bucket, f"{project_folder}/labguide/")
+        if re.search(r"lab-\d{2}-\d{2}-\d{2}.*\.md$", clave)
+    ]
+
+
+def reparar_enlaces_muertos(bucket, project_folder, informe, revisar=None):
+    """Replace each dead URL with the closest verified candidate, or drop the URL.
+
+    ``revisar`` is the HTTP checker (``(url) -> (clase, detalle)``). Tests inject
+    it. The default is ``revisar_enlace``, so a suite that patches that function
+    stays offline. After the files are rewritten the labs are audited again.
+    """
+    revisar = revisar or revisar_enlace
+    cache = {}
+
+    def vivo(url):
+        if url not in cache:
+            clase, _detalle = revisar(url)
+            cache[url] = clase == "vivo"
+        return cache[url]
+
+    candidatos = _candidatos_de_reemplazo(bucket, project_folder)
+    reparaciones = []
+    cuerpos = {}
+    for clave in _claves_de_laboratorios(bucket, project_folder):
+        texto = _texto_de_s3(bucket, clave)
+        if texto is not None:
+            cuerpos[clave] = texto
+    cambio = False
+    for muerto in (informe or {}).get("muertos") or []:
+        url = (muerto or {}).get("url") or ""
+        if not url:
+            continue
+        for clave, texto in list(cuerpos.items()):
+            if url not in texto:
+                continue
+            ancla = _ancla_de(texto, url)
+            mejor = None
+            mejor_score = 0.0
+            for candidata, aliases in candidatos:
+                if candidata == url or not vivo(candidata):
+                    continue
+                score = puntuacion_de_reemplazo(url, candidata, aliases, ancla)
+                if score > mejor_score:
+                    mejor_score = score
+                    mejor = candidata
+            reemplazo = mejor if mejor_score >= _UMBRAL_REEMPLAZO else None
+            nuevo, accion = aplicar_reparacion_en_texto(texto, url, reemplazo)
+            if nuevo == texto:
+                continue
+            cuerpos[clave] = nuevo
+            cambio = True
+            reparaciones.append({
+                "url": url,
+                "accion": accion,
+                "reemplazo": reemplazo or "",
+                "lab": clave.split("/")[-1],
+                "ancla": ancla,
+            })
+    if cambio:
+        for clave, texto in cuerpos.items():
+            s3.put_object(
+                Bucket=bucket,
+                Key=clave,
+                Body=texto.encode("utf-8"),
+                ContentType="text/markdown; charset=utf-8",
+            )
+    fresco = revisar_enlaces(bucket, project_folder)
+    fresco["reparaciones"] = reparaciones
+    return fresco
+
+
 def lambda_handler(event, context):
     body = parse_event_body(event)
     project_folder = (body.get("project_folder") or "").strip()
@@ -375,6 +618,13 @@ def lambda_handler(event, context):
         )
 
         enlaces = revisar_enlaces(bucket, project_folder)
+        if _reparacion_activa() and int(((enlaces.get("resumen") or {}).get("muertos") or 0)):
+            try:
+                enlaces = reparar_enlaces_muertos(bucket, project_folder, enlaces)
+            except Exception:
+                # A repair crash must not become a Lambda error: that Catch
+                # skips the gate and the course would ship with dead links.
+                logger.error("La reparación de enlaces falló; la compuerta usa el primer informe", exc_info=True)
         enlaces["gate"] = compuerta_de_enlaces(enlaces)
         enlaces_key = f"{project_folder}/labguide/enlaces.json"
         s3.put_object(

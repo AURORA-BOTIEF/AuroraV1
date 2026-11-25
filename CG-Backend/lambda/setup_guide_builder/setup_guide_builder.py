@@ -118,6 +118,123 @@ def truncate(text, limit=320):
     return text[: limit - 1].rstrip() + "\u2026"
 
 
+# An 8-column table on A4 (about 487 pt inside the 1.9 cm margins) overflows
+# the frame when a practice title is a paragraph. These widths sum to 420 pt.
+# Cell padding is extra, so the sum stays under the frame even when xhtml2pdf
+# adds it outside the width. Every cell is later checked as a Paragraph.
+_ANCHO_CELDA_PT = {
+    "name": 72,
+    "objective": 66,
+    "duration": 32,
+    "dependencies": 54,
+    "initial_state": 54,
+    "expected_result": 54,
+    "evidence": 52,
+    "access": 36,
+}
+_LIMITE_ETIQUETA_LAB = 60
+_LIMITE_CELDA = {
+    "objective": 80,
+    "dependencies": 70,
+    "initial_state": 70,
+    "expected_result": 70,
+    "evidence": 70,
+}
+
+
+def sin_sintaxis_de_tabla(texto):
+    """Drop markdown table rows. A raw ``| col | col |`` fragment is not a cell."""
+    lineas = []
+    for linea in (texto or "").splitlines():
+        cruda = linea.strip()
+        if not cruda:
+            continue
+        if cruda.startswith("|") or cruda.count("|") >= 2:
+            continue
+        if re.match(r"^\|?\s*:?-{3,}", cruda):
+            continue
+        lineas.append(linea)
+    return "\n".join(lineas)
+
+
+def resumir_celda(texto, limite):
+    """One short sentence: no markdown table, no fenced prompt, ellipsis if needed."""
+    limpio = sin_sintaxis_de_tabla(texto or "")
+    limpio = re.sub(r"```.*?```", " ", limpio, flags=re.DOTALL)
+    limpio = clean_inline(limpio).replace("|", " ")
+    limpio = re.sub(r"\s+", " ", limpio).strip()
+    if not limpio:
+        return ""
+    frase = re.split(r"(?<=[.!?])\s+", limpio, maxsplit=1)[0]
+    return truncate(frase or limpio, limite)
+
+
+def etiqueta_de_laboratorio(lab_id, titulo, limite=_LIMITE_ETIQUETA_LAB):
+    """Lab cell is the id plus the title, about 60 characters."""
+    titulo = clean_inline(titulo)
+    ident = (lab_id or "").strip()
+    base = f"{ident} {titulo}".strip() if ident else titulo
+    return truncate(base, limite)
+
+
+def _romper_token_largo(texto, cada=16):
+    """Soft hyphens so a single token can wrap inside a narrow Paragraph."""
+
+    def partir(coincidencia):
+        palabra = coincidencia.group(0)
+        return "\u00ad".join(palabra[i:i + cada] for i in range(0, len(palabra), cada))
+
+    return re.sub(r"\S{24,}", partir, texto or "")
+
+
+def caber_en_columna(texto, ancho_pt, font_size=7.5):
+    """Truncate until a Paragraph's minimum width fits the column.
+
+    reportlab raises LayoutError when a flowable is wider than its cell or
+    frame (``allowTableBoundsErrors`` off, or the table itself wider than the
+    page). Measuring with the same Paragraph class is what keeps the cell
+    inside the frame. The returned string still wraps; the ellipsis is only
+    the overflow that cannot.
+    """
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph
+
+    visible = _romper_token_largo(clean_inline(texto))
+    if not visible:
+        return ""
+    estilo = ParagraphStyle(
+        "sug-celda",
+        fontName="Helvetica",
+        fontSize=font_size,
+        leading=font_size * 1.15,
+    )
+    for _ in range(60):
+        parrafo = Paragraph(escape(visible), estilo)
+        if parrafo.minWidth() <= float(ancho_pt) + 0.5:
+            return visible
+        if len(visible) <= 4:
+            return (visible[:1] + "\u2026") if visible else ""
+        visible = visible[:-4].rstrip(" \u00ad") + "\u2026"
+    return visible
+
+
+def ajustar_celdas_de_matriz(fila):
+    """Every lab-matrix cell is a short Paragraph that fits its column."""
+    ajustada = dict(fila)
+    for campo, ancho in _ANCHO_CELDA_PT.items():
+        if campo == "access":
+            acceso = dict(fila.get("access") or {})
+            acceso["label"] = caber_en_columna(acceso.get("label") or "", ancho)
+            ajustada["access"] = acceso
+            continue
+        if campo not in fila:
+            continue
+        ajustada[campo] = caber_en_columna(fila.get(campo) or "", ancho)
+    return ajustada
+
+
 # ---------------------------------------------------------------------------
 # Acceso a S3
 # ---------------------------------------------------------------------------
@@ -663,10 +780,10 @@ def build_lab_matrix(master_plan, labs, repo_url):
         dependencies = ", ".join(clean_inline(p) for p in prereq) if prereq else "[SIN DEPENDENCIAS DECLARADAS]"
 
         initial_state = ""
-        env_clean = "\n".join(
+        env_clean = sin_sintaxis_de_tabla("\n".join(
             line for line in env.splitlines()
             if not line.strip().startswith("```") and not re.match(r"^\s*(bash|sh|shell|powershell)\s*$", line.strip(), re.IGNORECASE)
-        )
+        ))
         for line in env_clean.splitlines():
             if re.search(r"(?i)estado inicial", line):
                 initial_state = clean_inline(line.split(":", 1)[-1])
@@ -695,11 +812,12 @@ def build_lab_matrix(master_plan, labs, repo_url):
             )
 
         evidence = ""
-        validation_codes = extract_code_blocks(validation)
+        validacion_limpia = sin_sintaxis_de_tabla(validation)
+        validation_codes = extract_code_blocks(validacion_limpia)
         if validation_codes:
-            evidence = " | ".join(clean_inline(c) for c in validation_codes[0].splitlines()[:2])
+            evidence = resumir_celda(validation_codes[0], _LIMITE_CELDA["evidence"])
         if not evidence:
-            evidence = first_paragraph(validation) or "[EVIDENCIA POR DEFINIR]"
+            evidence = resumir_celda(validacion_limpia, _LIMITE_CELDA["evidence"]) or "[EVIDENCIA POR DEFINIR]"
 
         duration = plan.get("estimated_duration") or plan.get("duration_minutes")
         duration_text = f"{duration} min" if duration else "[DURACIÓN POR CONFIRMAR]"
@@ -708,20 +826,24 @@ def build_lab_matrix(master_plan, labs, repo_url):
         anchor = re.sub(r"[\s_]+", "-", anchor)
         anchor = re.sub(r"-{2,}", "-", anchor).strip("-") or "laboratorio"
 
-        matrix.append({
+        if not initial_state or initial_state.startswith("|"):
+            initial_state = "Entorno preparado según esta Setup Guide"
+        fila = {
             "number": lab_id or "-",
-            "name": title,
-            "objective": truncate(objective, 180) or "[OBJETIVO POR DEFINIR]",
+            "name": etiqueta_de_laboratorio(lab_id, title),
+            "objective": resumir_celda(objective, _LIMITE_CELDA["objective"]) or "[OBJETIVO POR DEFINIR]",
             "duration": duration_text,
-            "dependencies": truncate(dependencies, 140),
-            "initial_state": truncate(initial_state, 140),
-            "expected_result": truncate(expected, 160),
-            "evidence": truncate(evidence, 160),
+            "dependencies": resumir_celda(dependencies, _LIMITE_CELDA["dependencies"]),
+            "initial_state": resumir_celda(initial_state, _LIMITE_CELDA["initial_state"])
+            or "Entorno preparado según esta Setup Guide",
+            "expected_result": resumir_celda(expected, _LIMITE_CELDA["expected_result"]),
+            "evidence": evidence,
             "access": {
                 "label": f"Capítulo {module_number:02d}",
                 "url": f"{repo_url}/blob/main/Capitulo{module_number:02d}/README.md#{anchor}",
             },
-        })
+        }
+        matrix.append(ajustar_celdas_de_matriz(fila))
     return matrix
 
 
@@ -877,11 +999,30 @@ def render_pdf(doc, bucket, author="Aurora AI"):
         "references": doc["references"],
     }
     html = Template(SETUP_GUIDE_TEMPLATE).render(context)
+    return _pdf_desde_html(html)
+
+
+def _pdf_desde_html(html):
+    """Render and refuse a silent layout failure.
+
+    A reportlab LayoutError used to end the task in the Setup Guide catch
+    while the execution still finished SUCCEEDED and the PDF was missing.
+    Raising here keeps ``setup_guide_error`` on the state so the client
+    status is SUCCEEDED_WITH_WARNINGS instead of a clean pass.
+    """
+    from reportlab.platypus.doctemplate import LayoutError
+
     pdf_buffer = BytesIO()
-    result = pisa.CreatePDF(html, dest=pdf_buffer)
+    try:
+        result = pisa.CreatePDF(html, dest=pdf_buffer)
+    except LayoutError as exc:
+        raise RuntimeError(f"Setup Guide PDF layout failed: {exc}") from exc
     if result.err:
         raise RuntimeError("La generación del PDF falló (pisa error)")
-    return pdf_buffer.getvalue()
+    datos = pdf_buffer.getvalue()
+    if not datos.startswith(b"%PDF"):
+        raise RuntimeError("La generación del PDF no produjo un documento")
+    return datos
 
 
 # ---------------------------------------------------------------------------

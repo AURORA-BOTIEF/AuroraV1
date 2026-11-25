@@ -56,7 +56,7 @@ def construir_notificacion(
             f"La generación del curso para el proyecto '{proyecto}' no se entregó. "
             "La auditoría encontró enlaces públicos muertos (HTTP 404, 410 o un dominio "
             "que no existe). Los códigos 403, 429 y 5xx no detienen el curso. "
-            "El detalle está en validation/link-audit.json."
+            "El detalle está en labguide/enlaces.json."
         )
         color = "#d32f2f"
         titulo = "Enlaces públicos muertos"
@@ -270,7 +270,7 @@ def lambda_handler(event, context):
         if not error_message or error_message == "Error desconocido":
             error_message = (
                 "Enlaces públicos muertos (404, 410 o DNS). "
-                "Revise validation/link-audit.json."
+                "Revise labguide/enlaces.json."
             )
 
     logger.info(

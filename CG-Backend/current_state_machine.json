@@ -927,7 +927,7 @@
       "Type": "Task"
     },
     "InvokeSetupGuide": {
-      "Comment": "Build the consolidated Setup Guide (JSON + PDF) from the plan and the labs. Non-blocking: the course is already built, so a guide failure is recorded and the flow continues.",
+      "Comment": "Build the consolidated Setup Guide (JSON + PDF). A PDF failure is recorded on $.setup_guide_error and the flow still runs the link audit, so a labs-only course is not delivered with unchecked links. The execution can still succeed; the client status is SUCCEEDED_WITH_WARNINGS.",
       "Next": "InvokePostGenerationAudit",
       "Parameters": {
         "FunctionName": "${SetupGuideBuilderArn}",
@@ -956,7 +956,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyCompletion",
+          "Next": "InvokePostGenerationAudit",
           "ResultPath": "$.setup_guide_error"
         }
       ],
@@ -1713,7 +1713,7 @@
     "FailLinkAudit": {
       "Type": "Fail",
       "Error": "LinkAuditFailed",
-      "Cause": "Enlaces públicos muertos (404, 410 o DNS). El curso no se entregó. Revise validation/link-audit.json."
+      "Cause": "Enlaces públicos muertos (404, 410 o DNS). El curso no se entregó. Revise labguide/enlaces.json."
     },
     "SuccessState": {
       "Type": "Succeed"

@@ -571,6 +571,10 @@ Resources:
           COPILOT_CATALOG_RETRIEVAL: '0'
           CURRENCY_RETRY: '1'
           VALIDATION_EVIDENCE_RETRY: '1'
+          READING_BUDGET_RETRY: '1'
+          LAB_READING_WORDS_PER_MINUTE: '60'
+          LAB_READING_SPEED_WPM: '200'
+          LAB_ANNEX_MAX_WORDS: '500'
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -993,6 +997,7 @@ Resources:
         Variables:
           COURSE_BUCKET: crewai-course-artifacts
           LINK_AUDIT_GATE: '1'
+          LINK_REPAIR: '1'
       Policies:
         - Version: '2012-10-17'
           Statement:
