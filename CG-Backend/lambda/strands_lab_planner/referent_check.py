@@ -81,7 +81,7 @@ import unicodedata
 
 _EXTENSIONES = (
     "xlsx|xlsm|xls|csv|tsv|md|pbix|pbit|ps1|psm1|py|ipynb|json|txt|zip|rar|7z|"
-    "png|jpg|jpeg|gif|svg|docx|doc|pptx|ppt|pdf|sql|sh|bat|cmd|yaml|yml|log|"
+    "png|jpg|jpeg|gif|svg|docx|doc|eml|pptx|ppt|pdf|sql|sh|bat|cmd|yaml|yml|log|"
     "evtx|pem|pfx|cer|key|bak|db|sqlite|parquet|xml|html|css|js|ts"
 )
 
@@ -200,11 +200,14 @@ def _es_artefacto_de_herramienta(valor: str) -> bool:
     return nombre in _FICHEROS_DE_CHART
 
 # Rutas que no son del sistema de ficheros del alumno sino de una API o de un
-# proveedor cloud (Elasticsearch, OpenAPI, Azure, SharePoint). Tampoco se exigen.
+# proveedor cloud (Elasticsearch, OpenAPI, Azure). Tampoco se exigen.
+# SharePoint (`/sites/`) is course material for this lab, not an API exemption.
 _SEGMENTOS_API = (
     "/subscriptions/", "/resourcegroups/", "/providers/", "/components/schemas/",
     "/_cat/", "/_cluster/", "/_search/", "/_create/", "/_refresh/", "/_doc",
-    "/_bulk", "/_mapping", "/_template/", "/_alias/", "/_index/", "/sites/",
+    # `/sites/` is a SharePoint path the student must have in THIS lab. It is not
+    # an API exemption: an undeclared `/sites/` input is a missing dependency.
+    "/_bulk", "/_mapping", "/_template/", "/_alias/", "/_index/",
     "/settings/", "/api/",
     # Recursos de plataforma vistos en la muestra: CloudWatch (``/aws/lambda/...``),
     # Elasticsearch (``/_snapshot``, ``/_slm``, ``/_security``) y directorios de
