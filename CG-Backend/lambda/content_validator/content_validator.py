@@ -19,6 +19,12 @@ from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from measurable_evidence import (
+    INVENTED_SECRET_RE,
+    UNMEASURABLE_PHRASE_RE,
+    hallazgos_validacion_no_medible,
+)
+
 # AWS Clients
 s3_client = boto3.client('s3')
 
@@ -164,10 +170,8 @@ class ContentValidator:
     VAGUE_VERSION_PATTERN = re.compile(
         r'(?i)\b(latest|\u00faltima|ultima|current|actual|versi\u00f3n actual|reciente|v?\d+\.x|>=|m\u00e1s reciente)\b'
     )
-    UNMEASURABLE_PATTERN = re.compile(
-        r'(?i)(\b\d{1,2}\s*%\s*(de\s*)?(\u00e9xito|exito|success)|'
-        r'\b5\s*(pruebas|tests)\s*gen\u00e9ric|listo para producci\u00f3n|funciona correctamente)'
-    )
+    UNMEASURABLE_PATTERN = UNMEASURABLE_PHRASE_RE
+    INVENTED_SECRET_PATTERN = INVENTED_SECRET_RE
     AI_LIMITATION_PATTERN = re.compile(
         r'(?i)(inexistente|contradictor|prompt\s*injection|inyecci\u00f3n de (prompt|instrucciones)|'
         r'instrucciones incrustadas|sin evidencia|informaci\u00f3n falsa)'
@@ -559,13 +563,23 @@ class ContentValidator:
 
     def validate_evidence_quality(self, content: str) -> None:
         """Mejora THOR: validaci\u00f3n medible y evidencia suficiente."""
-        for match in self.UNMEASURABLE_PATTERN.finditer(content):
+        for mensaje in hallazgos_validacion_no_medible(content):
+            sugerencia = (
+                "Definir criterios medibles y evidencia verificable (comando, salida, captura)."
+            )
+            if "Salida esperada determinista" in mensaje:
+                sugerencia = (
+                    "En pasos con IA, describa elementos requeridos (lista), no el texto literal del modelo."
+                )
+            elif mensaje.startswith("Credencial"):
+                sugerencia = (
+                    "Usar [POR CONFIRMAR] o un valor declarado en el manual; no inventar secretos."
+                )
             self._add_result(
                 "unmeasurable_validation",
                 ValidationSeverity.WARNING,
-                f"Criterio de validaci\u00f3n no medible: '{match.group(0)}'",
-                line_number=self._find_line_number(content, match.group(0)),
-                suggestion="Definir criterios medibles y evidencia verificable (comando, salida, captura)."
+                mensaje,
+                suggestion=sugerencia,
             )
         if "validaci" not in content.lower() and "testing" not in content.lower():
             return

@@ -17,13 +17,17 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_RUTA_VALIDADOR = os.path.join(_HERE, "lambda", "content_validator", "content_validator.py")
+_DIR_VALIDADOR = os.path.join(_HERE, "lambda", "content_validator")
+_RUTA_VALIDADOR = os.path.join(_DIR_VALIDADOR, "content_validator.py")
 _RUTA_MAQUINA = os.path.join(_HERE, "current_state_machine.json")
 
 
 def _cargar_validador():
     # El modulo crea un cliente S3 al importarse; la bateria no debe tocar AWS.
     import boto3
+
+    if _DIR_VALIDADOR not in sys.path:
+        sys.path.insert(0, _DIR_VALIDADOR)
 
     original = boto3.client
     boto3.client = lambda *a, **k: object()
@@ -259,6 +263,21 @@ def test_el_handler_devuelve_all_valid_y_falla_si_se_le_pide():
 
     estricto = modulo.lambda_handler(dict(evento, fail_on_error=True), None)
     assert estricto["statusCode"] == 400
+
+
+def test_la_validacion_no_medible_avisa_sobre_frases_vagas():
+    lab = _LAB_COMPLETO + "\nLa solución funciona correctamente en todos los escenarios.\n"
+    informe = cv.ContentValidator().validate_lab(lab)
+    assert "unmeasurable_validation" in _reglas(informe, cv.ValidationSeverity.WARNING)
+
+
+def test_la_validacion_no_medible_avisa_sobre_secretos_inventados():
+    lab = _LAB_COMPLETO.replace(
+        "pip install",
+        "export PGPASSWORD=pg_password_123 && pip install",
+    )
+    informe = cv.ContentValidator().validate_lab(lab)
+    assert "unmeasurable_validation" in _reglas(informe, cv.ValidationSeverity.WARNING)
 
 
 def test_el_estado_desplegado_consume_all_valid():
