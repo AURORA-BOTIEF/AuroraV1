@@ -16,7 +16,14 @@ import io
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
+
+_LAMBDA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _LAMBDA_ROOT not in sys.path:
+    sys.path.insert(0, _LAMBDA_ROOT)
+
+from ppt_quality import paginate_glossary_entries
 
 import boto3
 from pptx import Presentation
@@ -194,18 +201,15 @@ def lambda_handler(event, context):
     # --- Glosario --------------------------------------------------------------
     terminos = terminos_del_glosario(course_bucket, project)
     if terminos:
-        slides, tramo = [], []
-        for idx, entrada in enumerate(terminos):
-            definicion = _limpiar(entrada.get("definition") or "")
-            tramo.append(f"{_limpiar(entrada['term'])}: {definicion[:300]}")
-            if len(tramo) == 4:
-                desde = idx - (len(tramo) - 1)
-                slides.append(
-                    {"title": f"Glosario ({desde + 1} a {idx + 1})", "bullets": list(tramo)}
-                )
-                tramo = []
-        if tramo:
-            slides.append({"title": "Glosario (cont.)", "bullets": tramo})
+        pages = paginate_glossary_entries(terminos, max_terms_per_slide=4)
+        slides = []
+        for page_idx, page in enumerate(pages):
+            bullets = [
+                f"{_limpiar(entrada['term'])}: {_limpiar(entrada.get('definition') or '')}"
+                for entrada in page
+            ]
+            titulo = "Glosario" if page_idx == 0 else f"Glosario (cont.) ({page_idx + 1}/{len(pages)})"
+            slides.append({"title": titulo, "bullets": bullets})
         presentacion = _deck(
             "Glosario", f"{project}", slides or [{"title": "Glosario", "bullets": ["sin términos verificados"]}]
         )

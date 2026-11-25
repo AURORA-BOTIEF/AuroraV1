@@ -7,6 +7,15 @@ import time
 import urllib.parse
 from html_to_ppt_styled import convert_html_to_pptx
 
+import os
+import sys
+
+_LAMBDA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _LAMBDA_ROOT not in sys.path:
+    sys.path.insert(0, _LAMBDA_ROOT)
+
+from ppt_quality import PptQualityError
+
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -114,12 +123,23 @@ def lambda_handler(event, context):
 
         # Convert to PPT
         logger.info("Converting HTML to PPT with style mapping...")
-        pptx_bytes = convert_html_to_pptx(
-            html_content,
-            s3_client=s3_client,
-            course_bucket=course_bucket,
-            book_data=book_data,
-        )
+        try:
+            pptx_bytes = convert_html_to_pptx(
+                html_content,
+                s3_client=s3_client,
+                course_bucket=course_bucket,
+                book_data=book_data,
+            )
+        except PptQualityError as qe:
+            logger.error("PPT quality gate failed: %s", qe)
+            return {
+                'statusCode': 422,
+                'headers': cors_headers(),
+                'body': json.dumps({
+                    'error': 'PPT quality validation failed',
+                    'quality_report': qe.report,
+                }),
+            }
         
         # Upload PPT to S3
         logger.info(f"Uploading PPT to S3: {ppt_key} ({len(pptx_bytes)} bytes)")

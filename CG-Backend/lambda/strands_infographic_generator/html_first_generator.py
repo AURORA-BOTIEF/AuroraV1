@@ -1873,8 +1873,6 @@ def _parse_glossary_items(glossary_md: str) -> List[Dict]:
                     definition = ''
                 if 'objetivos de aprendizaje' in definition.lower():
                     definition = ''
-                if len(definition) > 120:
-                    definition = definition[:117] + '...'
                 items.append({'term': term, 'definition': definition})
     return items
 
@@ -2057,16 +2055,24 @@ def create_chapter_summary_slide(
 
 
 def create_glossary_slides(glossary_items: List[Dict], is_spanish: bool, slide_counter: int) -> List[Dict]:
-    """Create glossary slide(s) with terms from the book."""
+    """Create glossary slide(s) with full definitions paginated across slides."""
+    import os
+    import sys
+
+    _lambda_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _lambda_root not in sys.path:
+        sys.path.insert(0, _lambda_root)
+    from ppt_quality import paginate_glossary_entries
+
+    pages = paginate_glossary_entries(glossary_items)
     slides = []
-    # Chunk: max 10 items per slide
-    chunk_size = 10
-    chunks = [glossary_items[i:i + chunk_size] for i in range(0, len(glossary_items), chunk_size)]
-    for idx, chunk in enumerate(chunks):
+    for idx, chunk in enumerate(pages):
+        base = "Glosario" if is_spanish else "Glossary"
+        title = base if idx == 0 else f"{base} (cont.)"
         slides.append({
             "slide_number": slide_counter + idx,
-            "title": "Glosario" if is_spanish else "Glossary",
-            "subtitle": f"({idx + 1}/{len(chunks)})" if len(chunks) > 1 else "",
+            "title": title,
+            "subtitle": f"({idx + 1}/{len(pages)})" if len(pages) > 1 else "",
             "layout": "glossary",
             "content_blocks": [{
                 "type": "glossary",
@@ -4502,6 +4508,22 @@ def generate_complete_course(
         logger.warning(f"⚠️ Could not import fix_image_only_slides: {e}")
     except Exception as e:
         logger.warning(f"⚠️ fix_image_only_slides failed: {e}")
+
+    if is_final_batch:
+        import os
+        import sys
+
+        _lambda_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _lambda_root not in sys.path:
+            sys.path.insert(0, _lambda_root)
+        from ppt_quality import resolve_course_duration_hours, validate_slide_structure
+
+        book_for_hours = {
+            "course_metadata": book_data.get("course_metadata") or {},
+            "metadata": metadata,
+        }
+        cdh = resolve_course_duration_hours(book_for_hours)
+        validate_slide_structure(all_slides, course_duration_hours=cdh)
     
     return {
         'course_title': course_title,
