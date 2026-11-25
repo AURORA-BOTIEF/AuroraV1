@@ -36,11 +36,15 @@ PRs 2, 6, 11, 8, 5, and 7 merged clean. The writer prompt and the writer loop co
 | PR 3 | `strands_lab_writer.py` imports | Kept `audience_adaptation` and `golden_lab_example`. |
 | PR 4 | writer prompt | Kept the golden-lab section and the measurable-evidence section. |
 | PR 9 | writer retry loop | Kept the evidence retry. Audits with `creados_antes=None` and adds the fictitious annex. Did not restore `creados_antes.update` (that variable is gone and would treat another lab's files as declared). |
-| PR 13 | writer prompt, `master_context`, audit call, both `test_referent_check.py` | Kept the audience profile and `syllabus_text`. Kept golden, evidence, and anchor sections. Audit call uses `creados_antes=None` and `temario=outline_reference_text`. Both test blocks stay (196 tests). |
+| PR 13 | writer prompt, `master_context`, audit call, both `test_referent_check.py` | Kept the audience profile and `syllabus_text`. Kept golden, evidence, and anchor sections. Audit call uses `creados_antes=None` and `temario=outline_reference_text`. Both test blocks stayed (196 tests at that merge). |
 | PR 10 | `exec_status.py`, `strands_notification.py`, writer | `needs_review` outranks a clean pass and outranks warnings. Each lab pops `validation_evidence_correction`. |
 | PR 12 | writer only (ASL auto-merged) | Currency section, pop `currency_correction`, and save the referential and currency reports when the currency check raises. |
 
-After the twelve merges, integration commit `c8cbae73` joins the behaviors that only conflict at runtime. Follow-up `0bcc6104` (owner, after MS-4019 live QA) passes the syllabus into the currency check with the manual, so a surface the syllabus names is authorized. Deprecated catalog names still block.
+After the twelve merges, integration commit `c8cbae73` joins the behaviors that only conflict at runtime. Owner follow-ups from live QA on 25 Nov 2026, merged in `7bc00794`:
+
+- `0bcc6104` (MS-4019): the currency check treats a surface named by the syllabus the same as one named by the manual. Deprecated catalog names still block.
+- `14b4ff2e` (MS-4018): an operating system offered on the same line as an alternative to the declared one (`Windows 10/11 o macOS`) is not a B5 contradiction. A different OS alone still is. Both `referent_check.py` copies stay identical.
+- `311518e9` (COPCHAT_LD): removed the function-local `import os` inside `generate_complete_course`. That import made `os` local to the whole function, so `os.environ` raised `UnboundLocalError` and every PPT batch failed.
 
 - `clasificar_hallazgos_de_plan` treats a lab-count gap as a low-confidence warning when the format budget merged labs (`ajustado`) or a selective update still carries `syllabus_items_combined` (`conteo_preservado`), the total does not exceed the course, and `sobran == 0`. An unexplained shortfall or `excede_total` stays high-confidence A3.
 - Selective regeneration counts `extract_all_labs(..., modules_to_generate="all")`, not the filtered lab list, so regenerating one lab is not "extra labs".
@@ -152,12 +156,13 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_list_projects.py` | 4/4 |
 | `test_manual_context.py` | 19/19 |
 | `test_measurable_evidence.py` | 6/6 |
+| `test_no_import_shadowing.py` | 1/1 |
 | `test_pixel_validation.py` | script OK |
 | `test_post_generation_audit.py` | 10/10 |
 | `test_ppt_quality.py` | 8/8 |
 | `test_provider_lock.py` | pytest 16 passed |
 | `test_quality_gate.py` | 10/10 |
-| `test_referent_check.py` | 196/196 |
+| `test_referent_check.py` | 198/198 |
 | `test_setup_guide_capabilities.py` | 6/6 |
 | `test_starter_api_converter.py` | pytest 10 passed |
 | `test_state_machine.py` | 12/12 |
@@ -174,11 +179,11 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | 1 | Syllabus anchor | 40% | 78% | 14 | 10.92 | A2e only locks labeled entities. No corpus re-score. Last-attempt evidence gaps still ship. |
 | 2 | Time and format | 45% | 80% | 14 | 11.20 | Writer step budget is still the shell budget. GUI time is counted in B6, not given its own writer budget. Selective update does not re-cap a legacy plan. |
 | 3 | Self-contained labs | 35% | 82% | 14 | 11.48 | Annex covers xlsx, docx, eml, csv, and SharePoint. Forward dependencies are not annexed. |
-| 4 | Setup Guide | 50% | 72% | 14 | 10.08 | A guide failure is visible and still non-blocking. B5 still compares the lab with the plan. |
+| 4 | Setup Guide | 50% | 72% | 14 | 10.08 | A guide failure is visible and still non-blocking. B5 still compares the lab with the plan. An OS offered as an alternative on the same line is not a contradiction. |
 | 5 | Verifiable validation | 30% | 68% | 14 | 9.52 | Retry is on. The last attempt does not fail the course. The validator stays WARNING. |
 | 6 | Currency and links | 30% | 75% | 5 | 3.75 | Catalog snapshot, retrieval off. Dead links fail the course. Currency failure is a generic batch error. |
 | 7 | Audience | 20% | 65% | 5 | 3.25 | Prompt and duration scales for Copilot and short courses. Not a structural rewrite of theory into demos. |
-| 8 | PPT | 40% | 70% | 5 | 3.50 | Pagination, cap, empty and duplicate rejection, 422 in the UI. A deck-builder crash is still non-blocking. |
+| 8 | PPT | 40% | 70% | 5 | 3.50 | Pagination, cap, empty and duplicate rejection, 422 in the UI. The `import os` crash is fixed. A deck-builder crash is still non-blocking. |
 | 9 | LPI-010 | 0% | 50% | 5 | 2.50 | Writer few-shot only, on a stand-in fixture. Planner prompt unchanged. |
 | 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
 | 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
@@ -197,3 +202,4 @@ Product items 1–9: 66.20 / 90 = 73.6% (baseline 36%).
 - A selective content update of a plan that is still over the format budget now stops at `needs_review`. Those courses need a full regeneration so the planner can merge labs.
 - The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
 - Item 10 is still open, and item 11 has no new generated evidence. The 67.2% figure is the estimate in the table above.
+- Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), and the `import os` that crashed every deck is gone (`311518e9`). Those three are not remaining blockers.
