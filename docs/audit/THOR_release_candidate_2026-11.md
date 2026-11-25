@@ -60,7 +60,7 @@ After the twelve merges, integration commit `c8cbae73` joins the behaviors that 
 
 1. Planner and master-plan results: `quality_status == needs_review` stamps the plan, notifies, and fails with `LabQualityNeedsReview`.
 2. Writer batches: `CombineLabResults` → `EvaluateLabQualityGate` → `ValidateLabContent` → `CheckLabValidation`. A writer `needs_review` takes the same notify-and-fail path. Structural H1 or step failures still go to `NotifyFailure`. Shadow mode still bypasses to `InvokeLabGuideBuilder`.
-3. After a successful course body, `InvokePostGenerationAudit` → `CheckLinkAudit`. `gate.bloquea == true` goes to `NotifyFailure` → `RouteTerminalFailure` → `FailLinkAudit` (`LinkAuditFailed`). Otherwise `InvokeDeckBuilder`.
+3. After a successful course body, `InvokePostGenerationAudit` → `CheckLinkAudit`. `gate.bloquea == true` goes to `NotifyFailure` → `RouteTerminalFailure` → `FailLinkAudit` (`LinkAuditFailed`). Otherwise `InvokeDeckBuilder`. The audit task rewrites repaired labs and applies the same URL edits to the Lab Guide book. No new state was added for that.
 4. The Setup Guide catch records `$.setup_guide_error` and continues to `InvokePostGenerationAudit`. A labs-only course whose PDF fails still has its links checked, then the decks, unless the link gate blocks. The execution can still reach `NotifyCompletion`, and `setup_guide_error` on a SUCCEEDED run is `SUCCEEDED_WITH_WARNINGS`. An audit Lambda crash and a deck-builder crash still go to `NotifyCompletion` (`audit_error`, `decks_error`). Theory-only (`CheckIfLabsNeeded` default) still skips the link audit.
 5. A currency failure is a Lambda exception inside the lab-batch map (`LabBatchFailState`), not `LabQualityNeedsReview` and not `LinkAuditFailed`. The lab is not saved. The email dumps the catch payload when it reaches `NotifyFailure`.
 
@@ -92,7 +92,34 @@ Four gaps from the 25 Nov 2026 run on this head. None of them called a paid API,
 1. **Reading budget.** Student-facing prose is capped at `LAB_READING_WORDS_PER_MINUTE` (default 60) times the declared duration. A student reads technical Spanish at about 200 words per minute (`LAB_READING_SPEED_WPM`), so 60 words per minute is 30% of the slot and leaves most of the time for doing the lab. A 12-minute lab may contain 720 words of prose (about 4 minutes of reading). A 55-minute lab may contain 3,300. The fictitious-data annex is counted apart, fences included, under `LAB_ANNEX_MAX_WORDS` (default 500). The writer prompt states the ceilings. After generation, while attempts remain and `READING_BUDGET_RETRY` is on, the writer is asked again with the measured counts. The last attempt records R1 at medium confidence and still ships the lab. The quality gate blocks only on high confidence, so this is a warning, not `needs_review`. A lab with no declared duration is told to stay under 1,200 words.
 2. **Setup Guide PDF.** The lab cell is the lab id plus the title, truncated to about 60 characters. Every matrix cell is a reportlab Paragraph measured against an explicit column width (the eight widths sum to 420 pt, inside the A4 frame after padding). Estado inicial drops markdown table syntax. Evidencia is a short summary, not a pasted prompt. `render_pdf` raises on `LayoutError`, a pisa error, or a buffer that is not a PDF, so Step Functions keeps `setup_guide_error` and the client status is `SUCCEEDED_WITH_WARNINGS` when the rest of the run succeeds.
 3. **Labs-only link audit.** The happy path already visited `InvokePostGenerationAudit`. The hole was the Setup Guide catch, which jumped to `NotifyCompletion` and skipped the audit. That catch now goes to the audit. `CheckLinkAudit` is unchanged. Every top-level state stays reachable. Theory-only still does not audit links.
-4. **Dead-link repair.** Before the gate blocks, each 404/410/NXDOMAIN URL is replaced with the closest verified URL from the Copilot catalog (deprecated rows skipped), the manual, or the syllabus. An exact path, ignoring locale, outranks an alias. If nothing verified is close enough, the URL is removed and the anchor text stays. The labs are audited again. The gate blocks only when the second report still has dead links. `LINK_REPAIR=0` keeps the old block-on-first-report behavior. A repair exception keeps the first report, so the gate still runs. Offline tests inject `revisar_enlace` and do not call `urlopen`. `FailLinkAudit` and the failure email point at `labguide/enlaces.json`.
+4. **Dead-link repair.** Before the gate blocks, each 404/410/NXDOMAIN URL is replaced with the closest verified URL from the Copilot catalog (deprecated rows skipped), the manual, or the syllabus. An exact path, ignoring locale, outranks an alias. If nothing verified is close enough, the URL is removed and the anchor text stays. The labs are audited again. The gate blocks only when the second report still has dead links. `LINK_REPAIR=0` keeps the old block-on-first-report behavior. A repair exception keeps the first report, so the gate still runs. Offline tests inject `revisar_enlace` and do not call `urlopen`. `FailLinkAudit` and the failure email point at `labguide/enlaces.json`. The follow-up below is the current rule: a swap needs a topical path or title match, and the Lab Guide book receives the same edit.
+
+## Link repair follow-up (25 Nov 2026)
+
+Two holes in that repair, found in live QA. This pass did not deploy and did not call a paid AWS or LLM API. Catalog pages were fetched with HTTP GET on 2026-11-25. The state machine still has 57 top-level states, all reachable. The book update runs inside `InvokePostGenerationAudit`. `test_state_machine.py` did not need a new transition.
+
+**The Lab Guide book is updated with the labs.** `InvokeLabGuideBuilder` writes `book/Lab_Guide_LabGuide_complete.md` and `book/Lab_Guide_LabGuide_data.json` before the audit. The repair used to rewrite only `labguide/lab-*.md`, so the delivered book could still carry the dead URL. After a repair that changes any lab, the same URL edits are applied to those two book files. A replacement is the same string in the lab, the book markdown, and each lab `content` field in the JSON. Removing a URL keeps the anchor in all three. The JSON `word_count` for a lab whose `content` changed is recomputed from that content. The markdown book's statistics footer is not rebuilt. `LINK_REPAIR=0` does not touch the book.
+
+**A swap requires a topical match, not the product name.** The dead URL's last path segment must appear, in order, in the candidate path or `doc_title`, and that segment must contain a token other than `microsoft`, `copilot`, `365`, `m365`, or `office`. A near-identical path (locale aside) also matches. Overlap on the product name alone does not. Alias score still ranks the candidates that pass that test. One decision is made per dead URL and applied to every lab and the book. If nothing qualifies, the URL is removed and the anchor stays.
+
+Checked-in catalog `2026-11-25.2` (`doc_urls_checked_on` 2026-11-25). Both copies of `copilot_feature_catalog.json` are byte-identical. Every `doc_url` below returned HTTP 200 on that date, and the final page title is the row's topic.
+
+| Row | Old URL | New URL | HTTP on 2026-11-25 |
+| --- | --- | --- | --- |
+| Microsoft 365 Copilot | `https://blogs.bing.com/search/2023/11/our-vision-to-bring-microsoft-copilot-to-everyone-and-more` | `https://learn.microsoft.com/en-us/copilot/plan/copilot-overview` | Old 200, title "Our vision to bring Microsoft Copilot to everyone, and more" (2023 Bing blog). New 200, "What is Microsoft Copilot?" |
+| Copilot Chat | `https://learn.microsoft.com/en-us/copilot/manage/researcher-agent` | `https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-microsoft-365-copilot-chat` | Old 200, "What is Researcher Agent in Microsoft Copilot?" New 200, "Get started with Microsoft Copilot Chat" |
+| Copilot Studio | `https://www.microsoft.com/en-us/copilot/blog/copilot-studio/microsoft-power-virtual-agents-now-part-of-microsoft-copilot-studio/` | `https://learn.microsoft.com/en-us/microsoft-copilot-studio/fundamentals-what-is-copilot-studio` | Old 200, "Microsoft Power Virtual Agents, now part of Microsoft Copilot Studio". New 200, "Overview - Microsoft Copilot Studio" |
+| Agent Builder | `https://learn.microsoft.com/en-us/plugins/agent-builder-build-agents` | same | 200, "Build agents in Agent Builder". This row was already that page. The Power Virtual Agents blog was the Copilot Studio row. |
+| Plan My Day | `https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/agent-template-plan-my-day` | `https://learn.microsoft.com/en-us/plugins/agent-template-plan-my-day` | Old 200 and redirects to the new URL. New 200, "Use the Plan My Day template to build an agent" |
+| Researcher | `https://learn.microsoft.com/en-us/copilot/manage/researcher-agent` | same | 200, "What is Researcher Agent in Microsoft Copilot?" |
+| Analyst | `https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-analyst-in-microsoft-365-copilot` | same | 200, "Get started with Analyst in Microsoft Copilot" |
+| Workflows | `https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-workflows-in-microsoft-365-copilot` | same | 200, "Get started with Workflows in Microsoft Copilot" |
+| Frontier | `https://learn.microsoft.com/en-us/microsoft-365/admin/manage/get-started-frontier?view=o365-worldwide` | same | 200, "Get started with the Microsoft Frontier Program" |
+| Idea Coach | `https://learn.microsoft.com/en-us/training/modules/turn-info-into-decisions-ai-agents/` | same | 200, "Turn Information into Decisions with AI Agents" |
+| Bing Chat Enterprise (deprecated) | the 2023 Bing blog above | `https://learn.microsoft.com/en-us/copilot/plan/copilot-overview` | New 200, "What is Microsoft Copilot?" The blog still returns 200 and is the page that states the 2023-11-15 rename. It is no longer a catalog URL. |
+| Power Virtual Agents (deprecated) | `https://learn.microsoft.com/en-us/microsoft-copilot-studio/requirements-sessions-management` | same | 200, "Manage sessions and capacity for the legacy Power Virtual Agents license" |
+
+Offline cases taken from the QA dead links: an invented support topic `bienvenido-a-microsoft-365-copilot-chat-5e2d3f57`, `microsoft-365-copilot-prompt-engineering`, Teams meeting-recap pages, `.../microsoft-365-copilot/chat`, `best-practices`, `agents`, `instructions`, `instructions/sharepoint-agents`, `onedrive-overview`, and `fincen.gov/resources/statutes-and-regulations` are removed. `support.microsoft.com/copilot-chat` is replaced with the Copilot Chat support page. `.../microsoft-365-copilot/agent-builder` is replaced with the Agent Builder Learn page. The invented Learn path that ends in `microsoft-365-copilot-chat` is still replaced, and an exact manual path still outranks the catalog.
 
 ## Bigger gaps (not closed here)
 
@@ -104,7 +131,7 @@ Four gaps from the 25 Nov 2026 run on this head. None of them called a paid API,
 - A Setup Guide PDF failure stays non-blocking (`SUCCEEDED_WITH_WARNINGS`). The link audit and the decks still run unless the link gate blocks.
 - Theory-only courses still skip the link audit.
 - Selective update does not re-apply the format cap, and it does not re-apply the reading budget to a lab that is not regenerated. A legacy over-budget plan cannot be patched one lab at a time until a full plan fits.
-- `COPILOT_CATALOG_RETRIEVAL` is off. Link repair uses the checked-in catalog (`2026-11-25.1`) plus URLs already in the manual or the syllabus, and only keeps a replacement the injected checker calls alive. A dead link that has no close verified replacement is removed. The course still fails if a dead link remains after that one pass. 403/429/5xx stay unverifiable and do not block.
+- `COPILOT_CATALOG_RETRIEVAL` is off. Link repair uses the checked-in catalog (`2026-11-25.2`, URLs fetched 2026-11-25) plus URLs already in the manual or the syllabus. A replacement is kept only when the checker calls it alive and the dead path or title is a close topical match. A product-name overlap is removed. The same edits are written into the Lab Guide book. The course still fails if a dead link remains after that one pass. 403/429/5xx stay unverifiable and do not block. The markdown book's statistics footer is not rebuilt, so its word total can lag the repaired labs. The overview page used for Bing Chat Enterprise does not repeat that old name, so turning retrieval on would mark that deprecated row unresolved. A dead URL whose slug is only `idea-coach` is removed, because the Idea Coach training-module path does not contain that slug. A one-token slug such as `/chat` or `/agents` is removed.
 - The LPI-010 fixture is a structural stand-in in the writer prompt only. The planner prompt does not include it.
 - `DELIVERABLES_RETRY` stays off. A high-confidence B3p still blocks through the quality gate; it just does not get an extra model retry unless the flag is turned on.
 - April PPT leftovers outside the pagination and empty-table checks (typography, the GitHub Pages URL, `course_duration_hours` taken from the UI) were not re-verified on a generated deck.
@@ -114,7 +141,7 @@ Four gaps from the 25 Nov 2026 run on this head. None of them called a paid API,
 | Name | Where | Default | Effect |
 | --- | --- | --- | --- |
 | `LINK_AUDIT_GATE` | `PostGenerationAuditFunction` | `1` | `0` keeps dead links in the report and sets `gate.bloquea` false. |
-| `LINK_REPAIR` | `PostGenerationAuditFunction` | `1` | Before the gate blocks, replace a dead URL from the catalog, manual, or syllabus, or drop the URL and keep the text, then re-audit. `0` blocks on the first report. |
+| `LINK_REPAIR` | `PostGenerationAuditFunction` | `1` | Before the gate blocks, replace a dead URL when the catalog, manual, or syllabus page is a close topical match, or drop the URL and keep the text. The same edits are written to the Lab Guide book. Then the labs are re-audited. `0` blocks on the first report and does not touch the book. |
 | `READING_BUDGET_RETRY` | `StrandsLabWriter` | `1` | Over-budget prose retries with the measured counts. `0` records a medium finding and ships. The last attempt never fails the lab for length. |
 | `LAB_READING_WORDS_PER_MINUTE` | `StrandsLabWriter` | `60` | Student-facing words allowed per declared minute. 60 of a 200-word reading speed is 30% of the slot. |
 | `LAB_READING_SPEED_WPM` | `StrandsLabWriter` | `200` | Reading speed used to explain the budget. It is not the budget. |
@@ -151,7 +178,7 @@ To soften the new gates without a full rollback, set `LINK_AUDIT_GATE=0`, `CURRE
 
 ## Tests
 
-Re-run on 2026-11-25 after the live-QA fixes, Python 3.12, Node 22. Credentials unset. `AWS_DEFAULT_REGION=us-east-1`, `AWS_EC2_METADATA_DISABLED=true`. Offline suite exit 0 for every file below. Frontend `npm ci` and `npm run build` exited 0.
+Re-run on 2026-11-25 after the link-repair follow-up, Python 3.12. Credentials unset. `AWS_DEFAULT_REGION=us-east-1`, `AWS_EC2_METADATA_DISABLED=true`. Offline suite exit 0 for every file below. Frontend `npm ci` and `npm run build` were not re-run; this pass does not change the UI.
 
 Not run, because they call Lambda, Bedrock, Gemini, Imagen, or send mail: `test_bedrock_models.py`, `test_gemini_3.5.py`, `test_imagen_4.py`, `test_notification.py`, `test_notification_gmail.py`.
 
@@ -175,7 +202,7 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_measurable_evidence.py` | 6/6 |
 | `test_no_import_shadowing.py` | 1/1 |
 | `test_pixel_validation.py` | script OK |
-| `test_post_generation_audit.py` | 18/18 |
+| `test_post_generation_audit.py` | 24/24 |
 | `test_ppt_quality.py` | 8/8 |
 | `test_provider_lock.py` | pytest 16 passed |
 | `test_quality_gate.py` | 10/10 |
@@ -186,8 +213,8 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_starter_api_converter.py` | pytest 10 passed |
 | `test_state_machine.py` | 14/14 |
 | `test_visual_optimizer.py` | script OK |
-| `src/utils/courseStatus.test.mjs`, `pptExportMessage.test.mjs` | node:test 8/8 |
-| `npm run build` | exit 0 |
+| `src/utils/courseStatus.test.mjs`, `pptExportMessage.test.mjs` | not re-run (no UI change); last run on this branch was node:test 8/8 |
+| `npm run build` | not re-run (no UI change) |
 
 ## Updated scorecard
 
@@ -200,28 +227,28 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | 3 | Self-contained labs | 35% | 82% | 14 | 11.48 | Annex covers xlsx, docx, eml, csv, and SharePoint. Forward dependencies are not annexed. |
 | 4 | Setup Guide | 50% | 80% | 14 | 11.20 | The lab cell is the id plus a title of about 60 characters, and cells wrap inside the frame. A PDF layout failure is `SUCCEEDED_WITH_WARNINGS` and no longer skips the link audit. The failure stays non-blocking. B5 still compares the lab with the plan. |
 | 5 | Verifiable validation | 30% | 68% | 14 | 9.52 | Retry is on. The last attempt does not fail the course. The validator stays WARNING. |
-| 6 | Currency and links | 30% | 86% | 5 | 4.30 | Dead links are repaired from the catalog, manual, or syllabus, then re-audited. The gate blocks only if a dead link remains. Labs-only courses are audited even when the PDF fails. Theory-only still skips the audit. Retrieval stays off. Currency failure is a generic batch error. |
+| 6 | Currency and links | 30% | 92% | 5 | 4.60 | A dead URL is replaced only when the path or title matches, then the Lab Guide book gets the same edit. Catalog doc URLs were fetched on 2026-11-25. The gate still blocks if a dead link remains. Theory-only still skips the audit. Retrieval stays off. Currency failure is a generic batch error. The book statistics footer is not rebuilt. |
 | 7 | Audience | 20% | 65% | 5 | 3.25 | Prompt and duration scales for Copilot and short courses. Not a structural rewrite of theory into demos. |
 | 8 | PPT | 40% | 70% | 5 | 3.50 | Pagination, cap, empty and duplicate rejection, 422 in the UI. The `import os` crash is fixed. A deck-builder crash is still non-blocking. |
 | 9 | LPI-010 | 0% | 50% | 5 | 2.50 | Writer few-shot only, on a stand-in fixture. Planner prompt unchanged. |
 | 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
 | 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
 
-**Overall: 69.99 / 100 = 70.0%** (baseline 33.5%, previous candidate estimate 67.2%).
+**Overall: 70.29 / 100 = 70.3%** (baseline 33.5%, previous candidate estimate 70.0%).
 
-High-priority items 1–5: 55.44 / 70 = 79.2% (baseline 40%, previous estimate 76.0%).
+High-priority items 1–5: 55.44 / 70 = 79.2% (baseline 40%, previous estimate 79.2%).
 
-Product items 1–9: 68.99 / 90 = 76.7% (baseline 36%, previous estimate 73.6%).
+Product items 1–9: 69.29 / 90 = 77.0% (baseline 36%, previous estimate 76.7%).
 
-Items 2, 4, and 6 moved for the live-QA fixes above. This is still an estimate of wired checks, not a new instructor review.
+Item 6 moved for the link-repair follow-up above. This is still an estimate of wired checks, not a new instructor review.
 
 ## What blocks a production deploy
 
 - This candidate is not deployed. Deploy only after review, with `CG-Backend/deploy.ps1` against `crewai-course-generator-stack`.
 - `sam validate` and `sam build` were not run here. SAM CLI is not installed in the environment that built the branch.
-- `LINK_AUDIT_GATE=1` still fails a course when a public 404/410/NXDOMAIN remains after one repair pass. `LINK_REPAIR=1` replaces that URL from the catalog, the manual, or the syllabus, or removes it. `CURRENCY_RETRY=1` still fails a lab whose Copilot surface is missing from the snapshot and not named by the manual or the syllabus.
+- `LINK_AUDIT_GATE=1` still fails a course when a public 404/410/NXDOMAIN remains after one repair pass. `LINK_REPAIR=1` replaces that URL only when a living catalog, manual, or syllabus page is a close topical match, and writes the same edit into the Lab Guide book. Otherwise it removes the URL. `CURRENCY_RETRY=1` still fails a lab whose Copilot surface is missing from the snapshot and not named by the manual or the syllabus.
 - A selective content update of a plan that is still over the format budget now stops at `needs_review`. Those courses need a full regeneration so the planner can merge labs.
 - The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
-- Item 10 is still open, and item 11 has no new generated evidence. The 70.0% figure is the estimate in the table above.
+- Item 10 is still open, and item 11 has no new generated evidence. The 70.3% figure is the estimate in the table above.
 - To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. To restore block-on-first-dead-link, set `LINK_REPAIR=0`.
 - Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), and "agente de IA" is not an unknown product (`bf0feb63`). Those are not remaining blockers.
