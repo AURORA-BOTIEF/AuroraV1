@@ -32,7 +32,6 @@ from referent_check import (
     mensaje_de_correccion,
     presupuesto_de_duracion,
     referencias_a_labs_posteriores,
-    referentes_creados,
     requisitos_declarados,
     salidas_de_laboratorios,
 )
@@ -1151,63 +1150,192 @@ Use specific commands, configurations, and concepts from this lesson where appli
 """
 
 
-def _referentes_creados_en_labs_anteriores(
-    bucket: str, project_folder: str, lab_ids_anteriores: list[str]
-) -> set[str]:
-    """Claves de los ficheros que crearon los laboratorios previos (verificación B3c).
-
-    Es el contexto que le faltaba a B1: un fichero creado en el laboratorio 2 es
-    legítimo en el 3. Se leen de S3, no del plan, porque lo que cuenta es lo que se
-    **escribió**, no lo que el plan prometió. Los lotes se ejecutan en secuencia y de
-    uno en uno (``MaxConcurrency: 1``), así que los laboratorios previos ya están
-    guardados cuando se escribe el actual.
-    """
-    creados: set[str] = set()
-    for lab_id in lab_ids_anteriores or ():
-        key = _find_existing_lab_guide_key(bucket, project_folder, lab_id)
-        if not key:
-            continue
-        try:
-            cuerpo = (
-                s3_client.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
-            )
-        except Exception as e:
-            print(f"⚠️  No se pudo leer el laboratorio anterior {lab_id} para B3c: {e}")
-            continue
-        creados |= referentes_creados(cuerpo)
-    return creados
-
-
 def _get_previous_lab_context(bucket: str, project_folder: str, prev_lab_id: str) -> str:
-    """Fetch previous lab markdown from S3 and extract code blocks/context for sequential continuity."""
-    if not prev_lab_id:
-        return ""
-    key = _find_existing_lab_guide_key(bucket, project_folder, prev_lab_id)
-    if not key:
-        return ""
-    try:
-        obj = s3_client.get_object(Bucket=bucket, Key=key)
-        content = obj['Body'].read().decode('utf-8')
-        code_blocks = re.findall(r'```(?:bash|sh|python|sql|yaml|json)?\n(.*?)```', content, re.DOTALL)
-        code_summary = "\n".join(cb.strip() for cb in code_blocks if cb.strip())[:3000]
-        if not code_summary.strip():
-            code_summary = content[:2000]
-        return f"""
-═══════════════════════════════════════════════════════════════════════════════
-CONTEXT FROM PREVIOUS LAB (Lab {prev_lab_id}):
-═══════════════════════════════════════════════════════════════════════════════
-The student previously completed Lab {prev_lab_id} using the following commands and code:
+    """Do not inject the previous lab. Each practice must run alone.
 
-{code_summary}
+    The live prompt used to paste the previous guide and order the model to reuse
+    its files, database names, ports and directories. That instruction is gone:
+    a student opening only this chapter must not need the previous one.
+    The arguments stay so older callers keep a stable signature.
+    """
+    del bucket, project_folder, prev_lab_id
+    return ""
 
-IMPORTANT CONTINUITY RULES:
-- Reuse the EXACT same database names, container names, usernames, ports, and directory structures established in Lab {prev_lab_id}.
-- Do NOT re-create entities that already exist unless explicitly modifying or extending them.
-═══════════════════════════════════════════════════════════════════════════════
-"""
-    except Exception as e:
-        print(f"⚠️ Could not load previous lab context for {prev_lab_id}: {e}")
+
+# Office, mail and tabular inputs the student cannot invent. A lab that names
+# one of these without a source gets an inline fictitious annex.
+_EXTENSIONES_ANEXO = frozenset(
+    {"xlsx", "xlsm", "xls", "csv", "tsv", "docx", "doc", "eml"}
+)
+_TITULO_ANEXO_ES = "Anexo (datos ficticios)"
+_TITULO_ANEXO_EN = "Annex (fictitious data)"
+
+
+def _extension_de_entrada(nombre: str) -> str:
+    base = os.path.basename((nombre or "").replace("\\", "/").rstrip("/"))
+    if "." not in base:
         return ""
+    return base.rsplit(".", 1)[-1].lower()
+
+
+def _entradas_para_anexo(informe: dict) -> list[str]:
+    """High-confidence B1 inputs that this chapter must carry itself.
+
+    Excel, Word, ``.eml``, CSV and SharePoint ``/sites/`` paths. A file created
+    in an earlier lab does not count: the audit is called without ``creados_antes``.
+    """
+    vistos: list[str] = []
+    claves: set[str] = set()
+    for hallazgo in (informe or {}).get("violaciones") or []:
+        if hallazgo.get("verificacion") != "B1" or hallazgo.get("confianza") != "alta":
+            continue
+        valor = str(hallazgo.get("valor") or "").strip().rstrip(".,;:")
+        if not valor:
+            continue
+        ruta = valor.replace("\\", "/")
+        base = os.path.basename(ruta.rstrip("/")) or ruta
+        extension = _extension_de_entrada(base)
+        sharepoint = "/sites/" in ruta.lower()
+        if extension not in _EXTENSIONES_ANEXO and not sharepoint:
+            continue
+        objetivo = base if extension in _EXTENSIONES_ANEXO else ruta
+        clave = objetivo.lower()
+        if clave in claves:
+            continue
+        claves.add(clave)
+        vistos.append(objetivo)
+    return vistos
+
+
+def _cuerpo_ficticio(nombre: str, is_spanish: bool) -> str:
+    """Inline fictitious payload. No extra filenames, so the annex adds no new dependency."""
+    extension = _extension_de_entrada(nombre)
+    if extension in {"csv", "tsv"}:
+        separador = "\t" if extension == "tsv" else ","
+        columnas = (
+            ["region", "producto", "unidades"]
+            if is_spanish
+            else ["region", "product", "units"]
+        )
+        filas = [
+            separador.join(columnas),
+            separador.join(["Norte" if is_spanish else "North", "Alfa", "120"]),
+            separador.join(["Sur" if is_spanish else "South", "Beta", "80"]),
+        ]
+        return "```" + extension + "\n" + "\n".join(filas) + "\n```\n"
+    if extension in {"xlsx", "xlsm", "xls"}:
+        if is_spanish:
+            return (
+                "| region | producto | unidades |\n"
+                "| --- | --- | --- |\n"
+                "| Norte | Alfa | 120 |\n"
+                "| Sur | Beta | 80 |\n"
+            )
+        return (
+            "| region | product | units |\n"
+            "| --- | --- | --- |\n"
+            "| North | Alfa | 120 |\n"
+            "| South | Beta | 80 |\n"
+        )
+    if extension in {"docx", "doc"}:
+        if is_spanish:
+            return (
+                "Titulo: Nota interna de practica\n\n"
+                "Este documento es ficticio. Describe un pedido de ejemplo de 120 unidades "
+                "y una conclusion breve para que los resultados se puedan comparar.\n"
+            )
+        return (
+            "Title: Internal practice note\n\n"
+            "This document is fictitious. It describes a sample order of 120 units "
+            "and a short conclusion so results stay comparable.\n"
+        )
+    if extension == "eml":
+        if is_spanish:
+            mensaje = (
+                "From: aviso@ejemplo.test\n"
+                "To: alumno@ejemplo.test\n"
+                "Subject: Caso de practica\n"
+                "Date: Mon, 1 Jan 2024 09:00:00 +0000\n"
+                "MIME-Version: 1.0\n"
+                "Content-Type: text/plain; charset=utf-8\n"
+                "\n"
+                "Este mensaje es ficticio. El pedido de ejemplo tiene 120 unidades.\n"
+            )
+        else:
+            mensaje = (
+                "From: notice@example.test\n"
+                "To: student@example.test\n"
+                "Subject: Practice case\n"
+                "Date: Mon, 1 Jan 2024 09:00:00 +0000\n"
+                "MIME-Version: 1.0\n"
+                "Content-Type: text/plain; charset=utf-8\n"
+                "\n"
+                "This message is fictitious. The sample order is 120 units.\n"
+            )
+        return "```text\n" + mensaje + "```\n"
+    if is_spanish:
+        return (
+            "Inventario ficticio del sitio:\n\n"
+            "- Elemento Alfa: 120 unidades\n"
+            "- Elemento Beta: 80 unidades\n"
+        )
+    return (
+        "Fictitious site inventory:\n\n"
+        "- Item Alfa: 120 units\n"
+        "- Item Beta: 80 units\n"
+    )
+
+
+def _seccion_anexo(nombre: str, is_spanish: bool) -> str:
+    mostrado = (nombre or "").replace("`", "").strip()
+    cuerpo = _cuerpo_ficticio(mostrado, is_spanish)
+    if is_spanish:
+        intro = (
+            f"Guarde el archivo `{mostrado}` con el contenido siguiente. "
+            "Los datos son ficticios y bastan para ejecutar esta práctica sin archivos externos."
+        )
+    else:
+        intro = (
+            f"Save the file `{mostrado}` with the following content. "
+            "The data is fictitious and is enough to run this practice with no external files."
+        )
+    # `cat >` is already a creation mark, so the annex counts as delivered in
+    # this lab for both Spanish (``guarde``) and English guides.
+    return f"### {mostrado}\n\n{intro}\n\ncat > {mostrado}\n\n{cuerpo}"
+
+
+def anexar_entradas_no_entregadas(
+    markdown: str, informe: dict, is_spanish: bool = True
+) -> str:
+    """Inline fictitious annexes for input files this lab needs and nobody delivered.
+
+    The heading is ``Anexo (datos ficticios)`` in Spanish guides. A file already
+    present under that heading is left as it is.
+    """
+    pendientes = [
+        nombre
+        for nombre in _entradas_para_anexo(informe)
+        if f"### {nombre}" not in (markdown or "")
+    ]
+    if not pendientes:
+        return markdown
+    titulo = _TITULO_ANEXO_ES if is_spanish else _TITULO_ANEXO_EN
+    bloques = "".join(_seccion_anexo(nombre, is_spanish) for nombre in pendientes)
+    if titulo in (markdown or ""):
+        return (markdown or "").rstrip() + "\n\n" + bloques
+    if is_spanish:
+        intro = (
+            f"## {titulo}\n\n"
+            "Este anexo contiene datos ficticios para que la práctica se ejecute sola, "
+            "sin archivos de un laboratorio anterior ni contenido de SharePoint.\n\n"
+        )
+    else:
+        intro = (
+            f"## {titulo}\n\n"
+            "This annex holds fictitious data so the practice runs on its own, "
+            "without files from a previous lab or SharePoint content.\n\n"
+        )
+    return (markdown or "").rstrip() + "\n\n" + intro + bloques
 
 
 def _verify_and_refine_lab_guide(
@@ -1443,6 +1571,16 @@ This lab is declared at {presupuesto['declarada']} minutes and must fit in them.
     else:
         presupuesto_section = ""
 
+    etiqueta_anexo = _TITULO_ANEXO_ES if is_spanish else _TITULO_ANEXO_EN
+    # previous_lab_context_section is ignored: the live prompt must not tell the
+    # model to reuse the previous lab's files or outputs.
+    del previous_lab_context_section
+    autocontenido_section = f"""
+SELF-CONTAINED PRACTICE (HARD REQUIREMENT):
+This lab must run alone. Do not reuse files, outputs, database names, container names, usernames, ports or directories from any previous lab, and do not tell the student that those already exist.
+When the lab needs an input file (Excel, Word, .eml, CSV or SharePoint content) that the syllabus or the manual does not deliver, inline that content in this lab under the heading "{etiqueta_anexo}" and state that the data is fictitious.
+"""
+
     # Paso 0 de calidad: este es el builder que el handler SIEMPRE usa (el handler
     # llama a generate_all_labs_batch con UN solo lab, línea ~1946). Antes el manual
     # llegaba aquí por accidente: el planner lo colaba en additional_requirements
@@ -1509,7 +1647,7 @@ COURSE CONTEXT (brief):
 {evidencia_section}
 LAB SPECIFICATION:
 {labs_summary_text}
-{previous_lab_context_section}
+{autocontenido_section}
 {lesson_context_section}
 {demo_section}
 {audience_section}
@@ -2348,27 +2486,12 @@ def lambda_handler(event, context):
 
         referential_reports: Dict[str, Any] = {}
 
-        # Contexto de conjunto para B2/B3c. En modo lote `lab_plans` viene filtrado a
-        # un solo laboratorio, así que la posición se calcula sobre el plan COMPLETO;
-        # usar `idx` del bucle daba 1 siempre y desactivaba la continuidad.
+        # Full-plan order: B2 (a later lab's output) depends on position.
+        # A file created in an earlier lab is not delivered. Each practice runs alone.
         orden_labs = [
             p.get("lab_id") for p in master_plan.get("lab_plans", []) if p.get("lab_id")
         ]
         salidas_por_lab = salidas_de_laboratorios(master_plan)
-        creados_antes: set[str] = set()
-        if orden_labs and lab_plans:
-            primera = next(
-                (i for i, otro in enumerate(orden_labs) if otro == lab_plans[0]["lab_id"]),
-                0,
-            )
-            creados_antes = _referentes_creados_en_labs_anteriores(
-                course_bucket, project_folder, orden_labs[:primera]
-            )
-            if creados_antes:
-                print(
-                    f"🔗 B3c: {len(creados_antes)} referente(s) creados en laboratorios "
-                    f"anteriores se aceptan como legítimos"
-                )
 
         # Build master context for all labs (including language)
         additional_requirements = (
@@ -2424,7 +2547,6 @@ def lambda_handler(event, context):
                         )["Body"].read().decode("utf-8")
                         if body.strip():
                             labs_markdown[lab_id] = body
-                            creados_antes |= referentes_creados(body)
                             print(
                                 f"  ⏭️  Skipping generation; using existing s3://{course_bucket}/{existing_key}"
                             )
@@ -2438,14 +2560,10 @@ def lambda_handler(event, context):
                 lesson_key = lab_lesson_keys[lab_id]
                 lesson_content = load_lesson_content(course_bucket, lesson_key)
 
-            # Posición en el plan completo (no en el lote): B2 y B3c dependen de ella.
+            # Position in the full plan (not in this batch): B2 depends on it.
+            # The previous lab is not loaded; this practice does not reuse its files.
             posicion = orden_labs.index(lab_id) if lab_id in orden_labs else 0
-
-            # Load previous lab context for sequential continuity
             previous_lab_context = ""
-            if posicion > 0:
-                prev_id = orden_labs[posicion - 1]
-                previous_lab_context = _get_previous_lab_context(course_bucket, project_folder, prev_id)
 
             last_error: Optional[Exception] = None
             for attempt in range(1, MAX_LAB_GENERATION_ATTEMPTS + 1):
@@ -2494,65 +2612,90 @@ def lambda_handler(event, context):
                                 f"{len(hallazgos_evidencia)} finding(s)"
                             )
 
-                        # Verificación B1/B2/B3c: todo fichero o ruta que el laboratorio
-                        # referencia debe estar declarado en el temario, el manual o el
-                        # plan, haberse creado en un paso anterior de este laboratorio,
-                        # haberse creado en un laboratorio ANTERIOR (B3c), y no puede ser
-                        # la salida de un laboratorio POSTERIOR (B2).
+                        # B1/B2: every file or path must be declared in the syllabus, the manual
+                        # or the plan, or created in a step of THIS lab. An earlier lab
+                        # does not supply inputs. A later lab's output is still B2.
                         posteriores = {
                             otro: salidas_por_lab.get(otro) or []
                             for otro in orden_labs[posicion + 1:]
                         }
-                        referential_report = auditar_laboratorio(
-                            verified_guide,
-                            fuentes=referential_sources,
-                            plan=referential_plan_text,
-                            creados_antes=creados_antes,
-                            salidas_posteriores=posteriores,
-                            referencias_posteriores=referencias_a_labs_posteriores(
-                                verified_guide, posicion, orden_labs
-                            ),
-                            # B6: la duración que declara el propio laboratorio manda;
-                            # si no la declara, se usa la del plan (coinciden en 176 de
-                            # los 179 laboratorios que la declaran).
-                            duracion_min=(
-                                duracion_declarada(verified_guide)
-                                or lab_plan.get("estimated_duration")
-                                or lab_plan.get("duration_minutes")
-                            ),
-                            requisitos_texto=requisitos_declarados(
-                                master_context.get("software_requirements"),
-                                master_context.get("hardware_requirements"),
-                            ),
-                            expected_outcomes=lab_plan.get("expected_outcomes"),
-                            # C2: lo que la petición declara del entorno (SO, shells
-                            # y mandatos prohibidos) se audita contra el laboratorio.
-                            entorno=entorno_de_peticion(
-                                master_context.get("additional_requirements") or ""
-                            ),
+
+                        def _auditar(guia: str) -> dict:
+                            return auditar_laboratorio(
+                                guia,
+                                fuentes=referential_sources,
+                                plan=referential_plan_text,
+                                creados_antes=None,
+                                salidas_posteriores=posteriores,
+                                referencias_posteriores=referencias_a_labs_posteriores(
+                                    guia, posicion, orden_labs
+                                ),
+                                # B6: la duración que declara el propio laboratorio manda;
+                                # si no la declara, se usa la del plan (coinciden en 176 de
+                                # los 179 laboratorios que la declaran).
+                                duracion_min=(
+                                    duracion_declarada(guia)
+                                    or lab_plan.get("estimated_duration")
+                                    or lab_plan.get("duration_minutes")
+                                ),
+                                requisitos_texto=requisitos_declarados(
+                                    master_context.get("software_requirements"),
+                                    master_context.get("hardware_requirements"),
+                                ),
+                                expected_outcomes=lab_plan.get("expected_outcomes"),
+                                # C2: lo que la petición declara del entorno (SO, shells
+                                # y mandatos prohibidos) se audita contra el laboratorio.
+                                entorno=entorno_de_peticion(
+                                    master_context.get("additional_requirements") or ""
+                                ),
+                            )
+
+                        def _altas(informe: dict) -> list:
+                            return [
+                                v
+                                for v in informe["violaciones"]
+                                if v.get("confianza") == "alta"
+                                and (
+                                    v.get("verificacion") != "B6"
+                                    or _reintento_duracion_habilitado()
+                                )
+                                and (
+                                    v.get("verificacion") != "B5"
+                                    or _reintento_requisitos_habilitado()
+                                )
+                                and (
+                                    v.get("verificacion") != "B3p"
+                                    or _reintento_entregables_habilitado()
+                                )
+                                and (
+                                    v.get("verificacion") != "C2"
+                                    or _reintento_entorno_habilitado()
+                                )
+                            ]
+
+                        referential_report = _auditar(verified_guide)
+                        altas = _altas(referential_report)
+                        # The model gets the remaining attempts to drop an invented
+                        # name or use a file the syllabus already delivers. The guide
+                        # that ships still has to run alone, so any Excel, Word, .eml,
+                        # CSV or SharePoint input that is still missing is inlined.
+                        va_a_reintentar = (
+                            bool(altas)
+                            and attempt < MAX_LAB_GENERATION_ATTEMPTS
+                            and _reintento_referencial_habilitado()
                         )
+                        if not va_a_reintentar:
+                            guia_anexada = anexar_entradas_no_entregadas(
+                                verified_guide,
+                                referential_report,
+                                is_spanish=course_language.startswith("es"),
+                            )
+                            if guia_anexada != verified_guide:
+                                verified_guide = guia_anexada
+                                referential_report = _auditar(verified_guide)
+                                altas = _altas(referential_report)
+                                print(f"  📎 Anexo de datos ficticios añadido a {lab_id}")
                         referential_reports[lab_id] = referential_report
-                        altas = [
-                            v
-                            for v in referential_report["violaciones"]
-                            if v.get("confianza") == "alta"
-                            and (
-                                v.get("verificacion") != "B6"
-                                or _reintento_duracion_habilitado()
-                            )
-                            and (
-                                v.get("verificacion") != "B5"
-                                or _reintento_requisitos_habilitado()
-                            )
-                            and (
-                                v.get("verificacion") != "B3p"
-                                or _reintento_entregables_habilitado()
-                            )
-                            and (
-                                v.get("verificacion") != "C2"
-                                or _reintento_entorno_habilitado()
-                            )
-                        ]
                         print(
                             f"  🔎 Integridad referencial y duración de {lab_id}: "
                             f"{len(referential_report['violaciones'])} hallazgo(s) "
@@ -2566,11 +2709,7 @@ def lambda_handler(event, context):
                                 f"mencion(es) de hoja de ruta a laboratorios posteriores"
                             )
 
-                        if (
-                            altas
-                            and attempt < MAX_LAB_GENERATION_ATTEMPTS
-                            and _reintento_referencial_habilitado()
-                        ):
+                        if va_a_reintentar:
                             # Reintento correctivo solo con lo que el curso dice aportar.
                             # El resto (ficheros creados por el propio laboratorio, del
                             # proyecto o salidas esperadas) queda solo registrado: la
@@ -2584,9 +2723,6 @@ def lambda_handler(event, context):
                                 f"{len(altas)} high-confidence finding(s)"
                             )
 
-                        # Solo el laboratorio aceptado aporta referentes creados para el
-                        # siguiente: un intento rechazado no debe legitimar nada.
-                        creados_antes.update(referential_report.get("creados") or ())
                         labs_markdown[lab_id] = verified_guide
                         print(f"  ✅ Lab {lab_id} generated & verified (Demo={is_demo}) (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
                         break
