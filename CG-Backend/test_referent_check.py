@@ -3122,6 +3122,25 @@ def test_a2_el_plan_con_la_cantidad_correcta_no_marca():
     assert [v for v in informe["violaciones"] if v["verificacion"] == "A2"] == []
 
 
+def test_a2_extrae_seis_fondos_en_revision_interna_ms_4019():
+    """§31.3: «revisión» y «comparativo» son sustantivos, no verbos de instrucción."""
+    fuentes = (
+        "En el contexto de CIBEST CAPITAL, una revisión interna de seis fondos "
+        "multiactivo ficticios."
+    )
+    lab = (
+        "## Contexto\n"
+        "Realiza un análisis comparativo de tres fondos multiactivo.\n\n"
+        "### Paso 1: Revisar\n```bash\nls\n```\n"
+    )
+    informe = auditar_laboratorio(lab, fuentes)
+    a2 = [v for v in informe["violaciones"] if v["verificacion"] == "A2"]
+    assert len(a2) == 1, informe["violaciones"]
+    assert a2[0]["esperado"] == 6
+    assert a2[0]["obtenido"] == 3
+    assert a2[0]["confianza"] == "alta"
+
+
 def test_a2_la_reconciliacion_copia_la_cantidad_del_temario():
     """El plan se alinea copiando la cifra, sin depender del modelo."""
     fuentes = "El escenario consta de seis fondos multiactivo."

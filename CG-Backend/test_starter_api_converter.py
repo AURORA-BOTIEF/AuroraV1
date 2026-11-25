@@ -164,9 +164,10 @@ course:
     assert "Durations are optional and do NOT determine hierarchy" in prompt_used
     assert "EVERY numbered sub-item" not in prompt_used
     assert "type: demo" in prompt_used
-    assert "SAME laboratory procedure" in prompt_used
-    assert "NEVER create a `lessons[]` entry" in prompt_used
-    assert "they are NOT lessons" in prompt_used
+    assert "el MISMO procedimiento de laboratorio" in prompt_used
+    assert "NUNCA coloques una práctica/demo como `topics`" in prompt_used
+    assert "ni como `lessons[]`" in prompt_used
+    assert "NO la convierte en topic" in prompt_used
 
 
 def test_promote_lab_entries_out_of_lessons_extracts_practices_and_demos():
