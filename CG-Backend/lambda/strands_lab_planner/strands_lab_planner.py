@@ -21,6 +21,7 @@ from typing import Dict, List, Any, Optional
 
 from format_budget import aplicar_presupuesto_de_formato, sin_ajuste
 from manual_context import select_manual_context, flatten_to_text
+from audience_adaptation import planner_audience_block, resolve_audience_profile
 from referent_check import (
     auditar_contrato,
     auditar_duraciones_curso,
@@ -704,6 +705,7 @@ def generate_lab_master_plan(
     course_description = course_info.get('description', '')
     course_level = course_info.get('level', 'intermediate')
     prerequisites = course_info.get('prerequisites', [])
+    audience_profile = resolve_audience_profile(course_info)
     
     # For large courses, process labs in batches to avoid token limits and timeouts
     num_batches = (len(labs) + batch_size - 1) // batch_size
@@ -790,6 +792,7 @@ You are an expert technical instructor designing laboratory guides.
 COURSE: {course_title}
 Level: {course_level}
 {'Prerequisites: ' + ', '.join(prerequisites) if prerequisites else ''}
+{planner_audience_block(audience_profile, course_info)}
 
 LABS IN THIS BATCH ({len(batch_labs)} labs):
 {chr(10).join(labs_summary)}
@@ -1401,6 +1404,7 @@ def lambda_handler(event, context):
             'model_provider': model_provider,
             'course_title': course_info.get('title', 'Unknown'),
             'course_language': course_language,  # Pass language to LabWriter
+            'audience_profile': resolve_audience_profile(course_info),
             'total_labs': len(lab_plan_list),
             'total_duration_minutes': duration_sum,
             'additional_requirements': lab_requirements,

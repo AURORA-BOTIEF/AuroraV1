@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from manual_context import select_manual_context, flatten_to_text
+from audience_adaptation import adjust_presupuesto, writer_audience_block
 from referent_check import (
     auditar_laboratorio,
     duracion_declarada,
@@ -1403,6 +1404,8 @@ USER REQUIREMENTS (CRITICAL - MUST BE INCORPORATED):
     presupuesto = presupuesto_de_duracion(
         lab_plan.get("estimated_duration") or lab_plan.get("duration_minutes")
     )
+    presupuesto = adjust_presupuesto(presupuesto, master_context.get("audience_profile"))
+    audience_section = writer_audience_block(master_context.get("audience_profile") or {}, is_spanish)
     if presupuesto and is_spanish:
         presupuesto_section = f"""
 PRESUPUESTO DE DURACIÓN (REQUISITO DURO: LOS TIEMPOS DEL TEMARIO SE CUMPLEN):
@@ -1484,6 +1487,7 @@ LAB SPECIFICATION:
 {previous_lab_context_section}
 {lesson_context_section}
 {demo_section}
+{audience_section}
 
 {structure_block}
 {presupuesto_section}
@@ -2358,7 +2362,8 @@ def lambda_handler(event, context):
             'overall_objectives': master_plan.get('overall_objectives', []),
             'target_language': target_language,  # NEW: Pass language to prompt
             'manual_reference_text': manual_reference_text,
-            'additional_requirements': additional_requirements
+            'additional_requirements': additional_requirements,
+            'audience_profile': (master_plan.get('metadata') or {}).get('audience_profile'),
         }
         
         # Step 2: Generate lab guides ONE AT A TIME for reliability
