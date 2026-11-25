@@ -1,7 +1,6 @@
 """Auditoría posterior del curso: manifiesto de entradas con hash y enlaces.
 
-Se ejecuta después de la Setup Guide y no bloquea el flujo. Escribe dos artefactos
-de evidencia en ``{proyecto}/labguide/``:
+Se ejecuta después de la Setup Guide. Escribe dos artefactos en ``{proyecto}/labguide/``:
 
 - ``inputs-manifest.json``: SHA-256 de las entradas (temario, manual, petición) y de
   las salidas (plan, laboratorios, guía). En una actualización permite saber qué
@@ -9,6 +8,13 @@ de evidencia en ``{proyecto}/labguide/``:
 - ``enlaces.json``: enlaces públicos de los laboratorios con su estado. Solo se
   marcan como muertos los 404/410 y los dominios inexistentes; 403/429/5xx y los
   timeouts son «no verificables»: el servidor existe y puede estar bloqueando bots.
+
+Un enlace muerto es una compuerta: la lambda sigue respondiendo 200 (el informe
+queda escrito) y devuelve ``gate.bloquea``. Step Functions lee ese campo y manda
+el curso a ``NotifyFailure``. No se lanza una excepción: el ``Catch`` del estado
+sigue yendo a ``NotifyCompletion`` cuando la lambda falla de verdad, y eso no
+debe tragarse el caso de los enlaces muertos. ``LINK_AUDIT_GATE=0`` deja el
+informe como evidencia y pone ``bloquea`` en falso.
 
 Medido el 26/10/2026 sobre 1.313 laboratorios: 5.150 enlaces públicos, 3.870 vivos,
 831 muertos y 449 no verificables. La mayoría de los 831 del crudo eran IPs privadas,
@@ -270,6 +276,27 @@ def revisar_enlace(url):
         return "no_verificable", type(error).__name__
 
 
+_APAGADO = ("0", "false", "no", "off")
+
+
+def compuerta_de_enlaces(informe, activa=None):
+    """Dead public links fail the course. Unverifiable responses do not.
+
+    ``activa`` overrides ``LINK_AUDIT_GATE`` (default on). 403/429/5xx stay in
+    the report and do not set ``bloquea``.
+    """
+    if activa is None:
+        activa = os.getenv("LINK_AUDIT_GATE", "1").strip().lower() not in _APAGADO
+    muertos = int(((informe or {}).get("resumen") or {}).get("muertos") or 0)
+    bloquea = bool(activa and muertos > 0)
+    return {
+        "bloquea": bloquea,
+        "activa": bool(activa),
+        "muertos": muertos,
+        "motivo": "enlaces_muertos" if bloquea else "",
+    }
+
+
 def revisar_enlaces(bucket, project_folder):
     """Comprueba los enlaces públicos de los laboratorios, una vez por URL."""
     claves = [
@@ -348,6 +375,7 @@ def lambda_handler(event, context):
         )
 
         enlaces = revisar_enlaces(bucket, project_folder)
+        enlaces["gate"] = compuerta_de_enlaces(enlaces)
         enlaces_key = f"{project_folder}/labguide/enlaces.json"
         s3.put_object(
             Bucket=bucket,
@@ -369,6 +397,7 @@ def lambda_handler(event, context):
             "updates_key": updates_key,
             "enlaces_key": enlaces_key,
             "resumen_enlaces": enlaces["resumen"],
+            "gate": enlaces["gate"],
         }
     except Exception as exc:  # noqa: BLE001
         logger.error("Error en la auditoría posterior: %s", exc, exc_info=True)

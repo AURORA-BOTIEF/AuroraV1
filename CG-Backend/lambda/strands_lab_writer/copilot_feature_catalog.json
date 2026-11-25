@@ -1,0 +1,140 @@
+{
+  "catalog_version": "2026-11-25.1",
+  "verified_on": "2026-11-25",
+  "product": "Microsoft 365 Copilot",
+  "update_policy": "Add a feature only with a doc_url opened against current official Microsoft documentation. Set status to deprecated when that documentation says the name was renamed, retired, or is legacy. Do not add a name because a model used it. Single-word aliases match only near a Copilot cue; multi-word aliases match on their own. A preview row is blocked unless the lab or the uploaded manual contains one of requires_any.",
+  "retrieval": {
+    "env_flag": "COPILOT_CATALOG_RETRIEVAL",
+    "default": false,
+    "note": "When the flag is on, each doc_url may be fetched to confirm the canonical name is still on the page. The lab writer does not fetch unless the flag is set. Tests inject a fetcher and must not call the network."
+  },
+  "features": [
+    {
+      "id": "microsoft-365-copilot",
+      "canonical_name": "Microsoft 365 Copilot",
+      "kind": "product",
+      "status": "available",
+      "availability": "Producto. Chat de trabajo con protección de datos comercial y, con licencia, acceso a datos de Microsoft 365.",
+      "doc_url": "https://blogs.bing.com/search/2023/11/our-vision-to-bring-microsoft-copilot-to-everyone-and-more",
+      "doc_title": "Our vision to bring Microsoft Copilot to everyone, and more",
+      "aliases": ["Microsoft 365 Copilot", "Copilot for Microsoft 365", "Copilot para Microsoft 365"]
+    },
+    {
+      "id": "copilot-chat",
+      "canonical_name": "Copilot Chat",
+      "kind": "surface",
+      "status": "available",
+      "availability": "Chat estándar de Microsoft 365 Copilot. No es el agente Researcher ni el agente Analyst.",
+      "doc_url": "https://learn.microsoft.com/en-us/copilot/manage/researcher-agent",
+      "doc_title": "What is Researcher Agent in Microsoft Copilot? (contrasts standard Copilot chat)",
+      "aliases": ["Copilot Chat"]
+    },
+    {
+      "id": "copilot-studio",
+      "canonical_name": "Copilot Studio",
+      "kind": "product",
+      "status": "available",
+      "availability": "Producto que incorpora a Power Virtual Agents. Sirve para crear y publicar agentes.",
+      "doc_url": "https://www.microsoft.com/en-us/copilot/blog/copilot-studio/microsoft-power-virtual-agents-now-part-of-microsoft-copilot-studio/",
+      "doc_title": "Microsoft Power Virtual Agents, now part of Microsoft Copilot Studio",
+      "aliases": ["Copilot Studio", "Microsoft Copilot Studio"]
+    },
+    {
+      "id": "researcher",
+      "canonical_name": "Researcher",
+      "kind": "agent",
+      "status": "available",
+      "availability": "Agente de Microsoft Copilot para investigación en varios pasos, con citas. Está en Agentes, dentro del chat. Cuenta de trabajo o escuela.",
+      "doc_url": "https://learn.microsoft.com/en-us/copilot/manage/researcher-agent",
+      "doc_title": "What is Researcher Agent in Microsoft Copilot?",
+      "aliases": ["Researcher", "Researcher agent", "agente Researcher"]
+    },
+    {
+      "id": "analyst",
+      "canonical_name": "Analyst",
+      "kind": "agent",
+      "status": "available",
+      "availability": "Agente de Microsoft Copilot para análisis de datos. Está en Agentes. Se le adjuntan archivos.",
+      "doc_url": "https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-analyst-in-microsoft-365-copilot",
+      "doc_title": "Get started with Analyst in Microsoft Copilot",
+      "aliases": ["Analyst", "Analyst agent", "agente Analyst"]
+    },
+    {
+      "id": "agent-builder",
+      "canonical_name": "Agent Builder",
+      "kind": "surface",
+      "status": "available",
+      "availability": "Superficie de Microsoft 365 Copilot para crear agentes declarativos con lenguaje natural, la pestaña Configure o una plantilla. Entrada: New agent.",
+      "doc_url": "https://learn.microsoft.com/en-us/plugins/agent-builder-build-agents",
+      "doc_title": "Build agents in Agent Builder",
+      "aliases": ["Agent Builder"]
+    },
+    {
+      "id": "plan-my-day",
+      "canonical_name": "Plan My Day",
+      "kind": "template",
+      "status": "available",
+      "availability": "Plantilla de agente declarativo. No es un botón fijo de la navegación de Copilot: el agente se construye con la plantilla.",
+      "doc_url": "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/agent-template-plan-my-day",
+      "doc_title": "Use the Plan My Day template to build an agent",
+      "aliases": ["Plan My Day"]
+    },
+    {
+      "id": "workflows",
+      "canonical_name": "Workflows",
+      "kind": "agent",
+      "status": "preview",
+      "availability": "Agente en vista previa del programa Frontier. No es disponibilidad general. Requiere inscripción en Frontier.",
+      "doc_url": "https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-workflows-in-microsoft-365-copilot",
+      "doc_title": "Get started with Workflows in Microsoft Copilot",
+      "aliases": ["Workflows Agent", "Workflows Agent (Frontier)", "agente Workflows"],
+      "aliases_sensitive": ["Workflows"],
+      "requires_any": ["Frontier", "vista previa", "early access", "acceso anticipado"],
+      "exclude_if": ["power automate", "github", "gitlab", "jenkins", "azure devops"]
+    },
+    {
+      "id": "frontier",
+      "canonical_name": "Frontier",
+      "kind": "program",
+      "status": "available",
+      "availability": "Programa de acceso previo de Microsoft 365, no un agente ni un botón de la aplicación. Las características Frontier pueden cambiar antes de la disponibilidad general.",
+      "doc_url": "https://learn.microsoft.com/en-us/microsoft-365/admin/manage/get-started-frontier?view=o365-worldwide",
+      "doc_title": "Get started with the Microsoft Frontier Program",
+      "aliases": ["Microsoft Frontier", "Frontier program", "programa Frontier"],
+      "aliases_sensitive": ["Frontier"],
+      "context_cues_extra": ["programa", "program"]
+    },
+    {
+      "id": "idea-coach",
+      "canonical_name": "Idea Coach",
+      "kind": "agent",
+      "status": "available",
+      "availability": "Agente nombrado en el módulo oficial de Learn junto a Researcher y Analyst.",
+      "doc_url": "https://learn.microsoft.com/en-us/training/modules/turn-info-into-decisions-ai-agents/",
+      "doc_title": "Turn Information into Decisions with AI Agents",
+      "aliases": ["Idea Coach", "agente Idea Coach"]
+    },
+    {
+      "id": "bing-chat-enterprise",
+      "canonical_name": "Bing Chat Enterprise",
+      "kind": "product",
+      "status": "deprecated",
+      "availability": "Dejó de ser el nombre del producto el 2023-11-15. Pasó a llamarse Copilot.",
+      "doc_url": "https://blogs.bing.com/search/2023/11/our-vision-to-bring-microsoft-copilot-to-everyone-and-more",
+      "doc_title": "Our vision to bring Microsoft Copilot to everyone, and more",
+      "replaced_by": "Microsoft Copilot",
+      "aliases": ["Bing Chat Enterprise"]
+    },
+    {
+      "id": "power-virtual-agents",
+      "canonical_name": "Power Virtual Agents",
+      "kind": "product",
+      "status": "deprecated",
+      "availability": "Nombre legado. Las capacidades están en Microsoft Copilot Studio. La licencia legado dejó de venderse el 2024-01-01.",
+      "doc_url": "https://learn.microsoft.com/en-us/microsoft-copilot-studio/requirements-sessions-management",
+      "doc_title": "Manage sessions and capacity for the legacy Power Virtual Agents license",
+      "replaced_by": "Microsoft Copilot Studio",
+      "aliases": ["Power Virtual Agents", "Power Virtual Agent"]
+    }
+  ]
+}
