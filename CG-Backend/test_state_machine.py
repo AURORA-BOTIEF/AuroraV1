@@ -25,6 +25,7 @@ condiciones y sólo exige el contrato en los caminos que de verdad se recorren.
 import ast
 import json
 import os
+import re
 import sys
 
 _RUTA_DEFINICION = os.path.join(
@@ -61,12 +62,22 @@ def _raiz(ruta):
 
 
 def _raices_resueltas(parametros):
-    """Raíces de entrada que un objeto ``Parameters`` resuelve con JSONPath."""
+    """Raíces de entrada que un objeto ``Parameters`` resuelve con JSONPath.
+
+    A bare ``$.field`` is a reference path. An intrinsic such as
+    ``States.ArrayContains($.field, 'x')`` also reads that field; the wildcard
+    form ``$.items[*].field`` is a projection and is not a single reference.
+    """
     raices = set()
     for clave, ruta in parametros.items():
-        if clave.endswith(".$") and isinstance(ruta, str) and ruta.startswith("$."):
+        if not (clave.endswith(".$") and isinstance(ruta, str)):
+            continue
+        if ruta.startswith("$."):
             if _raiz(ruta):
                 raices.add(_raiz(ruta))
+            continue
+        for hallazgo in re.findall(r"(?<!\$)\$\.([A-Za-z_][A-Za-z0-9_]*)", ruta):
+            raices.add(hallazgo)
     return raices
 
 
@@ -219,7 +230,13 @@ def _recorrer(estados, modo, resume=False):
                     f"{sorted(faltan)} con JSONPath y la entrada ya no los tiene: en "
                     f"ejecución fallaría con States.Runtime"
                 )
-                claves = _raices_de_parametros(estado["Parameters"])
+                # ResultPath "$" replaces the input. Any other ResultPath keeps the
+                # input and writes the Pass result at that node.
+                ruta = estado.get("ResultPath", "$")
+                if ruta in (None, "$"):
+                    claves = _raices_de_parametros(estado["Parameters"])
+                else:
+                    claves.add(_raiz(ruta))
         elif tipo == "Choice":
             destino = estado.get("Default")
             for eleccion in estado.get("Choices") or []:
@@ -343,6 +360,120 @@ def test_la_auditoria_posterior_cierra_el_flujo_sin_bloquear():
     assert auditoria["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert auditoria["Catch"][0]["Next"] == "NotifyCompletion"
     assert auditoria["Catch"][0]["ResultPath"] == "$.audit_error"
+
+
+def _destino_de_choice(estado, datos):
+    destino = estado.get("Default")
+    for eleccion in estado.get("Choices") or []:
+        condiciones = eleccion.get("And") or [eleccion]
+        if all(_cumple(c, datos) for c in condiciones):
+            return eleccion["Next"]
+    return destino
+
+
+def test_la_puerta_no_entrega_hallazgos_de_alta_confianza():
+    """After the final retry, high-confidence findings leave the success path.
+
+    Structural errors still go to NotifyFailure. Shadow mode still bypasses.
+    A clean lab (all_valid, no needs_review) still builds the book.
+    """
+    estados = _definicion()["States"]
+    puerta = estados["CheckLabValidation"]
+
+    assert _destino_de_choice(puerta, {
+        "lab_validation_result": {"all_valid": True},
+        "lab_quality_decision": {"needs_review": True},
+    }) == "StampLabWriterQuality"
+
+    assert _destino_de_choice(puerta, {
+        "lab_validation_shadow": True,
+        "lab_validation_result": {"all_valid": False},
+        "lab_quality_decision": {"needs_review": True},
+    }) == "InvokeLabGuideBuilder"
+
+    assert _destino_de_choice(puerta, {
+        "lab_validation_result": {"all_valid": False},
+        "lab_quality_decision": {"needs_review": False},
+    }) == "NotifyFailure"
+
+    assert _destino_de_choice(puerta, {
+        "lab_validation_result": {"all_valid": True},
+        "lab_quality_decision": {"needs_review": False},
+    }) == "InvokeLabGuideBuilder"
+
+    fallo = estados["FailLabQualityGate"]
+    assert fallo["Type"] == "Fail"
+    assert fallo["Error"] == "LabQualityNeedsReview"
+    assert fallo["CausePath"] == "$.quality_gate.cause"
+    aviso = estados["NotifyQualityReview"]
+    assert aviso["Parameters"]["Payload"]["status"] == "needs_review"
+    assert aviso["Next"] == "FailLabQualityGate"
+    assert aviso["Catch"][0]["Next"] == "FailLabQualityGate"
+
+
+def test_el_plan_con_hallazgos_de_alta_no_sigue_como_exito():
+    estados = _definicion()["States"]
+    solo_labs = _destino_de_choice(estados["CheckLabPlannerResult"], {
+        "lab_planner_result": {
+            "Payload": {
+                "statusCode": 200,
+                "master_plan_key": "plan.json",
+                "total_labs": 2,
+                "quality_status": "needs_review",
+            }
+        }
+    })
+    assert solo_labs == "StampLabsPlanQuality"
+    limpio = _destino_de_choice(estados["CheckLabPlannerResult"], {
+        "lab_planner_result": {
+            "Payload": {
+                "statusCode": 200,
+                "master_plan_key": "plan.json",
+                "total_labs": 2,
+                "quality_status": "passed",
+            }
+        }
+    })
+    assert limpio == "ExpandLabsToBatches"
+
+    ambos = _destino_de_choice(estados["CheckMasterLabPlanResult"], {
+        "master_lab_plan_result": {
+            "Payload": {"statusCode": 200, "quality_status": "needs_review"}
+        }
+    })
+    assert ambos == "StampBothPlanQuality"
+
+
+def test_los_lotes_propagan_el_estado_de_calidad():
+    estados = _definicion()["States"]
+    for mapa, completo in (
+        ("ProcessLabBatchesInParallel", "LabBatchComplete"),
+        ("ProcessLabBatchesInParallelBoth", "LabBatchCompleteBoth"),
+    ):
+        parametros = estados[mapa]["Iterator"]["States"][completo]["Parameters"]
+        assert parametros["quality_status.$"] == "$.lab_result.Payload.quality_status"
+        assert parametros["labs_needing_review.$"] == "$.lab_result.Payload.labs_needing_review"
+    for nombre, evaluacion in (
+        ("CombineLabResults", "EvaluateLabQualityGate"),
+        ("CombineLabResultsBoth", "EvaluateLabQualityGateBoth"),
+    ):
+        parametros = estados[nombre]["Parameters"]
+        assert parametros["lab_quality_statuses.$"] == (
+            "$.all_lab_batches_results[*].quality_status"
+        )
+        assert "States.ArrayContains" not in parametros["lab_quality_statuses.$"]
+        assert estados[nombre]["Next"] == evaluacion
+        decision = estados[evaluacion]
+        assert decision["ResultPath"] == "$.lab_quality_decision"
+        assert decision["Parameters"]["needs_review.$"] == (
+            "States.ArrayContains($.lab_quality_statuses, 'needs_review')"
+        )
+    assert "States.JsonToString($.lab_quality_summaries)" in (
+        estados["StampLabWriterQuality"]["Parameters"]["cause.$"]
+    )
+    selector = estados["GenerateLabMasterPlan"]["ResultSelector"]["Payload"]
+    assert selector["quality_status.$"] == "$.Payload.quality_status"
+    assert selector["quality_summary.$"] == "$.Payload.quality_summary"
 
 
 def test_los_decks_se_generan_tras_la_auditoria_y_no_bloquean():

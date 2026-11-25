@@ -1107,6 +1107,124 @@ def auditar_y_corregir_plan(master_plan: dict, fuentes: str, regenerar, max_inte
     return master_plan, informe
 
 
+def _ficha_de_hallazgo(violacion: dict, verificacion: str = "A1") -> dict:
+    return {
+        "verificacion": violacion.get("verificacion") or verificacion,
+        "confianza": violacion.get("confianza") or "baja",
+        "valor": str(violacion.get("valor") or "")[:300],
+        "lab_id": violacion.get("lab_id"),
+        "campo": violacion.get("campo"),
+    }
+
+
+def clasificar_hallazgos_de_plan(
+    referential_report: dict,
+    duraciones_curso: dict,
+    contrato_informe: dict,
+    preflight: dict | None = None,
+) -> dict:
+    """Plan-level gate after the last A1 retry and the A2/A3/A5 copies.
+
+    High confidence blocks: undeclared files (A1), a syllabus quantity or
+    duration mismatch that reconciliation did not clear (A2/A3), and an
+    objective or other contract field that still disagrees (A5). Low-confidence
+    referents and pre-flight signals stay warnings.
+    """
+    bloquean: List[dict] = []
+    advertencias: List[dict] = []
+    for violacion in (referential_report or {}).get("violaciones") or ():
+        if not isinstance(violacion, dict):
+            continue
+        ficha = _ficha_de_hallazgo(violacion)
+        if ficha["confianza"] == "alta":
+            bloquean.append(ficha)
+        else:
+            advertencias.append(ficha)
+
+    if duraciones_curso and not duraciones_curso.get("ok", True):
+        bloquean.append({
+            "verificacion": "A3",
+            "confianza": "alta",
+            "valor": (
+                f"cantidad/duracion: plan {duraciones_curso.get('suma_plan')} min "
+                f"frente a curso {duraciones_curso.get('total_curso')}; "
+                f"{duraciones_curso.get('labs_plan')} laboratorio(s) frente a "
+                f"{duraciones_curso.get('labs_temario')} practica(s) del temario "
+                f"(faltan {duraciones_curso.get('faltan')}, sobran {duraciones_curso.get('sobran')})"
+            ),
+            "lab_id": None,
+            "campo": "duration",
+        })
+
+    for conflicto in (contrato_informe or {}).get("conflictos") or ():
+        if not isinstance(conflicto, dict):
+            continue
+        bloquean.append({
+            "verificacion": "A5",
+            "confianza": "alta",
+            "valor": (
+                f"{conflicto.get('campo')}: temario «{conflicto.get('temario')}» "
+                f"vs plan «{conflicto.get('plan')}»"
+            )[:300],
+            "lab_id": conflicto.get("lab_id"),
+            "campo": conflicto.get("campo"),
+        })
+
+    for modulo in (preflight or {}).get("modulos") or ():
+        senales = modulo.get("senales") or []
+        if not senales:
+            continue
+        advertencias.append({
+            "verificacion": "preflight",
+            "confianza": "baja",
+            "valor": (
+                f"modulo {modulo.get('modulo')}: {', '.join(senales)} "
+                f"({modulo.get('por_laboratorio')} min/lab)"
+            )[:300],
+            "lab_id": None,
+            "campo": "preflight",
+        })
+
+    if bloquean:
+        partes = [
+            f"{h.get('verificacion')}: {h.get('valor')}"
+            for h in bloquean[:12]
+        ]
+        resumen = ("NEEDS_REVIEW " + "; ".join(partes))[:1800]
+        estado = "needs_review"
+    else:
+        resumen = "passed"
+        estado = "passed"
+    return {
+        "quality_status": estado,
+        "quality_summary": resumen,
+        "quality_findings": bloquean,
+        "quality_warnings": advertencias,
+    }
+
+
+def _registrar_puerta_de_plan(puerta: dict) -> None:
+    estado = puerta.get("quality_status")
+    hallazgos = puerta.get("quality_findings") or []
+    advertencias = puerta.get("quality_warnings") or []
+    if estado == "needs_review":
+        print(
+            f"\n🚫 QUALITY GATE: plan needs_review. {len(hallazgos)} high-confidence "
+            f"finding(s) remain after retry/reconciliation and the course will not "
+            f"be delivered as passed."
+        )
+        for hallazgo in hallazgos[:12]:
+            print(f"     🚫 {hallazgo.get('verificacion')} {hallazgo.get('valor')}")
+        return
+    if advertencias:
+        print(
+            f"\n⚠️  QUALITY GATE: plan passed with {len(advertencias)} "
+            f"low-confidence warning(s); generation continues."
+        )
+        return
+    print("\n✅ QUALITY GATE: plan passed")
+
+
 def lambda_handler(event, context):
     """
     Lambda handler for Lab Planner (Agent 1).
@@ -1199,7 +1317,11 @@ def lambda_handler(event, context):
                 'project_folder': project_folder,
                 'bucket': course_bucket,
                 'model_provider': model_provider,
-                'message': 'No lab activities found in outline - skipping lab generation'
+                'message': 'No lab activities found in outline - skipping lab generation',
+                'quality_status': 'passed',
+                'quality_summary': 'passed',
+                'quality_findings': [],
+                'quality_warnings': [],
             }
         
         # Step 2b: Selección del manual de referencia (paso 0 de calidad).
@@ -1435,6 +1557,12 @@ def lambda_handler(event, context):
             'entorno_declarado': entorno_de_peticion(lab_requirements),
         }
 
+        puerta = clasificar_hallazgos_de_plan(
+            referential_report, duraciones_curso, contrato_informe, preflight
+        )
+        master_plan['metadata']['quality_gate'] = puerta
+        _registrar_puerta_de_plan(puerta)
+
         guardar_informe_referencial(course_bucket, project_folder, referential_report)
         guardar_informe_referencial(
             course_bucket,
@@ -1457,7 +1585,14 @@ def lambda_handler(event, context):
         )
         
         print(f"\n{'='*70}")
-        print(f"✅ LAB PLANNING COMPLETED SUCCESSFULLY")
+        if puerta["quality_status"] == "needs_review":
+            print(
+                "🚫 LAB PLANNING NEEDS REVIEW: high-confidence syllabus findings "
+                "remain. The execution will not be delivered as passed."
+            )
+        else:
+            print(f"✅ LAB PLANNING COMPLETED SUCCESSFULLY")
+        print(f"   quality_status: {puerta['quality_status']}")
         print(f"{'='*70}\n")
         
         return {
@@ -1469,6 +1604,10 @@ def lambda_handler(event, context):
             'bucket': course_bucket,
             'model_provider': model_provider,
             'lab_plans_source': master_plan['metadata'].get('lab_plans_source', 'ai'),
+            'quality_status': puerta['quality_status'],
+            'quality_summary': puerta['quality_summary'],
+            'quality_findings': puerta['quality_findings'],
+            'quality_warnings': puerta['quality_warnings'],
         }
     
     except KeyError as e:
