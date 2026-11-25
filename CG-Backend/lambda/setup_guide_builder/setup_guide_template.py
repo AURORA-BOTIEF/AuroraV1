@@ -369,29 +369,42 @@ SETUP_GUIDE_TEMPLATE = """
 </table>
 {% endif %}
 
-<!-- ===== 03 Software, versiones y fuentes ===== -->
+<!-- ===== 03 Capacidades, licencias y accesos ===== -->
 <div class="page-break"></div>
-<h1 class="section">03 &nbsp; Software, versiones y fuentes oficiales</h1>
-{% if software %}
+<h1 class="section">03 &nbsp; Capacidades, licencias y accesos</h1>
+{% if capabilities %}
 <table class="data">
-    <tr><th>Componente</th><th>Versión exacta</th><th>Fuente oficial</th><th>Momento</th><th>Validación</th></tr>
+    <tr><th>Capacidad / servicio</th><th>Licencia</th><th>Acceso</th><th>Permiso / rol</th><th>Versión</th></tr>
+    {% for c in capabilities %}
+    <tr{% if loop.index0 % 2 == 1 %} class="alt"{% endif %}>
+        <td>{{ c.capability }}</td>
+        <td>{{ c.license }}</td>
+        <td>{% if c.access and c.access.startswith('http') %}<a href="{{ c.access }}">{{ c.access }}</a>{% else %}{{ c.access }}{% endif %}</td>
+        <td>{{ c.permission }}</td>
+        <td>{% if c.pending %}<span class="pending">{{ c.version }}</span>{% else %}{{ c.version }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% elif software %}
+<table class="data">
+    <tr><th>Capacidad / servicio</th><th>Licencia</th><th>Acceso</th><th>Permiso / rol</th><th>Versión</th></tr>
     {% for s in software %}
     <tr{% if loop.index0 % 2 == 1 %} class="alt"{% endif %}>
-        <td>{{ s.name }}{% if s.purpose %}<br/><span class="footer-note">{{ s.purpose }}</span>{% endif %}</td>
-        <td>{% if s.pending %}<span class="pending">{{ s.version }}</span>{% else %}{{ s.version }}{% endif %}</td>
+        <td>{{ s.name }}</td>
+        <td>{{ s.license }}</td>
         <td>{% if s.source %}<a href="{{ s.source }}">{{ s.source }}</a>{% else %}<span class="pending">[ENLACE OFICIAL]</span>{% endif %}</td>
-        <td>{{ s.moment }}</td>
-        <td>{{ s.validation }}</td>
+        <td>{{ s.purpose }}</td>
+        <td>{% if s.pending %}<span class="pending">{{ s.version }}</span>{% else %}{{ s.version }}{% endif %}</td>
     </tr>
     {% endfor %}
 </table>
 {% else %}
-<p class="pending">[SOFTWARE Y VERSIONES POR VALIDAR]</p>
+<p class="pending">[CAPACIDADES, LICENCIAS Y ACCESOS POR VALIDAR]</p>
 {% endif %}
 <table class="callout">
     <tr><td class="callout-warn">
-        <span class="callout-title">VERSIONAMIENTO</span>
-        No usar "última versión" o "versión actual". Registrar edición, arquitectura, URL oficial y fecha de validación.
+        <span class="callout-title">PERFIL DE CAPACIDADES</span>
+        No listar sistema operativo, editor, shell ni rutas locales salvo que el temario los nombre explícitamente. Priorizar licencia, acceso, permisos y cuentas.
     </td></tr>
 </table>
 

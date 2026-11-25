@@ -12,6 +12,11 @@ import os
 from urllib.parse import unquote
 from botocore.exceptions import ClientError
 
+from course_generation_status import (
+    course_status_label,
+    warnings_from_execution_output,
+)
+
 def lambda_handler(event, context):
     """
     Lambda handler for checking course generation execution status.
@@ -130,6 +135,12 @@ def lambda_handler(event, context):
                 response_body["queue_status"] = "unknown"
         else:
             response_body["queue_status"] = execution_status.lower() if execution_status else "unknown"
+
+        course_status = course_status_label(execution_status, parsed_output)
+        generation_warnings = warnings_from_execution_output(parsed_output)
+        response_body["course_status"] = course_status
+        if generation_warnings:
+            response_body["generation_warnings"] = generation_warnings
 
         # Add output if execution completed successfully
         if execution_status == 'SUCCEEDED' and parsed_output:

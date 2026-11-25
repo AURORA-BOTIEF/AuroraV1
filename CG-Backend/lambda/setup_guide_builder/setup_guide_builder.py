@@ -33,6 +33,12 @@ from botocore.exceptions import ClientError
 from jinja2 import Template
 from xhtml2pdf import pisa
 
+from setup_guide_capabilities import (
+    filter_hardware_requirements,
+    filter_software_requirements,
+    software_to_capabilities,
+    syllabus_requirement_corpus,
+)
 from setup_guide_template import SETUP_GUIDE_TEMPLATE
 
 logger = logging.getLogger()
@@ -514,10 +520,13 @@ def build_previous_knowledge(course_meta, master_plan):
     }
 
 
-def build_software(master_plan):
+def build_software(master_plan, allowed_corpus=None):
     software = []
     seen_names = []
-    for item in master_plan.get("software_requirements", []) or []:
+    raw_requirements = master_plan.get("software_requirements", []) or []
+    if allowed_corpus is not None:
+        raw_requirements = filter_software_requirements(raw_requirements, allowed_corpus)
+    for item in raw_requirements:
         if not isinstance(item, dict) or not item.get("name"):
             continue
         name = clean_inline(item.get("name"))
@@ -622,10 +631,9 @@ def build_troubleshooting(labs):
 def build_checklist(course_meta):
     return [
         "Repositorio y enlaces de cada laboratorio verificados.",
-        "Versiones exactas documentadas y probadas.",
-        "CPU, RAM, discos y adaptadores de red confirmados.",
-        "Sistema actualizado sin errores críticos.",
-        "Software, archivos, cuentas, licencias y permisos disponibles.",
+        "Licencias, cuentas, permisos y accesos a servicios confirmados.",
+        "Capacidades declaradas disponibles antes del inicio del curso.",
+        "CPU, RAM y conectividad confirmados solo cuando el temario los exige.",
         "Prueba completa ejecutada desde un entorno limpio.",
     ]
 
@@ -722,9 +730,16 @@ def build_setup_guide(bucket, project_folder, outline_key, outline_data, master_
     repo_url = repo_url_for(project_folder)
     repo_ok = repo_exists(repo_url)
 
-    hardware_rows = build_hardware(master_plan)
-    counters = build_counters(hardware_rows, master_plan)
-    software = build_software(master_plan)
+    allowed_corpus = syllabus_requirement_corpus(course_meta, master_plan, outline_data)
+    plan_for_guide = dict(master_plan)
+    plan_for_guide["hardware_requirements"] = filter_hardware_requirements(
+        master_plan.get("hardware_requirements", []) or [], allowed_corpus
+    )
+
+    hardware_rows = build_hardware(plan_for_guide)
+    counters = build_counters(hardware_rows, plan_for_guide)
+    software = build_software(plan_for_guide, allowed_corpus)
+    capabilities = software_to_capabilities(software)
     preparation = build_preparation(master_plan, labs)
     previous_knowledge = build_previous_knowledge(course_meta, master_plan)
     accesses = build_accesses(master_plan)
@@ -781,6 +796,8 @@ def build_setup_guide(bucket, project_folder, outline_key, outline_data, master_
             "virtual_machines": [],
             "network": previous_knowledge["network"],
         },
+        "capabilities_profile": "license_access_permission",
+        "capabilities": capabilities,
         "software": software,
         # La petición del curso es fuente de requisitos (opcional): si el cliente
         # pidió versiones o equipamiento, la guía debe decirlo aunque el plan no lo
@@ -850,6 +867,7 @@ def render_pdf(doc, bucket, author="Aurora AI"):
         "previous_knowledge": doc["previous_knowledge"],
         "infrastructure": doc["infrastructure"],
         "counters": doc["infrastructure"]["counters"],
+        "capabilities": doc.get("capabilities", []),
         "software": doc["software"],
         "additional_requirements": doc.get("additional_requirements", ""),
         "accesses": doc["accesses"],
@@ -869,6 +887,13 @@ def render_pdf(doc, bucket, author="Aurora AI"):
 # ---------------------------------------------------------------------------
 # Handler
 # ---------------------------------------------------------------------------
+def is_api_gateway_event(event):
+    """Step Functions passes the payload dict; API Gateway wraps it."""
+    if not isinstance(event, dict):
+        return False
+    return bool(event.get("requestContext") or event.get("httpMethod") or event.get("headers"))
+
+
 def parse_event_body(event):
     """API Gateway puede codificar el body en base64 (BinaryMediaTypes */*)."""
     import base64
@@ -914,11 +939,14 @@ def lambda_handler(event, context):
         labs = list_lab_files(bucket, project_folder)
 
         if not outline_key and not master_plan and not labs:
-            return {
-                "statusCode": 404,
-                "headers": cors_headers(),
-                "body": json.dumps({"error": "No se encontró outline, master plan ni laboratorios para el proyecto."}),
-            }
+            message = "No se encontró outline, master plan ni laboratorios para el proyecto."
+            if is_api_gateway_event(event):
+                return {
+                    "statusCode": 404,
+                    "headers": cors_headers(),
+                    "body": json.dumps({"error": message}),
+                }
+            raise FileNotFoundError(message)
 
         doc = build_setup_guide(
             bucket, project_folder, outline_key, outline_data, master_plan, labs
@@ -961,6 +989,8 @@ def lambda_handler(event, context):
         }
     except Exception as exc:  # noqa: BLE001
         logger.error("Error generando Setup Guide: %s", exc, exc_info=True)
+        if not is_api_gateway_event(event):
+            raise
         return {
             "statusCode": 500,
             "headers": cors_headers(),

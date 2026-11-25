@@ -114,11 +114,38 @@ def lambda_handler(event, context):
         </html>
         """
     else:
-        subject = f"✅ Generación de Curso Completada: {project_folder}"
+        workflow_input = event.get("input") or {}
+        partial_warnings = []
+        for warning_key, label in (
+            ("setup_guide_error", "Setup Guide"),
+            ("audit_error", "Auditoría posterior"),
+            ("decks_error", "Decks"),
+        ):
+            if workflow_input.get(warning_key) is not None:
+                partial_warnings.append(label)
+
+        has_warnings = bool(partial_warnings)
+        if has_warnings:
+            warning_list = ", ".join(partial_warnings)
+            subject = f"⚠️ Generación de curso con advertencias: {project_folder}"
+            headline = "Generación de curso con advertencias"
+            headline_color = "#ed6c02"
+            outcome = (
+                f"El contenido principal del curso '{project_folder}' se generó, "
+                f"pero falló: {warning_list}. Revisa el estado del curso en Aurora."
+            )
+        else:
+            subject = f"✅ Generación de Curso Completada: {project_folder}"
+            headline = "Generación de Curso Completada"
+            headline_color = "#2e7d32"
+            outcome = (
+                f"La generación del curso para el proyecto '{project_folder}' ha finalizado exitosamente."
+            )
+
         body_text = f"""
         Hola,
         
-        La generación del curso para el proyecto '{project_folder}' ha finalizado exitosamente.
+        {outcome}
         
         Ya puedes ver y editar el contenido del curso en el panel de Aurora.
         
@@ -127,13 +154,22 @@ def lambda_handler(event, context):
         Saludos,
         Sistema de Generación de Cursos de Netec
         """
+        warning_block = ""
+        if has_warnings:
+            warning_block = f"""
+          <div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <strong>Componentes con error:</strong> {warning_list}
+          </div>
+"""
+
         body_html = f"""
         <html>
         <head></head>
         <body>
-          <h1 style="color: #2e7d32;">Generación de Curso Completada</h1>
+          <h1 style="color: {headline_color};">{headline}</h1>
           <p>Hola,</p>
-          <p>La generación del curso para el proyecto <b>{project_folder}</b> ha finalizado exitosamente.</p>
+          <p>{outcome}</p>
+          {warning_block}
           <p>Ya puedes ver y editar el contenido del curso en el panel de Aurora.</p>
           <div style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin: 20px 0; font-size: 12px;">
             <strong>Execution ARN:</strong><br>
