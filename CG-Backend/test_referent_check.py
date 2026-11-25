@@ -43,6 +43,7 @@ from referent_check import (  # noqa: E402
     canonico,
     duracion_declarada,
     entorno_de_peticion,
+    extraer_anclajes,
     extraer_referentes,
     mensaje_de_correccion,
     preflight_duracion,
@@ -3747,6 +3748,262 @@ def test_el_writer_no_acepta_un_fichero_de_otro_laboratorio_como_entrada():
     ]
     assert "preparar_datos.py" in valores, valores
     assert guias and "Anexo (datos ficticios)" not in guias[0]
+
+_TEMARIO_CIBEST = (
+    "En el contexto de CIBEST CAPITAL, una revisión interna de seis fondos "
+    "multiactivo. El escenario se sitúa en El Salvador.\n"
+    "La práctica no debe incluir recomendaciones de inversión.\n"
+    "Entregable: Presentación ejecutiva\n"
+)
+
+
+def _a2e(informe):
+    return [v for v in informe["violaciones"] if v.get("verificacion") == "A2e"]
+
+
+def test_a2e_cibest_no_puede_ser_northstar():
+    """The syllabus company is kept. Northstar Digital is a replacement, not a new heading."""
+    lab = (
+        "## Descripción General\n"
+        "En el contexto de Northstar Digital, el estudiante compara los fondos.\n\n"
+        "### Paso 1: Revisar\n"
+        "1. Anote el nombre de la empresa y el país del caso.\n"
+        "El escenario se sitúa en El Salvador. No incluya recomendaciones de inversión.\n"
+        "El cierre es la Presentación ejecutiva.\n"
+    )
+    informe = auditar_laboratorio(lab, _TEMARIO_CIBEST)
+    a2e = _a2e(informe)
+    assert len(a2e) == 1, a2e
+    assert a2e[0]["confianza"] == "alta"
+    assert a2e[0]["tipo"] == "entidad"
+    assert a2e[0]["esperado"] == "CIBEST CAPITAL"
+    assert a2e[0]["obtenido"] == "Northstar Digital"
+    assert a2e[0]["detalle"] == "reemplazo"
+    assert {"valor", "tipo", "inicio", "confianza", "verificacion"} <= set(a2e[0])
+
+
+def test_a2e_el_salvador_no_puede_ser_spain_ni_la_ue():
+    """A declared country is not rewritten as Spain or the EU."""
+    lab = (
+        "## Descripción General\n"
+        "En el contexto de CIBEST CAPITAL. El escenario se sitúa en Spain / EU "
+        "y la operación cubre la Unión Europea.\n\n"
+        "### Paso 1: Revisar\n"
+        "1. Anote la sede. No incluya recomendaciones de inversión.\n"
+        "Entregue la Presentación ejecutiva.\n"
+    )
+    informe = auditar_laboratorio(lab, _TEMARIO_CIBEST)
+    lugares = [v for v in _a2e(informe) if v["tipo"] == "lugar"]
+    assert len(lugares) == 1, _a2e(informe)
+    assert lugares[0]["confianza"] == "alta"
+    assert lugares[0]["esperado"] == "El Salvador"
+    assert "Spain" in lugares[0]["obtenido"]
+    assert "EU" in lugares[0]["obtenido"] or "Unión Europea" in lugares[0]["obtenido"]
+    assert all(v["esperado"] != "CIBEST CAPITAL" or v["detalle"] != "reemplazo" for v in _a2e(informe))
+
+
+def test_a2e_el_nombre_igual_no_marca():
+    """Title case and a different name inside a code fence are still the syllabus name."""
+    lab = (
+        "## Descripción General\n"
+        "En el contexto de Cibest Capital, el escenario se sitúa en El Salvador.\n"
+        "No incluya recomendaciones de inversión.\n"
+        "El cierre es la Presentación ejecutiva.\n\n"
+        "### Paso 1: Anotar\n"
+        "1. Lea el nombre.\n"
+        "```text\n"
+        "Northstar Digital opera en España.\n"
+        "```\n"
+    )
+    informe = auditar_laboratorio(lab, _TEMARIO_CIBEST)
+    assert _a2e(informe) == []
+
+
+def test_a2e_no_marca_frases_capitalizadas_sueltas():
+    """§32: Salida Esperada, Microsoft Edge, Copilot Studio and Carlos Mendoza are not entities.
+
+    The syllabus never declares them. A guide full of those strings is clean.
+    """
+    temario = """
+course:
+  title: "Copilot para productividad"
+  description: "Use Microsoft Edge y Copilot Studio en un seminario."
+  El curso menciona España como ejemplo de formato de fecha.
+  «Microsoft Edge» «Copilot Studio» «Salida Esperada» «Nivel Bloom»
+"""
+    lab = (
+        "## Descripción General\n"
+        "Abra Microsoft Edge y Copilot Studio. Carlos Mendoza revisa el Nivel Bloom.\n"
+        "**Salida Esperada:** una tabla. Equipo Intel Core i7.\n"
+        "Northstar Digital aparece en un párrafo sin rol declarado.\n\n"
+        "### Paso 1: Abrir\n"
+        "1. Abra el navegador.\n"
+    )
+    assert extraer_anclajes(temario) == {"entidades": [], "prohibiciones": []}
+    informe = auditar_laboratorio(lab, temario)
+    assert _a2e(informe) == [], _a2e(informe)
+
+
+def test_a2e_prohibicion_no_debe_incluir():
+    """A syllabus 'no debe incluir' is a finding only when the guide affirms it."""
+    temario = "La práctica no debe incluir recomendaciones de inversión."
+    prohibida = (
+        "## Descripción General\n"
+        "Redacte la recomendación de inversión para el comité.\n\n"
+        "### Paso 1: Redactar\n"
+        "1. Escriba la recomendación y guárdela.\n"
+    )
+    cumplida = (
+        "## Descripción General\n"
+        "No incluya recomendaciones de inversión en el informe.\n\n"
+        "### Paso 1: Revisar\n"
+        "1. Lea la política del caso.\n"
+    )
+    mala = auditar_laboratorio(prohibida, temario)
+    hits = [v for v in _a2e(mala) if v["detalle"] == "prohibicion"]
+    assert len(hits) == 1, _a2e(mala)
+    assert hits[0]["confianza"] == "alta"
+    assert "recomendaciones de inversión" in hits[0]["valor"]
+    assert _a2e(auditar_laboratorio(cumplida, temario)) == []
+    assert extraer_anclajes("El alumno no debe ser breve.")["prohibiciones"] == []
+
+
+def test_a2e_entregable_omitido():
+    """A deliverable the syllabus names, with no filename, must still appear."""
+    temario = "Entregables: Idea Coach; Presentación ejecutiva\n"
+    omitida = (
+        "## Descripción General\n"
+        "El cierre usa Idea Coach para bosquejar el mensaje.\n\n"
+        "### Paso 1: Bosquejar\n"
+        "1. Abra la herramienta y anote tres ideas.\n"
+    )
+    completa = (
+        "## Descripción General\n"
+        "Produzca Idea Coach y la Presentación ejecutiva.\n\n"
+        "### Paso 1: Cerrar\n"
+        "1. Guarde ambos resultados.\n"
+    )
+    hallazgos = _a2e(auditar_laboratorio(omitida, temario))
+    assert len(hallazgos) == 1, hallazgos
+    assert hallazgos[0]["tipo"] == "entregable"
+    assert hallazgos[0]["confianza"] == "alta"
+    assert hallazgos[0]["esperado"] == "Presentación ejecutiva"
+    assert _a2e(auditar_laboratorio(completa, temario)) == []
+
+
+def test_a2e_comillas_parentesis_y_yaml_fijan_el_nombre():
+    citado = extraer_anclajes('El cliente del caso es «CIBEST CAPITAL».')
+    assert [e["nombre"] for e in citado["entidades"]] == ["CIBEST CAPITAL"]
+    parentesis = extraer_anclajes('title: "Preparación (CIBEST CAPITAL)"')
+    assert [e["nombre"] for e in parentesis["entidades"]] == ["CIBEST CAPITAL"]
+    yaml = extraer_anclajes('empresa: "CIBEST CAPITAL"\npaís: El Salvador\n')
+    roles = {e["rol"]: e["nombre"] for e in yaml["entidades"]}
+    assert roles["organizacion"] == "CIBEST CAPITAL"
+    assert roles["lugar"] == "El Salvador"
+
+
+def test_a2e_mensaje_de_correccion_nombra_la_entidad():
+    lab = (
+        "## Descripción General\n"
+        "En el contexto de Northstar Digital.\n\n"
+        "### Paso 1: Revisar\n"
+        "1. Lea el caso.\n"
+    )
+    informe = auditar_laboratorio(lab, "En el contexto de CIBEST CAPITAL.")
+    mensaje = mensaje_de_correccion(informe["violaciones"], "lab")
+    assert "CIBEST CAPITAL" in mensaje
+    assert "Northstar Digital" in mensaje
+    assert "temario" in mensaje
+
+
+def test_el_prompt_del_lab_fija_las_entidades_del_temario():
+    """Live compact prompt: the lock is injected from the syllabus, and absent without one."""
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    prompt = modulo._compact_single_lab_prompt(
+        _lab_de_prueba(),
+        {
+            "target_language": "Spanish (Español)",
+            "syllabus_text": _TEMARIO_CIBEST,
+        },
+        "",
+        "resumen del lab",
+    )
+    assert "ENTIDADES BLOQUEADAS" in prompt
+    assert "CIBEST CAPITAL" in prompt
+    assert "El Salvador" in prompt
+    assert "Presentación ejecutiva" in prompt
+    assert "recomendaciones de inversión" in prompt
+    assert "aunque el plan use un nombre distinto" in prompt
+
+    vacio = modulo._compact_single_lab_prompt(
+        _lab_de_prueba(),
+        {"target_language": "Spanish (Español)"},
+        "",
+        "resumen del lab",
+    )
+    assert "ENTIDADES BLOQUEADAS" not in vacio
+
+    ingles = modulo._compact_single_lab_prompt(
+        _lab_de_prueba(),
+        {"target_language": "English", "syllabus_text": _TEMARIO_CIBEST},
+        "",
+        "resumen del lab",
+    )
+    assert "LOCKED ENTITIES" in ingles
+    assert "CIBEST CAPITAL" in ingles
+
+
+_LAB_QUE_RENONBRA_EL_ESCENARIO = """# Lab 01-01-01: Analizar fondos
+
+## Descripcion General
+En el contexto de Northstar Digital. El escenario se sitúa en Spain / EU.
+Redacte la recomendación de inversión del comité.
+
+### Paso 1: Revisar
+**Objective:** Leer el caso.
+**Instructions:**
+1. Anote la empresa y el país que usa la guía.
+**Expected output:** El nombre anotado.
+**Verification:** El nombre coincide con el enunciado.
+"""
+
+_LAB_QUE_RESPETA_EL_ESCENARIO = """# Lab 01-01-01: Analizar fondos
+
+## Descripcion General
+En el contexto de CIBEST CAPITAL. El escenario se sitúa en El Salvador.
+No incluya recomendaciones de inversión.
+El cierre es la Presentación ejecutiva.
+
+### Paso 1: Revisar
+**Objective:** Leer el caso.
+**Instructions:**
+1. Anote la empresa y el país que declara el temario.
+**Expected output:** El nombre anotado.
+**Verification:** El nombre coincide con el enunciado.
+"""
+
+
+def test_el_writer_reintenta_si_la_guia_renombra_el_escenario():
+    """Live handler: a renamed syllabus entity is a high-confidence finding and a retry."""
+    resultado, informes, contextos = _ejecutar_writer(
+        {"lab_plans": [_LAB_PLAN]},
+        [_LAB_QUE_RENONBRA_EL_ESCENARIO, _LAB_QUE_RESPETA_EL_ESCENARIO],
+        max_intentos=3,
+        objetos={"p/outline.yaml": _TEMARIO_CIBEST},
+    )
+    assert resultado["statusCode"] == 200, resultado
+    assert len(contextos) == 2, "el writer debió reintentar al sustituir la entidad"
+    assert "CIBEST CAPITAL" in (contextos[0].get("syllabus_text") or "")
+    correccion = contextos[1].get("referential_correction") or ""
+    assert "CIBEST CAPITAL" in correccion
+    assert "El Salvador" in correccion
+    assert informes, "no se escribió el informe"
+    finales = [
+        v
+        for v in informes[0]["por_laboratorio"]["01-01-01"]["violaciones"]
+        if v.get("verificacion") == "A2e"
+    ]
+    assert finales == [], finales
 
 
 def test_una_plantilla_completar_no_exime():

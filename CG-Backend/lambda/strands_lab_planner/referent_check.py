@@ -2009,6 +2009,7 @@ def auditar_laboratorio(
     requisitos_texto=None,
     expected_outcomes=None,
     entorno: dict | None = None,
+    temario: str | None = None,
 ) -> dict:
     """B1/B2/B3/B6: cierre de referentes y de duración.
 
@@ -2039,6 +2040,8 @@ def auditar_laboratorio(
             con :func:`requisitos_declarados`.
         expected_outcomes: salidas esperadas del laboratorio según el plan. Si se
             pasan, se comprueba B3p.
+        temario: texto del temario solo. Si es ``None`` se usan ``fuentes``.
+            Las entidades bloqueadas se leen de aquí, no del manual.
 
     Returns:
         ``{"total", "creados", "marcados", "violaciones", "menciones_posteriores",
@@ -2243,6 +2246,14 @@ def auditar_laboratorio(
             }
         )
 
+    # A2e: nombres, lugares, entregables y prohibiciones que el temario declara.
+    # Solo alta confianza. Una frase capitalizada sin rol declarado no es hallazgo.
+    for hallazgo in auditar_anclajes(
+        fuentes if temario is None else temario,
+        laboratorio_md or "",
+    ):
+        violaciones.append(hallazgo)
+
     # Forma débil de B2: menciones explícitas a un laboratorio posterior. No son
     # violaciones (una hoja de ruta es normal): van en su propia clave del informe.
     menciones_posteriores = list(referencias_posteriores or ())
@@ -2295,6 +2306,15 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
                 "- no cambies el escenario, los nombres ni las cifras que el temario fija."
             )
             partes.append(intro + "\n" + "\n".join(lineas))
+        a2e_plan = [v for v in violaciones if v.get("verificacion") == "A2e"]
+        if a2e_plan:
+            lineas = [f"- {v['valor']}" for v in a2e_plan[:20]]
+            partes.append(
+                "El plan cambia entidades, lugares o entregables que el temario fija, "
+                "o incluye algo que el temario prohíbe. Restaura el texto del temario "
+                "y no sustituyas un nombre por otro:\n"
+                + "\n".join(lineas)
+            )
         return "\n\n".join(partes)
 
     bloques: list[str] = []
@@ -2412,6 +2432,20 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
             + objetivo
         )
         bloques.append(intro + "\n" + "\n".join(lineas))
+
+    a2e = [v for v in violaciones if v.get("verificacion") == "A2e"]
+    if a2e:
+        lineas = [f"- {v['valor']}" for v in a2e[:20]]
+        bloques.append(
+            "La guía no respeta entidades, lugares, entregables o prohibiciones que el "
+            "temario fija. El temario es la fuente de verdad:\n"
+            "- restaura el nombre, la organización, el lugar y el entregable tal como "
+            "los declara el temario, aunque el plan haya usado otro;\n"
+            "- no sustituyas esa entidad por otra empresa, otro país u otro entregable;\n"
+            "- no incluyas ni recomiendes lo que el temario prohíbe.\n"
+            "No borres pasos ni entregables que el temario sí pide.\n"
+            + "\n".join(lineas)
+        )
 
     return "\n\n".join(bloques)
 
@@ -2971,3 +3005,630 @@ def auditar_contrato(master_plan: dict, labs) -> dict:
         "conflictos": conflictos,
         "ok": not conflictos,
     }
+
+
+# --------------------------------------------------------------------------- #
+# A2e: lock the names, places, deliverables and prohibitions the syllabus
+# actually states. A capitalised phrase with no declared role is not a finding:
+# that rule marked every guide (14,670 strings). High confidence only.
+# --------------------------------------------------------------------------- #
+
+# Tools and headings that dominated the rejected extractor. A quoted product is
+# not a scenario entity. Deliverables named by an explicit label are exempt:
+# the label is the declaration, not the capitalisation.
+_PRODUCTOS = frozenset({
+    "microsoft", "edge", "copilot", "studio", "intel", "core", "windows",
+    "office", "excel", "word", "powerpoint", "teams", "sharepoint", "outlook",
+    "azure", "aws", "google", "python", "docker", "git", "github", "linux",
+    "ubuntu", "macos", "chatgpt", "power", "bi", "visual", "vscode", "onedrive",
+    "planner", "designer", "loop", "forms", "stream", "viva", "linkedin", "sql",
+    "server", "node", "java", "javascript", "typescript", "react", "angular",
+    "vue", "kubernetes", "terraform", "ansible", "jenkins", "gitlab", "bitbucket",
+    "jira", "confluence", "slack", "zoom", "sap", "oracle", "salesforce", "adobe",
+    "photoshop", "figma", "canva", "notion", "bloomberg", "chrome", "firefox",
+    "safari", "android", "ios", "npm", "pip", "pandas", "numpy", "spark", "kafka",
+    "redis", "postgres", "postgresql", "mysql", "mongodb", "nginx", "apache",
+    "api", "url", "http", "https", "json", "yaml", "csv", "html", "css", "gui",
+    "cli", "cpu", "ram", "iso", "nat", "sku", "ide", "pdf", "xml",
+})
+_NO_ENTIDAD = frozenset({
+    "salida esperada", "nivel bloom", "expected output", "learning objectives",
+    "objetivos de aprendizaje", "descripcion general", "paso a paso",
+    "instrucciones paso a paso", "validacion y pruebas", "solucion de problemas",
+    "bloom level", "expected outputs",
+})
+_CONECTORES_NOMBRE = frozenset({
+    "de", "del", "la", "las", "los", "el", "y", "e", "of", "the", "and", "da", "do",
+})
+_ENTREGABLE_GENERICO = frozenset({
+    "informe", "documento", "archivo", "fichero", "reporte", "presentacion",
+    "tabla", "lista", "resumen", "entregable", "ejercicio", "practica",
+    "laboratorio", "resultado", "evidencia", "captura", "diagrama", "final",
+    "documento", "archivo",
+})
+_PROHIBICION_GENERICA = frozenset({
+    "nada", "cosas", "esto", "eso", "algo", "contenido", "texto", "textos",
+    "informacion", "datos", "elementos", "puntos", "temas", "aspectos",
+    "detalles", "informaciones", "ejemplo", "ejemplos",
+})
+_STOP_PROHIBICION = _CONECTORES_NOMBRE | frozenset({
+    "un", "una", "unos", "unas", "que", "para", "por", "con", "sin", "como",
+    "sus", "su", "este", "esta", "ese", "esa", "en", "al", "lo", "se", "no", "ni",
+    "ya", "mas", "muy", "todo", "toda", "todos", "todas", "curso", "laboratorio",
+    "practica", "estudiante", "alumnos", "alumno", "debe", "deben", "incluir",
+    "incluya", "usar", "utilizar",
+})
+# Countries and regions a scenario is moved to. Used to recognise a place the
+# syllabus named, and to see Spain / EU when that place was replaced. Not a
+# scan of every capitalised word.
+_LUGARES = (
+    "El Salvador", "Costa Rica", "Puerto Rico", "República Dominicana",
+    "Republica Dominicana", "Estados Unidos", "United States", "Reino Unido",
+    "United Kingdom", "Unión Europea", "Union Europea", "European Union",
+    "España", "Spain", "México", "Mexico", "Guatemala", "Honduras", "Nicaragua",
+    "Panamá", "Panama", "Colombia", "Venezuela", "Ecuador", "Perú", "Peru",
+    "Bolivia", "Chile", "Argentina", "Uruguay", "Paraguay", "Brasil", "Brazil",
+    "Cuba", "Canadá", "Canada", "Francia", "France", "Alemania", "Germany",
+    "Italia", "Italy", "Portugal", "China", "Japón", "Japan", "India", "Australia",
+)
+_LUGARES_NORM = frozenset(normalizar(lugar) for lugar in _LUGARES)
+_LUGAR_ALT = "|".join(re.escape(lugar) for lugar in sorted(_LUGARES, key=len, reverse=True))
+_MAX_ENTIDADES = 12
+_MAX_PROHIBICIONES = 8
+_PRIORIDAD_ROL = {"entidad": 1, "entregable": 2, "organizacion": 3, "lugar": 4}
+
+_ANCLAJE_RE = re.compile(
+    r"(?im)^[ \t]*[-*]?\s*(?:\*\*|__)?(?:(?:el|la|los|las)\s+)?"
+    r"(?<![\w])(?P<etiq>producto\s+final|entregables?(?:\s+\w+){0,2}|"
+    r"deliverables?|empresa|compa[nñ][ií]a|organizaci[oó]n|cliente|firma|banco|"
+    r"company|organization|client|pa[ií]s|lugar|sede|regi[oó]n|jurisdicci[oó]n|"
+    r"country|place|escenario|caso|scenario|case)"
+    r"\s*(?:\*\*|__)?\s*[:：]\s*(?P<valor>\S.*?)\s*$"
+)
+_INTRO_RE = re.compile(
+    r"(?i)\b(?P<intro>en el contexto de|para la empresa|para el cliente|"
+    r"la empresa|el cliente|la compa[nñ][ií]a|la organizaci[oó]n|la firma|"
+    r"el banco|en el caso de|el caso de|en el pa[ií]s|del pa[ií]s|el pa[ií]s|"
+    r"pa[ií]s de)\s+"
+)
+_NOMBRE_SEGUIDO_RE = re.compile(
+    r"(?P<nombre>[A-ZÁÉÍÓÚÜÑ0-9][\wÁÉÍÓÚÜÑáéíóúüñ&'-]*"
+    r"(?:\s+(?:de|del|la|las|los|y|e|of|the|and|da|do|"
+    r"[A-ZÁÉÍÓÚÜÑ0-9][\wÁÉÍÓÚÜÑáéíóúüñ&'-]*)){0,5})"
+)
+_LUGAR_ESTRICTO_RE = re.compile(
+    r"\b(?:se\s+sit[uú]a|situad[oa]s?|ubicad[oa]s?|con\s+sede|sede)\s+en\s+"
+    r"(?:(?:la|el)\s+)?(?P<lugar>" + _LUGAR_ALT + r")\b"
+    r"|\b(?:escenario|caso|scenario|case)\b[^.\n]{0,60}?\ben\s+"
+    r"(?:(?:la|el)\s+)?(?P<lugar2>" + _LUGAR_ALT + r")\b",
+    re.IGNORECASE,
+)
+_LUGAR_EN_LAB_RE = re.compile(
+    r"(?:\ben\s+(?:la\s+|el\s+)?|\b(?:sede|pa[ií]s)\s+(?:en\s+)?)"
+    r"(?P<lugar>" + _LUGAR_ALT + r")"
+    r"(?:\s*/\s*(?P<ue_tras>EU|UE))?"
+    r"\b"
+    r"|(?P<corto>Spain|España)\s*/\s*(?P<ue>EU|UE)\b"
+    r"|(?:\ben\s+la\s+)(?P<ue2>UE|EU)\b",
+    re.IGNORECASE,
+)
+_MAYUSCULAS_RE = re.compile(
+    r"\b([A-ZÁÉÍÓÚÜÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÜÑ]{2,}){1,4})\b"
+)
+_TITULO_RE = re.compile(
+    r"\b([A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ&'-]*"
+    r"(?:\s+(?:de|del|la|las|los|y|e|of|the|and|"
+    r"[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ&'-]*)){1,5})\b"
+)
+_PARENTESIS_MAYUS_RE = re.compile(
+    r"[\(（]([A-ZÁÉÍÓÚÜÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÜÑ]{2,}){1,4})[\)）]"
+)
+_COMILLAS_RE = re.compile(
+    r"«([^»\n]{2,80})»|“([^”\n]{2,80})”|\"([^\"\n]{2,80})\""
+)
+_PROHIBICION_RE = re.compile(
+    r"(?i)\bno\s+(?:se\s+)?(?:debe(?:n|rá|rán)?|deber[ií]a[n]?)\s+"
+    r"(?:(?:incluir|incluya[ns]?|recomend\w*|usar|utilizar|mencionar|proponer|"
+    r"sugerir|dar|hacer|contener|inventar|añadir|anadir|agregar)\s+)?"
+    r"(?P<a>[^.\n;]{4,140})"
+    r"|\bno\s+incluir\s+(?P<b>[^.\n;]{4,140})"
+    r"|\bno\s+incluya(?:n|s)?\s+(?P<c>[^.\n;]{4,140})"
+    r"|\bno\s+recomend\w*\s+(?P<d>[^.\n;]{4,140})"
+)
+_NOMBRE_COMA_ROL_RE = re.compile(
+    r"(?P<nombre>[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ&'-]*"
+    r"(?:\s+[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ&'-]*){0,4})"
+    r",\s+una\s+(?:empresa|firma|compa[nñ][ií]a|organizaci[oó]n|consultora|"
+    r"instituci[oó]n)\b"
+)
+_ROL_ES = {
+    "organizacion": "Organización (exacta)",
+    "lugar": "Lugar (exacto)",
+    "entidad": "Entidad del escenario (exacta)",
+    "entregable": "Entregable obligatorio",
+}
+_ROL_EN = {
+    "organizacion": "Organization (exact)",
+    "lugar": "Place (exact)",
+    "entidad": "Scenario entity (exact)",
+    "entregable": "Required deliverable",
+}
+
+
+def _sin_adornos(texto: str) -> str:
+    texto = " ".join((texto or "").split()).strip("*_`")
+    if len(texto) >= 2 and texto[0] == texto[-1] and texto[0] in "\"'":
+        texto = texto[1:-1].strip()
+    if len(texto) >= 2 and texto[0] in "«“" and texto[-1] in "»”":
+        texto = texto[1:-1].strip()
+    return texto.strip(" \t.:;")
+
+
+def _recortar_nombre(nombre: str) -> str:
+    """Drop a trailing lowercase connector captured with the proper name."""
+    tokens = _sin_adornos(nombre).split()
+    while tokens and tokens[-1].islower() and normalizar(tokens[-1]) in _CONECTORES_NOMBRE:
+        tokens.pop()
+    while len(tokens) > 1 and tokens[0].islower() and normalizar(tokens[0]) in _CONECTORES_NOMBRE:
+        tokens.pop(0)
+    return " ".join(tokens)
+
+
+def _es_producto(tokens: list[str]) -> bool:
+    significativos = [
+        normalizar(token)
+        for token in tokens
+        if normalizar(token) not in _CONECTORES_NOMBRE and not token.isdigit()
+    ]
+    if not significativos:
+        return False
+    return all(token in _PRODUCTOS or token.isdigit() for token in significativos)
+
+
+def _lema_ligero(token: str) -> str:
+    lema = normalizar(token)
+    if len(lema) > 5 and lema.endswith("es"):
+        return lema[:-2]
+    if len(lema) > 4 and lema.endswith("s"):
+        return lema[:-1]
+    return lema
+
+
+def _rol_de_etiqueta(etiqueta: str) -> str:
+    nombre = normalizar(etiqueta)
+    if nombre.startswith(("entregable", "deliverable", "producto")):
+        return "entregable"
+    if nombre.startswith((
+        "pais", "lugar", "sede", "region", "jurisdiccion", "country", "place",
+    )):
+        return "lugar"
+    if nombre.startswith(("escenario", "caso", "scenario", "case")):
+        return "escenario"
+    return "organizacion"
+
+
+def _rol_de_intro(intro: str) -> str:
+    nombre = normalizar(intro)
+    if "pais" in nombre:
+        return "lugar"
+    if "caso" in nombre:
+        return "entidad"
+    return "organizacion"
+
+
+def _nombre_valido(nombre: str, rol: str, una_palabra_estricta: bool) -> bool:
+    nombre = _recortar_nombre(nombre)
+    if not nombre or len(nombre) > 80 or len(nombre) < 2:
+        return False
+    if _FICHERO_RE.search(nombre):
+        return False
+    if normalizar(nombre) in _NO_ENTIDAD:
+        return False
+    tokens = nombre.split()
+    if len(tokens) > 6:
+        return False
+    if any(
+        token[:1].islower() and normalizar(token) not in _CONECTORES_NOMBRE
+        for token in tokens
+    ):
+        if rol != "entregable":
+            return False
+    if rol == "entregable":
+        palabras = [
+            token for token in tokens if normalizar(token) not in _CONECTORES_NOMBRE
+        ]
+        if len(palabras) < 2 or len(palabras) > 6:
+            return False
+        if all(normalizar(token) in _ENTREGABLE_GENERICO for token in palabras):
+            return False
+        return True
+    if any(not token[:1].isalpha() for token in tokens):
+        return False
+    significativos = [
+        token for token in tokens if normalizar(token) not in _CONECTORES_NOMBRE
+    ]
+    if not significativos:
+        return False
+    if _es_producto(significativos):
+        return False
+    if len(significativos) == 1:
+        token = significativos[0]
+        if normalizar(token) in _LUGARES_NORM or normalizar(nombre) in _LUGARES_NORM:
+            return True
+        if una_palabra_estricta:
+            return token.isupper() and len(token) >= 4
+        if normalizar(token) in _PROHIBICION_GENERICA or len(token) < 3:
+            return False
+        return token[:1].isupper()
+    return True
+
+
+def _añadir_entidad(bolsa: dict, nombre: str, rol: str, inicio: int, estricta: bool) -> None:
+    nombre = _recortar_nombre(nombre)
+    if not _nombre_valido(nombre, rol, estricta):
+        return
+    clave = normalizar(nombre)
+    if clave in _LUGARES_NORM and rol in ("entidad", "organizacion"):
+        rol = "lugar"
+    previo = bolsa["index"].get(clave)
+    if previo is None:
+        if len(bolsa["entidades"]) >= _MAX_ENTIDADES:
+            return
+        item = {"nombre": nombre, "rol": rol, "inicio": inicio}
+        bolsa["entidades"].append(item)
+        bolsa["index"][clave] = item
+        return
+    if _PRIORIDAD_ROL[rol] > _PRIORIDAD_ROL[previo["rol"]]:
+        previo["rol"] = rol
+
+
+def _nombre_inicial(valor: str) -> str:
+    limpio = _sin_adornos(valor)
+    if "," in limpio:
+        izquierda = limpio.split(",", 1)[0]
+        if _nombre_valido(izquierda, "entidad", una_palabra_estricta=False):
+            return _recortar_nombre(izquierda)
+    tokens: list[str] = []
+    for token in re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9&'-]+", limpio):
+        if token[:1].islower() and normalizar(token) not in _CONECTORES_NOMBRE:
+            break
+        tokens.append(token)
+        if len(tokens) >= 6:
+            break
+    return _recortar_nombre(" ".join(tokens))
+
+
+def _escanear_seccion(valor: str, inicio: int, bolsa: dict) -> None:
+    """Proper names inside a scenario/case value, not the whole sentence."""
+    for match in _MAYUSCULAS_RE.finditer(valor or ""):
+        _añadir_entidad(bolsa, match.group(1), "organizacion", inicio + match.start(), True)
+    for match in _TITULO_RE.finditer(valor or ""):
+        _añadir_entidad(bolsa, match.group(1), "entidad", inicio + match.start(), True)
+    for match in _LUGAR_ESTRICTO_RE.finditer(valor or ""):
+        lugar = match.group("lugar") or match.group("lugar2")
+        if lugar:
+            _añadir_entidad(bolsa, lugar, "lugar", inicio + match.start(), False)
+
+
+def _partir_entregables(valor: str) -> list[str]:
+    piezas = re.split(r"\s*(?:;|,|\sy\s|\se\s)\s*", _sin_adornos(valor))
+    return [pieza for pieza in (_sin_adornos(pieza) for pieza in piezas) if pieza]
+
+
+def _absorber_etiqueta(etiqueta: str, valor: str, inicio: int, bolsa: dict) -> None:
+    rol = _rol_de_etiqueta(etiqueta)
+    if rol == "entregable":
+        for pieza in _partir_entregables(valor):
+            _añadir_entidad(bolsa, pieza, "entregable", inicio, True)
+        return
+    if rol == "escenario":
+        _escanear_seccion(valor, inicio, bolsa)
+        return
+    nombre = _nombre_inicial(valor)
+    if nombre:
+        _añadir_entidad(bolsa, nombre, rol, inicio, False)
+
+
+def _en_frase_prohibitiva(texto: str, posicion: int) -> bool:
+    ventana = normalizar(texto[max(0, posicion - 50):posicion])
+    return bool(re.search(r"\b(?:no debe|no incluir|no incluya|prohib)\w*", ventana))
+
+
+def _objetos_de_prohibicion(bruto: str) -> list[str]:
+    objetos = []
+    for parte in re.split(r"\s+ni\s+", _sin_adornos(bruto or "")):
+        parte = re.sub(
+            r"(?i)^(el|la|los|las|un|una|unos|unas|de|del)\s+", "", parte
+        ).strip(" \t.:;")
+        if parte:
+            objetos.append(parte)
+    return objetos
+
+
+def _tokens_de_prohibicion(objeto: str) -> list[str]:
+    tokens = []
+    for token in re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+", objeto or ""):
+        lema = _lema_ligero(token)
+        if len(lema) < 5 or lema in _STOP_PROHIBICION or lema in _PROHIBICION_GENERICA:
+            continue
+        tokens.append(lema)
+    if not tokens:
+        return []
+    if len(tokens) == 1 and len(tokens[0]) < 6:
+        return []
+    return tokens
+
+
+def _palabras_norm(texto_norm: str):
+    for match in re.finditer(r"[a-z0-9]+", texto_norm or ""):
+        yield _lema_ligero(match.group(0)), match.start(), match.end()
+
+
+def _afirma_prohibicion(prosa: str, objeto: str) -> bool:
+    necesarios = set(_tokens_de_prohibicion(objeto))
+    if not necesarios:
+        return False
+    prosa_norm = normalizar(prosa)
+    palabras = list(_palabras_norm(prosa_norm))
+    for indice, (lema, inicio, _fin) in enumerate(palabras):
+        if lema not in necesarios:
+            continue
+        ventana = []
+        for otra in palabras[indice:indice + 12]:
+            if otra[1] - inicio > 100:
+                break
+            ventana.append(otra)
+        presentes = {item[0] for item in ventana}
+        if not necesarios.issubset(presentes):
+            continue
+        primero = min(item[1] for item in ventana if item[0] in necesarios)
+        ultimo = max(item[2] for item in ventana if item[0] in necesarios)
+        alrededor = prosa_norm[max(0, primero - 40):ultimo + 20]
+        if re.search(r"\b(?:no|sin|nunca|prohib\w*|evit\w*)\b", alrededor):
+            continue
+        return True
+    return False
+
+
+def extraer_anclajes(temario: str) -> dict:
+    """Declared scenario anchors and explicit prohibitions from the syllabus.
+
+    Reads labels (empresa, país, escenario, entregable), introducers
+    (``en el contexto de``), quoted and parenthetical proper names, and
+    ``no debe`` / ``no incluir``. Does not collect every capitalised phrase.
+    """
+    bolsa = {"entidades": [], "index": {}, "prohibiciones": []}
+    texto = _texto_sin_bloques(temario or "")
+    if not texto.strip():
+        return {"entidades": [], "prohibiciones": []}
+
+    for match in _ANCLAJE_RE.finditer(texto):
+        _absorber_etiqueta(match.group("etiq"), match.group("valor"), match.start(), bolsa)
+
+    for match in _INTRO_RE.finditer(texto):
+        nombre = _NOMBRE_SEGUIDO_RE.match(texto, match.end())
+        if not nombre:
+            continue
+        _añadir_entidad(
+            bolsa,
+            nombre.group("nombre"),
+            _rol_de_intro(match.group("intro")),
+            match.start(),
+            False,
+        )
+
+    for match in _LUGAR_ESTRICTO_RE.finditer(texto):
+        lugar = match.group("lugar") or match.group("lugar2")
+        if lugar:
+            _añadir_entidad(bolsa, lugar, "lugar", match.start(), False)
+
+    for match in _PARENTESIS_MAYUS_RE.finditer(texto):
+        _añadir_entidad(bolsa, match.group(1), "organizacion", match.start(), True)
+
+    for match in _COMILLAS_RE.finditer(texto):
+        if _en_frase_prohibitiva(texto, match.start()):
+            continue
+        citado = next(grupo for grupo in match.groups() if grupo)
+        _añadir_entidad(bolsa, citado, "entidad", match.start(), True)
+
+    vistos: set[str] = set()
+    for match in _PROHIBICION_RE.finditer(texto):
+        bruto = next(grupo for grupo in match.groups() if grupo)
+        for objeto in _objetos_de_prohibicion(bruto):
+            if not _tokens_de_prohibicion(objeto):
+                continue
+            clave = normalizar(objeto)
+            if clave in vistos:
+                continue
+            if len(bolsa["prohibiciones"]) >= _MAX_PROHIBICIONES:
+                break
+            vistos.add(clave)
+            bolsa["prohibiciones"].append({"texto": objeto, "inicio": match.start()})
+
+    return {
+        "entidades": bolsa["entidades"],
+        "prohibiciones": bolsa["prohibiciones"],
+    }
+
+
+def _aparece(texto_norm: str, nombre: str) -> bool:
+    frase = normalizar(nombre)
+    if not frase:
+        return False
+    return re.search(r"(?<![a-z0-9])" + re.escape(frase) + r"(?![a-z0-9])", texto_norm) is not None
+
+
+def _sustitutos(prosa: str, entidad: dict) -> list[tuple[str, int]]:
+    """A different proper name filling the same role. Products do not count."""
+    rol = entidad["rol"]
+    propios: list[tuple[str, int]] = []
+    vistos: set[str] = set()
+
+    def guardar(nombre: str, inicio: int, rol_hallado: str) -> None:
+        nombre = _recortar_nombre(nombre)
+        if not nombre or normalizar(nombre) == normalizar(entidad["nombre"]):
+            return
+        if rol == "lugar" and rol_hallado != "lugar":
+            return
+        if rol != "lugar" and rol_hallado == "lugar":
+            return
+        if rol == "entregable" and rol_hallado != "entregable":
+            return
+        codigo_lugar = rol_hallado == "lugar" and normalizar(nombre) in {"ue", "eu", "usa"}
+        if not codigo_lugar and rol_hallado != "entregable" and _es_producto(nombre.split()):
+            return
+        if not codigo_lugar and not _nombre_valido(
+            nombre, rol_hallado, rol_hallado == "entregable"
+        ):
+            return
+        clave = normalizar(nombre)
+        if clave in vistos:
+            return
+        vistos.add(clave)
+        propios.append((nombre, inicio))
+
+    if rol == "lugar":
+        for match in _LUGAR_EN_LAB_RE.finditer(prosa):
+            if match.group("ue") or match.group("ue2"):
+                corto = match.group("corto")
+                if corto:
+                    guardar(corto, match.start(), "lugar")
+                guardar(match.group("ue") or match.group("ue2"), match.start(), "lugar")
+                continue
+            lugar = match.group("lugar")
+            if lugar:
+                guardar(lugar, match.start(), "lugar")
+            if match.group("ue_tras"):
+                guardar(match.group("ue_tras"), match.start(), "lugar")
+        return propios
+
+    if rol == "entregable":
+        for match in _ANCLAJE_RE.finditer(prosa):
+            if _rol_de_etiqueta(match.group("etiq")) != "entregable":
+                continue
+            for pieza in _partir_entregables(match.group("valor")):
+                guardar(pieza, match.start(), "entregable")
+        return propios
+
+    for match in _INTRO_RE.finditer(prosa):
+        nombre = _NOMBRE_SEGUIDO_RE.match(prosa, match.end())
+        if not nombre:
+            continue
+        guardar(nombre.group("nombre"), match.start(), _rol_de_intro(match.group("intro")))
+    for match in _NOMBRE_COMA_ROL_RE.finditer(prosa):
+        guardar(match.group("nombre"), match.start(), "organizacion")
+    for match in _ANCLAJE_RE.finditer(prosa):
+        rol_hallado = _rol_de_etiqueta(match.group("etiq"))
+        if rol_hallado in ("entregable", "lugar"):
+            continue
+        if rol_hallado == "escenario":
+            for candidato in _MAYUSCULAS_RE.finditer(match.group("valor")):
+                guardar(candidato.group(1), match.start(), "organizacion")
+            for candidato in _TITULO_RE.finditer(match.group("valor")):
+                guardar(candidato.group(1), match.start(), "entidad")
+            continue
+        nombre = _nombre_inicial(match.group("valor"))
+        if nombre:
+            guardar(nombre, match.start(), rol_hallado)
+    return propios
+
+
+def _hallazgo_anclaje(entidad: dict, detalle: str, obtenido: str, inicio: int) -> dict:
+    nombre = entidad["nombre"]
+    if detalle == "reemplazo":
+        valor = f"{nombre}: el temario lo fija y la guía lo sustituye por {obtenido}"
+    elif entidad["rol"] == "entregable":
+        valor = f"entregable del temario omitido: {nombre}"
+    else:
+        valor = f"{nombre}: el temario lo fija y la guía no lo menciona"
+    tipo = entidad["rol"] if entidad["rol"] in ("lugar", "entregable") else "entidad"
+    return {
+        "valor": valor,
+        "tipo": tipo,
+        "inicio": inicio,
+        "confianza": "alta",
+        "verificacion": "A2e",
+        "rol": entidad["rol"],
+        "esperado": nombre,
+        "obtenido": obtenido or "",
+        "detalle": detalle,
+    }
+
+
+def auditar_anclajes(temario: str, texto: str) -> list[dict]:
+    """High-confidence findings when a locked anchor is missing or replaced.
+
+    An anchor the syllabus did not declare produces nothing, even if the guide
+    is full of capitalised tool names, headings and example people.
+    """
+    anclajes = extraer_anclajes(temario or "")
+    if not anclajes["entidades"] and not anclajes["prohibiciones"]:
+        return []
+    prosa = _texto_sin_bloques(texto or "")
+    if sum(caracter.isalnum() for caracter in prosa) < 20:
+        return []
+    prosa_norm = normalizar(prosa)
+    hallazgos: list[dict] = []
+    for entidad in anclajes["entidades"]:
+        if _aparece(prosa_norm, entidad["nombre"]):
+            continue
+        sustitutos = _sustitutos(prosa, entidad)
+        if sustitutos:
+            obtenido = ", ".join(nombre for nombre, _inicio in sustitutos[:3])
+            hallazgos.append(
+                _hallazgo_anclaje(entidad, "reemplazo", obtenido, sustitutos[0][1])
+            )
+        else:
+            hallazgos.append(_hallazgo_anclaje(entidad, "omision", "", 0))
+    for prohibicion in anclajes["prohibiciones"]:
+        if not _afirma_prohibicion(prosa, prohibicion["texto"]):
+            continue
+        hallazgos.append(
+            {
+                "valor": (
+                    "prohibido por el temario y la guía lo incluye: "
+                    + prohibicion["texto"]
+                ),
+                "tipo": "prohibicion",
+                "inicio": 0,
+                "confianza": "alta",
+                "verificacion": "A2e",
+                "rol": "prohibicion",
+                "esperado": prohibicion["texto"],
+                "obtenido": prohibicion["texto"],
+                "detalle": "prohibicion",
+            }
+        )
+    return hallazgos
+
+
+def texto_de_anclajes(temario: str, en_espanol: bool = True) -> str:
+    """Prompt block listing the locked anchors. Empty when the syllabus states none."""
+    anclajes = extraer_anclajes(temario or "")
+    entidades = anclajes["entidades"]
+    prohibiciones = anclajes["prohibiciones"]
+    if not entidades and not prohibiciones:
+        return ""
+    if en_espanol:
+        lineas = [
+            "ENTIDADES BLOQUEADAS (EL TEMARIO MANDA; NO LAS CAMBIES):",
+            "Copia estos nombres tal cual. No los sustituyas por otra empresa, otro país, "
+            "otro lugar ni otro entregable, aunque el plan use un nombre distinto.",
+        ]
+        etiquetas = _ROL_ES
+        prohibido = "El temario prohíbe incluir o recomendar lo siguiente:"
+    else:
+        lineas = [
+            "LOCKED ENTITIES (THE SYLLABUS WINS; DO NOT RENAME THEM):",
+            "Copy these names exactly. Do not replace them with another company, country, "
+            "place or deliverable, even if the plan uses a different name.",
+        ]
+        etiquetas = _ROL_EN
+        prohibido = "The syllabus forbids including or recommending the following:"
+    for entidad in entidades:
+        lineas.append(f"- {etiquetas.get(entidad['rol'], entidad['rol'])}: {entidad['nombre']}")
+    if prohibiciones:
+        lineas.append(prohibido)
+        for prohibicion in prohibiciones:
+            lineas.append(f"- {prohibicion['texto']}")
+    return "\n".join(lineas) + "\n"
