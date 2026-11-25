@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { get, post } from 'aws-amplify/api';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { presentCourseStatus } from '../utils/courseStatus.mjs';
 import './GeneradorContenido.css';
 
 const GeneradorContenido = () => {
@@ -103,15 +104,19 @@ const GeneradorContenido = () => {
                 const response = await body.json();
 
                 setExecutionStatus(response);
+                const presented = presentCourseStatus(response);
 
                 if (response.status === 'RUNNING' || response.status === 'PENDING') {
                     // Continue polling
                     setTimeout(poll, pollInterval);
+                } else if (presented.code === 'needs_review') {
+                    setSuccess('');
+                    setError(`${presented.headline} ${presented.detail}`.trim());
                 } else if (response.status === 'SUCCEEDED') {
                     setSuccess(`¡Generación completada exitosamente! Se generaron ${response.result?.content_statistics?.total_words || 0} palabras en ${response.result?.generated_lessons?.length || 0} lecciones.`);
                 } else {
                     // Failed or other terminal state
-                    setError(`La generación falló: ${response.error || 'Estado desconocido'}`);
+                    setError(`${presented.headline} ${presented.detail || response.error || 'Estado desconocido'}`.trim());
                 }
             } catch (err) {
                 console.error("Error checking execution status:", err);
@@ -123,12 +128,13 @@ const GeneradorContenido = () => {
         setTimeout(poll, pollInterval);
     };
 
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'SUCCEEDED': return 'green';
-            case 'FAILED': return 'red';
-            case 'RUNNING': return 'blue';
-            case 'PENDING': return 'orange';
+    const getStatusColor = (tone) => {
+        switch (tone) {
+            case 'passed': return 'green';
+            case 'needs_review': return '#ed6c02';
+            case 'failed': return 'red';
+            case 'running': return 'blue';
+            case 'pending': return 'orange';
             default: return 'gray';
         }
     };
@@ -209,7 +215,20 @@ const GeneradorContenido = () => {
                 <div className="execution-status">
                     <h3>Estado de la Generación</h3>
                     <div className="status-info">
-                        <p><strong>Estado:</strong> <span style={{ color: getStatusColor(executionStatus.status) }}>{executionStatus.status}</span></p>
+                        {(() => {
+                            const presented = presentCourseStatus(executionStatus);
+                            return (
+                                <>
+                                    <p><strong>Estado:</strong> <span style={{ color: getStatusColor(presented.tone) }}>{presented.label}</span></p>
+                                    {presented.code === 'needs_review' && (
+                                        <p><strong>Revisión:</strong> {presented.headline} {presented.detail}</p>
+                                    )}
+                                    {Array.isArray(executionStatus.quality_warnings) && executionStatus.quality_warnings.length > 0 && presented.code !== 'needs_review' && (
+                                        <p><strong>Avisos:</strong> {executionStatus.quality_warnings.length} hallazgo(s) de baja confianza (no bloquean).</p>
+                                    )}
+                                </>
+                            );
+                        })()}
                         <p><strong>ARN:</strong> {executionStatus.execution_arn}</p>
                         {executionStatus.start_date && (
                             <p><strong>Inicio:</strong> {new Date(executionStatus.start_date).toLocaleString()}</p>
@@ -228,7 +247,7 @@ const GeneradorContenido = () => {
                         )}
                     </div>
 
-                    {executionStatus.result && (
+                    {executionStatus.result && presentCourseStatus(executionStatus).code !== 'needs_review' && (
                         <div className="generation-results">
                             <h4>Resultados</h4>
                             <div className="stats">

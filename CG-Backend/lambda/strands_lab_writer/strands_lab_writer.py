@@ -101,6 +101,99 @@ def _reintento_entregables_habilitado() -> bool:
         "1", "true", "yes", "on",
     )
 
+
+def _ficha_de_hallazgo(violacion: dict) -> dict:
+    """Short, log-safe copy of one finding. The full object stays in the S3 report."""
+    return {
+        "verificacion": violacion.get("verificacion") or "B1",
+        "confianza": violacion.get("confianza") or "baja",
+        "valor": str(violacion.get("valor") or "")[:300],
+    }
+
+
+def partir_hallazgos(violaciones) -> tuple:
+    """Split findings into a blocking set and warnings.
+
+    High confidence (``confianza == "alta"``) blocks delivery after the final
+    retry: syllabus quantity (A2), duration (B6), objective (A5), undeclared
+    files (B1/B2), environment (C2), file-shaped omissions (B3p) and any other
+    high-confidence validator finding. Low confidence stays a warning.
+    """
+    bloquean: List[dict] = []
+    advertencias: List[dict] = []
+    for violacion in violaciones or ():
+        if not isinstance(violacion, dict):
+            continue
+        ficha = _ficha_de_hallazgo(violacion)
+        if ficha["confianza"] == "alta":
+            bloquean.append(ficha)
+        else:
+            advertencias.append(ficha)
+    return bloquean, advertencias
+
+
+def hallazgo_objetivo_ausente(markdown: str, lab_plan: dict) -> Optional[dict]:
+    """A5: the syllabus objective must still be in the guide we are about to save.
+
+    ``asegurar_objetivo_declarado`` inserts it when the objectives section exists.
+    If that insert cannot run, the mismatch is a high-confidence finding.
+    """
+    objetivo = " ".join(str((lab_plan or {}).get("outline_objective") or "").split())
+    if not objetivo:
+        return None
+    if _sin_marcas(objetivo) in _sin_marcas(markdown or ""):
+        return None
+    return {
+        "valor": f"objetivo del temario ausente o reescrito: {objetivo[:180]}",
+        "tipo": "objetivo",
+        "inicio": 0,
+        "confianza": "alta",
+        "verificacion": "A5",
+    }
+
+
+def resumir_hallazgos(bloquean, prefijo: str = "NEEDS_REVIEW") -> str:
+    """One string the state machine can put in the execution cause."""
+    if not bloquean:
+        return "passed"
+    partes = []
+    for hallazgo in list(bloquean)[:12]:
+        if isinstance(hallazgo, dict) and "findings" in hallazgo:
+            lab_id = hallazgo.get("lab_id") or "?"
+            for ficha in (hallazgo.get("findings") or [])[:4]:
+                partes.append(
+                    f"{lab_id} {ficha.get('verificacion')}: {str(ficha.get('valor') or '')[:160]}"
+                )
+        else:
+            partes.append(
+                f"{hallazgo.get('verificacion')}: {str(hallazgo.get('valor') or '')[:160]}"
+            )
+    texto = prefijo + " " + "; ".join(partes)
+    return texto[:1800]
+
+
+def _registrar_puerta_de_lab(lab_id: str, attempt: int, bloquean, advertencias) -> None:
+    """Logs the gate decision. High confidence is not a silent accept."""
+    if bloquean:
+        print(
+            f"  🚫 QUALITY GATE: lab {lab_id} needs_review after attempt "
+            f"{attempt}/{MAX_LAB_GENERATION_ATTEMPTS}. "
+            f"{len(bloquean)} high-confidence finding(s) remain and the lab "
+            f"will not be delivered as passed."
+        )
+        for ficha in bloquean[:12]:
+            print(f"     🚫 {ficha['verificacion']} [{ficha['confianza']}] {ficha['valor']}")
+        return
+    if advertencias:
+        print(
+            f"  ⚠️  QUALITY GATE: lab {lab_id} passed with "
+            f"{len(advertencias)} low-confidence warning(s); not blocking."
+        )
+        for ficha in advertencias[:8]:
+            print(f"     ⚠️  {ficha['verificacion']} [{ficha['confianza']}] {ficha['valor']}")
+        return
+    print(f"  ✅ QUALITY GATE: lab {lab_id} passed")
+
 # App-level Bedrock invoke retries inside call_bedrock_agent
 BEDROCK_APP_MAX_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
 
@@ -2170,6 +2263,33 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
             "ok_alta_confianza": altas == 0,
             "por_laboratorio": informes,
         }
+        necesitan = []
+        avisos = []
+        for lab_id, reporte in informes.items():
+            bloquean, advertencias = partir_hallazgos(reporte.get("violaciones"))
+            estado = reporte.get("quality_status")
+            if estado is None:
+                estado = "needs_review" if bloquean else "passed"
+            if estado == "needs_review" or bloquean:
+                necesitan.append({"lab_id": lab_id, "findings": bloquean})
+            elif advertencias or reporte.get("quality_warnings"):
+                avisos.append({
+                    "lab_id": lab_id,
+                    "findings": advertencias or reporte.get("quality_warnings") or [],
+                })
+        payload["quality_status"] = "needs_review" if necesitan else "passed"
+        payload["labs_needing_review"] = necesitan
+        payload["quality_warnings"] = avisos
+        if necesitan:
+            print(
+                f"🚫 QUALITY GATE: referential report {key} needs_review "
+                f"({len(necesitan)} lab(s) with high-confidence findings)"
+            )
+        elif avisos:
+            print(
+                f"⚠️  QUALITY GATE: referential report {key} passed with "
+                f"low-confidence warnings on {len(avisos)} lab(s)"
+            )
         s3_client.put_object(
             Bucket=bucket,
             Key=key,
@@ -2318,6 +2438,8 @@ def lambda_handler(event, context):
             )
 
         referential_reports: Dict[str, Any] = {}
+        labs_needing_review: Dict[str, List[dict]] = {}
+        labs_quality_warnings: Dict[str, List[dict]] = {}
 
         # Contexto de conjunto para B2/B3c. En modo lote `lab_plans` viene filtrado a
         # un solo laboratorio, así que la posición se calcula sobre el plan COMPLETO;
@@ -2533,6 +2655,26 @@ def lambda_handler(event, context):
                                 f"{len(altas)} high-confidence finding(s)"
                             )
 
+                        # Final text: high-confidence findings that survived the last
+                        # retry (or were never retried, such as B3p) fail the gate.
+                        # Low-confidence findings stay warnings. The draft is still
+                        # saved so a reviewer can see it; delivery is not a pass.
+                        objetivo_ausente = hallazgo_objetivo_ausente(verified_guide, lab_plan)
+                        if objetivo_ausente:
+                            referential_report.setdefault("violaciones", []).append(objetivo_ausente)
+                        bloquean, advertencias = partir_hallazgos(
+                            referential_report.get("violaciones")
+                        )
+                        referential_report["quality_status"] = (
+                            "needs_review" if bloquean else "passed"
+                        )
+                        referential_report["quality_warnings"] = advertencias
+                        _registrar_puerta_de_lab(lab_id, attempt, bloquean, advertencias)
+                        if bloquean:
+                            labs_needing_review[lab_id] = bloquean
+                        elif advertencias:
+                            labs_quality_warnings[lab_id] = advertencias
+
                         # Solo el laboratorio aceptado aporta referentes creados para el
                         # siguiente: un intento rechazado no debe legitimar nada.
                         creados_antes.update(referential_report.get("creados") or ())
@@ -2591,9 +2733,32 @@ def lambda_handler(event, context):
 
         guardar_informe_referencial(course_bucket, project_folder, referential_reports)
 
+        revisiones = [
+            {"lab_id": lab_id, "findings": hallazgos}
+            for lab_id, hallazgos in labs_needing_review.items()
+        ]
+        avisos = [
+            {"lab_id": lab_id, "findings": hallazgos}
+            for lab_id, hallazgos in labs_quality_warnings.items()
+        ]
+        quality_status = "needs_review" if revisiones else "passed"
+        quality_summary = resumir_hallazgos(revisiones)
+
         print(f"\n{'='*70}")
-        print(f"✅ LAB WRITING COMPLETED")
+        if revisiones:
+            print(
+                f"🚫 LAB WRITING NEEDS REVIEW: {len(revisiones)}/{len(lab_plans)} "
+                f"lab(s) keep high-confidence findings after the final retry. "
+                f"Not delivered as passed. {quality_summary}"
+            )
+        else:
+            print(f"✅ LAB WRITING COMPLETED")
+            if avisos:
+                print(
+                    f"   ⚠️  {len(avisos)} lab(s) with low-confidence warnings only"
+                )
         print(f"   Generated: {len(lab_guide_keys)}/{len(lab_plans)} labs")
+        print(f"   quality_status: {quality_status}")
         print(f"{'='*70}\n")
 
         return {
@@ -2603,6 +2768,10 @@ def lambda_handler(event, context):
             'project_folder': project_folder,
             'bucket': course_bucket,
             'model_provider': model_provider,
+            'quality_status': quality_status,
+            'quality_summary': quality_summary,
+            'labs_needing_review': revisiones,
+            'quality_warnings': avisos,
         }
     
     except KeyError as e:

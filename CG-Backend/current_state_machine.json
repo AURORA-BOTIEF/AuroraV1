@@ -223,6 +223,20 @@
     "CheckLabPlannerResult": {
       "Choices": [
         {
+          "Comment": "High-confidence syllabus findings survived the last plan retry",
+          "And": [
+            {
+              "Variable": "$.lab_planner_result.Payload.quality_status",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_planner_result.Payload.quality_status",
+              "StringEquals": "needs_review"
+            }
+          ],
+          "Next": "StampLabsPlanQuality"
+        },
+        {
           "And": [
             {
               "Variable": "$.lab_planner_result.Payload.statusCode",
@@ -261,6 +275,20 @@
     "CheckMasterLabPlanResult": {
       "Choices": [
         {
+          "Comment": "High-confidence syllabus findings survived the last plan retry",
+          "And": [
+            {
+              "Variable": "$.master_lab_plan_result.Payload.quality_status",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.master_lab_plan_result.Payload.quality_status",
+              "StringEquals": "needs_review"
+            }
+          ],
+          "Next": "StampBothPlanQuality"
+        },
+        {
           "Next": "BothTheoryAndLabsBranch",
           "NumericEquals": 200,
           "Variable": "$.master_lab_plan_result.Payload.statusCode"
@@ -272,7 +300,7 @@
     },
     "CombineLabResults": {
       "Comment": "Flatten lab results from all batches",
-      "Next": "ValidateLabContent",
+      "Next": "EvaluateLabQualityGate",
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
         "content_type.$": "$.content_type",
@@ -281,9 +309,22 @@
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "lab_quality_statuses.$": "$.all_lab_batches_results[*].quality_status",
+        "lab_quality_summaries.$": "$.all_lab_batches_results[*].quality_summary",
+        "quality_warnings.$": "$.all_lab_batches_results[*].quality_warnings",
+        "labs_needing_review.$": "$.all_lab_batches_results[*].labs_needing_review"
       },
       "Type": "Pass"
+    },
+    "EvaluateLabQualityGate": {
+      "Type": "Pass",
+      "Comment": "ArrayContains needs a real array node. A [*] projection is not a reference path inside an intrinsic.",
+      "ResultPath": "$.lab_quality_decision",
+      "Parameters": {
+        "needs_review.$": "States.ArrayContains($.lab_quality_statuses, 'needs_review')"
+      },
+      "Next": "ValidateLabContent"
     },
     "ValidateLabContent": {
       "Comment": "Validate lab content against schema (structural errors block the build)",
@@ -330,7 +371,7 @@
     },
     "CombineLabResultsBoth": {
       "Comment": "Flatten lab results and combine with theory results",
-      "Next": "ValidateLabContentBoth",
+      "Next": "EvaluateLabQualityGateBoth",
       "Parameters": {
         "all_lab_keys.$": "$.all_lab_batches_results[*].lab_guide_keys[*]",
         "book_result.$": "$.book_result",
@@ -343,9 +384,22 @@
         "theory_book_key.$": "$.book_result.Payload.book_s3_key",
         "user_email.$": "$.user_email",
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "lab_quality_statuses.$": "$.all_lab_batches_results[*].quality_status",
+        "lab_quality_summaries.$": "$.all_lab_batches_results[*].quality_summary",
+        "quality_warnings.$": "$.all_lab_batches_results[*].quality_warnings",
+        "labs_needing_review.$": "$.all_lab_batches_results[*].labs_needing_review"
       },
       "Type": "Pass"
+    },
+    "EvaluateLabQualityGateBoth": {
+      "Type": "Pass",
+      "Comment": "Same gate as the labs-only path. ArrayContains reads the array the Combine pass already built.",
+      "ResultPath": "$.lab_quality_decision",
+      "Parameters": {
+        "needs_review.$": "States.ArrayContains($.lab_quality_statuses, 'needs_review')"
+      },
+      "Next": "ValidateLabContentBoth"
     },
     "ValidateLabContentBoth": {
       "Comment": "Validate lab content against schema (structural errors block the build)",
@@ -413,6 +467,20 @@
             }
           ],
           "Next": "NotifyFailure"
+        },
+        {
+          "Comment": "High-confidence findings survived the final lab retry: do not deliver as passed",
+          "And": [
+            {
+              "Variable": "$.lab_quality_decision.needs_review",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_quality_decision.needs_review",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "StampLabWriterQuality"
         }
       ],
       "Default": "InvokeLabGuideBuilder"
@@ -749,7 +817,9 @@
         "Payload": {
           "statusCode.$": "$.Payload.statusCode",
           "master_plan_key.$": "$.Payload.master_plan_key",
-          "total_labs.$": "$.Payload.total_labs"
+          "total_labs.$": "$.Payload.total_labs",
+          "quality_status.$": "$.Payload.quality_status",
+          "quality_summary.$": "$.Payload.quality_summary"
         }
       },
       "Retry": [
@@ -1362,7 +1432,11 @@
             "End": true,
             "Parameters": {
               "batch_index.$": "$.lab_batch.batch_index",
-              "lab_guide_keys.$": "$.lab_result.Payload.lab_guide_keys"
+              "lab_guide_keys.$": "$.lab_result.Payload.lab_guide_keys",
+              "quality_status.$": "$.lab_result.Payload.quality_status",
+              "quality_summary.$": "$.lab_result.Payload.quality_summary",
+              "quality_warnings.$": "$.lab_result.Payload.quality_warnings",
+              "labs_needing_review.$": "$.lab_result.Payload.labs_needing_review"
             },
             "Type": "Pass"
           },
@@ -1436,7 +1510,11 @@
             "End": true,
             "Parameters": {
               "batch_index.$": "$.lab_batch.batch_index",
-              "lab_guide_keys.$": "$.lab_result.Payload.lab_guide_keys"
+              "lab_guide_keys.$": "$.lab_result.Payload.lab_guide_keys",
+              "quality_status.$": "$.lab_result.Payload.quality_status",
+              "quality_summary.$": "$.lab_result.Payload.quality_summary",
+              "quality_warnings.$": "$.lab_result.Payload.quality_warnings",
+              "labs_needing_review.$": "$.lab_result.Payload.labs_needing_review"
             },
             "Type": "Pass"
           },
@@ -1492,6 +1570,84 @@
         }
       ],
       "Type": "Task"
+    },
+    "StampLabsPlanQuality": {
+      "Type": "Pass",
+      "Comment": "Copy the labs-only plan gate summary into $.quality_gate for the client-visible failure",
+      "ResultPath": "$.quality_gate",
+      "Parameters": {
+        "status": "needs_review",
+        "source": "plan",
+        "cause.$": "$.lab_planner_result.Payload.quality_summary"
+      },
+      "Next": "NotifyQualityReview"
+    },
+    "StampBothPlanQuality": {
+      "Type": "Pass",
+      "Comment": "Copy the both-mode plan gate summary into $.quality_gate for the client-visible failure",
+      "ResultPath": "$.quality_gate",
+      "Parameters": {
+        "status": "needs_review",
+        "source": "plan",
+        "cause.$": "$.master_lab_plan_result.Payload.quality_summary"
+      },
+      "Next": "NotifyQualityReview"
+    },
+    "StampLabWriterQuality": {
+      "Type": "Pass",
+      "Comment": "Copy lab-writer gate summaries into $.quality_gate. Does not build the lab book",
+      "ResultPath": "$.quality_gate",
+      "Parameters": {
+        "status": "needs_review",
+        "source": "labs",
+        "cause.$": "States.JsonToString($.lab_quality_summaries)"
+      },
+      "Next": "NotifyQualityReview"
+    },
+    "NotifyQualityReview": {
+      "Comment": "Tell the user the course is needs_review, then fail the execution so it is not delivered as success",
+      "Next": "FailLabQualityGate",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
+        "Payload": {
+          "execution_arn.$": "$$.Execution.Id",
+          "input.$": "$",
+          "project_folder.$": "$.project_folder",
+          "status": "needs_review",
+          "user_email.$": "$.user_email",
+          "error.$": "$.quality_gate.cause"
+        }
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.notification_result",
+      "Retry": [
+        {
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailLabQualityGate",
+          "ResultPath": "$.notification_error",
+          "Comment": "A mail failure must not turn a needs_review course into a success"
+        }
+      ],
+      "Type": "Task"
+    },
+    "FailLabQualityGate": {
+      "Type": "Fail",
+      "Error": "LabQualityNeedsReview",
+      "CausePath": "$.quality_gate.cause"
     },
     "NotifyFailure": {
       "Comment": "Send failure notification to user and admin",

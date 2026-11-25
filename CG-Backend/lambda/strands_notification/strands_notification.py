@@ -9,6 +9,108 @@ logger.setLevel(logging.INFO)
 
 ses_client = boto3.client('ses')
 
+ADMIN_EMAIL = "juan.ossa@netec.com"
+
+
+def construir_notificacion(status, project_folder, error_message, execution_arn, admin_email=ADMIN_EMAIL):
+    """Subject and bodies for success, failure, and the quality-gate needs_review stop.
+
+    needs_review is not a successful delivery: the copy names the labs that
+    still have high-confidence findings. Low-confidence warnings are not a
+    reason to use this status.
+    """
+    proyecto = project_folder or "Proyecto Desconocido"
+    detalle = error_message or "Hallazgos de alta confianza pendientes de revisión."
+    arn = execution_arn or "N/A"
+    if status == "needs_review":
+        subject = f"⚠️ Curso pendiente de revisión: {proyecto}"
+        intro = (
+            f"La generación del curso para el proyecto '{proyecto}' no se entregó. "
+            "Quedaron hallazgos de alta confianza después del último reintento "
+            "(cantidades o duración del temario, objetivos, ficheros no declarados, "
+            "entorno u otras validaciones de alta confianza). El borrador queda para revisión."
+        )
+        color = "#ed6c02"
+        titulo = "Curso pendiente de revisión"
+    elif status == "failed":
+        subject = f"❌ Error en Generación de Curso: {proyecto}"
+        intro = f"La generación del curso para el proyecto '{proyecto}' ha fallado."
+        color = "#d32f2f"
+        titulo = "Error en Generación de Curso"
+    else:
+        subject = f"✅ Generación de Curso Completada: {proyecto}"
+        body_text = f"""
+        Hola,
+        
+        La generación del curso para el proyecto '{proyecto}' ha finalizado exitosamente.
+        
+        Ya puedes ver y editar el contenido del curso en el panel de Aurora.
+        
+        Execution ARN: {arn}
+        
+        Saludos,
+        Sistema de Generación de Cursos de Netec
+        """
+        body_html = f"""
+        <html>
+        <head></head>
+        <body>
+          <h1 style="color: #2e7d32;">Generación de Curso Completada</h1>
+          <p>Hola,</p>
+          <p>La generación del curso para el proyecto <b>{proyecto}</b> ha finalizado exitosamente.</p>
+          <p>Ya puedes ver y editar el contenido del curso en el panel de Aurora.</p>
+          <div style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin: 20px 0; font-size: 12px;">
+            <strong>Execution ARN:</strong><br>
+            <code>{arn}</code>
+          </div>
+          <br>
+          <p>Saludos,</p>
+          <p>Sistema de Generación de Cursos de Netec</p>
+        </body>
+        </html>
+        """
+        return subject, body_text, body_html
+
+    body_text = f"""
+        Hola,
+        
+        {intro}
+        
+        Detalle:
+        {detalle}
+        
+        Execution ARN: {arn}
+        
+        Por favor contacta al administrador para soporte: {admin_email}
+        
+        Saludos,
+        Sistema de Generación de Cursos de Netec
+        """
+    body_html = f"""
+        <html>
+        <head></head>
+        <body>
+          <h1 style="color: {color};">{titulo}</h1>
+          <p>Hola,</p>
+          <p>{intro}</p>
+          <div style="background-color: #fff8e1; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <strong>Detalle:</strong><br>
+            <pre style="white-space: pre-wrap; word-wrap: break-word;">{detalle}</pre>
+          </div>
+          <div style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin: 20px 0; font-size: 12px;">
+            <strong>Execution ARN:</strong><br>
+            <code>{arn}</code>
+          </div>
+          <p>Por favor contacta al administrador para soporte: <a href="mailto:{admin_email}">{admin_email}</a></p>
+          <br>
+          <p>Saludos,</p>
+          <p>Sistema de Generación de Cursos de Netec</p>
+        </body>
+        </html>
+        """
+    return subject, body_text, body_html
+
+
 def lambda_handler(event, context):
     """
     Lambda function to send a notification email upon workflow completion (success or failure).
@@ -55,7 +157,7 @@ def lambda_handler(event, context):
         
     # Configuration
     sender_email = "netecgeminiai@gmail.com"  # Verified sender
-    admin_email = "juan.ossa@netec.com"
+    admin_email = ADMIN_EMAIL
     recipients = [admin_email]
     
     if user_email and isinstance(user_email, str):
@@ -73,78 +175,15 @@ def lambda_handler(event, context):
     # Remove duplicates
     recipients = list(set(recipients))
     
-    # Content generation based on status
-    if status == 'failed':
-        subject = f"❌ Error en Generación de Curso: {project_folder}"
-        body_text = f"""
-        Hola,
-        
-        La generación del curso para el proyecto '{project_folder}' ha fallado.
-        
-        Detalle del error:
-        {error_message}
-        
-        Execution ARN: {execution_arn}
-        
-        Por favor contacta al administrador para soporte: {admin_email}
-        
-        Saludos,
-        Sistema de Generación de Cursos de Netec
-        """
-        body_html = f"""
-        <html>
-        <head></head>
-        <body>
-          <h1 style="color: #d32f2f;">Error en Generación de Curso</h1>
-          <p>Hola,</p>
-          <p>La generación del curso para el proyecto <b>{project_folder}</b> ha fallado.</p>
-          <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <strong>Detalle del error:</strong><br>
-            <pre style="white-space: pre-wrap; word-wrap: break-word;">{error_message}</pre>
-          </div>
-          <div style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin: 20px 0; font-size: 12px;">
-            <strong>Execution ARN:</strong><br>
-            <code>{execution_arn}</code>
-          </div>
-          <p>Por favor contacta al administrador para soporte: <a href="mailto:{admin_email}">{admin_email}</a></p>
-          <br>
-          <p>Saludos,</p>
-          <p>Sistema de Generación de Cursos de Netec</p>
-        </body>
-        </html>
-        """
-    else:
-        subject = f"✅ Generación de Curso Completada: {project_folder}"
-        body_text = f"""
-        Hola,
-        
-        La generación del curso para el proyecto '{project_folder}' ha finalizado exitosamente.
-        
-        Ya puedes ver y editar el contenido del curso en el panel de Aurora.
-        
-        Execution ARN: {execution_arn}
-        
-        Saludos,
-        Sistema de Generación de Cursos de Netec
-        """
-        body_html = f"""
-        <html>
-        <head></head>
-        <body>
-          <h1 style="color: #2e7d32;">Generación de Curso Completada</h1>
-          <p>Hola,</p>
-          <p>La generación del curso para el proyecto <b>{project_folder}</b> ha finalizado exitosamente.</p>
-          <p>Ya puedes ver y editar el contenido del curso en el panel de Aurora.</p>
-          <div style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin: 20px 0; font-size: 12px;">
-            <strong>Execution ARN:</strong><br>
-            <code>{execution_arn}</code>
-          </div>
-          <br>
-          <p>Saludos,</p>
-          <p>Sistema de Generación de Cursos de Netec</p>
-        </body>
-        </html>
-        """
+    logger.info(
+        "QUALITY GATE notification status=%s project=%s detail=%s",
+        status,
+        project_folder,
+        error_message,
+    )
+    subject, body_text, body_html = construir_notificacion(
+        status, project_folder, error_message, execution_arn, admin_email
+    )
     
     # Send emails individually to prevent one unverified email from blocking others
     results = []
