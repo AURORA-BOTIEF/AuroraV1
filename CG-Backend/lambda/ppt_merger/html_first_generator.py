@@ -4393,7 +4393,7 @@ def generate_complete_course(
         logger.warning(f"⚠️ fix_image_only_slides failed: {e}")
 
     if is_final_batch:
-        import os
+        # Module-level ``os``; a local import here shadowed it (UnboundLocalError).
         import sys
 
         _lambda_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

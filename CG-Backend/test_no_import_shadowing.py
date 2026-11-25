@@ -12,6 +12,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _FILES = [
     os.path.join(_HERE, "lambda", "strands_infographic_generator", "html_first_generator.py"),
     os.path.join(_HERE, "lambda", "strands_infographic_generator", "infographic_generator.py"),
+    os.path.join(_HERE, "lambda", "ppt_merger", "html_first_generator.py"),
 ]
 
 

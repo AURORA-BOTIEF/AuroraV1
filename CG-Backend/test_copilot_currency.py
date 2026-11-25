@@ -168,6 +168,18 @@ def test_el_manual_autoriza_un_nombre_desconocido_pero_no_uno_retirado():
     assert _nombres(retirado) == ["Bing Chat Enterprise"]
 
 
+def test_un_tipo_de_agente_no_es_un_nombre_de_producto():
+    """MS-4019: «agente de IA» no es una superficie desconocida."""
+    for texto in (
+        "En SharePoint, crea un agente de IA para el sitio del equipo.",
+        "Configura el agente de Microsoft 365 y el agente personalizado del área.",
+    ):
+        informe = auditar_superficies_copilot(texto, recuperar=False)
+        assert informe["ok"], (texto, informe["hallazgos"])
+    inventado = auditar_superficies_copilot("En Copilot, abre el agente Magic Scheduler.", recuperar=False)
+    assert not inventado["ok"]
+
+
 def test_sin_bandera_no_hay_recuperacion_ni_red():
     import urllib.request
 

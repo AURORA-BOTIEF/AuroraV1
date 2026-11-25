@@ -53,6 +53,11 @@ _GENERICOS = {
     "editar", "edit", "eliminar", "delete", "agregar", "add", "insertar",
     "insert", "crear", "hacer", "clic", "click", "seleccionar", "pulsar",
     "yes", "si", "no",
+    # "agente de IA", "agente de Microsoft 365", "agente personalizado":
+    # a kind of agent, not a product name (MS-4019 live QA, 25/11/2026).
+    "ia", "ai", "inteligencia", "artificial", "generativa", "generative",
+    "365", "m365", "personalizado", "personalizada", "custom",
+    "declarativo", "declarativa", "declarative",
 }
 
 _DESPUES_DE_COPILOT = re.compile(
