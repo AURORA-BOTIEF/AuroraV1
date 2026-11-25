@@ -40,7 +40,7 @@ PRs 2, 6, 11, 8, 5, and 7 merged clean. The writer prompt and the writer loop co
 | PR 10 | `exec_status.py`, `strands_notification.py`, writer | `needs_review` outranks a clean pass and outranks warnings. Each lab pops `validation_evidence_correction`. |
 | PR 12 | writer only (ASL auto-merged) | Currency section, pop `currency_correction`, and save the referential and currency reports when the currency check raises. |
 
-After the twelve merges, integration commit `c8cbae73` joins the behaviors that only conflict at runtime:
+After the twelve merges, integration commit `c8cbae73` joins the behaviors that only conflict at runtime. Follow-up `0bcc6104` (owner, after MS-4019 live QA) passes the syllabus into the currency check with the manual, so a surface the syllabus names is authorized. Deprecated catalog names still block.
 
 - `clasificar_hallazgos_de_plan` treats a lab-count gap as a low-confidence warning when the format budget merged labs (`ajustado`) or a selective update still carries `syllabus_items_combined` (`conteo_preservado`), the total does not exceed the course, and `sobran == 0`. An unexplained shortfall or `excede_total` stays high-confidence A3.
 - Selective regeneration counts `extract_all_labs(..., modules_to_generate="all")`, not the filtered lab list, so regenerating one lab is not "extra labs".
@@ -88,7 +88,7 @@ ASL check (Python walker, not SAM): JSON parses; 57 top-level states, all reacha
 - Currency failures are a generic batch task failure. They do not get their own Step Functions error name.
 - A Setup Guide failure skips the link audit and the decks.
 - Selective update does not re-apply the format cap. A legacy over-budget plan cannot be patched one lab at a time until a full plan fits.
-- `COPILOT_CATALOG_RETRIEVAL` is off. Resolution is the checked-in catalog (`2026-11-25.1`) plus names the manual authorizes. A moved Microsoft Learn page that answers 404 fails the course. That is the PR 12 rule (404/410/NXDOMAIN block; 403/429/5xx do not).
+- `COPILOT_CATALOG_RETRIEVAL` is off. Resolution is the checked-in catalog (`2026-11-25.1`) plus names the manual or the syllabus authorize. A moved Microsoft Learn page that answers 404 fails the course. That is the PR 12 rule (404/410/NXDOMAIN block; 403/429/5xx do not).
 - The LPI-010 fixture is a structural stand-in in the writer prompt only. The planner prompt does not include it.
 - `DELIVERABLES_RETRY` stays off. A high-confidence B3p still blocks through the quality gate; it just does not get an extra model retry unless the flag is turned on.
 - April PPT leftovers outside the pagination and empty-table checks (typography, the GitHub Pages URL, `course_duration_hours` taken from the UI) were not re-verified on a generated deck.
@@ -142,7 +142,7 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_audit_diff.py` | 4/4 |
 | `test_batch_expander.py` | 8/8 |
 | `test_content_validator.py` | 17/17 |
-| `test_copilot_currency.py` | 14/14 |
+| `test_copilot_currency.py` | 16/16 |
 | `test_course_generation_status.py` | 3/3 |
 | `test_deck_builder.py` | 4/4 |
 | `test_demos_support.py` | pytest 11 passed |
@@ -193,7 +193,7 @@ Product items 1–9: 66.20 / 90 = 73.6% (baseline 36%).
 
 - This candidate is not deployed. Deploy only after review, with `CG-Backend/deploy.ps1` against `crewai-course-generator-stack`.
 - `sam validate` and `sam build` were not run here. SAM CLI is not installed in the environment that built the branch.
-- `LINK_AUDIT_GATE=1` and `CURRENCY_RETRY=1` will fail courses that previously succeeded: a public 404/410/NXDOMAIN, or a Copilot surface name missing from the snapshot and from the manual.
+- `LINK_AUDIT_GATE=1` and `CURRENCY_RETRY=1` will fail courses that previously succeeded: a public 404/410/NXDOMAIN, or a Copilot surface name missing from the snapshot and not named by the manual or the syllabus.
 - A selective content update of a plan that is still over the format budget now stops at `needs_review`. Those courses need a full regeneration so the planner can merge labs.
 - The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
 - Item 10 is still open, and item 11 has no new generated evidence. The 67.2% figure is the estimate in the table above.
