@@ -334,21 +334,33 @@ def test_la_setup_guide_se_genera_despues_de_los_labs_y_no_bloquea():
     assert atrapa["ResultPath"] == "$.setup_guide_error"
 
 
-def test_la_auditoria_posterior_cierra_el_flujo_sin_bloquear():
-    """Manifiesto y enlaces son evidencia: un fallo no invalida el curso."""
+def test_los_enlaces_muertos_son_compuerta_y_un_fallo_de_lambda_no():
+    """404/410/NXDOMAIN fail the course. A Lambda crash still does not.
+
+    The gate is ``Payload.gate.bloquea``, not an exception: the Catch keeps
+    going to NotifyCompletion so a crash cannot hide a written dead-link report,
+    and a crash by itself still does not fail the course.
+    """
     estados = _definicion()["States"]
     assert estados["InvokeSetupGuide"]["Next"] == "InvokePostGenerationAudit"
     auditoria = estados["InvokePostGenerationAudit"]
-    assert auditoria["Next"] == "InvokeDeckBuilder"
+    assert auditoria["Next"] == "CheckLinkAudit"
     assert auditoria["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert auditoria["Catch"][0]["Next"] == "NotifyCompletion"
     assert auditoria["Catch"][0]["ResultPath"] == "$.audit_error"
+    compuerta = estados["CheckLinkAudit"]
+    assert compuerta["Type"] == "Choice"
+    assert compuerta["Default"] == "InvokeDeckBuilder"
+    eleccion = compuerta["Choices"][0]
+    assert eleccion["Variable"] == "$.audit_result.Payload.gate.bloquea"
+    assert eleccion["BooleanEquals"] is True
+    assert eleccion["Next"] == "NotifyFailure"
 
 
 def test_los_decks_se_generan_tras_la_auditoria_y_no_bloquean():
     """Glosario y Tips & Tricks son evidencia adicional: su fallo no invalida el curso."""
     estados = _definicion()["States"]
-    assert estados["InvokePostGenerationAudit"]["Next"] == "InvokeDeckBuilder"
+    assert estados["CheckLinkAudit"]["Default"] == "InvokeDeckBuilder"
     decks = estados["InvokeDeckBuilder"]
     assert decks["Next"] == "NotifyCompletion"
     assert decks["Parameters"]["FunctionName"] == "${DeckBuilderArn}"

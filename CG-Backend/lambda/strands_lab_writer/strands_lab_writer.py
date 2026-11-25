@@ -22,6 +22,12 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from copilot_currency import (
+    auditar_superficies_copilot,
+    construir_informe_moneda,
+    mensaje_de_correccion_moneda,
+    texto_de_catalogo_para_prompt,
+)
 from manual_context import select_manual_context, flatten_to_text
 from referent_check import (
     auditar_laboratorio,
@@ -85,6 +91,13 @@ def _reintento_requisitos_habilitado() -> bool:
 def _reintento_entorno_habilitado() -> bool:
     """Interruptor operativo propio de C2: ``ENTORNO_RETRY=0`` deja solo registro."""
     return os.getenv("ENTORNO_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _reintento_moneda_habilitado() -> bool:
+    """C6 Copilot currency. ``CURRENCY_RETRY=0`` records the finding and ships the lab."""
+    return os.getenv("CURRENCY_RETRY", "1").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -1466,6 +1479,20 @@ omítelo o escríbelo como [POR CONFIRMAR]. No introduzcas nombres de fichero ni
         else ""
     )
 
+    # C6: the verified catalog, plus the names rejected on the previous attempt.
+    regla_moneda = texto_de_catalogo_para_prompt(is_spanish)
+    currency = master_context.get("currency_correction", "")
+    currency_section = (
+        f"""
+CORRECCIÓN OBLIGATORIA (moneda de Microsoft 365 Copilot):
+{currency}
+No dejes el nombre rechazado en el texto. Si no está en el catálogo ni en el manual,
+escríbelo como [POR CONFIRMAR].
+"""
+        if currency and str(currency).strip()
+        else ""
+    )
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1479,6 +1506,8 @@ COURSE CONTEXT (brief):
 {entorno_section}
 {manual_section}
 {correction_section}
+{currency_section}
+{regla_moneda}
 LAB SPECIFICATION:
 {labs_summary_text}
 {previous_lab_context_section}
@@ -2183,6 +2212,30 @@ def guardar_informe_referencial(bucket: str, project_folder: str, informes: Dict
         return ""
 
 
+def guardar_informe_moneda(bucket: str, project_folder: str, informes: Dict[str, Any]) -> str:
+    """Write the C6 Copilot-currency report under ``validation/``.
+
+    Same accumulation rule as the referential report: one lab per invocation.
+    """
+    if not informes:
+        return ""
+    try:
+        key = f"{project_folder}/validation/copilot-currency.json"
+        fusionados = {**cargar_informes_previos(bucket, key), **informes}
+        payload = construir_informe_moneda(fusionados)
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(payload, indent=2, ensure_ascii=False),
+            ContentType="application/json",
+        )
+        print(f"📝 Informe C6 de moneda Copilot guardado: {key}")
+        return key
+    except Exception as e:
+        print(f"⚠️  No se pudo guardar el informe C6 de moneda Copilot: {e}")
+        return ""
+
+
 def lambda_handler(event, context):
     """
     Lambda handler for Lab Writer (Agent 2).
@@ -2318,6 +2371,7 @@ def lambda_handler(event, context):
             )
 
         referential_reports: Dict[str, Any] = {}
+        currency_reports: Dict[str, Any] = {}
 
         # Contexto de conjunto para B2/B3c. En modo lote `lab_plans` viene filtrado a
         # un solo laboratorio, así que la posición se calcula sobre el plan COMPLETO;
@@ -2376,6 +2430,7 @@ def lambda_handler(event, context):
             # La corrección de integridad referencial es específica del laboratorio en
             # curso: no debe arrastrarse al siguiente.
             master_context.pop("referential_correction", None)
+            master_context.pop("currency_correction", None)
 
             # En actualización selectiva el lab pedido SE regenera, aunque exista:
             # el skip-if-exists solo aplica a la generación normal.
@@ -2533,6 +2588,40 @@ def lambda_handler(event, context):
                                 f"{len(altas)} high-confidence finding(s)"
                             )
 
+                        # C6: a Copilot feature, agent, or button must be in the
+                        # verified catalog (or the uploaded manual). Unknown and
+                        # deprecated names retry, and still fail the lab on the
+                        # last attempt. CURRENCY_RETRY=0 only records them.
+                        currency_report = auditar_superficies_copilot(
+                            verified_guide,
+                            manual=master_context.get("manual_reference_text") or "",
+                        )
+                        currency_reports[lab_id] = currency_report
+                        bloqueos_moneda = [
+                            h for h in currency_report.get("hallazgos") or []
+                            if h.get("bloquea")
+                        ]
+                        if bloqueos_moneda:
+                            print(
+                                f"  🔎 Moneda Copilot de {lab_id}: "
+                                f"{len(bloqueos_moneda)} bloqueo(s) "
+                                f"(catálogo {currency_report.get('catalog_version')})"
+                            )
+                            for hallazgo in bloqueos_moneda[:10]:
+                                print(
+                                    f"     ⚠️  {hallazgo.get('nombre')} "
+                                    f"[{hallazgo.get('tipo')}]"
+                                )
+                        if bloqueos_moneda and _reintento_moneda_habilitado():
+                            master_context["currency_correction"] = (
+                                mensaje_de_correccion_moneda(bloqueos_moneda)
+                            )
+                            raise RuntimeError(
+                                f"C6 currency check failed for {lab_id}: "
+                                f"{len(bloqueos_moneda)} unresolved or deprecated "
+                                f"Copilot surface(s)"
+                            )
+
                         # Solo el laboratorio aceptado aporta referentes creados para el
                         # siguiente: un intento rechazado no debe legitimar nada.
                         creados_antes.update(referential_report.get("creados") or ())
@@ -2552,6 +2641,7 @@ def lambda_handler(event, context):
                         _sleep_before_bedrock_retry(attempt - 1)
 
             if lab_id not in labs_markdown:
+                guardar_informe_moneda(course_bucket, project_folder, currency_reports)
                 msg = f"Lab {lab_id} failed after {MAX_LAB_GENERATION_ATTEMPTS} attempts"
                 if last_error:
                     msg += f": {last_error}"
@@ -2590,6 +2680,7 @@ def lambda_handler(event, context):
             )
 
         guardar_informe_referencial(course_bucket, project_folder, referential_reports)
+        guardar_informe_moneda(course_bucket, project_folder, currency_reports)
 
         print(f"\n{'='*70}")
         print(f"✅ LAB WRITING COMPLETED")

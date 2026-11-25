@@ -227,6 +227,58 @@ def test_el_handler_exige_project_folder():
     assert respuesta["statusCode"] == 400
 
 
+def test_la_compuerta_bloquea_solo_enlaces_muertos():
+    """A moved Learn page (404) fails the course. 403 stays a report."""
+    modulo = _modulo()
+    muerto = {
+        "resumen": {"publicos": 2, "vivos": 0, "muertos": 1, "no_verificables": 1},
+    }
+    sano = {
+        "resumen": {"publicos": 2, "vivos": 1, "muertos": 0, "no_verificables": 1},
+    }
+    assert modulo.compuerta_de_enlaces(muerto, activa=True)["bloquea"] is True
+    assert modulo.compuerta_de_enlaces(muerto, activa=True)["motivo"] == "enlaces_muertos"
+    assert modulo.compuerta_de_enlaces(sano, activa=True)["bloquea"] is False
+    apagada = modulo.compuerta_de_enlaces(muerto, activa=False)
+    assert apagada["bloquea"] is False
+    assert apagada["muertos"] == 1
+
+
+def test_el_handler_marca_la_compuerta_sin_fallar_la_lambda():
+    """Dead links set gate.bloquea and still return 200 so the report is kept.
+
+    Step Functions reads the payload. Raising here would hit Catch and the
+    course would succeed without a gate.
+    """
+    modulo = _modulo()
+    s3 = _S3Simulado(
+        {"curso/labguide/lab-01-00-01-a.md": b"Ver https://learn.microsoft.com/old"}
+    )
+    modulo.s3 = s3
+    modulo.revisar_enlaces = lambda bucket, proyecto: {
+        "resumen": {"publicos": 1, "vivos": 0, "muertos": 1, "no_verificables": 0},
+        "muertos": [
+            {
+                "url": "https://learn.microsoft.com/old",
+                "estado": 404,
+                "labs": ["lab-01-00-01-a.md"],
+            }
+        ],
+        "no_verificables": [],
+    }
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["statusCode"] == 200, respuesta
+    assert respuesta["gate"]["bloquea"] is True
+    assert respuesta["gate"]["muertos"] == 1
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert informe["gate"]["bloquea"] is True
+    assert informe["muertos"][0]["estado"] == 404
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     pruebas = [

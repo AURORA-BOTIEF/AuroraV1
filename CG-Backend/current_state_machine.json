@@ -893,8 +893,8 @@
       "Type": "Task"
     },
     "InvokePostGenerationAudit": {
-      "Comment": "Write the inputs manifest (SHA-256) and the link report. Non-blocking: it is evidence, not a gate.",
-      "Next": "InvokeDeckBuilder",
+      "Comment": "Write the inputs manifest and the link report. Dead links are gated by CheckLinkAudit. A Lambda crash still continues (Catch → NotifyCompletion) so the gate is the payload field, not an exception.",
+      "Next": "CheckLinkAudit",
       "Parameters": {
         "FunctionName": "${PostGenerationAuditArn}",
         "Payload": {
@@ -927,6 +927,18 @@
         }
       ],
       "Type": "Task"
+    },
+    "CheckLinkAudit": {
+      "Comment": "404/410/NXDOMAIN fail the course. 403/429/5xx stay a report. LINK_AUDIT_GATE=0 makes gate.bloquea false.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.audit_result.Payload.gate.bloquea",
+          "BooleanEquals": true,
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Default": "InvokeDeckBuilder"
     },
     "InvokeLabPlanner": {
       "Comment": "Generate master lab plan for ALL modules",
