@@ -41,7 +41,7 @@ def _ids(informe):
 
 def test_el_catalogo_esta_versionado_y_cada_fila_tiene_fuente_oficial():
     catalogo = cargar_catalogo()
-    assert catalogo["catalog_version"] == "2026-11-25.1"
+    assert catalogo["catalog_version"] == "2026-11-25.2"
     assert catalogo["verified_on"] == "2026-11-25"
     assert catalogo["retrieval"]["default"] is False
     ids = []
@@ -79,7 +79,7 @@ def test_las_superficies_verificadas_del_audit_se_aceptan():
     """
     informe = auditar_superficies_copilot(texto, recuperar=False)
     assert informe["ok"], informe["hallazgos"]
-    assert informe["catalog_version"] == "2026-11-25.1"
+    assert informe["catalog_version"] == "2026-11-25.2"
     for identificado in (
         "plan-my-day",
         "researcher",
@@ -254,7 +254,7 @@ def test_el_prompt_vivo_incluye_el_catalogo_y_la_correccion():
         "",
         "resumen",
     )
-    assert "2026-11-25.1" in prompt
+    assert "2026-11-25.2" in prompt
     assert "Plan My Day" in prompt
     assert "Bing Chat Enterprise" in prompt
     assert "Workflows" in prompt
@@ -472,7 +472,7 @@ def test_el_writer_falla_el_lab_si_el_nombre_retirado_sigue_ahi():
     informe = json.loads(s3.objetos["p/validation/copilot-currency.json"])
     assert informe["ok"] is False
     assert informe["total_bloqueos"] >= 1
-    assert informe["catalog_version"] == "2026-11-25.1"
+    assert informe["catalog_version"] == "2026-11-25.2"
     hallazgos = informe["por_laboratorio"]["01-01-01"]["hallazgos"]
     assert any(h["nombre"] == "Bing Chat Enterprise" and h["bloquea"] for h in hallazgos)
 

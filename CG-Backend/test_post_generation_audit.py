@@ -285,10 +285,30 @@ def test_el_handler_marca_la_compuerta_sin_fallar_la_lambda():
 _URL_CHAT_INVENTADA = (
     "https://learn.microsoft.com/es-es/copilot/microsoft-365/microsoft-365-copilot-chat"
 )
-_URL_CHAT_CATALOGO = "https://learn.microsoft.com/en-us/copilot/manage/researcher-agent"
+_URL_CHAT_CATALOGO = (
+    "https://support.microsoft.com/en-us/microsoft-365-copilot/"
+    "get-started-with-microsoft-365-copilot-chat"
+)
 _URL_CHAT_MANUAL = (
     "https://learn.microsoft.com/en-us/copilot/microsoft-365/microsoft-365-copilot-chat"
 )
+_URL_PRODUCTO = "https://learn.microsoft.com/en-us/copilot/plan/copilot-overview"
+_URL_AGENT_BUILDER = "https://learn.microsoft.com/en-us/plugins/agent-builder-build-agents"
+_URL_PROMPT = (
+    "https://learn.microsoft.com/es-es/microsoft-365-copilot/"
+    "microsoft-365-copilot-prompt-engineering"
+)
+_URL_ID_FALSO = (
+    "https://support.microsoft.com/es-es/topic/"
+    "bienvenido-a-microsoft-365-copilot-chat-5e2d3f57"
+)
+_URL_CHAT_SOPORTE = "https://support.microsoft.com/copilot-chat"
+_URL_RECAP = "https://learn.microsoft.com/en-us/microsoftteams/meeting-recap"
+_URL_RECAP_SOPORTE = (
+    "https://support.microsoft.com/es-es/office/recapitular-una-reunion-en-microsoft-teams"
+)
+_URL_ONEDRIVE = "https://learn.microsoft.com/en-us/onedrive/onedrive-overview"
+_URL_FINCEN = "https://www.fincen.gov/resources/statutes-and-regulations"
 
 
 def _sin_red(modulo):
@@ -303,6 +323,23 @@ def _checker(mapa):
         return mapa.get(url, ("muerto", 404))
 
     return revisar
+
+
+def _texto(s3, clave):
+    valor = s3.objetos[clave]
+    if isinstance(valor, bytes):
+        return valor.decode("utf-8")
+    return valor
+
+
+def _catalogo_vivo(modulo):
+    """Every checked-in doc URL answers 200. Dead URLs are whatever the test omits."""
+    mapa = {}
+    for feature in modulo._catalogo_copilot().get("features") or []:
+        url = (feature.get("doc_url") or "").strip()
+        if url:
+            mapa[url] = ("vivo", 200)
+    return _checker(mapa)
 
 
 def test_el_catalogo_de_la_auditoria_es_el_del_writer():
@@ -341,6 +378,9 @@ def test_copilot_chat_inventado_puntuacion_del_catalogo():
     puntuaciones.sort(reverse=True)
     assert puntuaciones[0][1] == "copilot-chat", puntuaciones[:3]
     assert puntuaciones[0][0] >= modulo._UMBRAL_REEMPLAZO
+    por_id = {feature["id"]: feature["doc_url"] for feature in catalogo["features"]}
+    assert por_id["copilot-chat"] == _URL_CHAT_CATALOGO
+    assert "researcher-agent" not in por_id["copilot-chat"]
     manual = modulo.puntuacion_de_reemplazo(_URL_CHAT_INVENTADA, _URL_CHAT_MANUAL, [], "")
     assert manual > puntuaciones[0][0]
 
@@ -492,7 +532,11 @@ def test_link_repair_apagado_no_reescribe_y_bloquea():
     os.environ["LINK_REPAIR"] = "0"
     try:
         lab = f"Consulte [Copilot Chat]({_URL_CHAT_INVENTADA}).\n"
-        s3 = _S3Simulado({"curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8")})
+        libro = f"# Lab Guide\n\n{lab}"
+        s3 = _S3Simulado({
+            "curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8"),
+            "curso/book/Lab_Guide_LabGuide_complete.md": libro.encode("utf-8"),
+        })
         modulo.s3 = s3
         modulo.revisar_enlace = _checker({_URL_CHAT_CATALOGO: ("vivo", 200)})
         respuesta = modulo.lambda_handler(
@@ -509,8 +553,216 @@ def test_link_repair_apagado_no_reescribe_y_bloquea():
     if isinstance(texto, bytes):
         texto = texto.decode("utf-8")
     assert _URL_CHAT_INVENTADA in texto
+    assert _URL_CHAT_INVENTADA in _texto(s3, "curso/book/Lab_Guide_LabGuide_complete.md")
     informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
     assert "reparaciones" not in informe
+
+
+def test_las_urls_del_catalogo_son_learn_o_support():
+    """The three bad targets from QA are gone. Every row is Learn or Support."""
+    modulo = _modulo()
+    catalogo = modulo._catalogo_copilot()
+    assert catalogo["catalog_version"] == "2026-11-25.2"
+    assert catalogo["doc_urls_checked_on"] == "2026-11-25"
+    por_id = {feature["id"]: feature for feature in catalogo["features"]}
+    assert por_id["microsoft-365-copilot"]["doc_url"] == _URL_PRODUCTO
+    assert por_id["copilot-chat"]["doc_url"] == _URL_CHAT_CATALOGO
+    assert por_id["copilot-studio"]["doc_url"] == (
+        "https://learn.microsoft.com/en-us/microsoft-copilot-studio/"
+        "fundamentals-what-is-copilot-studio"
+    )
+    assert por_id["agent-builder"]["doc_url"] == _URL_AGENT_BUILDER
+    assert por_id["plan-my-day"]["doc_url"] == (
+        "https://learn.microsoft.com/en-us/plugins/agent-template-plan-my-day"
+    )
+    assert por_id["bing-chat-enterprise"]["doc_url"] == _URL_PRODUCTO
+    for feature in catalogo["features"]:
+        url = feature["doc_url"]
+        assert url.startswith("https://learn.microsoft.com/") or url.startswith(
+            "https://support.microsoft.com/"
+        ), feature["id"]
+        assert "blogs.bing.com" not in url
+        assert "power-virtual-agents-now-part" not in url
+
+
+def test_la_coincidencia_tematica_exige_ruta_o_titulo():
+    modulo = _modulo()
+    titulo_chat = "Get started with Microsoft Copilot Chat"
+    assert modulo.es_coincidencia_tematica(
+        _URL_CHAT_INVENTADA, _URL_CHAT_CATALOGO, titulo_chat
+    ) is True
+    assert modulo.es_coincidencia_tematica(
+        _URL_CHAT_SOPORTE, _URL_CHAT_CATALOGO, titulo_chat
+    ) is True
+    assert modulo.es_coincidencia_tematica(
+        _URL_PROMPT, _URL_PRODUCTO, "What is Microsoft Copilot?"
+    ) is False
+    assert modulo.es_coincidencia_tematica(
+        _URL_ID_FALSO, _URL_CHAT_CATALOGO, titulo_chat
+    ) is False
+    assert modulo.es_coincidencia_tematica(
+        _URL_ONEDRIVE, _URL_PRODUCTO, "What is Microsoft Copilot?"
+    ) is False
+    assert modulo.es_coincidencia_tematica(
+        "https://learn.microsoft.com/en-us/microsoft-365-copilot/agent-builder",
+        _URL_AGENT_BUILDER,
+        "Build agents in Agent Builder",
+    ) is True
+
+
+def _laboratorio_con(enlaces):
+    lineas = ["# Lab\n"]
+    for ancla, url in enlaces:
+        lineas.append(f"Consulte [{ancla}]({url}).\n")
+    return "".join(lineas)
+
+
+def test_prompt_engineering_se_retira_aunque_el_producto_este_vivo():
+    """A Microsoft 365 Copilot slug is not a reason to point at the product page."""
+    modulo = _modulo()
+    _sin_red(modulo)
+    lab = _laboratorio_con([("ingeniería de prompts", _URL_PROMPT)])
+    s3 = _S3Simulado({"curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8")})
+    modulo.s3 = s3
+    modulo.revisar_enlace = _catalogo_vivo(modulo)
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["gate"]["bloquea"] is False, respuesta
+    texto = _texto(s3, "curso/labguide/lab-01-00-01-a.md")
+    assert _URL_PROMPT not in texto
+    assert _URL_PRODUCTO not in texto
+    assert "ingeniería de prompts" in texto
+    assert "http" not in texto
+
+
+def test_los_enlaces_muertos_de_qa_sin_tema_se_retiran():
+    """Real dead links from the 25 Nov QA. None of these is the catalog page."""
+    modulo = _modulo()
+    _sin_red(modulo)
+    prefijo = "https://learn.microsoft.com/en-us/microsoft-365-copilot/"
+    quitar = [
+        ("bienvenida", _URL_ID_FALSO),
+        ("ingeniería de prompts", _URL_PROMPT),
+        ("resumen de la reunión", _URL_RECAP),
+        ("recapitular la reunión", _URL_RECAP_SOPORTE),
+        ("buenas prácticas", prefijo + "best-practices"),
+        ("agentes", prefijo + "agents"),
+        ("instrucciones", prefijo + "instructions"),
+        ("agentes de SharePoint", prefijo + "instructions/sharepoint-agents"),
+        ("el chat", prefijo + "chat"),
+        ("OneDrive", _URL_ONEDRIVE),
+        ("estatutos", _URL_FINCEN),
+    ]
+    lab = _laboratorio_con(quitar)
+    s3 = _S3Simulado({"curso/labguide/lab-03-00-01-qa.md": lab.encode("utf-8")})
+    modulo.s3 = s3
+    modulo.revisar_enlace = _catalogo_vivo(modulo)
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["gate"]["bloquea"] is False, respuesta
+    texto = _texto(s3, "curso/labguide/lab-03-00-01-qa.md")
+    assert "http" not in texto, texto
+    for ancla, url in quitar:
+        assert url not in texto
+        assert ancla in texto
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert {item["accion"] for item in informe["reparaciones"]} == {"retirado"}
+    for url in (
+        _URL_PRODUCTO,
+        _URL_CHAT_CATALOGO,
+        _URL_AGENT_BUILDER,
+    ):
+        assert url not in texto
+
+
+def test_copilot_chat_y_agent_builder_si_coinciden_se_cambian():
+    modulo = _modulo()
+    _sin_red(modulo)
+    muerta_builder = "https://learn.microsoft.com/en-us/microsoft-365-copilot/agent-builder"
+    lab = _laboratorio_con([
+        ("Copilot Chat", _URL_CHAT_SOPORTE),
+        ("Agent Builder", muerta_builder),
+    ])
+    s3 = _S3Simulado({"curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8")})
+    modulo.s3 = s3
+    modulo.revisar_enlace = _catalogo_vivo(modulo)
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["gate"]["bloquea"] is False, respuesta
+    texto = _texto(s3, "curso/labguide/lab-01-00-01-a.md")
+    assert _URL_CHAT_SOPORTE not in texto
+    assert muerta_builder not in texto
+    assert _URL_CHAT_CATALOGO in texto
+    assert _URL_AGENT_BUILDER in texto
+    assert "researcher-agent" not in texto
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert {item["accion"] for item in informe["reparaciones"]} == {"reemplazo"}
+
+
+def test_la_reparacion_escribe_el_mismo_cambio_en_el_libro():
+    """The book is built before the repair. The delivered copy must match the labs."""
+    modulo = _modulo()
+    _sin_red(modulo)
+    lab = _laboratorio_con([
+        ("Copilot Chat", _URL_CHAT_INVENTADA),
+        ("estatutos", _URL_FINCEN),
+    ])
+    libro = f"# Lab Guide\n\n## Lab 1: Demo\n\n{lab}\n"
+    datos = {
+        "metadata": {"title": "Lab Guide", "total_words": 3},
+        "modules": [
+            {
+                "module_number": 1,
+                "module_title": "Capítulo 1 - Laboratorios",
+                "labs": [
+                    {
+                        "lab_number": 1,
+                        "title": "Demo",
+                        "content": lab,
+                        "word_count": len(lab.split()),
+                    }
+                ],
+            }
+        ],
+    }
+    s3 = _S3Simulado({
+        "curso/labguide/lab-01-00-01-a.md": lab.encode("utf-8"),
+        "curso/book/Lab_Guide_LabGuide_complete.md": libro.encode("utf-8"),
+        "curso/book/Lab_Guide_LabGuide_data.json": json.dumps(datos).encode("utf-8"),
+    })
+    modulo.s3 = s3
+    modulo.revisar_enlace = _catalogo_vivo(modulo)
+
+    respuesta = modulo.lambda_handler(
+        {"project_folder": "curso", "course_bucket": "bucket"}, None
+    )
+
+    assert respuesta["gate"]["bloquea"] is False, respuesta
+    lab_texto = _texto(s3, "curso/labguide/lab-01-00-01-a.md")
+    libro_texto = _texto(s3, "curso/book/Lab_Guide_LabGuide_complete.md")
+    libro_json = json.loads(s3.objetos["curso/book/Lab_Guide_LabGuide_data.json"])
+    contenido = libro_json["modules"][0]["labs"][0]["content"]
+    for texto in (lab_texto, libro_texto, contenido):
+        assert _URL_CHAT_INVENTADA not in texto
+        assert _URL_FINCEN not in texto
+        assert _URL_CHAT_CATALOGO in texto
+        assert "estatutos" in texto
+        assert "Copilot Chat" in texto
+    assert contenido == lab_texto
+    assert libro_json["modules"][0]["labs"][0]["word_count"] == len(contenido.split())
+    informe = json.loads(s3.objetos["curso/labguide/enlaces.json"])
+    assert informe["libro"]["actualizado"] is True
+    assert "curso/book/Lab_Guide_LabGuide_complete.md" in informe["libro"]["claves"]
+    assert "curso/book/Lab_Guide_LabGuide_data.json" in informe["libro"]["claves"]
 
 
 if __name__ == "__main__":

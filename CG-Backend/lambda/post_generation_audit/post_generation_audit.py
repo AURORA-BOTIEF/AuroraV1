@@ -339,8 +339,17 @@ _GENERICOS_URL = frozenset({
 _LOCALES_URL = frozenset({
     "es-es", "en-us", "es-mx", "en-gb", "pt-br", "fr-fr", "de-de", "es", "en",
 })
+# Historical alias floor. Score tests still read it. A swap does not: only
+# ``es_coincidencia_tematica`` can authorize one. Product-name overlap cannot.
 _UMBRAL_REEMPLAZO = 8
 _ENLACE_MD = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+_HASH_DE_RUTA = re.compile(r"^[0-9a-f]{6,}$")
+# Tokens that name the product family. They do not make two pages the same topic.
+_TOKENS_DE_PRODUCTO = frozenset({
+    "microsoft", "copilot", "365", "m365", "office",
+})
+_LIBRO_MD = re.compile(r"LabGuide_complete\.md$", re.IGNORECASE)
+_LIBRO_JSON = re.compile(r"LabGuide_data\.json$", re.IGNORECASE)
 
 
 def _reparacion_activa():
@@ -382,12 +391,75 @@ def _tokens_de_frase(frase):
     ]
 
 
+def _slug_de(url):
+    """Tokens of the last path segment, ignoring a locale segment."""
+    partes = urllib.parse.urlparse(url or "")
+    segmentos = [
+        segmento
+        for segmento in (partes.path or "").split("/")
+        if segmento and segmento.lower() not in _LOCALES_URL
+    ]
+    if not segmentos:
+        return []
+    return [pieza for pieza in re.split(r"[-_]+", segmentos[-1].lower()) if pieza]
+
+
+def _contiene_secuencia(aguja, pajar):
+    if len(aguja) < 2 or len(aguja) > len(pajar):
+        return False
+    ancho = len(aguja)
+    return any(pajar[i:i + ancho] == aguja for i in range(len(pajar) - ancho + 1))
+
+
+def _slug_tiene_tema(slug):
+    """A product-family slug (``microsoft-365-copilot``) is not a topic.
+
+    ``chat`` or ``agent-builder`` is. A hex id such as ``5e2d3f57`` is not.
+    """
+    return any(
+        token not in _TOKENS_DE_PRODUCTO and not _HASH_DE_RUTA.match(token)
+        for token in slug
+    )
+
+
+def es_coincidencia_tematica(url_muerta, url_candidata, titulo=""):
+    """True when the dead URL and the candidate are the same topic.
+
+    The dead page's slug must sit, in order, inside the candidate path or
+    title, and that slug must name something more specific than the product.
+    An almost identical path (locale aside) also matches. Overlap on
+    ``microsoft`` / ``copilot`` / ``365`` alone does not.
+    """
+    slug = _slug_de(url_muerta)
+    ruta = _tokens_de_url(url_candidata)
+    titulo_tokens = _tokens_de_frase(titulo)
+    if len(slug) >= 2 and _slug_tiene_tema(slug) and (
+        _contiene_secuencia(slug, ruta) or _contiene_secuencia(slug, titulo_tokens)
+    ):
+        return True
+    distintivos_muerta = {
+        token for token in _tokens_de_url(url_muerta)
+        if token not in _GENERICOS_URL and not _HASH_DE_RUTA.match(token)
+    }
+    distintivos_candidata = set(ruta) - _GENERICOS_URL
+    if not distintivos_muerta or not distintivos_candidata:
+        return False
+    comunes = distintivos_muerta & distintivos_candidata
+    union = distintivos_muerta | distintivos_candidata
+    jaccard = len(comunes) / len(union)
+    if jaccard >= 0.99:
+        return True
+    fuera_de_producto = comunes - _TOKENS_DE_PRODUCTO - {"chat"}
+    return jaccard >= 0.5 and len(comunes) >= 2 and bool(fuera_de_producto)
+
+
 def puntuacion_de_reemplazo(url_muerta, url_candidata, aliases=None, ancla=""):
     """Higher means the candidate is the same page or the catalog row the dead URL was inventing.
 
     An exact path (ignoring locale) outranks an alias hit. A two-word catalog
     name that is the tail of the dead path (``copilot-chat``) outranks a shorter
-    overlap such as ``microsoft`` + ``copilot`` alone.
+    overlap such as ``microsoft`` + ``copilot`` alone. This score only ranks
+    candidates that already passed ``es_coincidencia_tematica``.
     """
     tok_muerta = _tokens_de_url(url_muerta)
     tok_candidata = _tokens_de_url(url_candidata)
@@ -476,7 +548,7 @@ def _textos_de_fuentes(bucket, project_folder):
 
 
 def _candidatos_de_reemplazo(bucket, project_folder):
-    """(url, alias token lists) from the catalog, the manual and the syllabus."""
+    """(url, alias token lists, title) from the catalog, the manual and the syllabus."""
     candidatos = []
     for feature in (_catalogo_copilot().get("features") or []):
         if feature.get("status") == "deprecated":
@@ -491,12 +563,13 @@ def _candidatos_de_reemplazo(bucket, project_folder):
             tokens = _tokens_de_frase(nombre)
             if tokens:
                 aliases.append(tokens)
-        candidatos.append((url, aliases))
+        titulo = (feature.get("doc_title") or "").strip()
+        candidatos.append((url, aliases, titulo))
     for texto in _textos_de_fuentes(bucket, project_folder):
         for url in urls_de(texto):
             host, _motivo = es_enlace_publico(url)
             if host:
-                candidatos.append((url, []))
+                candidatos.append((url, [], ""))
     return candidatos
 
 
@@ -508,12 +581,131 @@ def _claves_de_laboratorios(bucket, project_folder):
     ]
 
 
-def reparar_enlaces_muertos(bucket, project_folder, informe, revisar=None):
-    """Replace each dead URL with the closest verified candidate, or drop the URL.
+def _primera_ancla(cuerpos, url):
+    for clave in sorted(cuerpos):
+        if url in cuerpos[clave]:
+            return _ancla_de(cuerpos[clave], url)
+    return ""
 
-    ``revisar`` is the HTTP checker (``(url) -> (clase, detalle)``). Tests inject
-    it. The default is ``revisar_enlace``, so a suite that patches that function
-    stays offline. After the files are rewritten the labs are audited again.
+
+def _elegir_reemplazo(url, ancla, candidatos, vivo):
+    """The best living candidate that is the same topic, or None to remove the URL.
+
+    One decision per dead URL, so every lab and the book get the same edit.
+    Alias overlap does not qualify a candidate: ``es_coincidencia_tematica`` does.
+    """
+    mejor = None
+    mejor_score = float("-inf")
+    for candidata, aliases, titulo in candidatos:
+        if not candidata or candidata == url or not vivo(candidata):
+            continue
+        if not es_coincidencia_tematica(url, candidata, titulo):
+            continue
+        score = puntuacion_de_reemplazo(url, candidata, aliases, ancla)
+        if score > mejor_score:
+            mejor_score = score
+            mejor = candidata
+    return mejor
+
+
+def _aplicar_decisiones(texto, decisiones):
+    nuevo = texto or ""
+    for url, reemplazo in decisiones:
+        if url not in nuevo:
+            continue
+        nuevo, _accion = aplicar_reparacion_en_texto(nuevo, url, reemplazo)
+    return nuevo
+
+
+def _aplicar_en_valor(valor, decisiones):
+    """Same URL edits in every string of the book JSON, plus a fresh word count."""
+    if isinstance(valor, str):
+        return _aplicar_decisiones(valor, decisiones)
+    if isinstance(valor, list):
+        return [_aplicar_en_valor(item, decisiones) for item in valor]
+    if isinstance(valor, dict):
+        nuevo = {
+            clave: _aplicar_en_valor(item, decisiones) for clave, item in valor.items()
+        }
+        contenido = nuevo.get("content")
+        if isinstance(contenido, str) and contenido != valor.get("content"):
+            nuevo["word_count"] = len(contenido.split())
+        return nuevo
+    return valor
+
+
+def _claves_de_libro(bucket, project_folder):
+    markdown = []
+    datos = []
+    for clave in listar(bucket, f"{project_folder}/book/"):
+        nombre = clave.split("/")[-1]
+        if _LIBRO_MD.search(nombre):
+            markdown.append(clave)
+        elif _LIBRO_JSON.search(nombre):
+            datos.append(clave)
+    return markdown, datos
+
+
+def propagar_reparaciones_al_libro(bucket, project_folder, decisiones):
+    """Write the same URL edits into the Lab Guide book the builder already saved.
+
+    ``decisiones`` is ``(dead url, replacement or None)``. None removes the URL
+    and keeps the anchor. Returns the keys that changed.
+    """
+    if not decisiones:
+        return []
+    ordenadas = sorted(decisiones, key=lambda item: len(item[0]), reverse=True)
+    escritas = []
+    markdown, datos = _claves_de_libro(bucket, project_folder)
+    for clave in markdown:
+        texto = _texto_de_s3(bucket, clave)
+        if texto is None:
+            continue
+        nuevo = _aplicar_decisiones(texto, ordenadas)
+        if nuevo == texto:
+            continue
+        s3.put_object(
+            Bucket=bucket,
+            Key=clave,
+            Body=nuevo.encode("utf-8"),
+            ContentType="text/markdown; charset=utf-8",
+        )
+        escritas.append(clave)
+    for clave in datos:
+        texto = _texto_de_s3(bucket, clave)
+        if texto is None:
+            continue
+        try:
+            cargado = json.loads(texto)
+        except json.JSONDecodeError:
+            nuevo = _aplicar_decisiones(texto, ordenadas)
+            if nuevo == texto:
+                continue
+            cuerpo = nuevo.encode("utf-8")
+        else:
+            ajustado = _aplicar_en_valor(cargado, ordenadas)
+            if ajustado == cargado:
+                continue
+            cuerpo = json.dumps(ajustado, ensure_ascii=False, indent=2).encode("utf-8")
+        s3.put_object(
+            Bucket=bucket,
+            Key=clave,
+            Body=cuerpo,
+            ContentType="application/json",
+        )
+        escritas.append(clave)
+    return escritas
+
+
+def reparar_enlaces_muertos(bucket, project_folder, informe, revisar=None):
+    """Replace a dead URL only when a living candidate is the same topic.
+
+    Otherwise the URL is removed and the anchor stays. ``revisar`` is the HTTP
+    checker (``(url) -> (clase, detalle)``). Tests inject it. The default is
+    ``revisar_enlace``, so a suite that patches that function stays offline.
+    The same edits are applied to ``book/*LabGuide_complete.md`` and
+    ``book/*LabGuide_data.json``, which InvokeLabGuideBuilder wrote earlier.
+    The labs are audited again after the files are rewritten.
     """
     revisar = revisar or revisar_enlace
     cache = {}
@@ -525,35 +717,32 @@ def reparar_enlaces_muertos(bucket, project_folder, informe, revisar=None):
         return cache[url]
 
     candidatos = _candidatos_de_reemplazo(bucket, project_folder)
-    reparaciones = []
     cuerpos = {}
     for clave in _claves_de_laboratorios(bucket, project_folder):
         texto = _texto_de_s3(bucket, clave)
         if texto is not None:
             cuerpos[clave] = texto
-    cambio = False
+    decisiones = []
     for muerto in (informe or {}).get("muertos") or []:
         url = (muerto or {}).get("url") or ""
-        if not url:
+        if not url or not any(url in texto for texto in cuerpos.values()):
             continue
-        for clave, texto in list(cuerpos.items()):
-            if url not in texto:
+        ancla = _primera_ancla(cuerpos, url)
+        reemplazo = _elegir_reemplazo(url, ancla, candidatos, vivo)
+        decisiones.append((url, reemplazo, ancla))
+    decisiones.sort(key=lambda item: len(item[0]), reverse=True)
+
+    reparaciones = []
+    cambio = False
+    for clave, texto in list(cuerpos.items()):
+        nuevo = texto
+        for url, reemplazo, ancla in decisiones:
+            if url not in nuevo:
                 continue
-            ancla = _ancla_de(texto, url)
-            mejor = None
-            mejor_score = 0.0
-            for candidata, aliases in candidatos:
-                if candidata == url or not vivo(candidata):
-                    continue
-                score = puntuacion_de_reemplazo(url, candidata, aliases, ancla)
-                if score > mejor_score:
-                    mejor_score = score
-                    mejor = candidata
-            reemplazo = mejor if mejor_score >= _UMBRAL_REEMPLAZO else None
-            nuevo, accion = aplicar_reparacion_en_texto(texto, url, reemplazo)
-            if nuevo == texto:
+            actualizado, accion = aplicar_reparacion_en_texto(nuevo, url, reemplazo)
+            if actualizado == nuevo:
                 continue
-            cuerpos[clave] = nuevo
+            nuevo = actualizado
             cambio = True
             reparaciones.append({
                 "url": url,
@@ -562,6 +751,7 @@ def reparar_enlaces_muertos(bucket, project_folder, informe, revisar=None):
                 "lab": clave.split("/")[-1],
                 "ancla": ancla,
             })
+        cuerpos[clave] = nuevo
     if cambio:
         for clave, texto in cuerpos.items():
             s3.put_object(
@@ -570,8 +760,14 @@ def reparar_enlaces_muertos(bucket, project_folder, informe, revisar=None):
                 Body=texto.encode("utf-8"),
                 ContentType="text/markdown; charset=utf-8",
             )
+    claves_libro = propagar_reparaciones_al_libro(
+        bucket, project_folder, [(url, reemplazo) for url, reemplazo, _ancla in decisiones]
+    ) if cambio else []
+    if claves_libro:
+        logger.info("Libro de laboratorios actualizado: %s", claves_libro)
     fresco = revisar_enlaces(bucket, project_folder)
     fresco["reparaciones"] = reparaciones
+    fresco["libro"] = {"actualizado": bool(claves_libro), "claves": claves_libro}
     return fresco
 
 

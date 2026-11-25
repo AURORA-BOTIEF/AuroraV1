@@ -1,6 +1,7 @@
 {
-  "catalog_version": "2026-11-25.1",
+  "catalog_version": "2026-11-25.2",
   "verified_on": "2026-11-25",
+  "doc_urls_checked_on": "2026-11-25",
   "product": "Microsoft 365 Copilot",
   "update_policy": "Add a feature only with a doc_url opened against current official Microsoft documentation. Set status to deprecated when that documentation says the name was renamed, retired, or is legacy. Do not add a name because a model used it. Single-word aliases match only near a Copilot cue; multi-word aliases match on their own. A preview row is blocked unless the lab or the uploaded manual contains one of requires_any.",
   "retrieval": {
@@ -15,8 +16,8 @@
       "kind": "product",
       "status": "available",
       "availability": "Producto. Chat de trabajo con protección de datos comercial y, con licencia, acceso a datos de Microsoft 365.",
-      "doc_url": "https://blogs.bing.com/search/2023/11/our-vision-to-bring-microsoft-copilot-to-everyone-and-more",
-      "doc_title": "Our vision to bring Microsoft Copilot to everyone, and more",
+      "doc_url": "https://learn.microsoft.com/en-us/copilot/plan/copilot-overview",
+      "doc_title": "What is Microsoft Copilot?",
       "aliases": ["Microsoft 365 Copilot", "Copilot for Microsoft 365", "Copilot para Microsoft 365"]
     },
     {
@@ -25,8 +26,8 @@
       "kind": "surface",
       "status": "available",
       "availability": "Chat estándar de Microsoft 365 Copilot. No es el agente Researcher ni el agente Analyst.",
-      "doc_url": "https://learn.microsoft.com/en-us/copilot/manage/researcher-agent",
-      "doc_title": "What is Researcher Agent in Microsoft Copilot? (contrasts standard Copilot chat)",
+      "doc_url": "https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-microsoft-365-copilot-chat",
+      "doc_title": "Get started with Microsoft Copilot Chat",
       "aliases": ["Copilot Chat"]
     },
     {
@@ -35,8 +36,8 @@
       "kind": "product",
       "status": "available",
       "availability": "Producto que incorpora a Power Virtual Agents. Sirve para crear y publicar agentes.",
-      "doc_url": "https://www.microsoft.com/en-us/copilot/blog/copilot-studio/microsoft-power-virtual-agents-now-part-of-microsoft-copilot-studio/",
-      "doc_title": "Microsoft Power Virtual Agents, now part of Microsoft Copilot Studio",
+      "doc_url": "https://learn.microsoft.com/en-us/microsoft-copilot-studio/fundamentals-what-is-copilot-studio",
+      "doc_title": "Overview - Microsoft Copilot Studio",
       "aliases": ["Copilot Studio", "Microsoft Copilot Studio"]
     },
     {
@@ -75,7 +76,7 @@
       "kind": "template",
       "status": "available",
       "availability": "Plantilla de agente declarativo. No es un botón fijo de la navegación de Copilot: el agente se construye con la plantilla.",
-      "doc_url": "https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/agent-template-plan-my-day",
+      "doc_url": "https://learn.microsoft.com/en-us/plugins/agent-template-plan-my-day",
       "doc_title": "Use the Plan My Day template to build an agent",
       "aliases": ["Plan My Day"]
     },
@@ -120,8 +121,8 @@
       "kind": "product",
       "status": "deprecated",
       "availability": "Dejó de ser el nombre del producto el 2023-11-15. Pasó a llamarse Copilot.",
-      "doc_url": "https://blogs.bing.com/search/2023/11/our-vision-to-bring-microsoft-copilot-to-everyone-and-more",
-      "doc_title": "Our vision to bring Microsoft Copilot to everyone, and more",
+      "doc_url": "https://learn.microsoft.com/en-us/copilot/plan/copilot-overview",
+      "doc_title": "What is Microsoft Copilot?",
       "replaced_by": "Microsoft Copilot",
       "aliases": ["Bing Chat Enterprise"]
     },
