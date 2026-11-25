@@ -46,6 +46,7 @@ After the twelve merges, integration commit `c8cbae73` joins the behaviors that 
 - `14b4ff2e` (MS-4018): an operating system offered on the same line as an alternative to the declared one (`Windows 10/11 o macOS`) is not a B5 contradiction. A different OS alone still is. Both `referent_check.py` copies stay identical.
 - `311518e9` (COPCHAT_LD): removed the function-local `import os` inside `generate_complete_course` in the infographic generator. That import made `os` local to the whole function, so `os.environ` raised `UnboundLocalError` and every PPT batch failed.
 - `bf0feb63` (MS-4019 rerun): generic agent-type words (`agente de IA`, `agente de Microsoft 365`, `agente personalizado`) are on the currency stoplist, so they are not unknown product names. A named agent such as "agente Magic Scheduler" still blocks. The same `import os` was removed from the `ppt_merger` copy of `html_first_generator.py`, and the shadowing guard now covers that file.
+- `5f8f21de`: `ppt_quality.py` is copied into `lambda/deck_builder/`, `lambda/ppt_merger/`, and `lambda/strands_infographic_generator/`. Those `CodeUri` folders do not see the CG-Backend root, so DeckBuilder raised `ImportModuleError: No module named ppt_quality` after the glossary change. `deploy.ps1` runs `sync_ppt_quality_packages.py` before `sam build`. The three copies match the canonical file.
 
 - `clasificar_hallazgos_de_plan` treats a lab-count gap as a low-confidence warning when the format budget merged labs (`ajustado`) or a selective update still carries `syllabus_items_combined` (`conteo_preservado`), the total does not exceed the course, and `sobran == 0`. An unexplained shortfall or `excede_total` stays high-confidence A3.
 - Selective regeneration counts `extract_all_labs(..., modules_to_generate="all")`, not the filtered lab list, so regenerating one lab is not "extra labs".
@@ -163,7 +164,7 @@ Do not deploy this branch until it is reviewed. This run did not deploy.
 From `CG-Backend`, on a machine with AWS credentials, SAM CLI, and the Netec profile used by `samconfig.toml`:
 
 1. Confirm `samconfig.toml`: stack `crewai-course-generator-stack`, region `us-east-1`, `CAPABILITY_IAM`.
-2. `powershell -ExecutionPolicy Bypass -File deploy.ps1` runs the PDF layer hash check, then `sam build`, then `sam deploy --no-confirm-changeset`. Use `-SkipDeploy` to rebuild the layer without deploying. Use `-ForceLayerRebuild` only if the PDF layer must be republished; `lambda-layers/pdf_layer/requirements.txt` did not change in this candidate.
+2. `powershell -ExecutionPolicy Bypass -File deploy.ps1` runs the PDF layer hash check, copies `ppt_quality.py` into the three Lambda packages that import it, then `sam build`, then `sam deploy --no-confirm-changeset`. Use `-SkipDeploy` to rebuild the layer without deploying or syncing. Use `-ForceLayerRebuild` only if the PDF layer must be republished; `lambda-layers/pdf_layer/requirements.txt` did not change in this candidate.
 3. `sam build` without Docker builds layers for x86_64. The PDF layer is the prebuilt aarch64 zip. Do not replace it with the `sam build` output.
 4. The state machine definition is `current_state_machine.json` (`DefinitionUri`). A deploy updates `CourseGeneratorStateMachine` in place.
 5. After deploy, confirm the flags in the table above on the live Lambdas before generating a client course. New on this pass: `READING_BUDGET_RETRY`, `LAB_READING_WORDS_PER_MINUTE`, `LAB_READING_SPEED_WPM`, `LAB_ANNEX_MAX_WORDS`, and `LINK_REPAIR`.
@@ -193,6 +194,7 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_copilot_currency.py` | 17/17 |
 | `test_course_generation_status.py` | 3/3 |
 | `test_deck_builder.py` | 4/4 |
+| `test_deck_builder_package.py` | pytest 2 passed |
 | `test_demos_support.py` | pytest 11 passed |
 | `test_format_budget.py` | 19/19 |
 | `test_golden_lab_example.py` | 4/4 |
@@ -229,7 +231,7 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | 5 | Verifiable validation | 30% | 68% | 14 | 9.52 | Retry is on. The last attempt does not fail the course. The validator stays WARNING. |
 | 6 | Currency and links | 30% | 92% | 5 | 4.60 | A dead URL is replaced only when the path or title matches, then the Lab Guide book gets the same edit. Catalog doc URLs were fetched on 2026-11-25. The gate still blocks if a dead link remains. Theory-only still skips the audit. Retrieval stays off. Currency failure is a generic batch error. The book statistics footer is not rebuilt. |
 | 7 | Audience | 20% | 65% | 5 | 3.25 | Prompt and duration scales for Copilot and short courses. Not a structural rewrite of theory into demos. |
-| 8 | PPT | 40% | 70% | 5 | 3.50 | Pagination, cap, empty and duplicate rejection, 422 in the UI. The `import os` crash is fixed. A deck-builder crash is still non-blocking. |
+| 8 | PPT | 40% | 70% | 5 | 3.50 | Pagination, cap, empty and duplicate rejection, 422 in the UI. The `import os` crash and the missing `ppt_quality` module are fixed. A deck-builder crash is still non-blocking. |
 | 9 | LPI-010 | 0% | 50% | 5 | 2.50 | Writer few-shot only, on a stand-in fixture. Planner prompt unchanged. |
 | 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
 | 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
@@ -251,4 +253,4 @@ Item 6 moved for the link-repair follow-up above. This is still an estimate of w
 - The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
 - Item 10 is still open, and item 11 has no new generated evidence. The 70.3% figure is the estimate in the table above.
 - To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. To restore block-on-first-dead-link, set `LINK_REPAIR=0`.
-- Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), and "agente de IA" is not an unknown product (`bf0feb63`). Those are not remaining blockers.
+- Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), "agente de IA" is not an unknown product (`bf0feb63`), and `ppt_quality.py` is packaged with DeckBuilder (`5f8f21de`). Those are not remaining blockers.
