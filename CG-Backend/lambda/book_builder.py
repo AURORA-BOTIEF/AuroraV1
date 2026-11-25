@@ -1186,7 +1186,7 @@ def _definicion_por_encabezado(contenido: str, titulo: str) -> str:
             continue  # lista de objetivos u otros puntos
         if len(salida) < 25:
             continue
-        return salida[:250]
+        return salida
     return ""
 
 

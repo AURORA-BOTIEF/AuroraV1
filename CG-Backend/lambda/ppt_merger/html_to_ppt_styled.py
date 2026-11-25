@@ -6,7 +6,9 @@ Includes logo and image support.
 
 import io
 import logging
+import os
 import re
+import sys
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 from pptx import Presentation
@@ -17,6 +19,18 @@ from pptx.enum.shapes import MSO_SHAPE
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+_LAMBDA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _LAMBDA_ROOT not in sys.path:
+    sys.path.insert(0, _LAMBDA_ROOT)
+
+from ppt_quality import (
+    PptQualityError,
+    paginate_glossary_entries,
+    resolve_course_duration_hours,
+    validate_html_slides,
+    validate_presentation,
+)
 
 # =============================================================================
 # DESIGN CONSTANTS (matching HTML CSS)
@@ -243,10 +257,6 @@ def _parse_glossary_items_from_md(glossary_md: str) -> list:
                 # Criterio THOR: glosario funcional, sin conceptos incompletos.
                 if not defn:
                     continue
-                if len(defn) > 240:
-                    cut = defn[:240]
-                    last_stop = max(cut.rfind('. '), cut.rfind('; '), cut.rfind(', '))
-                    defn = (cut[:last_stop + 1] if last_stop > 160 else cut.rstrip()) + '…'
                 items.append((term, defn))
     return items
 
@@ -520,10 +530,14 @@ def convert_html_to_pptx(html_content: str, s3_client=None, course_bucket: str =
                     except Exception as e:
                         logger.warning(f"   ⚠️ Could not add notes: {e}")
     
+    course_hours = resolve_course_duration_hours(book_data)
+    validate_html_slides(slides_html, course_duration_hours=course_hours)
+    validate_presentation(prs, course_duration_hours=course_hours)
+
     output = io.BytesIO()
     prs.save(output)
     output.seek(0)
-    
+
     logger.info(f"✅ Created PowerPoint with {len(slides_html)} slides")
     return output.read()
 
@@ -1109,19 +1123,14 @@ def _inject_chapter_summary(prs, layout, logo_bytes, ctx, module_num, resumen_it
     add_logo_bottom_left(slide, logo_bytes)
 
 
-def _inject_glossary(prs, layout, logo_bytes, supp):
-    """Inject glossary slide(s) programmatically (backward compat for old HTML)."""
-    glossary_items = supp.get('_glossary_items', [])
-    if not glossary_items:
-        return
-
+def _render_glossary_slide_page(prs, layout, logo_bytes, page_items, title_text):
+    """Single glossary slide: two columns, full definitions (paginated upstream)."""
     slide = prs.slides.add_slide(layout)
     bg = slide.background
     fill = bg.fill
     fill.solid()
     fill.fore_color.rgb = COLORS['white']
 
-    # Yellow bar at TOP
     top_bar = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), SLIDE_WIDTH, Inches(0.12)
     )
@@ -1129,20 +1138,19 @@ def _inject_glossary(prs, layout, logo_bytes, supp):
     top_bar.fill.fore_color.rgb = COLORS['bullet_marker']
     top_bar.line.fill.background()
 
-    # Title
     title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
     tf = title_box.text_frame
     p = tf.paragraphs[0]
-    p.text = "Glosario"
+    p.text = title_text
     p.font.size = Pt(36)
     p.font.bold = True
     p.font.name = FONTS['title']
     p.font.color.rgb = COLORS['primary']
 
-    # Two-column layout
-    mid = (len(glossary_items) + 1) // 2
-    col1_items = glossary_items[:mid]
-    col2_items = glossary_items[mid:]
+    tuples = [(e["term"], e["definition"]) for e in page_items]
+    mid = (len(tuples) + 1) // 2
+    col1_items = tuples[:mid]
+    col2_items = tuples[mid:]
 
     for col_idx, col_items in enumerate([col1_items, col2_items]):
         left = Inches(0.6) if col_idx == 0 else Inches(6.8)
@@ -1173,7 +1181,21 @@ def _inject_glossary(prs, layout, logo_bytes, supp):
             para.space_after = Pt(3)
 
     add_logo_bottom_left(slide, logo_bytes)
-    logger.info(f"   📖 Injected glossary slide with {len(glossary_items)} terms")
+    return slide
+
+
+def _inject_glossary(prs, layout, logo_bytes, supp):
+    """Inject glossary slide(s) programmatically (backward compat for old HTML)."""
+    glossary_items = supp.get('_glossary_items', [])
+    if not glossary_items:
+        return
+
+    dict_items = [{"term": t, "definition": d} for t, d in glossary_items]
+    pages = paginate_glossary_entries(dict_items)
+    for page_idx, page in enumerate(pages):
+        title = "Glosario" if page_idx == 0 else f"Glosario (cont.) ({page_idx + 1}/{len(pages)})"
+        _render_glossary_slide_page(prs, layout, logo_bytes, page, title)
+    logger.info(f"   📖 Injected {len(pages)} glossary slide(s) with {len(glossary_items)} terms")
 
 
 # =============================================================================
