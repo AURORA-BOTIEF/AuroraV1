@@ -2420,10 +2420,14 @@ _CANTIDADES_ESTRUCTURALES = frozenset(
 # Una cantidad dentro de una **instrucción** no describe el escenario: «documenta
 # 3 escenarios» o «anticipa al menos 10 escenarios» no contradicen «2 escenarios»
 # del temario. Solo se comparan cantidades en prosa descriptiva.
+# ``revis\w*`` and ``compar\w*`` used to match nouns/adjectives (*revisión*, *comparativo*)
+# and silently drop scenario quantities (MS-4019: «seis fondos»). Keep verb forms only.
 _INSTRUCCION_RE = re.compile(
     r"\b(?:document\w*|anticip\w*|identific\w*|seleccion\w*|mencion\w*|analic\w*|"
-    r"inclu\w*|agreg\w*|complet\w*|defin\w*|prepar\w*|elabor\w*|redact\w*|revis\w*|"
-    r"ejecut\w*|compar\w*|justific\w*|enumer\w*|list\w*|explic\w*|describ\w*|"
+    r"inclu\w*|agreg\w*|complet\w*|defin\w*|prepar\w*|elabor\w*|redact\w*|"
+    r"revis(?:ar|a|e|en|ad|ando|ado)\b|"
+    r"ejecut\w*|compar(?:ar|a|e|en|ad|ando|ado)\b|"
+    r"justific\w*|enumer\w*|list\w*|explic\w*|describ\w*|"
     r"solicit\w*|crea\w*|escrib\w*|respond\w*|agrega\w*|anad\w*|añad\w*)\b"
     r"|al menos|como minimo|como mínimo|minimo|mínimo|maximo|máximo|hasta"
 )
