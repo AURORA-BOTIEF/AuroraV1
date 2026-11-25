@@ -1207,6 +1207,33 @@ _MINUTOS_POR_BLOQUE = 0.75
 _TOLERANCIA_TECHO = 4 / 3
 _TOLERANCIA_SUELO = 5 / 6
 _PASOS_ACCION_MINIMOS = 3
+# Carga en laboratorios GUI / Copilot: prompts, clics, validaciones y lectura.
+_MINUTOS_POR_PROMPT = 0.75
+_MINUTOS_POR_VALIDACION = 1.5
+_PALABRAS_POR_MINUTO_LECTURA = 200
+_LENGUAJES_PROMPT = frozenset({"prompt", "copilot", "ai", "chat", "chatgpt"})
+_LENGUAJES_PROSA_CERCA = frozenset({"", "text", "markdown", "md", "plaintext", "prose"})
+_MARCAS_PROMPT_EN_CERCA = (
+    "copilot", "prompt", "resum", "genera", "redacta", "analiza", "draft",
+    "escribe un", "lista de", "bullet", "tabla con",
+)
+_GUI_INSTRUCCION_RE = re.compile(
+    r"(?i)\b(?:"
+    r"haga clic|haz clic|clic en|clickea|seleccione|selecciona|navegue|navega|"
+    r"abra |abre |pegue|pega |escriba en|inicia sesión|inicia sesion|"
+    r"copilot|outlook|teams|sharepoint|excel en línea|word en línea|pane\b|"
+    r"cinta de opciones|barra lateral|icono de|desde la cinta|menú "
+    r")\b"
+)
+_VALIDACION_EN_PASO_RE = re.compile(
+    r"(?i)\*\*(?:verificaci[oó]n|verification):?\*\*"
+)
+_VALIDACION_SECCION_RE = re.compile(
+    r"^##\s+(?:Validación(?:\s+y\s+Pruebas)?|Validation(?:\s*&\s*Testing)?)\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+_PROMPT_CITA_RE = re.compile(r"^>\s+.{20,}", re.MULTILINE)
+_PALABRA_RE = re.compile(r"\w+", re.UNICODE)
 # Presupuesto de volumen: cuántos pasos y bloques caben en la duración declarada.
 # El objetivo es la **declarada**, no el techo: el 4/3 es el límite duro; el
 # presupuesto reparte la declarada entre pasos y bloques a los ritmos mínimos, para
@@ -1281,45 +1308,123 @@ def duracion_declarada(laboratorio_md: str) -> int | None:
     return max(numeros)
 
 
+def _es_bloque_prompt(lenguaje: str, cuerpo: str) -> bool:
+    """Cerca que el alumno pega en Copilot u otro asistente, no código ejecutable."""
+    lang = (lenguaje or "").strip().lower()
+    if lang in _LENGUAJES_SHELL or lang in _LENGUAJES_ACCION:
+        return False
+    if lang in _LENGUAJES_PROMPT:
+        return True
+    texto = (cuerpo or "").strip()
+    if len(texto) < 25:
+        return False
+    if lang in {"json", "log", "output", "diff", "csv", "text", "html"} and not any(
+        marca in texto.lower() for marca in _MARCAS_PROMPT_EN_CERCA
+    ):
+        return False
+    if lang in _LENGUAJES_PROSA_CERCA or lang == "text":
+        bajo = texto.lower()
+        return any(marca in bajo for marca in _MARCAS_PROMPT_EN_CERCA)
+    return False
+
+
+def _palabras_de_tramo(tramo: str) -> int:
+    """Palabras que el alumno lee en un paso, sin cercas de código."""
+    sin_cercas = _PROSA_RE.sub(" ", tramo or "")
+    return len(_PALABRA_RE.findall(sin_cercas))
+
+
 def carga_de_laboratorio(laboratorio_md: str) -> dict:
-    """Pasos y bloques de acción del laboratorio escrito.
+    """Pasos, bloques de acción y carga de interfaz del laboratorio escrito.
 
     Un **paso con acción** es un ``### Paso`` que contiene al menos un bloque de
     shell o de un lenguaje que el alumno escribe. Los bloques de salida no cuentan.
+    En laboratorios GUI/Copilot también se cuentan prompts en cercas, instrucciones
+  de interfaz, verificaciones y tiempo de lectura (palabras / 200 ppm).
     """
-    cortes = [m.start() for m in _PASO_RE.finditer(laboratorio_md or "")]
+    texto = laboratorio_md or ""
+    cortes = [m.start() for m in _PASO_RE.finditer(texto)]
+    vacio = {
+        "pasos": 0,
+        "con_accion": 0,
+        "shell": 0,
+        "codigo": 0,
+        "bloques": 0,
+        "prompts": 0,
+        "pasos_gui": 0,
+        "validaciones": 0,
+        "palabras": 0,
+        "minutos_lectura": 0,
+    }
     if not cortes:
-        return {"pasos": 0, "con_accion": 0, "shell": 0, "codigo": 0, "bloques": 0}
-    cortes.append(len(laboratorio_md))
-    shell = codigo = con_accion = 0
+        return vacio
+    cortes.append(len(texto))
+    shell = codigo = con_accion = prompts = pasos_gui = validaciones = palabras = 0
     for i in range(len(cortes) - 1):
-        tramo = laboratorio_md[cortes[i]:cortes[i + 1]]
-        tiene = False
-        for lenguaje, _cuerpo in _BLOQUE_RE.findall(tramo):
+        tramo = texto[cortes[i]:cortes[i + 1]]
+        tiene_codigo = False
+        for lenguaje, cuerpo in _BLOQUE_RE.findall(tramo):
             lenguaje = (lenguaje or "").strip().lower()
             if lenguaje in _LENGUAJES_SHELL:
                 shell += 1
-                tiene = True
+                tiene_codigo = True
             elif lenguaje in _LENGUAJES_ACCION:
                 codigo += 1
-                tiene = True
-        if tiene:
+                tiene_codigo = True
+            elif _es_bloque_prompt(lenguaje, cuerpo):
+                prompts += 1
+        prompts += len(_PROMPT_CITA_RE.findall(tramo))
+        validaciones += len(_VALIDACION_EN_PASO_RE.findall(tramo))
+        palabras += _palabras_de_tramo(tramo)
+        if tiene_codigo:
             con_accion += 1
+        elif _GUI_INSTRUCCION_RE.search(tramo) or re.search(
+            r"(?m)^\s*\d+\.\s+\S", tramo
+        ):
+            pasos_gui += 1
+    coincidencia_val = _VALIDACION_SECCION_RE.search(texto)
+    if coincidencia_val:
+        resto = texto[coincidencia_val.end() :]
+        fin = re.search(r"\n##\s+", resto)
+        tramo_val = resto[: fin.start()] if fin else resto
+        validaciones += len(re.findall(r"(?m)^\s*(?:\d+\.|[-*])\s+\S", tramo_val))
+        palabras += _palabras_de_tramo(tramo_val)
+    minutos_lectura = math.ceil(palabras / _PALABRAS_POR_MINUTO_LECTURA) if palabras else 0
     return {
         "pasos": len(cortes) - 1,
         "con_accion": con_accion,
         "shell": shell,
         "codigo": codigo,
         "bloques": shell + codigo,
+        "prompts": prompts,
+        "pasos_gui": pasos_gui,
+        "validaciones": validaciones,
+        "palabras": palabras,
+        "minutos_lectura": minutos_lectura,
     }
+
+
+def _trabajo_minimo_interfaz(unidades: dict) -> float:
+    """Tiempo mínimo en laboratorios GUI/Copilot (prompts, clics, validación, lectura)."""
+    partes = []
+    if unidades.get("prompts"):
+        partes.append(unidades["prompts"] * _MINUTOS_POR_PROMPT)
+    if unidades.get("pasos_gui"):
+        partes.append(unidades["pasos_gui"] * _MINUTOS_POR_PASO_ACCION)
+    if unidades.get("validaciones"):
+        partes.append(unidades["validaciones"] * _MINUTOS_POR_VALIDACION)
+    if unidades.get("minutos_lectura"):
+        partes.append(unidades["minutos_lectura"])
+    return max(partes) if partes else 0.0
 
 
 def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
     """B6: ¿la duración declarada es compatible con el trabajo que pide el laboratorio?
 
-    Solo se pronuncia cuando hay duración y al menos tres pasos con acción: por
-    debajo de eso, la proporción no significa nada. Es determinista y se calcula
-    sobre el laboratorio escrito, que es donde existen los pasos.
+    Con bloques de shell o código exige al menos tres pasos con acción. Con
+    laboratorios GUI/Copilot también cuenta prompts en cercas, pasos de interfaz,
+    verificaciones y tiempo de lectura (~200 palabras/min). Es determinista y se
+    calcula sobre el laboratorio escrito, que es donde existen los pasos.
     """
     unidades = carga_de_laboratorio(laboratorio_md)
     try:
@@ -1330,31 +1435,54 @@ def auditar_duracion(laboratorio_md: str, duracion_min) -> dict:
     if duracion <= 0:
         informe["motivo"] = "sin duración declarada"
         return informe
-    if unidades["con_accion"] < _PASOS_ACCION_MINIMOS or unidades["bloques"] < 1:
+
+    comparable_codigo = (
+        unidades["con_accion"] >= _PASOS_ACCION_MINIMOS and unidades["bloques"] >= 1
+    )
+    minimo_interfaz = _trabajo_minimo_interfaz(unidades)
+    comparable_interfaz = (
+        unidades["pasos"] >= _PASOS_ACCION_MINIMOS and minimo_interfaz > 0
+    )
+    if not comparable_codigo and not comparable_interfaz:
         informe["motivo"] = "sin pasos de acción suficientes para comparar"
         return informe
-    minutos_paso = duracion / unidades["con_accion"]
-    minutos_bloque = duracion / unidades["bloques"]
-    informe["minutos_por_paso"] = round(minutos_paso, 2)
-    informe["minutos_por_bloque"] = round(minutos_bloque, 2)
+
+    minimo_codigo = 0.0
+    if comparable_codigo:
+        minimo_codigo = max(
+            unidades["con_accion"] * _MINUTOS_POR_PASO_ACCION,
+            unidades["bloques"] * _MINUTOS_POR_BLOQUE,
+        )
+        informe["minutos_por_paso"] = round(duracion / unidades["con_accion"], 2)
+        informe["minutos_por_bloque"] = round(duracion / unidades["bloques"], 2)
+    minimo = max(minimo_codigo, minimo_interfaz)
     # El tiempo que el trabajo necesita como mínimo y el que el hueco admite como
     # máximo (declarada × 4/3). La desviación es segura cuando incluso el mínimo
     # supera el techo: no hay forma de que el laboratorio quepa en su franja.
-    minimo = max(
-        unidades["con_accion"] * _MINUTOS_POR_PASO_ACCION,
-        unidades["bloques"] * _MINUTOS_POR_BLOQUE,
-    )
     techo = duracion * _TOLERANCIA_TECHO
     informe["duracion_minima"] = math.ceil(minimo)
     informe["duracion_maxima"] = math.floor(techo)
-    informe["ratio_minimo"] = round(minimo / duracion, 2)
+    informe["ratio_minimo"] = round(minimo / duracion, 2) if duracion else 0
     informe["presupuesto"] = presupuesto_de_duracion(duracion)
-    if minimo > techo:
+    lectura_excede = (
+        comparable_interfaz
+        and not comparable_codigo
+        and unidades.get("minutos_lectura", 0) > duracion
+    )
+    if minimo > techo or lectura_excede:
         informe["ok"] = False
+        detalle_gui = (
+            f", {unidades['prompts']} prompts, {unidades['pasos_gui']} pasos GUI, "
+            f"{unidades['validaciones']} validaciones, "
+            f"{unidades['minutos_lectura']} min de lectura"
+            if comparable_interfaz and not comparable_codigo
+            else ""
+        )
         informe["motivo"] = (
             f"{duracion} minutos declarados: el trabajo necesita al menos "
             f"{math.ceil(minimo)} y el hueco admite hasta {math.floor(techo)} "
-            f"({unidades['con_accion']} pasos con accion, {unidades['bloques']} bloques)"
+            f"({unidades['con_accion']} pasos con accion, {unidades['bloques']} bloques"
+            f"{detalle_gui})"
         )
     return informe
 
