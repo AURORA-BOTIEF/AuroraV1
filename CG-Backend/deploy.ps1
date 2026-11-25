@@ -56,6 +56,10 @@ if ($SkipDeploy) {
     exit 0
 }
 
+Write-Host "-> Sincronizando ppt_quality.py en los paquetes Lambda que lo importan."
+& python (Join-Path $Root "sync_ppt_quality_packages.py")
+if ($LASTEXITCODE -ne 0) { throw "Fallo la sincronizacion de ppt_quality.py." }
+
 Write-Host "-> sam build"
 sam build
 if ($LASTEXITCODE -ne 0) { throw "sam build falló." }
