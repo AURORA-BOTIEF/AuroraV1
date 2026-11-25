@@ -1737,6 +1737,28 @@ def test_b5_contradice_el_sistema_operativo_del_plan():
     assert [v["valor"] for v in b5] == ["Windows"]
     assert b5[0]["confianza"] == "alta"
 
+def test_b5_un_os_alternativo_junto_al_declarado_no_contradice():
+    """MS-4018: «Windows 10/11 o macOS» con un plan que declara Windows."""
+    lab = "## Entorno\n| Sistema operativo | Windows 10/11 o macOS con navegador compatible |\n"
+    requisitos = requisitos_declarados(
+        [{"name": "Sistema operativo", "version": "Windows 10/11", "purpose": "equipo del alumno"}],
+        [],
+    )
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto=requisitos)
+    assert not [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+
+
+def test_b5_un_os_distinto_sin_el_declarado_sigue_contradiciendo():
+    lab = "## Entorno\n| Sistema operativo | macOS 14 con navegador compatible (requisito) |\n"
+    requisitos = requisitos_declarados(
+        [{"name": "Sistema operativo", "version": "Windows 10/11", "purpose": "equipo del alumno"}],
+        [],
+    )
+    informe = auditar_laboratorio(lab, fuentes="temario", requisitos_texto=requisitos)
+    b5 = [v for v in informe["violaciones"] if v["verificacion"] == "B5"]
+    assert [v["valor"] for v in b5] == ["macOS"]
+
+
 def test_b5_contradice_la_version_de_una_herramienta():
     lab = "## Descripción\nEl entorno requiere Node 22.14.0 para ejecutar las pruebas.\n"
     requisitos = requisitos_declarados(

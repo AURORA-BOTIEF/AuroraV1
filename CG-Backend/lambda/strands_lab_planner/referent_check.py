@@ -1799,6 +1799,33 @@ def _es_ilustrativo(prosa: str, inicio: int, fin: int) -> bool:
     return False
 
 
+def _alternativa_de_un_os_declarado(prosa: str, inicio: int, fin: int, familias_plan: set) -> bool:
+    """¿La línea ofrece el sistema del plan y este como alternativa?
+
+    «Windows 10/11 o macOS con navegador compatible» no contradice un plan que
+    declara Windows: amplía las opciones del alumno (MS-4018, QA del 25/11/2026).
+    Solo cuenta si el sistema declarado está en la misma línea y unido por «o»,
+    «u», «or», «y», «/» o una coma.
+    """
+    if not familias_plan:
+        return False
+    ini_linea = prosa.rfind("\n", 0, inicio) + 1
+    fin_linea = prosa.find("\n", fin)
+    if fin_linea < 0:
+        fin_linea = len(prosa)
+    for otro in _OS_RE.finditer(prosa, ini_linea, fin_linea):
+        if otro.start() == inicio:
+            continue
+        familia = _FAMILIA_OS.get(normalizar(otro.group(1)), normalizar(otro.group(1)))
+        if familia not in familias_plan:
+            continue
+        a, b = sorted(((otro.start(), otro.end()), (inicio, fin)))
+        entre = prosa[a[1]:b[0]]
+        if len(entre) <= 30 and re.search(r"(?i)(?:^|\W)(?:o|u|or|y|and)(?:\W|$)|[/,]", entre):
+            return True
+    return False
+
+
 def _magnitudes(texto: str) -> set[tuple[str, str]]:
     salida = set()
     for m in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|mb|ghz|nucleos|cores)\b", texto):
@@ -1934,6 +1961,8 @@ def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
             continue
         familia = _FAMILIA_OS.get(normalizar(m.group(1)), normalizar(m.group(1)))
         if familia in familias_plan:
+            continue
+        if _alternativa_de_un_os_declarado(prosa_original, m.start(), m.end(), familias_plan):
             continue
         if familias_plan:
             informe["contradicciones"].append(
