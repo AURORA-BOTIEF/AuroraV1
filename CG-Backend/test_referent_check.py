@@ -3056,7 +3056,11 @@ def test_el_preflight_registra_el_modulo_sin_porcentaje_de_practica():
 
 
 def test_el_planner_guarda_el_preflight_en_los_metadatos():
-    """Camino vivo: el handler real deja el aviso en el plan guardado."""
+    """Camino vivo: el pre-flight queda en el plan, ya con el presupuesto aplicado.
+
+    Nueve prácticas de 12 min en un módulo de 85,5 min de práctica no se generan:
+    el formato las reúne hasta que cada una tiene al menos 12 minutos.
+    """
     modulo = _cargar_modulo("strands_lab_planner", _CARPETA_PLANNER)
     outline = {
         "course": {
@@ -3092,9 +3096,15 @@ def test_el_planner_guarda_el_preflight_en_los_metadatos():
             ]
         },
     )
+    assert len(plan["lab_plans"]) == 7
+    assert sum(p["estimated_duration"] for p in plan["lab_plans"]) <= 85
     preflight = plan["metadata"]["preflight_duracion"]
     assert preflight["avisos"] == 1, preflight
-    assert preflight["modulos"][0]["por_laboratorio"] == 9.5
+    assert preflight["modulos"][0]["laboratorios"] == 7
+    assert preflight["modulos"][0]["por_laboratorio"] >= 12
+    assert "poco_tiempo" not in preflight["modulos"][0]["senales"]
+    assert preflight["gate"]["aplicado"] is True
+    assert plan["metadata"]["format_budget"]["ajustado"] is True
 
 
 def test_a2_marca_una_cantidad_cambiada():
