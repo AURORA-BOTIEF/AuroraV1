@@ -380,11 +380,11 @@ def _cargar_writer():
     return modulo
 
 
-def _ejecutar(contenidos, manual="Manual del curso, sin agentes inventados.", intentos=3, moneda="1"):
+def _ejecutar(contenidos, manual="Manual del curso, sin agentes inventados.", intentos=3, moneda="1", outline="course:\n  title: Copilot\n"):
     modulo = _cargar_writer()
     s3 = _S3(
         {
-            "p/outline.yaml": "course:\n  title: Copilot\n",
+            "p/outline.yaml": outline,
             "p/manual.txt": manual,
         }
     )
@@ -479,6 +479,36 @@ def test_el_prompt_en_ingles_tambien_nombra_el_catalogo():
     assert "HARD REQUIREMENT" in texto
     assert "Researcher" in texto
     assert "Power Virtual Agents" in texto
+
+
+_LAB_ASESOR = """# Lab 01-01-01: Agentes de Copilot
+
+## Descripcion General
+En Copilot, abre el agente Asesor de escritura.
+
+### Paso 1: Abrir el agente
+**Objective:** Abrir el agente.
+**Instructions:**
+1. En Copilot, selecciona el agente Asesor de escritura.
+**Expected output:** El agente responde.
+**Verification:** Hay una respuesta en el chat.
+"""
+
+
+def test_el_temario_autoriza_un_agente_que_nombra():
+    """MS-4019 regression: the syllabus names "agente Asesor de escritura"."""
+    temario = "course:\n  title: Agentes\n  topics:\n  - title: Examina del agente Asesor de escritura\n"
+    resultado, error, contextos, s3 = _ejecutar([_LAB_ASESOR], intentos=1, outline=temario)
+    assert error is None, error
+    assert resultado["statusCode"] == 200
+    informe = json.loads(s3.objetos["p/validation/copilot-currency.json"])
+    assert informe["ok"] is True, informe
+
+
+def test_sin_temario_el_mismo_agente_sigue_bloqueando():
+    resultado, error, _contextos, _s3 = _ejecutar([_LAB_ASESOR], intentos=1)
+    assert resultado is None
+    assert "C6 currency check failed" in str(error)
 
 
 if __name__ == "__main__":

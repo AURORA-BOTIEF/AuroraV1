@@ -2918,9 +2918,18 @@ def lambda_handler(event, context):
                         # deprecated names retry, and still fail the lab on the
                         # last attempt. CURRENCY_RETRY=0 only records them.
                         # This stays a hard batch failure: the draft is not saved.
+                        # The syllabus is the primary source: a surface it names
+                        # (e.g. "agente Asesor de escritura" in MS-4019) is authorized
+                        # just like one the manual names. Deprecated catalog names
+                        # still block.
                         currency_report = auditar_superficies_copilot(
                             verified_guide,
-                            manual=master_context.get("manual_reference_text") or "",
+                            manual="\n".join(
+                                parte for parte in (
+                                    master_context.get("manual_reference_text") or "",
+                                    outline_reference_text or "",
+                                ) if parte
+                            ),
                         )
                         currency_reports[lab_id] = currency_report
                         bloqueos_moneda = [
