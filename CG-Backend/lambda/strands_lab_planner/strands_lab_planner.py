@@ -19,6 +19,7 @@ from botocore.config import Config
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from format_budget import aplicar_presupuesto_de_formato, sin_ajuste
 from manual_context import select_manual_context, flatten_to_text
 from referent_check import (
     auditar_contrato,
@@ -1306,16 +1307,6 @@ def lambda_handler(event, context):
             plan_lab["presupuesto_duracion"] = presupuesto_de_duracion(
                 plan_lab.get("estimated_duration") or plan_lab.get("duration_minutes")
             )
-        duraciones_curso = auditar_duraciones_curso(
-            master_plan, labs, course_info.get("total_duration_minutes")
-        )
-        if not duraciones_curso["ok"]:
-            print(
-                f"⏱️  A3: plan de {duraciones_curso['suma_plan']} min sobre un curso de "
-                f"{duraciones_curso['total_curso']} min; "
-                f"{duraciones_curso['labs_plan']} laboratorio(s) frente a "
-                f"{duraciones_curso['labs_temario']} práctica(s) del temario"
-            )
 
         # A5: el temario como contrato. Lo que el temario declara del laboratorio
         # (objetivo y descripción) se copia al plan; la IA solo complementa. Va después
@@ -1334,14 +1325,58 @@ def lambda_handler(event, context):
                 f"temario en {contrato_informe['labs']} laboratorio(s)"
             )
 
-        # Pre-flight de duración: el temario no puede sostener más práctica de la que
-        # declara. Se calcula sobre el plan final (tras A3 y A5) y se guarda en los
-        # metadatos. Es un aviso para quien revisa el temario: no bloquea la generación.
-        preflight = preflight_duracion(course_info, master_plan.get("lab_plans") or [])
-        if preflight["avisos"]:
+        # Format budget gate. Pre-flight used to print and continue; practices that
+        # do not fit the syllabus profile are merged or dropped before the writer runs.
+        # A selective update keeps the labs the caller asked to regenerate.
+        if lab_ids_to_regenerate:
+            ajuste_formato = sin_ajuste(
+                course_info, master_plan, motivo="actualizacion_selectiva"
+            )
+            preflight = preflight_duracion(course_info, master_plan.get("lab_plans") or [])
+        else:
+            preflight_previo = preflight_duracion(
+                course_info, master_plan.get("lab_plans") or []
+            )
+            ajuste_formato = aplicar_presupuesto_de_formato(course_info, master_plan)
+            preflight = preflight_duracion(course_info, master_plan.get("lab_plans") or [])
+            if ajuste_formato.get("ajustado"):
+                preflight["antes"] = {
+                    "avisos": preflight_previo.get("avisos"),
+                    "modulos": preflight_previo.get("modulos"),
+                }
+                print(
+                    f"⏱️  Formato {ajuste_formato.get('perfil')}: "
+                    f"{ajuste_formato.get('labs_antes')} práctica(s) / "
+                    f"{ajuste_formato.get('suma_antes')} min → "
+                    f"{ajuste_formato.get('labs_despues')} / "
+                    f"{ajuste_formato.get('suma_despues')} min"
+                )
+        preflight["gate"] = {
+            "aplicado": bool(ajuste_formato.get("ajustado")),
+            "perfil": ajuste_formato.get("perfil"),
+            "excede": bool(ajuste_formato.get("excede")),
+        }
+        if ajuste_formato.get("excede"):
+            raise ValueError(
+                "format budget could not fit the plan inside the syllabus "
+                f"({ajuste_formato.get('suma_despues')} min, "
+                f"ceiling {ajuste_formato.get('techo_curso')})"
+            )
+        if preflight["avisos"] and not ajuste_formato.get("ajustado"):
             print(
                 f"⏱️  Pre-flight: {preflight['avisos']} aviso(s) de duración en "
                 f"{preflight['modulos_con_aviso']} módulo(s) del temario"
+            )
+
+        duraciones_curso = auditar_duraciones_curso(
+            master_plan, labs, course_info.get("total_duration_minutes")
+        )
+        if not duraciones_curso["ok"]:
+            print(
+                f"⏱️  A3: plan de {duraciones_curso['suma_plan']} min sobre un curso de "
+                f"{duraciones_curso['total_curso']} min; "
+                f"{duraciones_curso['labs_plan']} laboratorio(s) frente a "
+                f"{duraciones_curso['labs_temario']} práctica(s) del temario"
             )
 
         # Reauditoría sobre el plan final (tras el merge parcial, si lo hubo): es el
@@ -1389,6 +1424,7 @@ def lambda_handler(event, context):
                 'corregidos': cantidades['corregidos'],
             },
             'preflight_duracion': preflight,
+            'format_budget': ajuste_formato,
             # C2: el entorno que la petición declara, extraído de forma
             # determinista. Es la misma lista que auditará el Writer.
             'entorno_declarado': entorno_de_peticion(lab_requirements),
