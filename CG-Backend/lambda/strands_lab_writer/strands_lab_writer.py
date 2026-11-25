@@ -34,6 +34,7 @@ from referent_check import (
     requisitos_declarados,
     salidas_de_laboratorios,
 )
+from measurable_evidence import hallazgos_validacion_no_medible, mensaje_correccion_validacion
 
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
 # that boto3 does not abort a long generation and retry (which doubles wall time).
@@ -85,6 +86,13 @@ def _reintento_requisitos_habilitado() -> bool:
 def _reintento_entorno_habilitado() -> bool:
     """Interruptor operativo propio de C2: ``ENTORNO_RETRY=0`` deja solo registro."""
     return os.getenv("ENTORNO_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _reintento_validacion_medible_habilitado() -> bool:
+    """``VALIDATION_EVIDENCE_RETRY=0`` deja la validación medible en solo registro."""
+    return os.getenv("VALIDATION_EVIDENCE_RETRY", "1").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -556,7 +564,7 @@ THOR_QUALITY_RULES = """THOR QUALITY RULES (MANDATORY - informe de mejoras):
 3. LICENCIAS Y HERRAMIENTAS: Differentiate Microsoft 365 Copilot, Copilot Chat, Designer, Planner and similar tools, stating the license and configuration for each.
 4. DURACIÓN: Keep each lab within the time and complexity defined by the syllabus; for a 90-minute seminar prioritize effective tool usage.
 5. DEPENDENCIAS: Reduce auxiliary files/dependencies; embed in the prompts any information that does not require an external file. Provide controlled scenarios, inputs and sources so results are comparable.
-6. VALIDACIÓN MEDIBLE: Define measurable criteria and sufficient evidence (command, file, output, screenshot). Do NOT claim production-ready from five generic tests or a 60% success rate.
+6. VALIDACIÓN MEDIBLE: Define measurable criteria and sufficient evidence (command, file, output, screenshot). For Copilot/LLM steps, Expected output must be a bullet list of required elements or sections—never a verbatim paragraph the model might return; omit Expected output when Verification already lists those checks. Do NOT claim production-ready from five generic tests, vague success rates, or invented passwords/paths.
 7. LIMITACIONES DE IA: In Validation & Testing include at least one adversarial case: nonexistent/contradictory information, missing evidence, or instructions embedded in documents (prompt injection).
 8. PROMPTING: Evaluate precision, traceability, uncertainty, usefulness and human supervision; do NOT require exposing internal reasoning as a success criterion.
 9. PEDAGOGÍA: Favor experimentation and reinforcement over documentation/captures.
@@ -1237,8 +1245,9 @@ LAB GUIDE CONTENT TO FIX:
 {lab_guide[:12000]}
 
 REQUIREMENTS:
-- Replace all generic placeholders (like <YOUR_PASSWORD> or [INSERT HERE]) with real, explicit, production-ready values (e.g. `pg_password_123`, `/var/lib/app`).
-- Ensure all command syntax is valid and executable.
+- Replace generic placeholders (e.g. <YOUR_PASSWORD>, [INSERT HERE]) with visible markers such as [POR CONFIRMAR] or with values already stated in the manual—never invent passwords, API keys, hostnames or local paths.
+- For Copilot/LLM/AI steps, Expected output must be a bullet list of required elements, not a verbatim model response.
+- Ensure command syntax is valid and executable when commands are present.
 - Return the COMPLETE corrected Markdown lab guide. Use the same ASCII delimiters (---LAB_START--- / ---MARKDOWN--- / ---LAB_END---).
 """
     try:
@@ -1332,7 +1341,9 @@ H2 titles MUST be these exact Spanish strings — do not use synonyms such as "R
 3. ## Objetivos de Aprendizaje — 3–5 checkboxes
 4. ## Prerrequisitos — knowledge + access
 5. ## Entorno de Laboratorio — concise HW/SW tables if useful + setup commands
-6. ## Instrucciones Paso a Paso — each step heading MUST be `### Paso N: Title` (colon, not period) with **Objective**, numbered **Instructions**, **Expected output**, **Verification**
+6. ## Instrucciones Paso a Paso — each step heading MUST be `### Paso N: Title` (colon, not period) with **Objective**, numbered **Instructions**, **Expected output** (opcional si no aporta), **Verification**
+   - Paso con comando/fichero determinista: **Expected output** = salida o bloque de código verificable.
+   - Paso con Copilot/LLM/IA: **Expected output** = lista con viñetas de elementos requeridos; nunca el párrafo literal del modelo. Omite la sección si **Verification** ya lista esos elementos.
 7. ## Validación y Pruebas
 8. ## Solución de Problemas — **exactly 2** realistic issues (symptoms, cause, fix)
 9. ## Limpieza
@@ -1348,7 +1359,9 @@ H2 titles MUST be these exact English strings:
 3. ## Learning Objectives — 3–5 checkboxes
 4. ## Prerequisites — knowledge + access
 5. ## Lab Environment — concise HW/SW tables if useful + setup commands
-6. ## Step-by-Step Instructions — each step heading MUST be `### Step N: Title` with **Objective**, numbered **Instructions**, **Expected output**, **Verification**
+6. ## Step-by-Step Instructions — each step heading MUST be `### Step N: Title` with **Objective**, numbered **Instructions**, **Expected output** (optional when not meaningful), **Verification**
+   - Deterministic command/file step: **Expected output** = console output or fenced code block.
+   - Copilot/LLM/AI step: **Expected output** = bullet list of required elements; never a verbatim model paragraph. Omit the section when **Verification** already states those checks.
 7. ## Validation & Testing
 8. ## Troubleshooting — **exactly 2** realistic issues (symptoms, cause, fix)
 9. ## Cleanup
@@ -1466,6 +1479,15 @@ omítelo o escríbelo como [POR CONFIRMAR]. No introduzcas nombres de fichero ni
         else ""
     )
 
+    evidencia_corr = master_context.get("validation_evidence_correction", "")
+    evidencia_section = (
+        f"""
+{evidencia_corr}
+"""
+        if evidencia_corr and evidencia_corr.strip()
+        else ""
+    )
+
     return f"""You are an expert technical instructor. Generate ONE complete lab guide in Markdown.
 
 LANGUAGE: All section titles and prose in **{tl}**. Code/commands may remain in English.
@@ -1479,6 +1501,7 @@ COURSE CONTEXT (brief):
 {entorno_section}
 {manual_section}
 {correction_section}
+{evidencia_section}
 LAB SPECIFICATION:
 {labs_summary_text}
 {previous_lab_context_section}
@@ -1900,7 +1923,7 @@ CRITICAL FORMATTING RULES
 3. LICENCIAS Y HERRAMIENTAS: Differentiate Microsoft 365 Copilot, Copilot Chat, Designer, Planner and similar tools, stating the license and configuration for each.
 4. DURACIÓN: Keep each lab within the time and complexity defined by the syllabus; for a 90-minute seminar prioritize effective tool usage.
 5. DEPENDENCIAS: Reduce auxiliary files/dependencies; embed in the prompts any information that does not require an external file. Provide controlled scenarios, inputs and sources so results are comparable.
-6. VALIDACIÓN MEDIBLE: Define measurable criteria and sufficient evidence (command, file, output, screenshot). Do NOT claim production-ready from five generic tests or a 60% success rate.
+6. VALIDACIÓN MEDIBLE: Define measurable criteria and sufficient evidence (command, file, output, screenshot). For Copilot/LLM steps, Expected output must be a bullet list of required elements or sections—never a verbatim paragraph the model might return; omit Expected output when Verification already lists those checks. Do NOT claim production-ready from five generic tests, vague success rates, or invented passwords/paths.
 7. LIMITACIONES DE IA: In Validation & Testing include at least one adversarial case: nonexistent/contradictory information, missing evidence, or instructions embedded in documents (prompt injection).
 8. PROMPTING: Evaluate precision, traceability, uncertainty, usefulness and human supervision; do NOT require exposing internal reasoning as a success criterion.
 9. PEDAGOGÍA: Favor experimentation and reinforcement over documentation/captures.
@@ -2442,6 +2465,27 @@ def lambda_handler(event, context):
                             is_demo=is_demo,
                             is_spanish=course_language.startswith('es')
                         )
+
+                        hallazgos_evidencia = hallazgos_validacion_no_medible(verified_guide)
+                        if hallazgos_evidencia:
+                            print(
+                                f"  🔎 Validación medible de {lab_id}: "
+                                f"{len(hallazgos_evidencia)} hallazgo(s)"
+                            )
+                            for h in hallazgos_evidencia[:8]:
+                                print(f"     ⚠️  {h}")
+                        if (
+                            hallazgos_evidencia
+                            and attempt < MAX_LAB_GENERATION_ATTEMPTS
+                            and _reintento_validacion_medible_habilitado()
+                        ):
+                            master_context["validation_evidence_correction"] = (
+                                mensaje_correccion_validacion(hallazgos_evidencia)
+                            )
+                            raise RuntimeError(
+                                f"Measurable validation failed for {lab_id}: "
+                                f"{len(hallazgos_evidencia)} finding(s)"
+                            )
 
                         # Verificación B1/B2/B3c: todo fichero o ruta que el laboratorio
                         # referencia debe estar declarado en el temario, el manual o el
