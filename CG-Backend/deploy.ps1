@@ -76,6 +76,19 @@ Copy-Item (Join-Path $Root "lambda\strands_lab_writer\golden_lab_example.py") (J
 $fixturesPlanner = Join-Path $Root "lambda\strands_lab_planner\fixtures"
 New-Item -ItemType Directory -Force -Path $fixturesPlanner | Out-Null
 Copy-Item (Join-Path $Root "lambda\strands_lab_writer\fixtures\golden_lab_lpi010_slice.md") (Join-Path $fixturesPlanner "golden_lab_lpi010_slice.md") -Force
+# audience_adaptation.py lives next to this script. Each Lambda CodeUri imports
+# the copy inside its own folder, so a combined pytest session can also see the
+# root file when CG-Backend is on sys.path. All four must stay the same file.
+$audiencia = Join-Path $Root "audience_adaptation.py"
+foreach ($destino in @(
+    "lambda\strands_content_gen",
+    "lambda\strands_lab_planner",
+    "lambda\strands_lab_writer"
+)) {
+    Copy-Item $audiencia (Join-Path $Root $destino) -Force
+}
+Copy-Item (Join-Path $Root "lambda\strands_lab_writer\measurable_evidence.py") (Join-Path $Root "lambda\content_validator\measurable_evidence.py") -Force
+Copy-Item (Join-Path $Root "lambda\strands_lab_planner\referent_check.py") (Join-Path $Root "lambda\strands_lab_writer\referent_check.py") -Force
 foreach ($destino in @(
     "lambda\content_validator",
     "lambda\strands_lab_writer",

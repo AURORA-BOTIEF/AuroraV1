@@ -26,8 +26,13 @@ def _cargar_validador():
     # El modulo crea un cliente S3 al importarse; la bateria no debe tocar AWS.
     import boto3
 
-    if _DIR_VALIDADOR not in sys.path:
-        sys.path.insert(0, _DIR_VALIDADOR)
+    # CodeUri is content_validator/. A combined session may already have imported
+    # the writer's copy of these siblings under the same module name.
+    for nombre in ("measurable_evidence", "markdown_repair"):
+        sys.modules.pop(nombre, None)
+    if _DIR_VALIDADOR in sys.path:
+        sys.path.remove(_DIR_VALIDADOR)
+    sys.path.insert(0, _DIR_VALIDADOR)
 
     original = boto3.client
     boto3.client = lambda *a, **k: object()

@@ -13,9 +13,13 @@ _WRITER = os.path.join(_HERE, "lambda", "strands_lab_writer")
 _PLANNER = os.path.join(_HERE, "lambda", "strands_lab_planner")
 _CONTENT = os.path.join(_HERE, "lambda", "strands_content_gen")
 for _p in (_WRITER, _PLANNER, _CONTENT):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+    if _p in sys.path:
+        sys.path.remove(_p)
+    sys.path.insert(0, _p)
 
+# Content gen is the CodeUri that calls promover_teoria_a_demo. Drop a sibling
+# already imported from CG-Backend/ or another Lambda folder.
+sys.modules.pop("audience_adaptation", None)
 from audience_adaptation import (  # noqa: E402
     adjust_presupuesto,
     content_audience_block,
@@ -57,9 +61,22 @@ def _cargar_modulo(nombre: str, carpeta: str):
         }
     )
     sys.modules.pop(nombre, None)
+    # These names exist in more than one CodeUri. Drop a sibling left by an
+    # earlier import, then put this package first.
+    for hermano in (
+        "optional_fields",
+        "audience_adaptation",
+        "referent_check",
+        "golden_lab_example",
+        "measurable_evidence",
+        "reading_budget",
+        "format_budget",
+    ):
+        sys.modules.pop(hermano, None)
     ruta = os.path.join(_HERE, carpeta)
-    if ruta not in sys.path:
-        sys.path.insert(0, ruta)
+    if ruta in sys.path:
+        sys.path.remove(ruta)
+    sys.path.insert(0, ruta)
     import importlib
 
     modulo = importlib.import_module(nombre)
@@ -205,8 +222,9 @@ def test_content_prompt_builder_includes_audience_block():
 
     prompt = captured.get("prompt", "")
     assert "ADAPTACIÓN DE AUDIENCIA (Copilot" in prompt
-    # 30 min theory lesson scaled to 55% of default (~1565 → ~861 words)
-    assert "Extensión objetivo: ~860 palabras" in prompt
+    # A Copilot audience turns this theory lesson into a short instructor demo.
+    assert "DEMO DEL INSTRUCTOR" in prompt
+    assert "300-500 palabras" in prompt
 
 
 def test_planner_master_plan_prompt_includes_audience():

@@ -17,11 +17,21 @@ _AQUI = os.path.dirname(os.path.abspath(__file__))
 
 
 def _cargar(nombre, ruta):
+    """Load this file even when pytest already imported a sibling of the same name."""
+    sys.modules.pop(nombre, None)
     spec = importlib.util.spec_from_file_location(nombre, ruta)
     modulo = importlib.util.module_from_spec(spec)
     sys.modules[nombre] = modulo
     spec.loader.exec_module(modulo)
     return modulo
+
+
+def _mismo_archivo(*rutas):
+    with open(rutas[0], "rb") as origen:
+        canon = origen.read()
+    for ruta in rutas[1:]:
+        with open(ruta, "rb") as copia:
+            assert copia.read() == canon, ruta
 
 
 def test_la_reparacion_de_validacion_sustituye_la_frase_no_medible():
@@ -45,8 +55,10 @@ def test_la_reparacion_de_validacion_sustituye_la_frase_no_medible():
 
 
 def test_el_recorte_de_lectura_baja_la_prosa_al_presupuesto():
-    sys.path.insert(0, os.path.join(_AQUI, "lambda", "strands_lab_writer"))
-    import reading_budget as presupuesto
+    presupuesto = _cargar(
+        "reading_budget_writer",
+        os.path.join(_AQUI, "lambda", "strands_lab_writer", "reading_budget.py"),
+    )
 
     prosa = " ".join(["palabra"] * 800)
     guia = f"# Lab\n\n{prosa}\n\n## Paso 1\n\n1. Ejecute el comando.\n"
@@ -148,8 +160,17 @@ def test_el_pie_del_libro_se_reconstruye_tras_reparar_enlaces():
 
 
 def test_una_audiencia_con_demos_convierte_la_teoria():
-    sys.path.insert(0, os.path.join(_AQUI, "lambda", "strands_content_gen"))
-    import audience_adaptation as audiencia
+    # The content generator's CodeUri is strands_content_gen/. The root file and
+    # the planner/writer copies are the same bytes; this load does not use whichever
+    # sibling a previous test left in sys.modules.
+    sys.modules.pop("audience_adaptation", None)
+    audiencia = _cargar(
+        "audience_adaptation_content_gen",
+        os.path.join(_AQUI, "lambda", "strands_content_gen", "audience_adaptation.py"),
+    )
+    assert audiencia.__file__.replace("\\", "/").endswith(
+        "lambda/strands_content_gen/audience_adaptation.py"
+    )
 
     perfil = audiencia.resolve_audience_profile(
         {
@@ -190,6 +211,32 @@ def test_una_audiencia_con_demos_convierte_la_teoria():
         assert apagada["type"] == "theory"
     finally:
         os.environ.pop("THEORY_TO_DEMO", None)
+
+
+def test_las_copias_desplegadas_no_se_quedan_atras():
+    """Siblings that share a module name must be the file each CodeUri will import."""
+    _mismo_archivo(
+        os.path.join(_AQUI, "audience_adaptation.py"),
+        os.path.join(_AQUI, "lambda", "strands_content_gen", "audience_adaptation.py"),
+        os.path.join(_AQUI, "lambda", "strands_lab_planner", "audience_adaptation.py"),
+        os.path.join(_AQUI, "lambda", "strands_lab_writer", "audience_adaptation.py"),
+    )
+    _mismo_archivo(
+        os.path.join(_AQUI, "lambda", "strands_lab_planner", "referent_check.py"),
+        os.path.join(_AQUI, "lambda", "strands_lab_writer", "referent_check.py"),
+    )
+    _mismo_archivo(
+        os.path.join(_AQUI, "lambda", "strands_lab_writer", "measurable_evidence.py"),
+        os.path.join(_AQUI, "lambda", "content_validator", "measurable_evidence.py"),
+    )
+    _mismo_archivo(
+        os.path.join(_AQUI, "lambda", "strands_lab_writer", "golden_lab_example.py"),
+        os.path.join(_AQUI, "lambda", "strands_lab_planner", "golden_lab_example.py"),
+    )
+    _mismo_archivo(
+        os.path.join(_AQUI, "lambda", "strands_lab_writer", "fixtures", "golden_lab_lpi010_slice.md"),
+        os.path.join(_AQUI, "lambda", "strands_lab_planner", "fixtures", "golden_lab_lpi010_slice.md"),
+    )
 
 
 if __name__ == "__main__":

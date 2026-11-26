@@ -33,6 +33,9 @@ _CARPETA_PLANNER = os.path.join("lambda", "strands_lab_planner")
 for _ruta in (_CARPETA_WRITER, _CARPETA_PLANNER, "lambda"):
     sys.path.insert(0, os.path.join(_HERE, _ruta))
 
+# Planner is the copy this import must bind. A previous test may have loaded
+# the writer sibling under the same name.
+sys.modules.pop("referent_check", None)
 from referent_check import (  # noqa: E402
     auditar_contrato,
     auditar_duraciones_curso,

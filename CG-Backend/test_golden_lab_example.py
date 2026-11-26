@@ -23,10 +23,19 @@ def _cargar_writer_sin_aws():
             "botocore.exceptions": botocore_sim.exceptions,
         }
     )
-    sys.modules.pop("strands_lab_writer", None)
-    sys.modules.pop("golden_lab_example", None)
-    if _WRITER_DIR not in sys.path:
-        sys.path.insert(0, _WRITER_DIR)
+    for nombre in (
+        "strands_lab_writer",
+        "golden_lab_example",
+        "optional_fields",
+        "audience_adaptation",
+        "referent_check",
+        "measurable_evidence",
+        "reading_budget",
+    ):
+        sys.modules.pop(nombre, None)
+    if _WRITER_DIR in sys.path:
+        sys.path.remove(_WRITER_DIR)
+    sys.path.insert(0, _WRITER_DIR)
     try:
         return importlib.import_module("strands_lab_writer")
     finally:
@@ -38,8 +47,10 @@ def _cargar_writer_sin_aws():
 
 
 def _cargar_golden():
-    if _WRITER_DIR not in sys.path:
-        sys.path.insert(0, _WRITER_DIR)
+    sys.modules.pop("golden_lab_example", None)
+    if _WRITER_DIR in sys.path:
+        sys.path.remove(_WRITER_DIR)
+    sys.path.insert(0, _WRITER_DIR)
     return importlib.import_module("golden_lab_example")
 
 

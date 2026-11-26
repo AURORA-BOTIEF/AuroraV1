@@ -5,6 +5,7 @@ Deterministic: no LLM calls. Used by content generation, lab planner and lab wri
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Union
 
 SHORT_COURSE_MAX_MINUTES = 180
@@ -248,6 +249,44 @@ AUDIENCE ADAPTATION (short course)
 - Favor demos and hands-on application; avoid lengthy theory chapters that repeat the demo.
 """
     return ""
+
+
+def _ya_es_practica(lesson: dict) -> bool:
+    tipo = str(lesson.get("type") or lesson.get("lesson_type") or "").lower()
+    titulo = str(lesson.get("title") or "").lower()
+    if tipo in {
+        "demo", "demostracion", "demostración", "lab", "practice", "activity",
+        "lab_activity", "laboratorio", "práctica", "practica",
+    }:
+        return True
+    return titulo.startswith("demo") or "demostración" in titulo or "laboratorio" in titulo
+
+
+def promover_teoria_a_demo(lesson: dict, profile: Optional[dict]) -> dict:
+    """Turn a theory-only lesson into a short instructor demo when the audience needs one.
+
+    ``THEORY_TO_DEMO=0`` leaves the lesson. Standard courses are unchanged.
+    Copilot and short-course profiles get a demo title and a bilingual note.
+    """
+    if os.environ.get("THEORY_TO_DEMO", "1") == "0":
+        return lesson
+    if not isinstance(lesson, dict) or not profile:
+        return lesson
+    if not (profile.get("is_copilot_productivity") or profile.get("is_short_course")):
+        return lesson
+    if _ya_es_practica(lesson):
+        return lesson
+    nuevo = dict(lesson)
+    titulo = str(nuevo.get("title") or "Demostración").strip()
+    if not titulo.lower().startswith("demo"):
+        nuevo["title"] = f"Demo: {titulo}"
+    nuevo["type"] = "demo"
+    nota = (
+        "Segmento breve de demostración del instructor. "
+        "/ Short instructor demo segment."
+    )
+    nuevo["description"] = (str(nuevo.get("description") or "") + " " + nota).strip()
+    return nuevo
 
 
 def scale_theory_target_words(base_words: int, profile: Optional[dict], *, is_lab_or_demo: bool) -> int:
