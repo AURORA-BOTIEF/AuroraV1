@@ -54,20 +54,20 @@ After the twelve merges, integration commit `c8cbae73` joins the behaviors that 
 - Selective regeneration counts `extract_all_labs(..., modules_to_generate="all")`, not the filtered lab list, so regenerating one lab is not "extra labs".
 - `NotifyFailure` goes to `RouteTerminalFailure`. If `$.audit_result.Payload.gate.bloquea` is true the execution fails with `LinkAuditFailed`; otherwise `FailWorkflow`. `CheckLinkAudit` still goes to `NotifyFailure` first, so the failure email is sent. `FailLabQualityGate` stays `LabQualityNeedsReview`.
 - Visible status order: `needs_review`, then `link_audit_failed`, then generic `failed`, then `SUCCEEDED_WITH_WARNINGS` (no error), then `passed`.
-- SAM env: `COPILOT_CATALOG_RETRIEVAL=0` and `CURRENCY_RETRY=1` on `StrandsLabWriter`, `VALIDATION_EVIDENCE_RETRY=1` on `StrandsLabWriter`, `LINK_AUDIT_GATE=1` on `PostGenerationAuditFunction`. No new IAM. The functions are not in a VPC; retrieval and link checks use the existing HTTPS egress.
+- SAM env at the integration: `COPILOT_CATALOG_RETRIEVAL=0` and `CURRENCY_RETRY=1` on `StrandsLabWriter`, `VALIDATION_EVIDENCE_RETRY=1` on `StrandsLabWriter`. `LINK_AUDIT_GATE` was `1` then and is `0` after the reliability pass. No new IAM. The functions are not in a VPC; retrieval and link checks use the existing HTTPS egress.
 - UI copy is Spanish unless the caller passes a language starting with `en`.
 
 ## State machine
 
-`CourseGeneratorStateMachine` uses `CG-Backend/current_state_machine.json`.
+`CourseGeneratorStateMachine` uses `CG-Backend/current_state_machine.json`. This is the flow after PR 17 (`a87fa97e`). `FailLabQualityGate` and `FailLinkAudit` are not in the definition. The [Reliability](#reliability) section is the policy.
 
-1. Planner and master-plan results: `quality_status == needs_review` stamps the plan, notifies, and fails with `LabQualityNeedsReview`.
-2. Writer batches: `CombineLabResults` → `EvaluateLabQualityGate` → `ValidateLabContent` → `CheckLabValidation`. A writer `needs_review` takes the same notify-and-fail path. Structural H1 or step failures still go to `NotifyFailure`. Shadow mode still bypasses to `InvokeLabGuideBuilder`.
-3. After a successful course body, `InvokePostGenerationAudit` → `CheckLinkAudit`. `gate.bloquea == true` goes to `NotifyFailure` → `RouteTerminalFailure` → `FailLinkAudit` (`LinkAuditFailed`). Otherwise `InvokeDeckBuilder`. The audit task rewrites repaired labs and applies the same URL edits to the Lab Guide book. No new state was added for that.
-4. The Setup Guide catch records `$.setup_guide_error` and continues to `InvokePostGenerationAudit`. A labs-only course whose PDF fails still has its links checked, then the decks, unless the link gate blocks. The execution can still reach `NotifyCompletion`, and `setup_guide_error` on a SUCCEEDED run is `SUCCEEDED_WITH_WARNINGS`. An audit Lambda crash and a deck-builder crash still go to `NotifyCompletion` (`audit_error`, `decks_error`). Theory-only (`CheckIfLabsNeeded` default) still skips the link audit.
-5. A currency failure is a Lambda exception inside the lab-batch map (`LabBatchFailState`), not `LabQualityNeedsReview` and not `LinkAuditFailed`. The lab is not saved. The email dumps the catch payload when it reaches `NotifyFailure`.
+1. Planner and master-plan `needs_review` stamps the plan, records `$.quality_issues.lab_quality` in `NotifyQualityReview`, and continues. `NotifyFailure` goes to `FailWorkflow` only when the planner or the master plan itself fails after retry and model fallback.
+2. Writer batches still run `EvaluateLabQualityGate` and `CheckLabValidation`. A quality finding does not fail the execution. `all_valid=false` runs one targeted regeneration and then delivers with `RecordStructuralWarning`.
+3. `InvokePostGenerationAudit` then `CheckLinkAudit` records a dead-link warning and continues to the decks. The audit still rewrites repaired labs and the Lab Guide book.
+4. Setup Guide, book, lab guide, decks, and audit retry, then record the issue and continue. A missing PDF or PPT is recorded. Theory-only still skips the link audit.
+5. A currency finding on the last attempt saves the lab with a medium C6 warning. One failed lab becomes a bilingual placeholder and does not fail the map.
 
-ASL check (Python walker, not SAM): JSON parses; 57 top-level states, all reachable; map iterators `ProcessLabBatchesInParallelBoth` (3), `ProcessBatchesInParallel` (14), and `ProcessLabBatchesInParallel` (3), all reachable. `FailLinkAudit.Error` is `LinkAuditFailed`. `FailLabQualityGate.Error` is `LabQualityNeedsReview`.
+ASL check on this head (Python walker, not SAM): JSON parses; 77 top-level states, all reachable. Maps: `ProcessLabBatchesInParallelBoth` 3/3, `ProcessBatchesInParallel` 15/15, `ProcessLabBatchesInParallel` 3/3.
 
 ## Interactions checked
 
@@ -99,7 +99,7 @@ Four gaps from the 25 Nov 2026 run on this head. None of them called a paid API,
 
 ## Link repair follow-up (25 Nov 2026)
 
-Two holes in that repair, found in live QA. This pass did not deploy and did not call a paid AWS or LLM API. Catalog pages were fetched with HTTP GET on 2026-11-25. The state machine still has 57 top-level states, all reachable. The book update runs inside `InvokePostGenerationAudit`. `test_state_machine.py` did not need a new transition.
+Two holes in that repair, found in live QA. This pass did not deploy and did not call a paid AWS or LLM API. Catalog pages were fetched with HTTP GET on 2026-11-25. At that follow-up the machine had 57 top-level states. The reliability pass has 77, all reachable. The book update still runs inside `InvokePostGenerationAudit`.
 
 **The Lab Guide book is updated with the labs.** `InvokeLabGuideBuilder` writes `book/Lab_Guide_LabGuide_complete.md` and `book/Lab_Guide_LabGuide_data.json` before the audit. The repair used to rewrite only `labguide/lab-*.md`, so the delivered book could still carry the dead URL. After a repair that changes any lab, the same URL edits are applied to those two book files. A replacement is the same string in the lab, the book markdown, and each lab `content` field in the JSON. Removing a URL keeps the anchor in all three. The JSON `word_count` for a lab whose `content` changed is recomputed from that content. The markdown book's statistics footer is not rebuilt. `LINK_REPAIR=0` does not touch the book.
 
@@ -206,16 +206,17 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_measurable_evidence.py` | 6/6 |
 | `test_no_import_shadowing.py` | 1/1 |
 | `test_pixel_validation.py` | script OK |
-| `test_post_generation_audit.py` | 24/24 |
+| `test_post_generation_audit.py` | 25/25 |
 | `test_ppt_quality.py` | 8/8 |
 | `test_provider_lock.py` | pytest 16 passed |
 | `test_quality_gate.py` | 10/10 |
+| `test_reliability.py` | 9/9 |
 | `test_reading_budget.py` | 6/6 |
 | `test_referent_check.py` | 198/198 |
 | `test_setup_guide_capabilities.py` | 6/6 |
-| `test_setup_guide_pdf.py` | 3/3 |
+| `test_setup_guide_pdf.py` | 4/4 |
 | `test_starter_api_converter.py` | pytest 10 passed |
-| `test_state_machine.py` | 14/14 |
+| `test_state_machine.py` | 17/17 |
 | `test_visual_optimizer.py` | script OK |
 | `src/utils/courseStatus.test.mjs`, `pptExportMessage.test.mjs` | not re-run (no UI change); last run on this branch was node:test 8/8 |
 | `npm run build` | not re-run (no UI change) |
