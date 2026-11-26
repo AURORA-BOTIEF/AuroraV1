@@ -2,22 +2,17 @@
 """Launch one small canary course. Not called by deploy.ps1.
 
 Default is a dry run: it prints the execution input and exits 0. It does not
-call AWS unless ``--execute`` is passed. ``--execute`` starts the state machine
-and is a paid run; do not use it from tests.
+call AWS unless `--execute` is passed. `--execute` uploads a one-module
+outline to S3 and starts the state machine; that is a paid run. Do not use
+`--execute` from tests.
+
+The start payload mirrors a real QA course from the testing environment:
+`content_source=s3`, `outline_s3_key`, `lab_requirements` (empty string),
+and the other root fields the state machine reads with JSONPath. A missing
+field is a `States.Runtime` error and is not caught.
 
 After the execution finishes, check the prefix with
-``scripts/check_execution_artifacts.py``.
-
-Resume only the labs that were placeholders:
-    start a new execution with ``lab_ids_to_regenerate`` set to ``failed_lab_ids``
-    from ``<project>/validation/quality-report.json`` and leave
-    ``LAB_SKIP_IF_EXISTS=true`` (the template default). A lab file that contains
-    ``AURORA_PLACEHOLDER_PENDING_REGENERATION`` is rewritten. Finished labs are reused.
-
-Reliability target: 10 consecutive mixed courses, 100% delivered, and at least
-90% with zero placeholders.
-Daily QA budget in production: 2 full courses. The canary is the small extra
-check after a deploy; it is not one of those two full courses.
+`scripts/check_execution_artifacts.py`.
 """
 
 from __future__ import annotations
@@ -27,47 +22,165 @@ import json
 import os
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
+
+# Root fields a real start always sends. Empty string or null is fine;
+# omitting the key is not, because GenerateLabMasterPlan uses `.$` paths.
+CAMPOS_DE_INICIO = (
+    "allow_openai_fallback",
+    "content_source",
+    "content_type",
+    "course_bucket",
+    "course_duration_hours",
+    "course_language",
+    "course_topic",
+    "image_model",
+    "lab_ids_to_regenerate",
+    "lab_requirements",
+    "lesson_ids_to_update",
+    "lesson_requirements",
+    "lesson_to_generate",
+    "manual_s3_keys",
+    "manual_text_s3_key",
+    "model_provider",
+    "modules_to_generate",
+    "outline_s3_key",
+    "performance_mode",
+    "project_folder",
+    "request_timestamp",
+    "total_modules",
+    "update_mode",
+    "user_email",
+    "user_id",
+)
+
+# Mid-flow fields the state machine adds; the start payload must not need them.
+CAMPOS_A_OMITIR_DEL_INICIO = {
+    "quality_issues",
+    "master_lab_plan_result",
+    "provider_lock",
+    "resume_from",
+    "error",
+    "batch_expansion",
+    "lab_batch_expansion",
+}
+
+_OUTLINE_NOMBRE = "canary.yaml"
+_OUTLINE_LOCAL = Path(__file__).with_name("canary_outline.yaml")
+
+# States on the content_type=both path that read root input with JSONPath.
+_ESTADOS_DE_INICIO = (
+    "GenerateLabMasterPlan",
+    "InvokeLabPlanner",
+    "ExpandModulesToBatches",
+    "BothTheoryAndLabsBranch",
+    "PrepareNewCourseParams",
+)
 
 
-def entrada_canary(proyecto: str, correo: str, idioma: str = "es") -> dict:
-    """One short module, theory and labs, Spanish by default."""
+def clave_outline(proyecto: str) -> str:
+    return f"{proyecto.strip('/')}/outline/{_OUTLINE_NOMBRE}"
+
+
+def campos_requeridos_al_inicio(estados: dict) -> set:
+    """Root `$.field` paths those states need before mid-flow results exist."""
+    requeridos = set()
+    for nombre in _ESTADOS_DE_INICIO:
+        estado = estados.get(nombre) or {}
+        # Only Parameters: ResultPath values are mid-flow outputs, not start input.
+        _recoger_rutas(estado.get('Parameters') or {}, requeridos)
+    return {campo for campo in requeridos if campo not in CAMPOS_A_OMITIR_DEL_INICIO}
+
+
+def _recoger_rutas(nodo, requeridos: set) -> None:
+    if isinstance(nodo, dict):
+        for clave, valor in nodo.items():
+            if isinstance(valor, str) and valor.startswith("$.") and "." not in valor[2:] and "[" not in valor:
+                requeridos.add(valor[2:])
+            else:
+                _recoger_rutas(valor, requeridos)
+    elif isinstance(nodo, list):
+        for item in nodo:
+            _recoger_rutas(item, requeridos)
+
+
+def entrada_canary(
+    proyecto: str,
+    correo: str,
+    idioma: str = "es",
+    outline_s3_key: str | None = None,
+    bucket: str | None = None,
+) -> dict:
+    """One short module, theory and labs, Spanish, same fields as a QA start."""
+    clave = outline_s3_key or clave_outline(proyecto)
     return {
-        "content_type": "both",
-        "content_source": "outline",
-        "course_bucket": os.getenv("COURSE_BUCKET", "crewai-course-artifacts"),
-        "course_language": idioma,
         "course_topic": "Canary: Microsoft 365 Copilot Chat",
         "course_duration_hours": 1,
-        "project_folder": proyecto,
-        "user_email": correo,
-        "model_provider": "bedrock",
-        "image_model": "none",
         "modules_to_generate": [1],
         "total_modules": 1,
-        "update_mode": False,
-        "lab_ids_to_regenerate": [],
-        "lesson_ids_to_update": None,
+        "lesson_to_generate": None,
         "performance_mode": "standard",
+        "model_provider": "bedrock",
+        "user_id": "thor-qa",
+        "user_email": correo,
+        "request_timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "content_source": "s3",
+        "outline_s3_key": clave,
+        "manual_s3_keys": None,
+        "manual_text_s3_key": None,
+        "course_bucket": bucket or os.getenv("COURSE_BUCKET", "crewai-course-artifacts"),
+        "project_folder": proyecto,
+        "allow_openai_fallback": True,
+        "content_type": "both",
+        "lab_requirements": "",
+        "lesson_requirements": "",
+        "lab_ids_to_regenerate": None,
+        "course_language": idioma,
+        "image_model": "none",
+        "lesson_ids_to_update": None,
+        "update_mode": False,
         "canary": True,
     }
 
 
+def subir_outline(bucket: str, proyecto: str, ruta: Path | None = None) -> str:
+    """Upload the bundled one-module outline. Returns the S3 key."""
+    import boto3
+
+    local = ruta or _OUTLINE_LOCAL
+    if not local.is_file():
+        raise FileNotFoundError(f"Canary outline not found: {local}")
+    clave = clave_outline(proyecto)
+    boto3.client("s3").put_object(
+        Bucket=bucket,
+        Key=clave,
+        Body=local.read_bytes(),
+        ContentType="text/yaml",
+    )
+    return clave
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--execute", action="store_true", help="Start the state machine. Paid.")
+    parser.add_argument("--execute", action="store_true", help="Upload the outline and start the state machine. Paid.")
     parser.add_argument("--project", default="")
     parser.add_argument("--email", default=os.getenv("OWNER_ALERT_EMAIL", "juan.ossa@netec.com"))
     parser.add_argument("--state-machine-arn", default=os.getenv("STATE_MACHINE_ARN", ""))
+    parser.add_argument("--bucket", default=os.getenv("COURSE_BUCKET", "crewai-course-artifacts"))
     args = parser.parse_args(argv)
     proyecto = args.project or f"canary-{time.strftime('%Y%m%d-%H%M%S')}"
-    cuerpo = entrada_canary(proyecto, args.email)
+    cuerpo = entrada_canary(proyecto, args.email, bucket=args.bucket)
     print(json.dumps(cuerpo, ensure_ascii=False, indent=2))
     if not args.execute:
-        print("Dry run. Pass --execute to start the state machine. This script is not part of deploy.")
+        print("Dry run. Pass --execute to upload the outline and start the state machine. This script is not part of deploy.")
         return 0
     if not args.state_machine_arn:
         print("STATE_MACHINE_ARN or --state-machine-arn is required with --execute", file=sys.stderr)
         return 1
+    clave = subir_outline(args.bucket, proyecto)
+    if clave != cuerpo["outline_s3_key"]:
+        cuerpo["outline_s3_key"] = clave
     import boto3
 
     cliente = boto3.client("stepfunctions")

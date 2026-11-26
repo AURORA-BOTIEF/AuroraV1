@@ -231,9 +231,33 @@ def test_la_canary_en_seco_no_llama_a_aws():
 
     cuerpo = canary_course.entrada_canary("canary-test", "juan.ossa@netec.com")
     assert cuerpo["content_type"] == "both"
+    assert cuerpo["content_source"] == "s3"
     assert cuerpo["modules_to_generate"] == [1]
+    assert cuerpo["total_modules"] == 1
     assert cuerpo["course_language"] == "es"
+    assert cuerpo["user_email"] == "juan.ossa@netec.com"
+    assert cuerpo["outline_s3_key"] == "canary-test/outline/canary.yaml"
+    assert "lab_requirements" in cuerpo
     assert canary_course.main(["--project", "canary-test", "--email", "juan.ossa@netec.com"]) == 0
+
+
+def test_el_payload_canario_tiene_los_campos_del_flujo():
+    import json
+    import canary_course
+
+    plantilla = os.path.join(_AQUI, "current_state_machine.json")
+    with open(plantilla, encoding="utf-8") as fichero:
+        estados = json.load(fichero)["States"]
+    requeridos = canary_course.campos_requeridos_al_inicio(estados)
+    cuerpo = canary_course.entrada_canary("canary-test", "juan.ossa@netec.com")
+    faltan = sorted(requeridos - set(cuerpo))
+    assert faltan == [], f"canary start payload missing {faltan}"
+    for campo in canary_course.CAMPOS_DE_INICIO:
+        assert campo in cuerpo, campo
+    # Real QA starts send an empty string, not a missing key.
+    assert "lab_requirements" in cuerpo
+    assert cuerpo["content_source"] == "s3"
+    assert cuerpo["outline_s3_key"]
 
 
 def test_el_presupuesto_de_formato_no_esta_en_un_raise():
