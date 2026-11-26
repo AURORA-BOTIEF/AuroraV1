@@ -26,15 +26,48 @@ def warnings_from_execution_output(parsed_output: dict | None) -> list[dict]:
         ("setup_guide_error", "Setup Guide"),
         ("audit_error", "Post-generation audit"),
         ("decks_error", "Deck builder"),
+        ("book_error", "Book builder"),
+        ("lab_guide_error", "Lab guide"),
     ):
         if key in parsed_output and parsed_output.get(key) is not None:
+            entrega = ""
+            if key == "setup_guide_error":
+                entrega = "PDF missing"
+            elif key == "decks_error":
+                entrega = "PPT missing"
             warnings.append(
                 {
                     "code": key,
                     "component": label,
                     "detail": _coerce_detail(parsed_output.get(key)),
+                    "deliverable": entrega,
                 }
             )
+    issues = parsed_output.get("quality_issues")
+    if isinstance(issues, dict):
+        for step, value in issues.items():
+            if step == "ready" or value in (None, "", {}, []):
+                continue
+            warnings.append(
+                {
+                    "code": "quality_issues",
+                    "component": step,
+                    "detail": _coerce_detail(value),
+                }
+            )
+    if parsed_output.get("failed_lab_ids") or parsed_output.get("placeholders"):
+        warnings.append(
+            {
+                "code": "placeholders",
+                "component": "Labs",
+                "detail": _coerce_detail(
+                    {
+                        "failed_lab_ids": parsed_output.get("failed_lab_ids") or [],
+                        "placeholders": parsed_output.get("placeholders") or [],
+                    }
+                ),
+            }
+        )
     return warnings
 
 

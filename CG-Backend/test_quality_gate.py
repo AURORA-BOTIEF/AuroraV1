@@ -525,8 +525,10 @@ def test_el_estado_visible_separa_needs_review_de_un_fallo_generico():
         None,
         {"lab_quality_needs_review": True, "lab_quality_summary": "NEEDS_REVIEW A2", "quality_warnings": []},
     )
-    assert sombra["course_status"] == "needs_review"
-    assert "A2" in sombra["error"]
+    assert sombra["course_status"] == "SUCCEEDED_WITH_WARNINGS"
+    assert sombra["needs_review"] is False
+    assert sombra["error"] is None
+    assert "A2" in sombra["generation_warnings"][0]["detail"]
 
     decision = modulo.estado_visible_del_curso(
         "SUCCEEDED",
@@ -537,8 +539,9 @@ def test_el_estado_visible_separa_needs_review_de_un_fallo_generico():
             "lab_quality_summaries": ["NEEDS_REVIEW 01-00-01 A2: seis fondos"],
         },
     )
-    assert decision["course_status"] == "needs_review"
-    assert "seis fondos" in decision["error"]
+    assert decision["course_status"] == "SUCCEEDED_WITH_WARNINGS"
+    assert decision["needs_review"] is False
+    assert "seis fondos" in decision["generation_warnings"][0]["detail"]
 
     limpio = modulo.estado_visible_del_curso(
         "SUCCEEDED", None, None, {"lab_quality_needs_review": False, "quality_warnings": [{"lab_id": "01"}]}
@@ -570,7 +573,7 @@ def test_el_estado_visible_separa_needs_review_de_un_fallo_generico():
     assert enlaces["needs_review"] is False
 
 
-def test_la_notificacion_de_needs_review_no_dice_que_el_curso_salio():
+def test_la_notificacion_de_needs_review_dice_que_el_curso_se_entrego():
     _stub_boto3()
     spec = importlib.util.spec_from_file_location(
         "notif_gate", os.path.join(_LAMBDA, "strands_notification", "strands_notification.py")
@@ -584,8 +587,10 @@ def test_la_notificacion_de_needs_review_no_dice_que_el_curso_salio():
         "NEEDS_REVIEW 01-00-01 B1: Ventas_MultiRegional_2024.xlsx",
         "arn:exec",
     )
-    assert "revisión" in asunto.lower() or "revision" in asunto.lower()
-    assert "no se entregó" in texto
+    assert "entregado" in asunto.lower() or "hallazgos" in asunto.lower()
+    assert "se entregó" in texto
+    assert "no se entregó" not in texto
+    assert "quality-report.json" in texto
     assert "Ventas_MultiRegional_2024.xlsx" in texto
     assert "exitosamente" not in texto
     assert "Ventas_MultiRegional_2024.xlsx" in html
@@ -603,7 +608,8 @@ def test_la_notificacion_de_needs_review_no_dice_que_el_curso_salio():
         "link_audit_failed", "curso-fondos", "404", "arn:exec"
     )
     assert "enlaces" in asunto_enlace.lower()
-    assert "no se entregó" in texto_enlace
+    assert "se entregó" in texto_enlace
+    assert "no se entregó" not in texto_enlace
     assert "labguide/enlaces.json" in texto_enlace
     assert "validation/link-audit.json" not in texto_enlace
     assert "exitosamente" not in texto_enlace

@@ -280,13 +280,14 @@ _APAGADO = ("0", "false", "no", "off")
 
 
 def compuerta_de_enlaces(informe, activa=None):
-    """Dead public links fail the course. Unverifiable responses do not.
+    """Dead public links are a report. They do not fail the course by default.
 
-    ``activa`` overrides ``LINK_AUDIT_GATE`` (default on). 403/429/5xx stay in
-    the report and do not set ``bloquea``.
+    ``activa`` overrides ``LINK_AUDIT_GATE`` (default off). ``LINK_REPAIR`` still
+    rewrites a dead URL when a close page exists. 403/429/5xx stay in the report.
+    Turning the gate on only sets ``bloquea``; the state machine does not stop.
     """
     if activa is None:
-        activa = os.getenv("LINK_AUDIT_GATE", "1").strip().lower() not in _APAGADO
+        activa = os.getenv("LINK_AUDIT_GATE", "0").strip().lower() not in _APAGADO
     muertos = int(((informe or {}).get("resumen") or {}).get("muertos") or 0)
     bloquea = bool(activa and muertos > 0)
     return {

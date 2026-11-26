@@ -20,38 +20,58 @@ if _LAMBDA_DIR not in sys.path:
 from course_generation_status import warnings_from_execution_output
 
 
-def estado_visible_del_curso(execution_status, sf_error=None, sf_cause=None, parsed_output=None):
-    """Fields the client status API shows. High-confidence gate failures are needs_review.
+def _detalle_de_calidad(salida: dict, sf_cause) -> str:
+    if sf_cause:
+        return str(sf_cause)
+    resumen = salida.get("lab_quality_summary") or salida.get("quality_summary")
+    if resumen:
+        return str(resumen)
+    summaries = salida.get("lab_quality_summaries")
+    if summaries:
+        return json.dumps(summaries, ensure_ascii=False)
+    return "hallazgos de calidad / quality findings"
 
-    Step Functions still reports FAILED for that execution. ``quality_status`` and
-    ``course_status`` tell the UI it was a review gate, not an unknown crash.
-    A succeeded execution that still carries the gate flag (shadow mode) is also
-    surfaced as needs_review so it is not shown as a clean pass. The flag lives
-    on ``lab_quality_decision.needs_review`` after Combine, and the older flat
-    ``lab_quality_needs_review`` name is still accepted.
-    Low-confidence warnings do not change the status.
+
+def estado_visible_del_curso(execution_status, sf_error=None, sf_cause=None, parsed_output=None):
+    """Fields the client status API shows.
+
+    A delivered course is SUCCEEDED or SUCCEEDED_WITH_WARNINGS. Quality findings,
+    dead links, placeholders, and a missing PPT or PDF are warnings. They are not
+    a failure and they do not set ``needs_review`` on a succeeded execution.
+    ``needs_review`` and ``link_audit_failed`` remain only for a historical FAILED
+    execution that used the old gate. A planner failure is still ``failed``.
     """
     salida = parsed_output if isinstance(parsed_output, dict) else {}
     decision = salida.get("lab_quality_decision")
     decision_needs = isinstance(decision, dict) and decision.get("needs_review") is True
-    needs = (
+    hallazgos = (
         sf_error == "LabQualityNeedsReview"
         or salida.get("lab_quality_needs_review") is True
         or decision_needs
         or salida.get("quality_status") == "needs_review"
     )
     generation_warnings = warnings_from_execution_output(salida)
-    if needs:
+    if hallazgos and execution_status == "SUCCEEDED":
+        generation_warnings = list(generation_warnings) + [
+            {
+                "code": "lab_quality",
+                "component": "Labs",
+                "detail": _detalle_de_calidad(salida, sf_cause),
+            }
+        ]
+    fallo_historico_calidad = execution_status == "FAILED" and sf_error == "LabQualityNeedsReview"
+    fallo_historico_enlaces = execution_status == "FAILED" and sf_error == "LinkAuditFailed"
+    needs = fallo_historico_calidad
+    if fallo_historico_calidad:
         quality_status = "needs_review"
         course_status = "needs_review"
-    elif sf_error == "LinkAuditFailed":
+    elif fallo_historico_enlaces:
         quality_status = "failed"
         course_status = "link_audit_failed"
     elif execution_status == "FAILED":
         quality_status = "failed"
         course_status = "failed"
-    elif execution_status == "SUCCEEDED" and generation_warnings:
-        # Lab gate passed, but a non-blocking tail (Setup Guide, audit, decks) failed.
+    elif execution_status == "SUCCEEDED" and (generation_warnings or hallazgos):
         quality_status = "passed"
         course_status = "SUCCEEDED_WITH_WARNINGS"
     elif execution_status == "SUCCEEDED":

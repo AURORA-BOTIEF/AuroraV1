@@ -1002,21 +1002,86 @@ def render_pdf(doc, bucket, author="Aurora AI"):
     return _pdf_desde_html(html)
 
 
+_MAX_FILAS_POR_TABLA = 4
+_MAX_CHARS_CELDA_PDF = 320
+_TABLA_HTML = re.compile(r"(<table\b[^>]*>)(.*?)(</table>)", re.IGNORECASE | re.DOTALL)
+_FILA_HTML = re.compile(r"<tr\b[^>]*>.*?</tr>", re.IGNORECASE | re.DOTALL)
+_CELDA_HTML = re.compile(r"(<(td|th)\b[^>]*>)(.*?)(</\2>)", re.IGNORECASE | re.DOTALL)
+
+
+def _acortar_texto_de_celda(contenido: str, limite: int = _MAX_CHARS_CELDA_PDF) -> str:
+    """Cap a cell and break long tokens so one row cannot be taller than the page."""
+
+    def romper(coincidencia):
+        palabra = coincidencia.group(0)
+        return "&#8203;".join(palabra[i:i + 24] for i in range(0, len(palabra), 24))
+
+    texto = re.sub(r"<[^>]+>", "", contenido or "")
+    if len(texto) > limite:
+        if "<" in (contenido or ""):
+            contenido = texto[: limite - 1].rstrip() + "…"
+        else:
+            contenido = (contenido or "")[: limite - 1].rstrip() + "…"
+    return re.sub(r"\S{40,}", romper, contenido or "")
+
+
+def partir_tablas_altas(html: str, max_filas: int = _MAX_FILAS_POR_TABLA) -> str:
+    """Split a tall table and shrink its cells.
+
+    reportlab names the flowable ``Table ... 2x8`` (columns x rows) and raises
+    LayoutError when that table is taller than the frame and rows do not split.
+    Repeating the header every few rows keeps each piece inside the page.
+    """
+
+    def una_tabla(coincidencia):
+        apertura, cuerpo, cierre = coincidencia.group(1), coincidencia.group(2), coincidencia.group(3)
+        filas = _FILA_HTML.findall(cuerpo)
+        if not filas:
+            return coincidencia.group(0)
+
+        def celdas(fragmento):
+            return _CELDA_HTML.sub(
+                lambda celda: celda.group(1) + _acortar_texto_de_celda(celda.group(3)) + celda.group(4),
+                fragmento,
+            )
+
+        if len(filas) <= max_filas:
+            return apertura + celdas(cuerpo) + cierre
+        encabezado = filas[0] if "<th" in filas[0].lower() else ""
+        datos = filas[1:] if encabezado else filas
+        trozos = []
+        for inicio in range(0, len(datos), max_filas):
+            bloque = encabezado + "".join(datos[inicio:inicio + max_filas])
+            trozos.append(apertura + celdas(bloque) + cierre)
+        return "\n".join(trozos)
+
+    return _TABLA_HTML.sub(una_tabla, html or "")
+
+
 def _pdf_desde_html(html):
     """Render and refuse a silent layout failure.
 
     A reportlab LayoutError used to end the task in the Setup Guide catch
     while the execution still finished SUCCEEDED and the PDF was missing.
-    Raising here keeps ``setup_guide_error`` on the state so the client
-    status is SUCCEEDED_WITH_WARNINGS instead of a clean pass.
+    Tall tables are split first. A second render allows row shrinking.
+    If both fail, the error stays on ``setup_guide_error``.
     """
     from reportlab.platypus.doctemplate import LayoutError
 
+    html = partir_tablas_altas(html)
     pdf_buffer = BytesIO()
     try:
         result = pisa.CreatePDF(html, dest=pdf_buffer)
-    except LayoutError as exc:
-        raise RuntimeError(f"Setup Guide PDF layout failed: {exc}") from exc
+    except LayoutError:
+        pdf_buffer = BytesIO()
+        encogido = html.replace(
+            "<table",
+            '<table style="-pdf-keep-in-frame-mode: shrink"',
+        )
+        try:
+            result = pisa.CreatePDF(encogido, dest=pdf_buffer)
+        except LayoutError as exc:
+            raise RuntimeError(f"Setup Guide PDF layout failed: {exc}") from exc
     if result.err:
         raise RuntimeError("La generación del PDF falló (pisa error)")
     datos = pdf_buffer.getvalue()

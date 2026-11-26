@@ -60,9 +60,25 @@ Write-Host "-> Sincronizando ppt_quality.py en los paquetes Lambda que lo import
 & python (Join-Path $Root "sync_ppt_quality_packages.py")
 if ($LASTEXITCODE -ne 0) { throw "Fallo la sincronizacion de ppt_quality.py." }
 
+Write-Host "-> Sincronizando bedrock_fallback.py y quality_report.py."
+$fallback = Join-Path $Root "bedrock_fallback.py"
+foreach ($destino in @(
+    "lambda\strands_lab_writer",
+    "lambda\strands_lab_planner",
+    "lambda\strands_content_gen",
+    "lambda\strands_visual_planner"
+)) {
+    Copy-Item $fallback (Join-Path $Root $destino) -Force
+}
+Copy-Item (Join-Path $Root "lambda\quality_report.py") (Join-Path $Root "lambda\strands_notification\quality_report.py") -Force
+
 Write-Host "-> sam build"
 sam build
 if ($LASTEXITCODE -ne 0) { throw "sam build falló." }
+
+Write-Host "-> Import smoke: cada handler debe importar. Un ImportError aborta el deploy."
+& python (Join-Path $Root "scripts\import_handlers_smoke.py") --build (Join-Path $Root ".aws-sam\build")
+if ($LASTEXITCODE -ne 0) { throw "Import smoke failed. Deploy aborted." }
 
 Write-Host "-> sam deploy"
 sam deploy --no-confirm-changeset

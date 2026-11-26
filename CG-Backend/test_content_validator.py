@@ -260,6 +260,7 @@ def test_el_handler_devuelve_all_valid_y_falla_si_se_le_pide():
     assert salida["statusCode"] == 200, salida
     assert salida["all_valid"] is False
     assert salida["total_errors"] == 1
+    assert salida["invalid_lab_ids"] == ["01-00-01"]
 
     estricto = modulo.lambda_handler(dict(evento, fail_on_error=True), None)
     assert estricto["statusCode"] == 400
@@ -281,13 +282,14 @@ def test_la_validacion_no_medible_avisa_sobre_secretos_inventados():
 
 
 def test_el_estado_desplegado_consume_all_valid():
-    """La puerta no sirve si el `all_valid` del validador no lo lee ningun `Choice`."""
+    """all_valid=false regenerates once, then the book is still built."""
     with open(_RUTA_MAQUINA, encoding="utf-8") as f:
         maquina = json.load(f)
     estados = maquina["States"]
 
     for nombre in ("ValidateLabContent", "ValidateLabContentBoth"):
         assert estados[nombre]["Next"] == "CheckLabValidation", nombre
+        assert estados[nombre]["ResultSelector"]["invalid_lab_ids.$"] == "$.Payload.invalid_lab_ids"
 
     puerta = estados["CheckLabValidation"]
     assert puerta["Type"] == "Choice"
@@ -296,18 +298,19 @@ def test_el_estado_desplegado_consume_all_valid():
     sombra = [c for c in puerta["Choices"] if c.get("Variable") == "$.lab_validation_shadow"]
     assert sombra and sombra[0]["IsPresent"] is True
 
-    bloqueo = [
+    regenera = [
         c
         for c in puerta["Choices"]
-        if c.get("Next") == "NotifyFailure"
+        if c.get("Next") == "CountInvalidLabs"
         and any(
             cond.get("Variable") == "$.lab_validation_result.all_valid"
             and cond.get("BooleanEquals") is False
             for cond in c.get("And", [])
         )
     ]
-    assert bloqueo, "no hay rama que bloquee cuando all_valid es false"
-    assert "NotifyFailure" in estados
+    assert regenera, "no hay rama que regenere cuando all_valid es false"
+    assert estados["RecordStructuralWarning"]["Next"] == "InvokeLabGuideBuilder"
+    assert "FailLabQualityGate" not in estados
 
 
 def _ejecutar():
