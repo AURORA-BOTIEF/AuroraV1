@@ -178,7 +178,22 @@ def test_el_humo_aborta_si_un_handler_no_importa():
         assert humo.revisar_build(tmp) == []
 
 
+
+def test_el_humo_acepta_handlers_anidados():
+    assert humo.modulo_de_handler('assignments/assign_course.lambda_handler') == 'assignments.assign_course'
+    assert humo.modulo_de_handler('auth/post_confirmation.lambda_handler') == 'auth.post_confirmation'
+    assert humo.modulo_de_handler('book_to_pdf.lambda_handler') == 'book_to_pdf'
+
+
+def test_el_humo_no_omite_un_modulo_faltante():
+    stderr = "ModuleNotFoundError: No module named 'ppt_quality'"
+    assert humo.es_incompatibilidad_binaria(stderr) is False
+    binario = "ImportError: cannot import name 'etree' from 'lxml' (C:\\build\\lxml\\__init__.py)"
+    assert humo.es_incompatibilidad_binaria(binario) is True
+
+
 def test_el_checker_distinguie_faltantes_y_placeholders():
+
     with tempfile.TemporaryDirectory() as tmp:
         for relativo in (
             "labguide/lab-01-01-01-canary.md",

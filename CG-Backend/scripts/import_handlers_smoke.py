@@ -44,6 +44,35 @@ def _capas_locales(build_dir: str) -> list:
     return capas
 
 
+def modulo_de_handler(handler: str) -> str:
+    """``assignments/assign_course.lambda_handler`` -> ``assignments.assign_course``."""
+    ruta = str(handler or "").strip()
+    if "." in ruta:
+        ruta = ruta.rsplit(".", 1)[0]
+    return ruta.replace("\\", "/").replace("/", ".")
+
+
+# Linux wheels in a SAM build cannot be imported on Windows. Missing Python
+# modules (ppt_quality, bedrock_fallback) remain a failure.
+_MARCAS_BINARIAS = (
+    "cannot import name 'etree' from 'lxml'",
+    "cannot import name '_imaging' from 'pil'",
+    "dll load failed",
+    "not a valid win32 application",
+    "wrong elf class",
+    "invalid elf header",
+    "exec format error",
+    "undefined symbol",
+)
+
+
+def es_incompatibilidad_binaria(stderr: str) -> bool:
+    texto = (stderr or "").lower()
+    if "modulenotfounderror" in texto:
+        return False
+    return any(marca in texto for marca in _MARCAS_BINARIAS)
+
+
 def funciones_python(plantilla: dict) -> list:
     """``(logical_id, handler_module, code_uri)`` for Python functions."""
     recursos = (plantilla or {}).get("Resources") or {}
@@ -59,7 +88,9 @@ def funciones_python(plantilla: dict) -> list:
         runtime = str(props.get("Runtime") or "python3.11").lower()
         if "python" not in runtime or "." not in handler:
             continue
-        modulo = handler.split(".", 1)[0]
+        modulo = modulo_de_handler(handler)
+        if not modulo:
+            continue
         code_uri = props.get("CodeUri") or "."
         encontradas.append((logical_id, modulo, str(code_uri)))
     return encontradas
@@ -75,6 +106,7 @@ def revisar_build(build_dir: str, ejecutable: str = sys.executable) -> list:
         return [f"No Python functions in {plantilla}"]
     capas = _capas_locales(build_dir)
     fallos = []
+    avisos = []
     for logical_id, modulo, code_uri in funciones:
         carpeta = code_uri if os.path.isabs(code_uri) else os.path.join(build_dir, code_uri)
         if not os.path.isdir(carpeta):
@@ -95,9 +127,19 @@ def revisar_build(build_dir: str, ejecutable: str = sys.executable) -> list:
             timeout=60,
         )
         if resultado.returncode != 0:
-            detalle = (resultado.stderr or resultado.stdout or "").strip().splitlines()
-            cola = detalle[-8:] if detalle else ["import failed"]
+            detalle = (resultado.stderr or resultado.stdout or "").strip()
+            if es_incompatibilidad_binaria(detalle):
+                avisos.append(
+                    f"{logical_id}: skipped native extension that cannot import on this host"
+                )
+                continue
+            lineas = detalle.splitlines()
+            cola = lineas[-8:] if lineas else ["import failed"]
             fallos.append(f"{logical_id}: import {modulo} failed\n" + "\n".join(cola))
+    for aviso in avisos:
+        print(aviso)
+    if avisos and not fallos:
+        print(f"Import smoke: {len(avisos)} handler(s) skipped (native wheels, host != Lambda).")
     return fallos
 
 
