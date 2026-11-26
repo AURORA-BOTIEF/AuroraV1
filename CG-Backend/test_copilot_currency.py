@@ -463,11 +463,10 @@ def test_el_writer_reintenta_un_agente_inventado_y_acepta_el_catalogo():
 
 
 def test_el_writer_falla_el_lab_si_el_nombre_retirado_sigue_ahi():
-    """Last attempt still blocks. The third text is not saved."""
+    """The last attempt saves the lab and records C6. It does not raise."""
     resultado, error, contextos, s3 = _ejecutar([_LAB_BING, _LAB_BING], intentos=2)
-    assert resultado is None
-    assert error is not None
-    assert "C6 currency check failed" in str(error)
+    assert error is None, error
+    assert resultado["statusCode"] == 200
     assert len(contextos) == 2
     informe = json.loads(s3.objetos["p/validation/copilot-currency.json"])
     assert informe["ok"] is False
@@ -475,6 +474,16 @@ def test_el_writer_falla_el_lab_si_el_nombre_retirado_sigue_ahi():
     assert informe["catalog_version"] == "2026-11-25.2"
     hallazgos = informe["por_laboratorio"]["01-01-01"]["hallazgos"]
     assert any(h["nombre"] == "Bing Chat Enterprise" and h["bloquea"] for h in hallazgos)
+    avisos = resultado["quality_warnings"]
+    assert any(
+        item.get("verificacion") == "C6" or (
+            isinstance(item, dict) and any(
+                hallazgo.get("verificacion") == "C6"
+                for hallazgo in item.get("findings") or []
+            )
+        )
+        for item in avisos
+    )
 
 
 def test_currency_retry_apagado_solo_registra():
@@ -517,10 +526,14 @@ def test_el_temario_autoriza_un_agente_que_nombra():
     assert informe["ok"] is True, informe
 
 
-def test_sin_temario_el_mismo_agente_sigue_bloqueando():
-    resultado, error, _contextos, _s3 = _ejecutar([_LAB_ASESOR], intentos=1)
-    assert resultado is None
-    assert "C6 currency check failed" in str(error)
+def test_sin_temario_el_mismo_agente_se_entrega_con_aviso():
+    """One attempt is the last attempt: the lab is saved and C6 is a warning."""
+    resultado, error, _contextos, s3 = _ejecutar([_LAB_ASESOR], intentos=1)
+    assert error is None, error
+    assert resultado["statusCode"] == 200
+    informe = json.loads(s3.objetos["p/validation/copilot-currency.json"])
+    assert informe["ok"] is False
+    assert informe["total_bloqueos"] >= 1
 
 
 if __name__ == "__main__":

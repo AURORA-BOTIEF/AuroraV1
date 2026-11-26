@@ -838,6 +838,14 @@ def lambda_handler(event, context):
                 total_errors += 1
         
         all_valid = total_errors == 0
+        invalid_lab_ids = []
+        for item in validation_results:
+            if item.get("is_valid"):
+                continue
+            clave = str(item.get("content_key") or "")
+            hallado = re.search(r"lab-(\d{2}-\d{2}-\d{2})", clave)
+            if hallado and hallado.group(1) not in invalid_lab_ids:
+                invalid_lab_ids.append(hallado.group(1))
         
         print(f"\n{'=' * 70}")
         print(f"📊 VALIDATION SUMMARY")
@@ -852,6 +860,7 @@ def lambda_handler(event, context):
             'validation_results': validation_results,
             'all_valid': all_valid,
             'is_valid': all_valid,
+            'invalid_lab_ids': invalid_lab_ids,
             'total_errors': total_errors,
             'total_warnings': total_warnings,
             'files_validated': len(content_keys)
@@ -867,7 +876,9 @@ def lambda_handler(event, context):
         return {
             'statusCode': 500,
             'error': str(e),
-            'errorType': type(e).__name__
+            'errorType': type(e).__name__,
+            'all_valid': False,
+            'invalid_lab_ids': [],
         }
 
 

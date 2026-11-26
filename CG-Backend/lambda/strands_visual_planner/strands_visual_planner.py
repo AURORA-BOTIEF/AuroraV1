@@ -42,6 +42,8 @@ from typing import Dict, Any, List, Optional
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from bedrock_fallback import fallback_model_ids, run_model_chain
+
 # Configure boto3 with extended timeouts for long-running LLM calls
 boto_config = Config(
     read_timeout=600,  # 10 minutes read timeout
@@ -209,39 +211,67 @@ def extract_visual_tags_from_lesson(lesson_content: str, lesson_id: str) -> List
     return visuals
 
 
-def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
-    """Call AWS Bedrock Claude API with transient-error backoff."""
+_modelo_visual = {"id": None}
+
+
+def _invoke_bedrock_visual(prompt: str, model_id: str) -> str:
     request_body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 16000,
         "temperature": 0.7,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        "messages": [{"role": "user", "content": prompt}],
     }
-    last_err: Optional[Exception] = None
-    for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
-        try:
-            response = bedrock_client.invoke_model(
-                modelId=model_id,
-                body=json.dumps(request_body),
-                contentType='application/json',
-                accept='application/json'
-            )
-            response_body = json.loads(response['body'].read())
-            return response_body['content'][0]['text']
-        except Exception as e:
-            last_err = e
-            print(f"❌ Bedrock API error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {e}")
-            if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
-                _sleep_before_bedrock_retry(attempt - 1)
-                continue
-            raise
-    assert last_err is not None
-    raise last_err
+    response = bedrock_client.invoke_model(
+        modelId=model_id,
+        body=json.dumps(request_body),
+        contentType="application/json",
+        accept="application/json",
+    )
+    response_body = json.loads(response["body"].read())
+    return response_body["content"][0]["text"]
+
+
+def _respaldo_openai_o_gemini_visual(prompt: str) -> Optional[str]:
+    try:
+        secret = get_secret("aurora/openai-api-key")
+        api_key = (secret or {}).get("api_key") or os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            text = call_openai(prompt, api_key)
+            _modelo_visual["id"] = DEFAULT_OPENAI_MODEL
+            return text
+    except Exception as exc:
+        print(f"⚠️ OpenAI fallback unavailable: {exc}")
+    try:
+        google_key = get_google_api_key()
+        if google_key:
+            text = call_gemini(prompt, google_key)
+            _modelo_visual["id"] = "gemini"
+            return text
+    except Exception as exc:
+        print(f"⚠️ Gemini fallback unavailable: {exc}")
+    return None
+
+
+def call_bedrock(prompt: str, model_id: str = DEFAULT_BEDROCK_MODEL) -> str:
+    """Per-minute backoff, then BEDROCK_FALLBACK_MODELS, then OpenAI/Gemini if configured."""
+    try:
+        text, used = run_model_chain(
+            lambda mid: _invoke_bedrock_visual(prompt, mid),
+            fallback_model_ids(model_id),
+            max_attempts=BEDROCK_APP_MAX_ATTEMPTS,
+            sleep=_sleep_before_bedrock_retry,
+            is_transient=_bedrock_error_is_transient,
+        )
+        _modelo_visual["id"] = used
+        if used != model_id:
+            print(f"🔄 Visual planner answered with fallback model {used}")
+        return text
+    except Exception as bedrock_err:
+        print(f"❌ Visual planner Bedrock chain failed: {bedrock_err}")
+        alterno = _respaldo_openai_o_gemini_visual(prompt)
+        if alterno:
+            return alterno
+        raise
 
 
 def call_openai(prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:

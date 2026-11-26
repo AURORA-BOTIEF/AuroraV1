@@ -227,6 +227,21 @@ def test_el_handler_exige_project_folder():
     assert respuesta["statusCode"] == 400
 
 
+def test_la_compuerta_viene_apagada():
+    """The handler default does not set bloquea. Dead links stay in the report."""
+    modulo = _modulo()
+    anterior = os.environ.pop("LINK_AUDIT_GATE", None)
+    try:
+        informe = {"resumen": {"publicos": 1, "vivos": 0, "muertos": 1, "no_verificables": 0}}
+        apagada = modulo.compuerta_de_enlaces(informe)
+    finally:
+        if anterior is not None:
+            os.environ["LINK_AUDIT_GATE"] = anterior
+    assert apagada["bloquea"] is False
+    assert apagada["activa"] is False
+    assert apagada["muertos"] == 1
+
+
 def test_la_compuerta_bloquea_solo_enlaces_muertos():
     """A moved Learn page (404) fails the course. 403 stays a report."""
     modulo = _modulo()
@@ -242,6 +257,19 @@ def test_la_compuerta_bloquea_solo_enlaces_muertos():
     apagada = modulo.compuerta_de_enlaces(muerto, activa=False)
     assert apagada["bloquea"] is False
     assert apagada["muertos"] == 1
+
+
+def _con_compuerta(encendida):
+    anterior = os.environ.get("LINK_AUDIT_GATE")
+    os.environ["LINK_AUDIT_GATE"] = "1" if encendida else "0"
+    return anterior
+
+
+def _restaurar_compuerta(anterior):
+    if anterior is None:
+        os.environ.pop("LINK_AUDIT_GATE", None)
+    else:
+        os.environ["LINK_AUDIT_GATE"] = anterior
 
 
 def test_el_handler_marca_la_compuerta_sin_fallar_la_lambda():
@@ -270,9 +298,13 @@ def test_el_handler_marca_la_compuerta_sin_fallar_la_lambda():
         "no_verificables": [],
     }
 
-    respuesta = modulo.lambda_handler(
-        {"project_folder": "curso", "course_bucket": "bucket"}, None
-    )
+    anterior = _con_compuerta(True)
+    try:
+        respuesta = modulo.lambda_handler(
+            {"project_folder": "curso", "course_bucket": "bucket"}, None
+        )
+    finally:
+        _restaurar_compuerta(anterior)
 
     assert respuesta["statusCode"] == 200, respuesta
     assert respuesta["gate"]["bloquea"] is True
@@ -487,9 +519,13 @@ def test_si_el_reemplazo_sigue_muerto_la_compuerta_bloquea():
     modulo.s3 = s3
     modulo.revisar_enlace = revisar
 
-    respuesta = modulo.lambda_handler(
-        {"project_folder": "curso", "course_bucket": "bucket"}, None
-    )
+    anterior = _con_compuerta(True)
+    try:
+        respuesta = modulo.lambda_handler(
+            {"project_folder": "curso", "course_bucket": "bucket"}, None
+        )
+    finally:
+        _restaurar_compuerta(anterior)
 
     assert respuesta["statusCode"] == 200, respuesta
     assert respuesta["gate"]["bloquea"] is True
@@ -518,9 +554,13 @@ def test_un_fallo_de_reparacion_no_salta_la_compuerta():
         raise RuntimeError("repair broke")
 
     modulo.reparar_enlaces_muertos = _rompe
-    respuesta = modulo.lambda_handler(
-        {"project_folder": "curso", "course_bucket": "bucket"}, None
-    )
+    anterior = _con_compuerta(True)
+    try:
+        respuesta = modulo.lambda_handler(
+            {"project_folder": "curso", "course_bucket": "bucket"}, None
+        )
+    finally:
+        _restaurar_compuerta(anterior)
     assert respuesta["statusCode"] == 200, respuesta
     assert respuesta["gate"]["bloquea"] is True
 
@@ -529,6 +569,7 @@ def test_link_repair_apagado_no_reescribe_y_bloquea():
     modulo = _modulo()
     _sin_red(modulo)
     anterior = os.environ.get("LINK_REPAIR")
+    anterior_compuerta = _con_compuerta(True)
     os.environ["LINK_REPAIR"] = "0"
     try:
         lab = f"Consulte [Copilot Chat]({_URL_CHAT_INVENTADA}).\n"
@@ -543,6 +584,7 @@ def test_link_repair_apagado_no_reescribe_y_bloquea():
             {"project_folder": "curso", "course_bucket": "bucket"}, None
         )
     finally:
+        _restaurar_compuerta(anterior_compuerta)
         if anterior is None:
             os.environ.pop("LINK_REPAIR", None)
         else:

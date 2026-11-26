@@ -138,6 +138,22 @@ def test_la_matriz_larga_genera_un_pdf():
     assert len(datos) > 1000
 
 
+def test_una_tabla_2x8_se_parte_y_el_pdf_sale():
+    """A 2-column, 8-row table is what raised LayoutError on page 27."""
+    modulo = _modulo()
+    filas = "<tr><th>Campo</th><th>Valor</th></tr>"
+    filas += "".join(
+        f"<tr><td>Fila {indice}</td><td>{'tokenlarguisimo' * 40}</td></tr>"
+        for indice in range(7)
+    )
+    html = f"<html><body><table>{filas}</table></body></html>"
+    partido = modulo.partir_tablas_altas(html)
+    assert partido.lower().count("<table") == 2
+    assert "…" in partido
+    datos = modulo._pdf_desde_html(html)
+    assert datos.startswith(b"%PDF")
+
+
 def test_un_layout_error_no_se_traga():
     modulo = _modulo()
     from reportlab.platypus.doctemplate import LayoutError

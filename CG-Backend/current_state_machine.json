@@ -43,7 +43,7 @@
         {
           "Variable": "$.provider_lock.acquired",
           "BooleanEquals": true,
-          "Next": "CheckResumeMode"
+          "Next": "InitQualityIssues"
         }
       ],
       "Default": "WaitForProviders"
@@ -92,7 +92,11 @@
         "lab_ids_to_regenerate": null,
         "all_image_mappings": [],
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "quality_issues.$": "$.quality_issues",
+        "theory_warnings": [],
+        "theory_placeholders": [],
+        "theory_models": []
       },
       "Next": "InvokeBookBuilder"
     },
@@ -117,7 +121,8 @@
         "lesson_to_generate": null,
         "lesson_requirements": null,
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "quality_issues.$": "$.quality_issues"
       },
       "Type": "Pass"
     },
@@ -194,7 +199,7 @@
           "Next": "ProcessLabBatchesInParallel"
         }
       ],
-      "Default": "NotifyFailure"
+      "Default": "RecordLabExpandPayload"
     },
     "CheckLabBatchExpansionSuccessBoth": {
       "Type": "Choice",
@@ -218,7 +223,7 @@
           "Next": "ProcessLabBatchesInParallelBoth"
         }
       ],
-      "Default": "NotifyFailure"
+      "Default": "RecordLabExpandPayload"
     },
     "CheckLabPlannerResult": {
       "Choices": [
@@ -313,7 +318,14 @@
         "lab_quality_statuses.$": "$.all_lab_batches_results[*].quality_status",
         "lab_quality_summaries.$": "$.all_lab_batches_results[*].quality_summary",
         "quality_warnings.$": "$.all_lab_batches_results[*].quality_warnings",
-        "labs_needing_review.$": "$.all_lab_batches_results[*].labs_needing_review"
+        "labs_needing_review.$": "$.all_lab_batches_results[*].labs_needing_review",
+        "quality_issues.$": "$.quality_issues",
+        "master_plan_key.$": "$.lab_planner_result.Payload.master_plan_key",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "manual_text_s3_key.$": "$.manual_text_s3_key",
+        "failed_lab_ids.$": "$.all_lab_batches_results[*].failed_lab_ids[*]",
+        "placeholders.$": "$.all_lab_batches_results[*].placeholders[*]",
+        "models_used.$": "$.all_lab_batches_results[*].models_used"
       },
       "Type": "Pass"
     },
@@ -327,7 +339,7 @@
       "Next": "ValidateLabContent"
     },
     "ValidateLabContent": {
-      "Comment": "Validate lab content against schema (structural errors block the build)",
+      "Comment": "Structural validation. all_valid=false triggers one targeted regeneration, then delivery.",
       "Next": "CheckLabValidation",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
@@ -343,7 +355,8 @@
       "ResultPath": "$.lab_validation_result",
       "ResultSelector": {
         "statusCode.$": "$.Payload.statusCode",
-        "all_valid.$": "$.Payload.all_valid"
+        "all_valid.$": "$.Payload.all_valid",
+        "invalid_lab_ids.$": "$.Payload.invalid_lab_ids"
       },
       "Retry": [
         {
@@ -362,7 +375,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "InvokeLabGuideBuilder",
+          "Next": "RecordLabValidationCrash",
           "ResultPath": "$.lab_validation_error",
           "Comment": "Continue even if validation fails"
         }
@@ -388,7 +401,17 @@
         "lab_quality_statuses.$": "$.all_lab_batches_results[*].quality_status",
         "lab_quality_summaries.$": "$.all_lab_batches_results[*].quality_summary",
         "quality_warnings.$": "$.all_lab_batches_results[*].quality_warnings",
-        "labs_needing_review.$": "$.all_lab_batches_results[*].labs_needing_review"
+        "labs_needing_review.$": "$.all_lab_batches_results[*].labs_needing_review",
+        "quality_issues.$": "$.quality_issues",
+        "failed_lab_ids.$": "$.all_lab_batches_results[*].failed_lab_ids[*]",
+        "placeholders.$": "$.all_lab_batches_results[*].placeholders[*]",
+        "models_used.$": "$.all_lab_batches_results[*].models_used",
+        "master_plan_key.$": "$.master_lab_plan_result.Payload.master_plan_key",
+        "outline_s3_key.$": "$.outline_s3_key",
+        "manual_text_s3_key.$": "$.manual_text_s3_key",
+        "theory_warnings.$": "$.theory_warnings",
+        "theory_placeholders.$": "$.theory_placeholders",
+        "theory_models.$": "$.theory_models"
       },
       "Type": "Pass"
     },
@@ -402,7 +425,7 @@
       "Next": "ValidateLabContentBoth"
     },
     "ValidateLabContentBoth": {
-      "Comment": "Validate lab content against schema (structural errors block the build)",
+      "Comment": "Structural validation. all_valid=false triggers one targeted regeneration, then delivery.",
       "Next": "CheckLabValidation",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:ContentValidator",
@@ -418,7 +441,8 @@
       "ResultPath": "$.lab_validation_result",
       "ResultSelector": {
         "statusCode.$": "$.Payload.statusCode",
-        "all_valid.$": "$.Payload.all_valid"
+        "all_valid.$": "$.Payload.all_valid",
+        "invalid_lab_ids.$": "$.Payload.invalid_lab_ids"
       },
       "Retry": [
         {
@@ -437,7 +461,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "InvokeLabGuideBuilder",
+          "Next": "RecordLabValidationCrash",
           "ResultPath": "$.lab_validation_error",
           "Comment": "Continue even if validation fails"
         }
@@ -445,17 +469,37 @@
       "Type": "Task"
     },
     "CheckLabValidation": {
-      "Comment": "Puerta de calidad: un defecto estructural no llega al libro del instructor",
+      "Comment": "Quality and structure do not block delivery. all_valid=false regenerates the invalid labs once, then the book is built with a warning.",
       "Type": "Choice",
       "Choices": [
         {
-          "Comment": "Modo sombra: la validacion se registra pero no bloquea (lab_validation_shadow en el evento)",
+          "Comment": "Shadow mode records validation and does not branch.",
           "Variable": "$.lab_validation_shadow",
           "IsPresent": true,
           "Next": "InvokeLabGuideBuilder"
         },
         {
-          "Comment": "Errores estructurales: no hay H1, hay varios, o el laboratorio no tiene pasos",
+          "Comment": "First structural failure: regenerate those labs once.",
+          "And": [
+            {
+              "Variable": "$.lab_validation_result.all_valid",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.lab_validation_result.all_valid",
+              "BooleanEquals": false
+            },
+            {
+              "Not": {
+                "Variable": "$.structural_retry_done",
+                "IsPresent": true
+              }
+            }
+          ],
+          "Next": "CountInvalidLabs"
+        },
+        {
+          "Comment": "Still invalid after one regeneration: deliver with a warning.",
           "And": [
             {
               "Variable": "$.lab_validation_result.all_valid",
@@ -466,10 +510,10 @@
               "BooleanEquals": false
             }
           ],
-          "Next": "NotifyFailure"
+          "Next": "RecordStructuralWarning"
         },
         {
-          "Comment": "High-confidence findings survived the final lab retry: do not deliver as passed",
+          "Comment": "High-confidence findings are a warning. The book is still built.",
           "And": [
             {
               "Variable": "$.lab_quality_decision.needs_review",
@@ -499,7 +543,11 @@
         "project_folder.$": "$.project_folder",
         "user_email.$": "$.user_email",
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "quality_issues.$": "$.quality_issues",
+        "theory_warnings.$": "$.all_batches_results[*].quality_warning",
+        "theory_placeholders.$": "$.all_batches_results[*].placeholder",
+        "theory_models.$": "$.all_batches_results[*].model_used"
       },
       "Type": "Pass"
     },
@@ -539,7 +587,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "InvokeBookBuilder",
+          "Next": "RecordLessonValidationCrash",
           "ResultPath": "$.lesson_validation_error",
           "Comment": "Continue even if validation fails"
         }
@@ -562,7 +610,11 @@
         "master_lab_plan_result.$": "$.master_lab_plan_result",
         "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate",
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "quality_issues.$": "$.quality_issues",
+        "theory_warnings.$": "$.all_batches_results[*].quality_warning",
+        "theory_placeholders.$": "$.all_batches_results[*].placeholder",
+        "theory_models.$": "$.all_batches_results[*].model_used"
       },
       "Type": "Pass"
     },
@@ -602,7 +654,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "InvokeBookBuilder",
+          "Next": "RecordLessonValidationCrash",
           "ResultPath": "$.lesson_validation_error",
           "Comment": "Continue even if validation fails"
         }
@@ -631,7 +683,7 @@
           "Next": "ProcessBatchesInParallel"
         }
       ],
-      "Default": "NotifyFailure"
+      "Default": "RecordModuleExpandPayload"
     },
     "DetermineContentType": {
       "Choices": [
@@ -686,14 +738,21 @@
       "ResultPath": "$.lab_batch_expansion",
       "Retry": [
         {
+          "Comment": "Retry ExpandLabsToBatches with backoff before degrading.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -701,8 +760,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordLabExpandIssue"
         }
       ],
       "Type": "Task"
@@ -727,14 +786,21 @@
       "ResultPath": "$.lab_batch_expansion",
       "Retry": [
         {
+          "Comment": "Retry ExpandLabsToBatchesBoth with backoff before degrading.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -742,8 +808,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordLabExpandIssue"
         }
       ],
       "Type": "Task"
@@ -773,14 +839,21 @@
       "ResultPath": "$.batch_expansion",
       "Retry": [
         {
+          "Comment": "Retry ExpandModulesToBatches with backoff before degrading.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -788,8 +861,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordModuleExpandIssue"
         }
       ],
       "Type": "Task"
@@ -824,14 +897,21 @@
       },
       "Retry": [
         {
+          "Comment": "Retry the master plan before a required step can fail the course.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -839,8 +919,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordPlannerFailure"
         }
       ],
       "Type": "Task"
@@ -870,14 +950,21 @@
       },
       "Retry": [
         {
+          "Comment": "Retry the theory book before continuing without it.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -885,8 +972,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.book_error",
+          "Next": "RecordBookIssue"
         }
       ],
       "Type": "Task"
@@ -905,14 +992,21 @@
       "ResultPath": "$.lab_guide_result",
       "Retry": [
         {
+          "Comment": "Retry the lab guide book before continuing without it.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -920,8 +1014,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.lab_guide_error",
+          "Next": "RecordLabGuideIssue"
         }
       ],
       "Type": "Task"
@@ -956,7 +1050,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "InvokePostGenerationAudit",
+          "Next": "RecordSetupGuideIssue",
           "ResultPath": "$.setup_guide_error"
         }
       ],
@@ -992,20 +1086,20 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyCompletion",
+          "Next": "RecordAuditIssue",
           "ResultPath": "$.audit_error"
         }
       ],
       "Type": "Task"
     },
     "CheckLinkAudit": {
-      "Comment": "404/410/NXDOMAIN fail the course. 403/429/5xx stay a report. LINK_AUDIT_GATE=0 makes gate.bloquea false.",
+      "Comment": "Dead links stay in the report. The course continues to the decks. LINK_AUDIT_GATE defaults off and a true gate.bloquea still does not fail the execution.",
       "Type": "Choice",
       "Choices": [
         {
           "Variable": "$.audit_result.Payload.gate.bloquea",
           "BooleanEquals": true,
-          "Next": "NotifyFailure"
+          "Next": "RecordLinkAuditWarning"
         }
       ],
       "Default": "InvokeDeckBuilder"
@@ -1031,14 +1125,21 @@
       "ResultPath": "$.lab_planner_result",
       "Retry": [
         {
+          "Comment": "Retry the lab planner before a required step can fail the course.",
           "BackoffRate": 2.0,
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1046,8 +1147,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordPlannerFailure"
         }
       ],
       "Type": "Task"
@@ -1071,14 +1172,27 @@
               "batch_index.$": "$.batch_task.batch_index",
               "image_mappings.$": "$.accumulated_mappings",
               "lesson_keys.$": "$.batch_result.Payload.lesson_keys",
-              "module_number.$": "$.batch_task.module_number"
+              "module_number.$": "$.batch_task.module_number",
+              "quality_warning.$": "$.batch_result.Payload.quality_warning",
+              "placeholder.$": "$.batch_result.Payload.placeholder",
+              "model_used.$": "$.batch_result.Payload.model_used"
             },
             "Type": "Pass"
           },
           "BatchFailState": {
-            "Cause": "BatchGenerationFailed",
-            "Error": "BatchGenerationError",
-            "Type": "Fail"
+            "Type": "Pass",
+            "Comment": "Content generation failed. Continue with an empty lesson list for this batch. When the Lambda can return, it has already written a text-only placeholder.",
+            "End": true,
+            "Parameters": {
+              "batch_index.$": "$.batch_task.batch_index",
+              "module_number.$": "$.batch_task.module_number",
+              "lesson_keys": [],
+              "image_mappings": {},
+              "quality_warning": "theory batch failed; placeholder or text-only lesson",
+              "placeholder": true,
+              "model_used": "",
+              "degraded": true
+            }
           },
           "CheckBatchContentSuccess": {
             "Choices": [
@@ -1269,7 +1383,16 @@
               }
             ],
             "TimeoutSeconds": 960,
-            "Type": "Task"
+            "Type": "Task",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "ResultPath": "$.images_error",
+                "Next": "ImagesDegraded"
+              }
+            ]
           },
           "InitializeImageGeneration": {
             "Comment": "Initialize accumulators for multi-batch image processing",
@@ -1362,9 +1485,47 @@
             "Type": "Pass"
           },
           "VisualPlannerFailed": {
-            "Type": "Fail",
-            "Error": "VisualPlannerError",
-            "Cause": "Visual planner failed to process lessons. Check $.visual_result.Payload.error for details (likely Bedrock API throttling or other service error)"
+            "Type": "Pass",
+            "Comment": "Visual planner failed. Deliver the text lesson without images.",
+            "ResultPath": "$",
+            "Parameters": {
+              "batch_result.$": "$.batch_result",
+              "batch_task.$": "$.batch_task",
+              "accumulated_mappings": {},
+              "images_result": {
+                "Payload": {
+                  "image_mappings": {},
+                  "statusCode": 200,
+                  "message": "text-only lesson; visual planner failed"
+                }
+              },
+              "visual_result": {
+                "Payload": {
+                  "statusCode": 200,
+                  "degraded": true
+                }
+              }
+            },
+            "Next": "BatchComplete"
+          },
+          "ImagesDegraded": {
+            "Type": "Pass",
+            "Comment": "Image generation failed. Keep the lesson text and continue.",
+            "ResultPath": "$",
+            "Parameters": {
+              "accumulated_mappings.$": "$.accumulated_mappings",
+              "batch_result.$": "$.batch_result",
+              "batch_task.$": "$.batch_task",
+              "images_result": {
+                "Payload": {
+                  "image_mappings": {},
+                  "statusCode": 200,
+                  "message": "image generation failed; text-only lesson"
+                }
+              },
+              "visual_result.$": "$.visual_result"
+            },
+            "Next": "BatchComplete"
           }
         }
       },
@@ -1378,8 +1539,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordTheoryMapFailure"
         }
       ],
       "Type": "Map"
@@ -1422,6 +1583,15 @@
             "ResultPath": "$.lab_result",
             "Retry": [
               {
+                "Comment": "One retry after RuntimeError, then a placeholder and the course continues.",
+                "ErrorEquals": [
+                  "RuntimeError"
+                ],
+                "IntervalSeconds": 120,
+                "MaxAttempts": 1,
+                "BackoffRate": 1.0
+              },
+              {
                 "Comment": "Lab writer: retry timeouts and transient Lambda errors",
                 "BackoffRate": 2.5,
                 "ErrorEquals": [
@@ -1448,14 +1618,29 @@
               "quality_status.$": "$.lab_result.Payload.quality_status",
               "quality_summary.$": "$.lab_result.Payload.quality_summary",
               "quality_warnings.$": "$.lab_result.Payload.quality_warnings",
-              "labs_needing_review.$": "$.lab_result.Payload.labs_needing_review"
+              "labs_needing_review.$": "$.lab_result.Payload.labs_needing_review",
+              "failed_lab_ids.$": "$.lab_result.Payload.failed_lab_ids",
+              "placeholders.$": "$.lab_result.Payload.placeholders",
+              "models_used.$": "$.lab_result.Payload.models_used"
             },
             "Type": "Pass"
           },
           "LabBatchFailState": {
-            "Cause": "LabBatchGenerationFailed",
-            "Error": "LabBatchGenerationError",
-            "Type": "Fail"
+            "Type": "Pass",
+            "Comment": "This lab crashed after retry and model fallback. The Map continues. The writer writes a bilingual placeholder when it can return.",
+            "End": true,
+            "Parameters": {
+              "batch_index.$": "$.lab_batch.batch_index",
+              "lab_guide_keys": [],
+              "quality_status": "placeholder",
+              "quality_summary": "PENDIENTE DE REGENERACIÓN / PENDING REGENERATION",
+              "quality_warnings": [],
+              "labs_needing_review": [],
+              "failed_lab_ids.$": "$.lab_batch.lab_ids",
+              "placeholders": [],
+              "models_used": {},
+              "placeholder": true
+            }
           }
         }
       },
@@ -1470,8 +1655,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordLabMapFailure"
         }
       ],
       "Type": "Map"
@@ -1501,6 +1686,15 @@
             "ResultPath": "$.lab_result",
             "Retry": [
               {
+                "Comment": "One retry after RuntimeError, then a placeholder and the course continues.",
+                "ErrorEquals": [
+                  "RuntimeError"
+                ],
+                "IntervalSeconds": 120,
+                "MaxAttempts": 1,
+                "BackoffRate": 1.0
+              },
+              {
                 "Comment": "Lab writer (both path): retry timeouts and transient Lambda errors",
                 "BackoffRate": 2.5,
                 "ErrorEquals": [
@@ -1526,14 +1720,29 @@
               "quality_status.$": "$.lab_result.Payload.quality_status",
               "quality_summary.$": "$.lab_result.Payload.quality_summary",
               "quality_warnings.$": "$.lab_result.Payload.quality_warnings",
-              "labs_needing_review.$": "$.lab_result.Payload.labs_needing_review"
+              "labs_needing_review.$": "$.lab_result.Payload.labs_needing_review",
+              "failed_lab_ids.$": "$.lab_result.Payload.failed_lab_ids",
+              "placeholders.$": "$.lab_result.Payload.placeholders",
+              "models_used.$": "$.lab_result.Payload.models_used"
             },
             "Type": "Pass"
           },
           "LabBatchFailStateBoth": {
-            "Cause": "LabBatchGenerationFailed",
-            "Error": "LabBatchGenerationError",
-            "Type": "Fail"
+            "Type": "Pass",
+            "Comment": "This lab crashed after retry and model fallback. The Map continues. The writer writes a bilingual placeholder when it can return.",
+            "End": true,
+            "Parameters": {
+              "batch_index.$": "$.lab_batch.batch_index",
+              "lab_guide_keys": [],
+              "quality_status": "placeholder",
+              "quality_summary": "PENDIENTE DE REGENERACIÓN / PENDING REGENERATION",
+              "quality_warnings": [],
+              "labs_needing_review": [],
+              "failed_lab_ids.$": "$.lab_batch.lab_ids",
+              "placeholders": [],
+              "models_used": {},
+              "placeholder": true
+            }
           }
         }
       },
@@ -1548,14 +1757,14 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyFailure",
-          "ResultPath": "$.error"
+          "ResultPath": "$.error",
+          "Next": "RecordLabMapFailure"
         }
       ],
       "Type": "Map"
     },
     "NotifyCompletion": {
-      "Comment": "Send completion notification to user and admin",
+      "Comment": "The learner receives the normal delivered email. When $.quality_issues is non-empty the owner (OWNER_ALERT_EMAIL) receives the detail and validation/quality-report.json is written.",
       "Next": "SuccessState",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
@@ -1585,29 +1794,29 @@
     },
     "StampLabsPlanQuality": {
       "Type": "Pass",
-      "Comment": "Copy the labs-only plan gate summary into $.quality_gate for the client-visible failure",
+      "Comment": "Record the labs-only plan findings. The course continues to lab generation.",
       "ResultPath": "$.quality_gate",
       "Parameters": {
         "status": "needs_review",
-        "source": "plan",
+        "source": "labs_plan",
         "cause.$": "$.lab_planner_result.Payload.quality_summary"
       },
       "Next": "NotifyQualityReview"
     },
     "StampBothPlanQuality": {
       "Type": "Pass",
-      "Comment": "Copy the both-mode plan gate summary into $.quality_gate for the client-visible failure",
+      "Comment": "Record the both-mode plan findings. Theory and labs still run.",
       "ResultPath": "$.quality_gate",
       "Parameters": {
         "status": "needs_review",
-        "source": "plan",
+        "source": "both_plan",
         "cause.$": "$.master_lab_plan_result.Payload.quality_summary"
       },
       "Next": "NotifyQualityReview"
     },
     "StampLabWriterQuality": {
       "Type": "Pass",
-      "Comment": "Copy lab-writer gate summaries into $.quality_gate. Does not build the lab book",
+      "Comment": "Record lab-writer findings. The lab book is still built.",
       "ResultPath": "$.quality_gate",
       "Parameters": {
         "status": "needs_review",
@@ -1617,53 +1826,19 @@
       "Next": "NotifyQualityReview"
     },
     "NotifyQualityReview": {
-      "Comment": "Tell the user the course is needs_review, then fail the execution so it is not delivered as success",
-      "Next": "FailLabQualityGate",
+      "Type": "Pass",
+      "Comment": "Record the quality finding for the owner. Do not email the learner and do not stop the execution.",
+      "ResultPath": "$.quality_issues.lab_quality",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
-        "Payload": {
-          "execution_arn.$": "$$.Execution.Id",
-          "input.$": "$",
-          "project_folder.$": "$.project_folder",
-          "status": "needs_review",
-          "user_email.$": "$.user_email",
-          "error.$": "$.quality_gate.cause"
-        }
+        "step": "NotifyQualityReview",
+        "error.$": "$.quality_gate.cause",
+        "severity": "warning"
       },
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "ResultPath": "$.notification_result",
-      "Retry": [
-        {
-          "BackoffRate": 2.0,
-          "ErrorEquals": [
-            "Lambda.ServiceException",
-            "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
-          ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "Next": "FailLabQualityGate",
-          "ResultPath": "$.notification_error",
-          "Comment": "A mail failure must not turn a needs_review course into a success"
-        }
-      ],
-      "Type": "Task"
-    },
-    "FailLabQualityGate": {
-      "Type": "Fail",
-      "Error": "LabQualityNeedsReview",
-      "CausePath": "$.quality_gate.cause"
+      "Next": "RouteAfterQualityReview"
     },
     "NotifyFailure": {
-      "Comment": "Send failure notification to user and admin",
-      "Next": "RouteTerminalFailure",
+      "Comment": "Only a required step (lab master plan or lab planner), after retry and model fallback, reaches this failure. Quality checks do not.",
+      "Next": "FailWorkflow",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsNotification",
         "Payload": {
@@ -1689,31 +1864,6 @@
         }
       ],
       "Type": "Task"
-    },
-    "RouteTerminalFailure": {
-      "Type": "Choice",
-      "Comment": "A dead-link gate is a failed delivery with its own error name. Every other NotifyFailure stays a generic workflow failure.",
-      "Choices": [
-        {
-          "And": [
-            {
-              "Variable": "$.audit_result.Payload.gate.bloquea",
-              "IsPresent": true
-            },
-            {
-              "Variable": "$.audit_result.Payload.gate.bloquea",
-              "BooleanEquals": true
-            }
-          ],
-          "Next": "FailLinkAudit"
-        }
-      ],
-      "Default": "FailWorkflow"
-    },
-    "FailLinkAudit": {
-      "Type": "Fail",
-      "Error": "LinkAuditFailed",
-      "Cause": "Enlaces públicos muertos (404, 410 o DNS). El curso no se entregó. Revise labguide/enlaces.json."
     },
     "SuccessState": {
       "Type": "Succeed"
@@ -1788,7 +1938,8 @@
         "lesson_to_generate.$": "$.lesson_to_generate",
         "lesson_requirements": null,
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "quality_issues.$": "$.quality_issues"
       }
     },
     "PrepareNewCourseParams": {
@@ -1811,7 +1962,8 @@
         "lesson_to_generate": null,
         "lesson_requirements": null,
         "lesson_ids_to_update.$": "$.lesson_ids_to_update",
-        "update_mode.$": "$.update_mode"
+        "update_mode.$": "$.update_mode",
+        "quality_issues.$": "$.quality_issues"
       }
     },
     "InvokeDeckBuilder": {
@@ -1843,11 +1995,315 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "NotifyCompletion",
+          "Next": "RecordDeckIssue",
           "ResultPath": "$.decks_error"
         }
       ],
       "Type": "Task"
+    },
+    "InitQualityIssues": {
+      "Type": "Pass",
+      "Comment": "Owner-facing quality accumulator. Catches append one key each. ready=true is not a finding.",
+      "ResultPath": "$.quality_issues",
+      "Parameters": {
+        "ready": true
+      },
+      "Next": "CheckResumeMode"
+    },
+    "RouteAfterQualityReview": {
+      "Type": "Choice",
+      "Comment": "Continue the path that produced the finding. Nothing here fails the course.",
+      "Choices": [
+        {
+          "Variable": "$.quality_gate.source",
+          "StringEquals": "labs_plan",
+          "Next": "ExpandLabsToBatches"
+        },
+        {
+          "Variable": "$.quality_gate.source",
+          "StringEquals": "both_plan",
+          "Next": "BothTheoryAndLabsBranch"
+        },
+        {
+          "Variable": "$.quality_gate.source",
+          "StringEquals": "labs",
+          "Next": "InvokeLabGuideBuilder"
+        }
+      ],
+      "Default": "InvokeLabGuideBuilder"
+    },
+    "CountInvalidLabs": {
+      "Type": "Pass",
+      "Comment": "ArrayLength needs its own state before a Choice can test it.",
+      "ResultPath": "$.structural_invalid_count",
+      "Parameters": {
+        "n.$": "States.ArrayLength($.lab_validation_result.invalid_lab_ids)"
+      },
+      "Next": "CheckInvalidLabCount"
+    },
+    "CheckInvalidLabCount": {
+      "Type": "Choice",
+      "Comment": "An empty invalid list has nothing to regenerate.",
+      "Choices": [
+        {
+          "Variable": "$.structural_invalid_count.n",
+          "NumericGreaterThan": 0,
+          "Next": "RegenerateInvalidLabs"
+        }
+      ],
+      "Default": "RecordStructuralWarning"
+    },
+    "RegenerateInvalidLabs": {
+      "Type": "Task",
+      "Comment": "One targeted regeneration of the labs that failed the structural check. force_regenerate rewrites them even if a file already exists.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsLabWriter",
+        "Payload": {
+          "course_bucket.$": "$.course_bucket",
+          "project_folder.$": "$.project_folder",
+          "model_provider.$": "$.model_provider",
+          "master_plan_key.$": "$.master_plan_key",
+          "lab_ids.$": "$.lab_validation_result.invalid_lab_ids",
+          "outline_s3_key.$": "$.outline_s3_key",
+          "manual_text_s3_key.$": "$.manual_text_s3_key",
+          "force_regenerate": true,
+          "structural_retry": true
+        }
+      },
+      "ResultPath": "$.structural_retry_result",
+      "Retry": [
+        {
+          "Comment": "One retry when the structural regeneration raises RuntimeError.",
+          "ErrorEquals": [
+            "RuntimeError"
+          ],
+          "IntervalSeconds": 120,
+          "MaxAttempts": 1,
+          "BackoffRate": 1.0
+        },
+        {
+          "Comment": "Retry the structural regeneration on Lambda errors",
+          "BackoffRate": 2.0,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.Unknown",
+            "Sandbox.Timedout",
+            "States.Timeout",
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 25,
+          "MaxAttempts": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.structural_retry_error",
+          "Next": "RecordStructuralWarning"
+        }
+      ],
+      "Next": "MarkStructuralRetryDone"
+    },
+    "MarkStructuralRetryDone": {
+      "Type": "Pass",
+      "Comment": "The next validation pass delivers even if all_valid is still false.",
+      "ResultPath": "$.structural_retry_done",
+      "Result": true,
+      "Next": "ValidateLabContent"
+    },
+    "RecordStructuralWarning": {
+      "Type": "Pass",
+      "Comment": "Append CheckLabValidation to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordStructuralWarning",
+      "Parameters": {
+        "step": "CheckLabValidation",
+        "severity": "warning",
+        "error": "structural validation failed after one targeted regeneration"
+      },
+      "Next": "InvokeLabGuideBuilder"
+    },
+    "RecordLinkAuditWarning": {
+      "Type": "Pass",
+      "Comment": "Append CheckLinkAudit to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLinkAuditWarning",
+      "Parameters": {
+        "step": "CheckLinkAudit",
+        "severity": "warning",
+        "error": "dead public links remain after repair; course delivered"
+      },
+      "Next": "InvokeDeckBuilder"
+    },
+    "RecordPlannerFailure": {
+      "Type": "Pass",
+      "Comment": "Append LabPlanner to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordPlannerFailure",
+      "Parameters": {
+        "step": "LabPlanner",
+        "severity": "error",
+        "error.$": "States.JsonToString($.error)"
+      },
+      "Next": "NotifyFailure"
+    },
+    "RecordModuleExpandIssue": {
+      "Type": "Pass",
+      "Comment": "Append ExpandModulesToBatches to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordModuleExpandIssue",
+      "Parameters": {
+        "step": "ExpandModulesToBatches",
+        "severity": "error",
+        "error.$": "States.JsonToString($.error)"
+      },
+      "Next": "DegradeToBook"
+    },
+    "DegradeToBook": {
+      "Type": "Pass",
+      "Comment": "No theory batches. Build the book from lessons already in S3, then continue.",
+      "ResultPath": "$.all_image_mappings",
+      "Result": [],
+      "Next": "InvokeBookBuilder"
+    },
+    "RecordLabExpandIssue": {
+      "Type": "Pass",
+      "Comment": "Append ExpandLabsToBatches to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLabExpandIssue",
+      "Parameters": {
+        "step": "ExpandLabsToBatches",
+        "severity": "error",
+        "error.$": "States.JsonToString($.error)"
+      },
+      "Next": "InvokeLabGuideBuilder"
+    },
+    "RecordLabExpandPayload": {
+      "Type": "Pass",
+      "Comment": "Append ExpandLabsToBatches to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLabExpandPayload",
+      "Parameters": {
+        "step": "ExpandLabsToBatches",
+        "severity": "error",
+        "error": "lab batch expansion did not return batches"
+      },
+      "Next": "InvokeLabGuideBuilder"
+    },
+    "RecordModuleExpandPayload": {
+      "Type": "Pass",
+      "Comment": "Append ExpandModulesToBatches to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordModuleExpandPayload",
+      "Parameters": {
+        "step": "ExpandModulesToBatches",
+        "severity": "error",
+        "error": "module expansion did not return batches"
+      },
+      "Next": "DegradeToBook"
+    },
+    "RecordBookIssue": {
+      "Type": "Pass",
+      "Comment": "Append InvokeBookBuilder to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordBookIssue",
+      "Parameters": {
+        "step": "InvokeBookBuilder",
+        "severity": "error",
+        "error.$": "States.JsonToString($.book_error)",
+        "deliverable": "book missing"
+      },
+      "Next": "CheckIfLabsNeeded"
+    },
+    "RecordLabGuideIssue": {
+      "Type": "Pass",
+      "Comment": "Append InvokeLabGuideBuilder to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLabGuideIssue",
+      "Parameters": {
+        "step": "InvokeLabGuideBuilder",
+        "severity": "error",
+        "error.$": "States.JsonToString($.lab_guide_error)",
+        "deliverable": "lab guide missing"
+      },
+      "Next": "InvokeSetupGuide"
+    },
+    "RecordSetupGuideIssue": {
+      "Type": "Pass",
+      "Comment": "Append InvokeSetupGuide to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordSetupGuideIssue",
+      "Parameters": {
+        "step": "InvokeSetupGuide",
+        "severity": "error",
+        "error.$": "States.JsonToString($.setup_guide_error)",
+        "deliverable": "PDF missing"
+      },
+      "Next": "InvokePostGenerationAudit"
+    },
+    "RecordDeckIssue": {
+      "Type": "Pass",
+      "Comment": "Append InvokeDeckBuilder to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordDeckIssue",
+      "Parameters": {
+        "step": "InvokeDeckBuilder",
+        "severity": "error",
+        "error.$": "States.JsonToString($.decks_error)",
+        "deliverable": "PPT missing"
+      },
+      "Next": "NotifyCompletion"
+    },
+    "RecordAuditIssue": {
+      "Type": "Pass",
+      "Comment": "Append InvokePostGenerationAudit to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordAuditIssue",
+      "Parameters": {
+        "step": "InvokePostGenerationAudit",
+        "severity": "warning",
+        "error.$": "States.JsonToString($.audit_error)"
+      },
+      "Next": "NotifyCompletion"
+    },
+    "RecordLabValidationCrash": {
+      "Type": "Pass",
+      "Comment": "Append ValidateLabContent to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLabValidationCrash",
+      "Parameters": {
+        "step": "ValidateLabContent",
+        "severity": "warning",
+        "error.$": "States.JsonToString($.lab_validation_error)"
+      },
+      "Next": "InvokeLabGuideBuilder"
+    },
+    "RecordLessonValidationCrash": {
+      "Type": "Pass",
+      "Comment": "Append ValidateLessonContent to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLessonValidationCrash",
+      "Parameters": {
+        "step": "ValidateLessonContent",
+        "severity": "warning",
+        "error.$": "States.JsonToString($.lesson_validation_error)"
+      },
+      "Next": "InvokeBookBuilder"
+    },
+    "RecordTheoryMapFailure": {
+      "Type": "Pass",
+      "Comment": "Append ProcessBatchesInParallel to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordTheoryMapFailure",
+      "Parameters": {
+        "step": "ProcessBatchesInParallel",
+        "severity": "error",
+        "error.$": "States.JsonToString($.error)"
+      },
+      "Next": "DegradeToBook"
+    },
+    "RecordLabMapFailure": {
+      "Type": "Pass",
+      "Comment": "Append ProcessLabBatches to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.RecordLabMapFailure",
+      "Parameters": {
+        "step": "ProcessLabBatches",
+        "severity": "error",
+        "error.$": "States.JsonToString($.error)"
+      },
+      "Next": "InvokeLabGuideBuilder"
     }
   }
 }

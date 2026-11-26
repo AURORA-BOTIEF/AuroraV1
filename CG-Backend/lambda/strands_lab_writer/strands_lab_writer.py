@@ -50,6 +50,7 @@ from reading_budget import (
     reintento_habilitado as _reintento_lectura_habilitado,
     texto_para_prompt as _texto_presupuesto_lectura,
 )
+from bedrock_fallback import fallback_model_ids, run_model_chain
 
 # Bedrock client: read_timeout must stay below Lambda timeout (900s) but high enough
 # that boto3 does not abort a long generation and retry (which doubles wall time).
@@ -209,8 +210,8 @@ def _registrar_puerta_de_lab(lab_id: str, attempt: int, bloquean, advertencias) 
         print(
             f"  🚫 QUALITY GATE: lab {lab_id} needs_review after attempt "
             f"{attempt}/{MAX_LAB_GENERATION_ATTEMPTS}. "
-            f"{len(bloquean)} high-confidence finding(s) remain and the lab "
-            f"will not be delivered as passed."
+            f"{len(bloquean)} high-confidence finding(s) remain. "
+            f"The lab still ships; the finding is a warning on the quality report."
         )
         for ficha in bloquean[:12]:
             print(f"     🚫 {ficha['verificacion']} [{ficha['confianza']}] {ficha['valor']}")
@@ -596,48 +597,147 @@ def load_lesson_content(bucket: str, key: str) -> str:
 
 
 
-def call_bedrock_agent(prompt: str, model_id: str) -> str:
-    """Call AWS Bedrock with Strands Agents pattern and transient-error backoff."""
+# Model id that actually produced the last successful completion in this process.
+_modelo_que_respondio: dict = {"id": None}
+
+MARCA_PLACEHOLDER = "AURORA_PLACEHOLDER_PENDING_REGENERATION"
+
+
+def modelo_que_produjo_el_lab() -> Optional[str]:
+    return _modelo_que_respondio.get("id")
+
+
+def _invoke_bedrock_once(prompt: str, model_id: str) -> str:
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": LAB_BEDROCK_MAX_OUTPUT_TOKENS,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.7
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
     }
-    last_err: Optional[Exception] = None
-    for attempt in range(1, BEDROCK_APP_MAX_ATTEMPTS + 1):
-        try:
-            response = bedrock_client.invoke_model(
-                modelId=model_id,
-                body=json.dumps(payload),
-                contentType='application/json',
-                accept='application/json'
-            )
-            response_body = json.loads(response['body'].read())
-            blocks = response_body.get("content") or []
-            if not blocks:
-                print(f"⚠️ Bedrock empty content[]; keys={list(response_body.keys())}")
-                raise ValueError("Bedrock returned no content blocks")
-            text = blocks[0].get("text") or ""
-            if not (text or "").strip():
-                sr = response_body.get("stop_reason")
-                print(f"⚠️ Bedrock empty text; stop_reason={sr!r} body_keys={list(response_body.keys())}")
-                raise ValueError(f"Bedrock returned empty assistant text (stop_reason={sr!r})")
+    response = bedrock_client.invoke_model(
+        modelId=model_id,
+        body=json.dumps(payload),
+        contentType="application/json",
+        accept="application/json",
+    )
+    response_body = json.loads(response["body"].read())
+    blocks = response_body.get("content") or []
+    if not blocks:
+        print(f"⚠️ Bedrock empty content[]; keys={list(response_body.keys())}")
+        raise ValueError("Bedrock returned no content blocks")
+    text = blocks[0].get("text") or ""
+    if not (text or "").strip():
+        sr = response_body.get("stop_reason")
+        print(f"⚠️ Bedrock empty text; stop_reason={sr!r} body_keys={list(response_body.keys())}")
+        raise ValueError(f"Bedrock returned empty assistant text (stop_reason={sr!r})")
+    return text
+
+
+def _respaldo_openai_o_gemini(prompt: str) -> Optional[str]:
+    """Existing OpenAI, then Gemini, only when a secret or env key is configured."""
+    try:
+        secret_data = get_secret("aurora/openai-api-key")
+        api_key = (secret_data or {}).get("api_key") or os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            print("🔄 Bedrock exhausted. Trying OpenAI.")
+            text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+            _modelo_que_respondio["id"] = DEFAULT_OPENAI_MODEL
             return text
-        except Exception as e:
-            last_err = e
-            print(f"❌ Bedrock API error (attempt {attempt}/{BEDROCK_APP_MAX_ATTEMPTS}): {e}")
-            if attempt < BEDROCK_APP_MAX_ATTEMPTS and _bedrock_error_is_transient(e):
-                _sleep_before_bedrock_retry(attempt - 1)
-                continue
-            raise
-    assert last_err is not None
-    raise last_err
+    except Exception as exc:
+        print(f"⚠️ OpenAI fallback unavailable: {exc}")
+    try:
+        google_key = get_google_api_key()
+        if google_key:
+            print("🔄 Bedrock exhausted. Trying Gemini.")
+            text = call_gemini_agent(prompt, google_key)
+            _modelo_que_respondio["id"] = "gemini"
+            return text
+    except Exception as exc:
+        print(f"⚠️ Gemini fallback unavailable: {exc}")
+    return None
+
+
+def call_bedrock_agent(prompt: str, model_id: str) -> str:
+    """Bedrock with per-minute backoff, then the fallback model chain.
+
+    A daily token quota, ServiceQuotaExceeded, AccessDenied, or throttling
+    that continues after backoff switches immediately to the next model in
+    ``BEDROCK_FALLBACK_MODELS``. OpenAI and Gemini run only when a key exists.
+    """
+    try:
+        text, used = run_model_chain(
+            lambda mid: _invoke_bedrock_once(prompt, mid),
+            fallback_model_ids(model_id),
+            max_attempts=BEDROCK_APP_MAX_ATTEMPTS,
+            sleep=_sleep_before_bedrock_retry,
+            is_transient=_bedrock_error_is_transient,
+        )
+        _modelo_que_respondio["id"] = used
+        if used != model_id:
+            print(f"🔄 Bedrock answered with fallback model {used}")
+        return text
+    except Exception as bedrock_err:
+        print(f"❌ Bedrock model chain failed: {bedrock_err}")
+        alterno = _respaldo_openai_o_gemini(prompt)
+        if alterno:
+            return alterno
+        raise
+
+
+def markdown_de_laboratorio_pendiente(lab_id: str, titulo: str, motivo: str = "") -> str:
+    """Bilingual placeholder. Spanish first. The run continues; this lab is regenerated later."""
+    titulo = (titulo or lab_id or "laboratorio").strip()
+    detalle = (motivo or "error de generación").strip()[:500]
+    return f"""# Lab {lab_id}: {titulo}
+
+> **PENDIENTE DE REGENERACIÓN / PENDING REGENERATION**
+>
+> Este laboratorio no pudo generarse en este intento y queda pendiente de regeneración.
+> This lab could not be generated on this attempt and is pending regeneration.
+>
+> No use este texto como instrucción de práctica.
+> Do not use this text as lab instructions.
+>
+> Motivo / Reason: {detalle}
+
+<!-- {MARCA_PLACEHOLDER} -->
+
+## Descripción general / Overview
+
+Contenido pendiente de regeneración. / Content pending regeneration.
+
+## Objetivos de aprendizaje / Learning objectives
+
+- [ ] Pendiente de regeneración. / Pending regeneration.
+
+## Instrucciones paso a paso / Step-by-step instructions
+
+### Paso 1: Pendiente / Step 1: Pending
+
+**Objetivo / Objective:** Regenerar este laboratorio. / Regenerate this lab.
+
+**Instrucciones / Instructions:**
+
+1. Este paso es un marcador. No lo ejecute. / This step is a marker. Do not run it.
+
+**Resultado esperado / Expected output:** Un laboratorio regenerado. / A regenerated lab.
+
+**Verificación / Verification:** El archivo ya no contiene la marca de pendiente. / The file no longer contains the pending marker.
+"""
+
+
+def put_object_con_reintento(intentos: int = 3, **kwargs):
+    """Retry an S3 put. Return the error instead of raising after the last try."""
+    ultimo = None
+    for intento in range(1, max(1, intentos) + 1):
+        try:
+            return s3_client.put_object(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - the caller records the failure and continues
+            ultimo = exc
+            print(f"⚠️ S3 put attempt {intento}/{intentos} failed: {exc}")
+            if intento < intentos:
+                time.sleep(min(2.0, 0.2 * intento))
+    return ultimo
 
 
 def call_openai_agent(prompt: str, api_key: str, model_id: str = DEFAULT_OPENAI_MODEL) -> str:
@@ -1180,6 +1280,74 @@ def save_lab_guide_to_s3(
     except Exception as e:
         print(f"    ❌ Error saving lab guide: {e}")
         raise
+
+
+def _guardar_guia_con_reintento(
+    bucket: str,
+    project_folder: str,
+    lab_id: str,
+    lab_title: str,
+    lab_guide: str,
+    intentos: int = 3,
+) -> str:
+    """Retry the S3 write. An empty string means the lab was reported, not raised."""
+    for intento in range(1, max(1, intentos) + 1):
+        try:
+            return save_lab_guide_to_s3(
+                bucket=bucket,
+                project_folder=project_folder,
+                lab_id=lab_id,
+                lab_title=lab_title,
+                lab_guide=lab_guide,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"    ⚠️ Save retry {intento}/{intentos} for {lab_id}: {exc}")
+            if intento < intentos:
+                time.sleep(min(2.0, 0.2 * intento))
+    return ""
+
+
+def _entregar_placeholders_tras_fallo(event: dict, exc: Exception) -> Optional[dict]:
+    """If the handler crashes after the lab ids are known, still return a placeholder batch."""
+    if not isinstance(event, dict):
+        return None
+    ids = [lab for lab in (event.get("lab_ids") or []) if lab]
+    bucket = event.get("course_bucket")
+    project = event.get("project_folder")
+    if not ids or not bucket or not project:
+        return None
+    motivo = str(exc)[:500]
+    keys = []
+    avisos = []
+    for lab_id in ids:
+        texto = markdown_de_laboratorio_pendiente(lab_id, lab_id, motivo)
+        key = _guardar_guia_con_reintento(bucket, project, lab_id, lab_id, texto)
+        if key:
+            keys.append(key)
+        avisos.append(
+            {
+                "lab_id": lab_id,
+                "findings": [
+                    {"verificacion": "PLACEHOLDER", "confianza": "media", "valor": motivo[:300]}
+                ],
+            }
+        )
+    print(f"⚠️ Returning {len(keys)} placeholder lab(s) after {type(exc).__name__}")
+    return {
+        "statusCode": 200,
+        "lab_guides_generated": len(keys),
+        "lab_guide_keys": keys,
+        "project_folder": project,
+        "bucket": bucket,
+        "model_provider": event.get("model_provider") or "bedrock",
+        "quality_status": "placeholder",
+        "quality_summary": "PENDIENTE DE REGENERACIÓN / PENDING REGENERATION",
+        "labs_needing_review": [],
+        "quality_warnings": avisos,
+        "placeholders": [{"lab_id": lab_id, "reason": motivo} for lab_id in ids],
+        "failed_lab_ids": list(ids),
+        "models_used": {},
+    }
 
 
 def _strip_outer_markdown_fence(text: str) -> str:
@@ -2261,15 +2429,7 @@ Generate ALL {len(lab_plans)} labs now:
                 response_text = call_gemini_agent(prompt, google_key)
 
         if model_provider == "bedrock":
-            try:
-                response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
-            except Exception as e:
-                if "AccessDenied" in str(e) and DEFAULT_BEDROCK_MODEL != "us.anthropic.claude-sonnet-4-6":
-                    print(f"⚠️ Primary model {DEFAULT_BEDROCK_MODEL} AccessDenied: {e}")
-                    print("🔄 Retrying with fallback model us.anthropic.claude-sonnet-4-6...")
-                    response_text = call_bedrock_agent(prompt, "us.anthropic.claude-sonnet-4-6")
-                else:
-                    raise
+            response_text = call_bedrock_agent(prompt, DEFAULT_BEDROCK_MODEL)
         
         print("✅ AI response received, parsing with delimiters...")
         # Keep full model output for fallbacks (JSON branch mutates working copies)
@@ -2720,6 +2880,9 @@ def lambda_handler(event, context):
         # both GPT-5 and Bedrock handle single-lab requests reliably
         # GPT-5 sometimes skips labs in multi-lab requests
         labs_markdown = {}
+        models_used: Dict[str, str] = {}
+        placeholders: List[dict] = []
+        failed_lab_ids: List[str] = []
         
         # Maps lab_id to its lesson content key
         lab_lesson_keys = event.get('lab_lesson_keys', {})
@@ -2750,12 +2913,16 @@ def lambda_handler(event, context):
                         body = s3_client.get_object(
                             Bucket=course_bucket, Key=existing_key
                         )["Body"].read().decode("utf-8")
-                        if body.strip():
+                        if body.strip() and MARCA_PLACEHOLDER not in body:
                             labs_markdown[lab_id] = body
                             print(
                                 f"  ⏭️  Skipping generation; using existing s3://{course_bucket}/{existing_key}"
                             )
                             continue
+                        if body.strip() and MARCA_PLACEHOLDER in body:
+                            print(
+                                f"  🔁 Existing lab {lab_id} is a placeholder; regenerating"
+                            )
                     except Exception as e:
                         print(f"⚠️  Could not read existing lab {existing_key}, regenerating: {e}")
 
@@ -2771,6 +2938,7 @@ def lambda_handler(event, context):
             previous_lab_context = ""
 
             last_error: Optional[Exception] = None
+            _modelo_que_respondio["id"] = None
             for attempt in range(1, MAX_LAB_GENERATION_ATTEMPTS + 1):
                 try:
                     batch_results = generate_all_labs_batch(
@@ -2970,14 +3138,13 @@ def lambda_handler(event, context):
                             referential_report.setdefault("violaciones", []).append(hallazgo_r1)
 
                         # C6: a Copilot feature, agent, or button must be in the
-                        # verified catalog (or the uploaded manual). Unknown and
-                        # deprecated names retry, and still fail the lab on the
-                        # last attempt. CURRENCY_RETRY=0 only records them.
-                        # This stays a hard batch failure: the draft is not saved.
-                        # The syllabus is the primary source: a surface it names
-                        # (e.g. "agente Asesor de escritura" in MS-4019) is authorized
-                        # just like one the manual names. Deprecated catalog names
-                        # still block.
+                        # verified catalog (or the uploaded manual or the syllabus).
+                        # Unknown and deprecated names retry while attempts remain.
+                        # The last attempt saves the lab and records a warning.
+                        # CURRENCY_RETRY=0 only records them and does not retry.
+                        # A surface the syllabus names is authorized. Deprecated
+                        # catalog names are still findings, and they do not block
+                        # delivery.
                         currency_report = auditar_superficies_copilot(
                             verified_guide,
                             manual="\n".join(
@@ -3007,10 +3174,26 @@ def lambda_handler(event, context):
                             master_context["currency_correction"] = (
                                 mensaje_de_correccion_moneda(bloqueos_moneda)
                             )
-                            raise RuntimeError(
-                                f"C6 currency check failed for {lab_id}: "
-                                f"{len(bloqueos_moneda)} unresolved or deprecated "
-                                f"Copilot surface(s)"
+                            if attempt < MAX_LAB_GENERATION_ATTEMPTS:
+                                raise RuntimeError(
+                                    f"C6 currency check failed for {lab_id}: "
+                                    f"{len(bloqueos_moneda)} unresolved or deprecated "
+                                    f"Copilot surface(s)"
+                                )
+                            for hallazgo in bloqueos_moneda:
+                                referential_report.setdefault("violaciones", []).append(
+                                    {
+                                        "verificacion": "C6",
+                                        "confianza": "media",
+                                        "valor": (
+                                            f"{hallazgo.get('nombre')} "
+                                            f"[{hallazgo.get('tipo')}]"
+                                        ),
+                                    }
+                                )
+                            print(
+                                f"  ⚠️  C6 de {lab_id}: último intento, se guarda "
+                                f"el borrador con advertencia."
                             )
 
                         # Final text: high-confidence findings that survived the last
@@ -3035,6 +3218,7 @@ def lambda_handler(event, context):
                         elif advertencias:
                             labs_quality_warnings[lab_id] = advertencias
                         labs_markdown[lab_id] = verified_guide
+                        models_used[lab_id] = modelo_que_produjo_el_lab() or model_provider
                         print(f"  ✅ Lab {lab_id} generated & verified (Demo={is_demo}) (attempt {attempt}/{MAX_LAB_GENERATION_ATTEMPTS})")
                         break
                     last_error = ValueError(f"Model returned no content for {lab_id}")
@@ -3050,12 +3234,22 @@ def lambda_handler(event, context):
                         _sleep_before_bedrock_retry(attempt - 1)
 
             if lab_id not in labs_markdown:
-                guardar_informe_referencial(course_bucket, project_folder, referential_reports)
-                guardar_informe_moneda(course_bucket, project_folder, currency_reports)
-                msg = f"Lab {lab_id} failed after {MAX_LAB_GENERATION_ATTEMPTS} attempts"
+                motivo = f"Lab {lab_id} failed after {MAX_LAB_GENERATION_ATTEMPTS} attempts"
                 if last_error:
-                    msg += f": {last_error}"
-                raise RuntimeError(msg)
+                    motivo += f": {last_error}"
+                print(f"  ⚠️  {motivo}. Shipping a placeholder.")
+                labs_markdown[lab_id] = markdown_de_laboratorio_pendiente(
+                    lab_id, lab_plan.get("lab_title") or lab_id, motivo
+                )
+                placeholders.append({"lab_id": lab_id, "reason": motivo[:500]})
+                failed_lab_ids.append(lab_id)
+                labs_quality_warnings[lab_id] = [
+                    {
+                        "verificacion": "PLACEHOLDER",
+                        "confianza": "media",
+                        "valor": motivo[:300],
+                    }
+                ]
         
         # Step 3: Save each lab guide to S3
         lab_guide_keys = []
@@ -3070,23 +3264,28 @@ def lambda_handler(event, context):
                 print(f"  ⚠️  Lab {lab_id} not found in generated content, skipping")
                 continue
             
-            try:
-                lab_key = save_lab_guide_to_s3(
-                    bucket=course_bucket,
-                    project_folder=project_folder,
-                    lab_id=lab_id,
-                    lab_title=lab_title,
-                    lab_guide=labs_markdown[lab_id]
-                )
+            lab_key = _guardar_guia_con_reintento(
+                course_bucket, project_folder, lab_id, lab_title, labs_markdown[lab_id]
+            )
+            if lab_key:
                 lab_guide_keys.append(lab_key)
                 print(f"  ✅ Saved lab {lab_id}")
-            except Exception as e:
-                print(f"  ❌ Failed to save lab {lab_id}: {e}")
-                raise RuntimeError(f"Failed to save lab guide {lab_id} to S3: {e}") from e
+            else:
+                print(f"  ❌ Failed to save lab {lab_id} after retries")
+                if lab_id not in failed_lab_ids:
+                    failed_lab_ids.append(lab_id)
+                labs_quality_warnings.setdefault(lab_id, []).append(
+                    {
+                        "verificacion": "S3",
+                        "confianza": "media",
+                        "valor": f"no se pudo guardar {lab_id} tras reintentos",
+                    }
+                )
 
         if len(lab_guide_keys) != len(lab_plans):
-            raise RuntimeError(
-                f"Expected {len(lab_plans)} lab files saved, got {len(lab_guide_keys)}"
+            print(
+                f"  ⚠️  Expected {len(lab_plans)} lab files, saved {len(lab_guide_keys)}. "
+                f"The course continues; failed ids: {failed_lab_ids}"
             )
 
         guardar_informe_referencial(course_bucket, project_folder, referential_reports)
@@ -3101,14 +3300,22 @@ def lambda_handler(event, context):
             for lab_id, hallazgos in labs_quality_warnings.items()
         ]
         quality_status = "needs_review" if revisiones else "passed"
-        quality_summary = resumir_hallazgos(revisiones)
+        if placeholders or failed_lab_ids:
+            quality_summary = resumir_hallazgos(revisiones)
+            if quality_summary == "passed":
+                quality_summary = (
+                    "WARNINGS placeholders="
+                    + ",".join(item["lab_id"] for item in placeholders)
+                )
+        else:
+            quality_summary = resumir_hallazgos(revisiones)
 
         print(f"\n{'='*70}")
         if revisiones:
             print(
                 f"🚫 LAB WRITING NEEDS REVIEW: {len(revisiones)}/{len(lab_plans)} "
                 f"lab(s) keep high-confidence findings after the final retry. "
-                f"Not delivered as passed. {quality_summary}"
+                f"The course is still delivered. {quality_summary}"
             )
         else:
             print(f"✅ LAB WRITING COMPLETED")
@@ -3131,6 +3338,9 @@ def lambda_handler(event, context):
             'quality_summary': quality_summary,
             'labs_needing_review': revisiones,
             'quality_warnings': avisos,
+            'placeholders': placeholders,
+            'failed_lab_ids': failed_lab_ids,
+            'models_used': models_used,
         }
     
     except KeyError as e:
@@ -3141,4 +3351,7 @@ def lambda_handler(event, context):
         print(f"❌ Unexpected error: {e}")
         import traceback
         traceback.print_exc()
+        recuperado = _entregar_placeholders_tras_fallo(event, e)
+        if recuperado:
+            return recuperado
         raise

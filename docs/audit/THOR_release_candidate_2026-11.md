@@ -2,6 +2,8 @@
 
 Integrates the twelve open quality-fix pull requests onto `thor-audit-base` (`dd032f6`, client production testing `79b770c` plus the local audit-base commit). This branch is a release candidate. It was not deployed, and no paid AWS or LLM API was called while it was built.
 
+**Reliability (this branch).** The blocking gates described later in this file are superseded. A quality check retries, then records a warning, and the course is still delivered. Only the lab master plan and the lab planner may fail the execution, and only after retry and model fallback. See [Reliability](#reliability).
+
 Baseline and weights: `docs/audit/THOR_quality_audit_2026-11.md` (branch `cursor/thor-quality-audit-bf07`, commit `195e8190`). That document scored the October instructor findings at **33.5%**. The percents below are an estimate of how far the wired checks close those gaps. They are not a new instructor review of generated courses. Items 10 and 11 did not move.
 
 ## Merge order
@@ -141,21 +143,21 @@ Offline cases taken from the QA dead links: an invented support topic `bienvenid
 
 | Name | Where | Default | Effect |
 | --- | --- | --- | --- |
-| `LINK_AUDIT_GATE` | `PostGenerationAuditFunction` | `1` | `0` keeps dead links in the report and sets `gate.bloquea` false. |
-| `LINK_REPAIR` | `PostGenerationAuditFunction` | `1` | Before the gate blocks, replace a dead URL when the catalog, manual, or syllabus page is a close topical match, or drop the URL and keep the text. The same edits are written to the Lab Guide book. Then the labs are re-audited. `0` blocks on the first report and does not touch the book. |
+| `LINK_AUDIT_GATE` | `PostGenerationAuditFunction` | `0` | Off. Dead links stay in the report. `1` sets `gate.bloquea`, and the state machine records that flag and still delivers. |
+| `LINK_REPAIR` | `PostGenerationAuditFunction` | `1` | Replace a dead URL when the catalog, manual, or syllabus page is a close topical match, or drop the URL and keep the text. The same edits are written to the Lab Guide book. Then the labs are re-audited. `0` does not rewrite. |
 | `READING_BUDGET_RETRY` | `StrandsLabWriter` | `1` | Over-budget prose retries with the measured counts. `0` records a medium finding and ships. The last attempt never fails the lab for length. |
 | `LAB_READING_WORDS_PER_MINUTE` | `StrandsLabWriter` | `60` | Student-facing words allowed per declared minute. 60 of a 200-word reading speed is 30% of the slot. |
 | `LAB_READING_SPEED_WPM` | `StrandsLabWriter` | `200` | Reading speed used to explain the budget. It is not the budget. |
 | `LAB_ANNEX_MAX_WORDS` | `StrandsLabWriter` | `500` | Cap for the fictitious-data annex. Counted apart from the body, fences included. |
 | `COPILOT_CATALOG_RETRIEVAL` | `StrandsLabWriter` | `0` | `1` refreshes the catalog from Microsoft Learn before the currency check. |
-| `CURRENCY_RETRY` | `StrandsLabWriter` | `1` | Blocking Copilot names retry. On the last attempt the lab is not saved and the batch fails. `0` records the finding and ships the lab. |
+| `CURRENCY_RETRY` | `StrandsLabWriter` | `1` | Blocking Copilot names retry. The last attempt saves the lab and records C6 as a medium warning. `0` records the finding and ships without a retry. |
 | `VALIDATION_EVIDENCE_RETRY` | `StrandsLabWriter` | `1` | Retries a lab whose validation steps are not measurable, until the last attempt, which still ships. |
 | `DELIVERABLES_RETRY` | writer code, not in the template | `0` | Extra model retry for deliverable findings. Off. |
 | `REQUIREMENTS_RETRY` | writer (pre-existing) | `1` | Unchanged. |
 | `ENTORNO_RETRY` | writer (pre-existing) | `1` | Unchanged. |
 | `LAB_SKIP_IF_EXISTS` | `StrandsLabWriter` | `true` | Unchanged. Disabled when `update_mode` or `force_regenerate` is set. |
 
-The quality gate and the format budget have no off switch. Turning them off means redeploying the previous state machine and planner.
+The quality gate and the format budget still run. They no longer fail the course: findings are warnings on `validation/quality-report.json`. See [Reliability](#reliability).
 
 ## Deployment checklist
 
@@ -248,9 +250,45 @@ Item 6 moved for the link-repair follow-up above. This is still an estimate of w
 
 - This candidate is not deployed. Deploy only after review, with `CG-Backend/deploy.ps1` against `crewai-course-generator-stack`.
 - `sam validate` and `sam build` were not run here. SAM CLI is not installed in the environment that built the branch.
-- `LINK_AUDIT_GATE=1` still fails a course when a public 404/410/NXDOMAIN remains after one repair pass. `LINK_REPAIR=1` replaces that URL only when a living catalog, manual, or syllabus page is a close topical match, and writes the same edit into the Lab Guide book. Otherwise it removes the URL. `CURRENCY_RETRY=1` still fails a lab whose Copilot surface is missing from the snapshot and not named by the manual or the syllabus.
-- A selective content update of a plan that is still over the format budget now stops at `needs_review`. Those courses need a full regeneration so the planner can merge labs.
-- The quality gate cannot be disabled with an environment variable. Rollback is a redeploy of `thor-audit-base`.
+- `LINK_AUDIT_GATE` now defaults to `0`. `LINK_REPAIR=1` still rewrites a dead URL when a living catalog, manual, or syllabus page is a close topical match, and writes the same edit into the Lab Guide book. A remaining dead link is a warning. `CURRENCY_RETRY=1` retries, then saves the lab with a C6 warning.
+- A selective content update of a plan that is still over the format budget records a warning and still saves the plan. A full regeneration is how the planner merges labs down to the ceiling.
+- The quality gate still runs. It does not fail the course. Rollback of this reliability behavior is a redeploy of the previous `thor-release-candidate` revision.
 - Item 10 is still open, and item 11 has no new generated evidence. The 70.3% figure is the estimate in the table above.
-- To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. To restore block-on-first-dead-link, set `LINK_REPAIR=0`.
+- To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. `LINK_REPAIR=0` skips the rewrite and still delivers.
 - Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), "agente de IA" is not an unknown product (`bf0feb63`), and `ppt_quality.py` is packaged with DeckBuilder (`5f8f21de`). Those are not remaining blockers.
+
+## Reliability
+
+Course generation is not blocked by a quality check. A check repairs or retries, then degrades to a warning. The course is delivered. Findings go to the owner (`OWNER_ALERT_EMAIL`, default `juan.ossa@netec.com`) and to `<project>/validation/quality-report.json`. The learner receives the normal delivered email. A failure is not shown to the learner unless the lab master plan or the lab planner failed after retry and model fallback.
+
+Production sample that motivated this (12 runs): 7 failed on our own gates (link gate 4, C6 currency 2, B5 1), 2 failed on Bedrock `ThrottlingException` "Too many tokens per day" for `us.anthropic.claude-opus-4-6-v1`, and 2 succeeded while dropping a deliverable (Setup Guide `LayoutError` on a 2x8 table, DeckBuilder `ImportModuleError` fixed in `5f8f21de`). Applied quotas: Opus 4.6 at 5 RPM / 3M TPM, Sonnet 4.6 at 10 RPM / 6M TPM.
+
+What changed:
+
+- `CheckLabValidation` and the plan stamps no longer end in `FailLabQualityGate`. `NotifyQualityReview` records `$.quality_issues.lab_quality` and continues to lab expansion or `InvokeLabGuideBuilder`. It does not email the learner.
+- `all_valid=false` runs one targeted regeneration (`RegenerateInvalidLabs`, `force_regenerate`) and then delivers with `RecordStructuralWarning`.
+- B1/B2/B3p/B5/B6 and a missing objective already shipped the last draft. C6 now does the same: the last attempt saves the lab and records a medium warning. The format cap records `quality_warning` and still saves the plan. The reading budget already shipped on the last attempt.
+- S3 lab writes retry. A count mismatch is logged and the batch continues.
+- `CheckLinkAudit` records a warning and continues to the decks. `LINK_AUDIT_GATE` defaults to `0`. `LINK_REPAIR` stays `1`. `FailLinkAudit` is gone.
+- Theory: `BatchFailState` and `VisualPlannerFailed` are Pass states. `GenerateBatchImages` has a Catch. A content-generation exception writes a bilingual text-only placeholder lesson and returns 200. The theory map Catch still builds the book from whatever lessons exist.
+- Lab maps retry `RuntimeError` once after 120 seconds. The per-lab fail state is a Pass, so one lab cannot fail the Map. The writer returns a bilingual placeholder marked `AURORA_PLACEHOLDER_PENDING_REGENERATION`.
+- Builders (`InvokeBookBuilder`, `InvokeLabGuideBuilder`, Setup Guide, decks, audit) retry with backoff and then record the issue. A missing PPT is `PPT missing`. A missing Setup PDF is `PDF missing`. The course continues.
+- Every new Catch appends one key under `$.quality_issues` (`step`, `error`, `severity`, and `deliverable` when a file is missing). Replacing Pass states copy `quality_issues` so it is not dropped.
+- Bedrock calls switch immediately on a daily token quota (`per day`), `ServiceQuotaExceeded`, or `AccessDenied`. Per-minute throttling uses exponential backoff with jitter and switches after the third throttle on that model. The chain is the primary model, then `BEDROCK_FALLBACK_MODELS` (default `us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0`), then the existing OpenAI or Gemini path when those secrets are configured. The model that answered is stored on the lab and in the quality report. The same chain is used by the lab writer, the lab planner, content generation, and the visual planner.
+- `deploy.ps1` runs `scripts/import_handlers_smoke.py` after `sam build` and aborts on `ImportError`.
+- `scripts/canary_course.py` is not part of deploy. The default is a dry run. `--execute` starts one small Spanish course (one module, theory and labs). `scripts/check_execution_artifacts.py` checks labs, the lab-guide book, a PPTX, and `setupguide/Setup_Guide.pdf`. Exit 0 is complete, 2 means delivered with placeholders, 1 means a file is missing.
+
+Resume a placeholder lab: start a new execution with `lab_ids_to_regenerate` set to `failed_lab_ids` from `validation/quality-report.json` and leave `LAB_SKIP_IF_EXISTS=true`. Files that contain `AURORA_PLACEHOLDER_PENDING_REGENERATION` are rewritten. Finished labs are reused.
+
+Flags added or changed:
+
+| Name | Where | Default |
+| --- | --- | --- |
+| `BEDROCK_FALLBACK_MODELS` | ContentGen, VisualPlanner, LabPlanner, LabWriter | `us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| `OWNER_ALERT_EMAIL` | StrandsNotification | `juan.ossa@netec.com` |
+| `LINK_AUDIT_GATE` | PostGenerationAudit | `0` (was `1`) |
+| `LINK_REPAIR` | PostGenerationAudit | `1` (unchanged) |
+
+Reliability target after deploy: 10 consecutive mixed courses, 100% delivered, and at least 90% with zero placeholders. Daily QA budget in production: 2 full courses. The canary is a separate small run, not one of those two.
+
+The state machine stays fully reachable (more than 57 top-level states). `NotifyFailure` remains only on the planner and master-plan path, and it goes to `FailWorkflow`.

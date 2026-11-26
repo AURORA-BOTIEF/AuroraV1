@@ -3,6 +3,12 @@ import boto3
 import os
 import logging
 
+from quality_report import (
+    alerta_al_propietario,
+    construir_informe_de_calidad,
+    informe_tiene_hallazgos,
+)
+
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -41,35 +47,37 @@ def construir_notificacion(
 ):
     """Subject and bodies for success, failure, needs_review, and partial warnings.
 
-    needs_review is not a successful delivery: the copy names the labs that
-    still have high-confidence findings. Low-confidence lab warnings are not a
-    reason to use this status. A succeeded run whose Setup Guide, post-generation
-    audit, or decks failed is a warning, not a clean success and not a gate failure.
+    needs_review and link_audit_failed say the course was delivered and point at
+    the quality report. The learner email from a succeeded execution uses the
+    success copy. The owner receives alerta_al_propietario when there are findings.
     """
     proyecto = project_folder or "Proyecto Desconocido"
     detalle = error_message or "Hallazgos de alta confianza pendientes de revisión."
     arn = execution_arn or "N/A"
     parciales = [p for p in (advertencias_parciales or []) if p]
     if status == "link_audit_failed":
-        subject = f"🚫 Curso no entregado por enlaces muertos: {proyecto}"
+        subject = f"⚠️ Enlaces muertos, curso entregado: {proyecto}"
         intro = (
-            f"La generación del curso para el proyecto '{proyecto}' no se entregó. "
+            f"El curso '{proyecto}' se entregó. "
             "La auditoría encontró enlaces públicos muertos (HTTP 404, 410 o un dominio "
-            "que no existe). Los códigos 403, 429 y 5xx no detienen el curso. "
-            "El detalle está en labguide/enlaces.json."
-        )
-        color = "#d32f2f"
-        titulo = "Enlaces públicos muertos"
-    elif status == "needs_review":
-        subject = f"⚠️ Curso pendiente de revisión: {proyecto}"
-        intro = (
-            f"La generación del curso para el proyecto '{proyecto}' no se entregó. "
-            "Quedaron hallazgos de alta confianza después del último reintento "
-            "(cantidades o duración del temario, objetivos, ficheros no declarados, "
-            "entorno u otras validaciones de alta confianza). El borrador queda para revisión."
+            "que no existe) y el detalle quedó en labguide/enlaces.json. "
+            "The course was delivered. Dead public links (HTTP 404, 410, or DNS) "
+            "are recorded in labguide/enlaces.json and do not block delivery."
         )
         color = "#ed6c02"
-        titulo = "Curso pendiente de revisión"
+        titulo = "Enlaces públicos muertos / Dead public links"
+    elif status == "needs_review":
+        subject = f"⚠️ Curso entregado con hallazgos: {proyecto}"
+        intro = (
+            f"El curso '{proyecto}' se entregó. "
+            "Quedaron hallazgos de alta confianza después del último reintento "
+            "(cantidades o duración del temario, objetivos, ficheros no declarados, "
+            "entorno u otras validaciones). El detalle está en validation/quality-report.json. "
+            "The course was delivered. High-confidence findings remain after the last "
+            "retry and are listed in validation/quality-report.json."
+        )
+        color = "#ed6c02"
+        titulo = "Curso entregado con hallazgos / Delivered with findings"
     elif status == "failed":
         subject = f"❌ Error en Generación de Curso: {proyecto}"
         intro = f"La generación del curso para el proyecto '{proyecto}' ha fallado."
@@ -122,8 +130,10 @@ def construir_notificacion(
         Hola,
         
         La generación del curso para el proyecto '{proyecto}' ha finalizado exitosamente.
+        The course for project '{proyecto}' was generated successfully.
         
         Ya puedes ver y editar el contenido del curso en el panel de Aurora.
+        You can now view and edit the course in the Aurora panel.
         
         Execution ARN: {arn}
         
@@ -137,7 +147,8 @@ def construir_notificacion(
           <h1 style="color: #2e7d32;">Generación de Curso Completada</h1>
           <p>Hola,</p>
           <p>La generación del curso para el proyecto <b>{proyecto}</b> ha finalizado exitosamente.</p>
-          <p>Ya puedes ver y editar el contenido del curso en el panel de Aurora.</p>
+          <p>The course for project <b>{proyecto}</b> was generated successfully.</p>
+          <p>Ya puedes ver y editar el contenido del curso en el panel de Aurora. / You can now view and edit the course in the Aurora panel.</p>
           <div style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin: 20px 0; font-size: 12px;">
             <strong>Execution ARN:</strong><br>
             <code>{arn}</code>
@@ -264,64 +275,121 @@ def lambda_handler(event, context):
         if event.get(warning_key) is not None or workflow_input.get(warning_key) is not None:
             partial_warnings.append(label)
 
-    estado_correo = status
-    if _compuerta_de_enlaces_muertos(event):
-        estado_correo = "link_audit_failed"
-        if not error_message or error_message == "Error desconocido":
-            error_message = (
-                "Enlaces públicos muertos (404, 410 o DNS). "
-                "Revise labguide/enlaces.json."
-            )
-
-    logger.info(
-        "QUALITY GATE notification status=%s project=%s detail=%s warnings=%s",
-        estado_correo,
-        project_folder,
-        error_message,
-        partial_warnings,
-    )
-    subject, body_text, body_html = construir_notificacion(
-        estado_correo,
-        project_folder,
-        error_message,
-        execution_arn,
-        admin_email,
-        advertencias_parciales=partial_warnings,
-    )
-    
-    # Send emails individually to prevent one unverified email from blocking others
-    results = []
-    for recipient in recipients:
-        try:
-            response = ses_client.send_email(
-                Source=sender_email,
-                Destination={
-                    'ToAddresses': [recipient]
-                },
-                Message={
-                    'Subject': {
-                        'Data': subject,
-                        'Charset': 'UTF-8'
-                    },
-                    'Body': {
-                        'Text': {
-                            'Data': body_text,
-                            'Charset': 'UTF-8'
-                        },
-                        'Html': {
-                            'Data': body_html,
-                            'Charset': 'UTF-8'
-                        }
+    owner_email = (os.getenv("OWNER_ALERT_EMAIL") or admin_email).strip() or admin_email
+    try:
+        informe = construir_informe_de_calidad(event)
+        if partial_warnings and not any(
+            item.get("deliverable") in ("PDF missing", "PPT missing") for item in informe["quality_issues"]
+        ):
+            for etiqueta in partial_warnings:
+                entrega = "PDF missing" if "Setup" in etiqueta else ("PPT missing" if "Deck" in etiqueta else "")
+                informe["quality_issues"].append(
+                    {
+                        "step": etiqueta,
+                        "error": etiqueta,
+                        "severity": "error" if entrega else "warning",
+                        "deliverable": entrega,
                     }
-                }
+                )
+            informe["missing_deliverables"] = sorted(
+                {item["deliverable"] for item in informe["quality_issues"] if item.get("deliverable")}
             )
-            logger.info(f"Email sent successfully to {recipient}. MessageId: {response['MessageId']}")
-            results.append(f"Success: {recipient}")
-        except Exception as e:
-            logger.error(f"Error sending email to {recipient}: {str(e)}")
-            results.append(f"Failed: {recipient} - {str(e)}")
+        _escribir_informe_de_calidad(event, informe)
+    except Exception as exc:
+        logger.error("Quality report failed open: %s", exc)
+        informe = {
+            "quality_issues": [],
+            "placeholders": [],
+            "failed_lab_ids": [],
+            "missing_deliverables": [],
+        }
+
+    curso_entregado = status not in ("failed",)
+    if curso_entregado:
+        # The learner always gets the normal delivered email. Findings go to the owner.
+        subject, body_text, body_html = construir_notificacion(
+            "success",
+            project_folder,
+            "",
+            execution_arn,
+            owner_email,
+        )
+        destinatarios_usuario = [correo for correo in recipients if correo.lower() != owner_email.lower()]
+        if not destinatarios_usuario:
+            destinatarios_usuario = [correo for correo in recipients if correo.lower() != admin_email.lower()]
+        results = _enviar(sender_email, destinatarios_usuario or recipients, subject, body_text, body_html)
+        if informe_tiene_hallazgos(informe) or status in ("needs_review", "quality_report", "link_audit_failed"):
+            asunto_owner, texto_owner = alerta_al_propietario(informe, execution_arn, project_folder)
+            results.extend(_enviar(sender_email, [owner_email], asunto_owner, texto_owner, f"<pre>{texto_owner}</pre>"))
+        elif owner_email.lower() not in {correo.lower() for correo in destinatarios_usuario}:
+            results.extend(_enviar(sender_email, [owner_email], subject, body_text, body_html))
+    else:
+        estado_correo = status
+        if _compuerta_de_enlaces_muertos(event):
+            estado_correo = "link_audit_failed"
+        subject, body_text, body_html = construir_notificacion(
+            estado_correo,
+            project_folder,
+            error_message,
+            execution_arn,
+            owner_email,
+            advertencias_parciales=partial_warnings,
+        )
+        if owner_email not in recipients:
+            recipients.append(owner_email)
+        results = _enviar(sender_email, recipients, subject, body_text, body_html)
 
     return {
         'statusCode': 200,
         'body': json.dumps(f'Notification process completed. Results: {", ".join(results)}')
     }
+
+
+def _enviar(sender_email, destinatarios, subject, body_text, body_html):
+    """Send one message per recipient. One bad address does not block the rest."""
+    results = []
+    vistos = set()
+    for recipient in destinatarios:
+        if not recipient or recipient.lower() in vistos:
+            continue
+        vistos.add(recipient.lower())
+        try:
+            response = ses_client.send_email(
+                Source=sender_email,
+                Destination={'ToAddresses': [recipient]},
+                Message={
+                    'Subject': {'Data': subject, 'Charset': 'UTF-8'},
+                    'Body': {
+                        'Text': {'Data': body_text, 'Charset': 'UTF-8'},
+                        'Html': {'Data': body_html, 'Charset': 'UTF-8'},
+                    },
+                },
+            )
+            logger.info("Email sent to %s. MessageId: %s", recipient, response.get("MessageId"))
+            results.append(f"Success: {recipient}")
+        except Exception as exc:
+            logger.error("Error sending email to %s: %s", recipient, exc)
+            results.append(f"Failed: {recipient} - {exc}")
+    return results
+
+
+def _escribir_informe_de_calidad(event, informe):
+    """Write <project>/validation/quality-report.json. A write error must not fail delivery."""
+    datos = event.get("input") if isinstance(event.get("input"), dict) else event
+    if not isinstance(datos, dict):
+        datos = {}
+    proyecto = informe.get("project_folder") or datos.get("project_folder")
+    bucket = datos.get("course_bucket") or os.getenv("COURSE_BUCKET") or "crewai-course-artifacts"
+    if not proyecto:
+        return
+    try:
+        s3 = boto3.client("s3")
+        s3.put_object(
+            Bucket=bucket,
+            Key=f"{proyecto}/validation/quality-report.json",
+            Body=json.dumps(informe, ensure_ascii=False, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+        logger.info("Quality report written to s3://%s/%s/validation/quality-report.json", bucket, proyecto)
+    except Exception as exc:
+        logger.error("Could not write quality report: %s", exc)

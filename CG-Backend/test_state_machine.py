@@ -196,6 +196,8 @@ def _cumple(condicion, datos):
         return valor == condicion["NumericEquals"]
     if "BooleanEquals" in condicion:
         return valor is condicion["BooleanEquals"]
+    if "NumericGreaterThan" in condicion:
+        return isinstance(valor, (int, float)) and valor > condicion["NumericGreaterThan"]
     return False
 
 
@@ -277,22 +279,22 @@ def test_el_flujo_solo_laboratorios_llega_al_final_sin_perder_campos():
 def test_el_flujo_solo_laboratorios_pasa_por_la_compuerta_de_enlaces():
     """Labs-only used to finish without a link check when the Setup Guide threw.
 
-    The happy path and the guide-failure catch both enter the audit, and a
-    dead-link payload still fails the execution as LinkAuditFailed.
+    The happy path and the guide-failure catch both enter the audit. A dead-link
+    payload is recorded and the course still continues to the decks.
     """
     estados = _definicion()["States"]
     visitados = _recorrer(estados, "labs")
     auditoria = visitados.index("InvokePostGenerationAudit")
     compuerta = visitados.index("CheckLinkAudit")
     assert auditoria < compuerta < visitados.index("SuccessState")
-    assert estados["InvokeSetupGuide"]["Catch"][0]["Next"] == "InvokePostGenerationAudit"
+    assert estados["InvokeSetupGuide"]["Catch"][0]["Next"] == "RecordSetupGuideIssue"
+    assert estados["RecordSetupGuideIssue"]["Next"] == "InvokePostGenerationAudit"
     bloqueado = _destino_de_choice(estados["CheckLinkAudit"], {
         "audit_result": {"Payload": {"gate": {"bloquea": True}}},
     })
-    assert bloqueado == "NotifyFailure"
-    assert estados["FailLinkAudit"]["Error"] == "LinkAuditFailed"
-    assert "labguide/enlaces.json" in estados["FailLinkAudit"]["Cause"]
-    assert "validation/link-audit.json" not in estados["FailLinkAudit"]["Cause"]
+    assert bloqueado == "RecordLinkAuditWarning"
+    assert estados["RecordLinkAuditWarning"]["Next"] == "InvokeDeckBuilder"
+    assert "FailLinkAudit" not in estados
 
 
 def test_todos_los_estados_siguen_siendo_alcanzables():
@@ -402,39 +404,39 @@ def test_la_setup_guide_se_genera_despues_de_los_labs_y_no_bloquea():
     assert guia["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert guia["Parameters"]["Payload"]["course_bucket.$"] == "$.course_bucket"
     atrapa = guia["Catch"][0]
-    assert atrapa["Next"] == "InvokePostGenerationAudit", (
-        "un fallo del PDF no debe saltarse la auditoría de enlaces"
+    assert atrapa["Next"] == "RecordSetupGuideIssue", (
+        "un fallo del PDF se registra y no se salta la auditoría de enlaces"
     )
     assert atrapa["ResultPath"] == "$.setup_guide_error"
+    assert estados["RecordSetupGuideIssue"]["Next"] == "InvokePostGenerationAudit"
+    assert estados["RecordSetupGuideIssue"]["Parameters"]["deliverable"] == "PDF missing"
 
 
-def test_los_enlaces_muertos_son_compuerta_y_un_fallo_de_lambda_no():
-    """404/410/NXDOMAIN fail the course. A Lambda crash still does not.
+def test_los_enlaces_muertos_se_registran_y_el_curso_sigue():
+    """Dead links are a warning. A Lambda crash still does not fail the course.
 
-    The gate is ``Payload.gate.bloquea``, not an exception: the Catch keeps
-    going to NotifyCompletion so a crash cannot hide a written dead-link report,
-    and a crash by itself still does not fail the course.
+    The gate field is recorded when it is true, then the decks still run.
+    The audit Catch records the crash and continues to NotifyCompletion.
     """
     estados = _definicion()["States"]
     assert estados["InvokeSetupGuide"]["Next"] == "InvokePostGenerationAudit"
     auditoria = estados["InvokePostGenerationAudit"]
     assert auditoria["Next"] == "CheckLinkAudit"
     assert auditoria["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
-    assert auditoria["Catch"][0]["Next"] == "NotifyCompletion"
+    assert auditoria["Catch"][0]["Next"] == "RecordAuditIssue"
     assert auditoria["Catch"][0]["ResultPath"] == "$.audit_error"
+    assert estados["RecordAuditIssue"]["Next"] == "NotifyCompletion"
     compuerta = estados["CheckLinkAudit"]
     assert compuerta["Type"] == "Choice"
     assert compuerta["Default"] == "InvokeDeckBuilder"
     eleccion = compuerta["Choices"][0]
     assert eleccion["Variable"] == "$.audit_result.Payload.gate.bloquea"
     assert eleccion["BooleanEquals"] is True
-    assert eleccion["Next"] == "NotifyFailure"
-    assert estados["NotifyFailure"]["Next"] == "RouteTerminalFailure"
-    ruta = estados["RouteTerminalFailure"]
-    assert ruta["Choices"][0]["Next"] == "FailLinkAudit"
-    assert ruta["Default"] == "FailWorkflow"
-    assert estados["FailLinkAudit"]["Error"] == "LinkAuditFailed"
-    assert estados["FailLinkAudit"]["Type"] == "Fail"
+    assert eleccion["Next"] == "RecordLinkAuditWarning"
+    assert estados["RecordLinkAuditWarning"]["Next"] == "InvokeDeckBuilder"
+    assert estados["NotifyFailure"]["Next"] == "FailWorkflow"
+    assert "FailLinkAudit" not in estados
+    assert "RouteTerminalFailure" not in estados
 
 
 def _destino_de_choice(estado, datos):
@@ -446,11 +448,11 @@ def _destino_de_choice(estado, datos):
     return destino
 
 
-def test_la_puerta_no_entrega_hallazgos_de_alta_confianza():
-    """After the final retry, high-confidence findings leave the success path.
+def test_la_puerta_entrega_el_curso_aunque_haya_hallazgos():
+    """High-confidence findings and structural errors still build the lab book.
 
-    Structural errors still go to NotifyFailure. Shadow mode still bypasses.
-    A clean lab (all_valid, no needs_review) still builds the book.
+    The first structural failure regenerates the invalid labs once. A second
+    failure, and every needs_review stamp, continue. Shadow mode still bypasses.
     """
     estados = _definicion()["States"]
     puerta = estados["CheckLabValidation"]
@@ -467,23 +469,40 @@ def test_la_puerta_no_entrega_hallazgos_de_alta_confianza():
     }) == "InvokeLabGuideBuilder"
 
     assert _destino_de_choice(puerta, {
-        "lab_validation_result": {"all_valid": False},
+        "lab_validation_result": {"all_valid": False, "invalid_lab_ids": ["01-01-01"]},
         "lab_quality_decision": {"needs_review": False},
-    }) == "NotifyFailure"
+    }) == "CountInvalidLabs"
+
+    assert _destino_de_choice(puerta, {
+        "lab_validation_result": {"all_valid": False},
+        "structural_retry_done": True,
+    }) == "RecordStructuralWarning"
 
     assert _destino_de_choice(puerta, {
         "lab_validation_result": {"all_valid": True},
         "lab_quality_decision": {"needs_review": False},
     }) == "InvokeLabGuideBuilder"
 
-    fallo = estados["FailLabQualityGate"]
-    assert fallo["Type"] == "Fail"
-    assert fallo["Error"] == "LabQualityNeedsReview"
-    assert fallo["CausePath"] == "$.quality_gate.cause"
+    assert "FailLabQualityGate" not in estados
     aviso = estados["NotifyQualityReview"]
-    assert aviso["Parameters"]["Payload"]["status"] == "needs_review"
-    assert aviso["Next"] == "FailLabQualityGate"
-    assert aviso["Catch"][0]["Next"] == "FailLabQualityGate"
+    assert aviso["Type"] == "Pass"
+    assert aviso["Next"] == "RouteAfterQualityReview"
+    assert aviso["ResultPath"] == "$.quality_issues.lab_quality"
+    assert "Payload" not in aviso.get("Parameters", {})
+    ruta = estados["RouteAfterQualityReview"]
+    assert _destino_de_choice(ruta, {"quality_gate": {"source": "labs"}}) == "InvokeLabGuideBuilder"
+    assert _destino_de_choice(ruta, {"quality_gate": {"source": "labs_plan"}}) == "ExpandLabsToBatches"
+    assert _destino_de_choice(ruta, {"quality_gate": {"source": "both_plan"}}) == "BothTheoryAndLabsBranch"
+    assert estados["RecordStructuralWarning"]["Next"] == "InvokeLabGuideBuilder"
+    assert estados["RegenerateInvalidLabs"]["Next"] == "MarkStructuralRetryDone"
+    assert estados["MarkStructuralRetryDone"]["Next"] == "ValidateLabContent"
+    assert estados["RegenerateInvalidLabs"]["Catch"][0]["Next"] == "RecordStructuralWarning"
+    assert _destino_de_choice(estados["CheckInvalidLabCount"], {
+        "structural_invalid_count": {"n": 1},
+    }) == "RegenerateInvalidLabs"
+    assert _destino_de_choice(estados["CheckInvalidLabCount"], {
+        "structural_invalid_count": {"n": 0},
+    }) == "RecordStructuralWarning"
 
 
 def test_el_plan_con_hallazgos_de_alta_no_sigue_como_exito():
@@ -561,8 +580,81 @@ def test_los_decks_se_generan_tras_la_auditoria_y_no_bloquean():
     assert decks["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert decks["Parameters"]["Payload"]["course_bucket.$"] == "$.course_bucket"
     atrapa = decks["Catch"][0]
-    assert atrapa["Next"] == "NotifyCompletion"
+    assert atrapa["Next"] == "RecordDeckIssue"
     assert atrapa["ResultPath"] == "$.decks_error"
+    assert estados["RecordDeckIssue"]["Next"] == "NotifyCompletion"
+    assert estados["RecordDeckIssue"]["Parameters"]["deliverable"] == "PPT missing"
+
+
+def test_un_laboratorio_roto_no_tumba_el_mapa():
+    """RuntimeError retries once. The per-lab fail state is a Pass, so the Map continues."""
+    estados = _definicion()["States"]
+    for mapa, generar, fallo in (
+        ("ProcessLabBatchesInParallel", "GenerateLabBatch", "LabBatchFailState"),
+        ("ProcessLabBatchesInParallelBoth", "GenerateLabBatchBoth", "LabBatchFailStateBoth"),
+    ):
+        interno = estados[mapa]["Iterator"]["States"]
+        reintentos = interno[generar]["Retry"]
+        runtime = [item for item in reintentos if "RuntimeError" in item["ErrorEquals"]]
+        assert runtime and runtime[0]["MaxAttempts"] == 1
+        assert runtime[0]["IntervalSeconds"] == 120
+        assert interno[fallo]["Type"] == "Pass"
+        assert interno[fallo]["End"] is True
+        assert interno[fallo]["Parameters"]["failed_lab_ids.$"] == "$.lab_batch.lab_ids"
+        assert interno[generar]["Catch"][0]["Next"] == fallo
+        assert estados[mapa]["Catch"][0]["Next"] == "RecordLabMapFailure"
+    assert estados["RecordLabMapFailure"]["Next"] == "InvokeLabGuideBuilder"
+
+
+def test_la_teoria_degradada_sigue_hasta_el_libro():
+    teoria = _definicion()["States"]["ProcessBatchesInParallel"]["Iterator"]["States"]
+    assert teoria["BatchFailState"]["Type"] == "Pass"
+    assert teoria["BatchFailState"]["End"] is True
+    assert teoria["VisualPlannerFailed"]["Type"] == "Pass"
+    assert teoria["VisualPlannerFailed"]["Next"] == "BatchComplete"
+    assert teoria["GenerateBatchImages"]["Catch"][0]["Next"] == "ImagesDegraded"
+    assert teoria["ImagesDegraded"]["Next"] == "BatchComplete"
+    estados = _definicion()["States"]
+    assert estados["ProcessBatchesInParallel"]["Catch"][0]["Next"] == "RecordTheoryMapFailure"
+    assert estados["RecordTheoryMapFailure"]["Next"] == "DegradeToBook"
+    assert estados["DegradeToBook"]["Next"] == "InvokeBookBuilder"
+    assert estados["CheckBatchExpansionSuccess"]["Default"] == "RecordModuleExpandPayload"
+
+
+def test_los_constructores_no_fallan_el_curso_y_el_planificador_si_puede():
+    estados = _definicion()["States"]
+    assert estados["InvokeBookBuilder"]["Catch"][0]["Next"] == "RecordBookIssue"
+    assert estados["RecordBookIssue"]["Next"] == "CheckIfLabsNeeded"
+    assert estados["InvokeLabGuideBuilder"]["Catch"][0]["Next"] == "RecordLabGuideIssue"
+    assert estados["RecordLabGuideIssue"]["Next"] == "InvokeSetupGuide"
+    assert estados["GenerateLabMasterPlan"]["Catch"][0]["Next"] == "RecordPlannerFailure"
+    assert estados["InvokeLabPlanner"]["Catch"][0]["Next"] == "RecordPlannerFailure"
+    assert estados["RecordPlannerFailure"]["Next"] == "NotifyFailure"
+    assert estados["NotifyFailure"]["Next"] == "FailWorkflow"
+    for nombre in (
+        "ResumePostTheoryBranch",
+        "BothTheoryAndLabsBranch",
+        "CombineLabResults",
+        "CombineLabResultsBoth",
+        "CombineResultsAndBuildBook",
+        "CombineResultsAndBuildBookBoth",
+        "PrepareRegenerationParams",
+        "PrepareNewCourseParams",
+    ):
+        assert estados[nombre]["Parameters"]["quality_issues.$"] == "$.quality_issues"
+    producidas = _raices_de_parametros(estados["CombineLabResults"]["Parameters"])
+    carga = estados["RegenerateInvalidLabs"]["Parameters"]["Payload"]
+    for clave, ruta in carga.items():
+        if not clave.endswith(".$"):
+            continue
+        raiz = _raiz(ruta)
+        if raiz == "lab_validation_result":
+            continue
+        assert raiz in producidas, raiz
+    ambas = _raices_de_parametros(estados["CombineLabResultsBoth"]["Parameters"])
+    assert "master_plan_key" in ambas
+    assert "theory_warnings" in ambas
+    assert len(estados) >= 57
 
 
 if __name__ == "__main__":

@@ -12,12 +12,17 @@ Features:
 
 import os
 import json
+import random
+import time
 import yaml
 import re
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+
+from bedrock_fallback import fallback_model_ids, run_model_chain
 
 from format_budget import aplicar_presupuesto_de_formato, sin_ajuste
 from manual_context import select_manual_context, flatten_to_text
@@ -482,33 +487,95 @@ def extract_all_labs(
     return labs
 
 
-def call_bedrock_agent(prompt: str, model_id: str) -> str:
-    """Call AWS Bedrock with Strands Agents pattern."""
-    try:
-        payload = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 32000,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.7
-        }
-        
-        response = bedrock_client.invoke_model(
-            modelId=model_id,
-            body=json.dumps(payload),
-            contentType='application/json',
-            accept='application/json'
+_PLANNER_BEDROCK_ATTEMPTS = max(1, int(os.getenv("BEDROCK_APP_MAX_ATTEMPTS", "5")))
+_modelo_que_respondio: dict = {"id": None}
+
+
+def _planner_error_es_transitorio(exc: Exception) -> bool:
+    if isinstance(exc, ClientError):
+        code = (exc.response.get("Error") or {}).get("Code", "") or ""
+        return code in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
         )
-        
-        response_body = json.loads(response['body'].read())
-        return response_body['content'][0]['text']
-    
-    except Exception as e:
-        print(f"❌ Bedrock API error: {e}")
+    mensaje = str(exc)
+    return any(
+        token in mensaje
+        for token in (
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException",
+            "ModelTimeoutException",
+            "InternalServerException",
+        )
+    )
+
+
+def _planner_backoff(attempt_index: int) -> None:
+    delay = min(90.0, 3.0 * (2 ** attempt_index))
+    time.sleep(delay + random.uniform(0, min(8.0, delay * 0.25)))
+
+
+def _invoke_bedrock_planner(prompt: str, model_id: str) -> str:
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 32000,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+    }
+    response = bedrock_client.invoke_model(
+        modelId=model_id,
+        body=json.dumps(payload),
+        contentType="application/json",
+        accept="application/json",
+    )
+    response_body = json.loads(response["body"].read())
+    return response_body["content"][0]["text"]
+
+
+def _respaldo_openai_o_gemini_planner(prompt: str) -> Optional[str]:
+    try:
+        secret_data = get_secret("aurora/openai-api-key")
+        api_key = (secret_data or {}).get("api_key") or os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            text = call_openai_agent(prompt, api_key, DEFAULT_OPENAI_MODEL)
+            _modelo_que_respondio["id"] = DEFAULT_OPENAI_MODEL
+            return text
+    except Exception as exc:
+        print(f"⚠️ OpenAI fallback unavailable: {exc}")
+    try:
+        google_key = get_google_api_key()
+        if google_key:
+            text = call_gemini_agent(prompt, google_key)
+            _modelo_que_respondio["id"] = "gemini"
+            return text
+    except Exception as exc:
+        print(f"⚠️ Gemini fallback unavailable: {exc}")
+    return None
+
+
+def call_bedrock_agent(prompt: str, model_id: str) -> str:
+    """Bedrock with per-minute backoff, then BEDROCK_FALLBACK_MODELS, then OpenAI/Gemini."""
+    try:
+        text, used = run_model_chain(
+            lambda mid: _invoke_bedrock_planner(prompt, mid),
+            fallback_model_ids(model_id),
+            max_attempts=_PLANNER_BEDROCK_ATTEMPTS,
+            sleep=_planner_backoff,
+            is_transient=_planner_error_es_transitorio,
+        )
+        _modelo_que_respondio["id"] = used
+        if used != model_id:
+            print(f"🔄 Planner answered with fallback model {used}")
+        return text
+    except Exception as bedrock_err:
+        print(f"❌ Planner Bedrock chain failed: {bedrock_err}")
+        alterno = _respaldo_openai_o_gemini_planner(prompt)
+        if alterno:
+            return alterno
         raise
 
 
@@ -1512,11 +1579,18 @@ def lambda_handler(event, context):
             "excede": bool(ajuste_formato.get("excede")),
         }
         if ajuste_formato.get("excede"):
-            raise ValueError(
+            # The format cap never fails the course. The plan ships and the
+            # overrun is a warning on the quality report.
+            aviso = (
                 "format budget could not fit the plan inside the syllabus "
                 f"({ajuste_formato.get('suma_despues')} min, "
                 f"ceiling {ajuste_formato.get('techo_curso')})"
             )
+            print(f"⚠️  {aviso}")
+            ajuste_formato["quality_warning"] = aviso
+            preflight.setdefault("avisos", 0)
+            if isinstance(preflight.get("avisos"), int):
+                preflight["avisos"] = preflight["avisos"] + 1
         if preflight["avisos"] and not ajuste_formato.get("ajustado"):
             print(
                 f"⏱️  Pre-flight: {preflight['avisos']} aviso(s) de duración en "
@@ -1638,7 +1712,7 @@ def lambda_handler(event, context):
         if puerta["quality_status"] == "needs_review":
             print(
                 "🚫 LAB PLANNING NEEDS REVIEW: high-confidence syllabus findings "
-                "remain. The execution will not be delivered as passed."
+                "remain. The plan is saved and the course continues."
             )
         else:
             print(f"✅ LAB PLANNING COMPLETED SUCCESSFULLY")
