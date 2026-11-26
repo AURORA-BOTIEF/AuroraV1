@@ -12,7 +12,10 @@ and the other root fields a real start sends. `--image-model` defaults to
 `gpt-image-2`; pass `none` to skip images.
 
 After the execution finishes, check the prefix with
-`scripts/check_execution_artifacts.py`.
+`scripts/check_execution_artifacts.py`. Its exit codes are 0 complete,
+1 missing file, 2 lab placeholders, 3 Setup Guide or lab-plan tokens,
+4 both lab placeholders and template tokens. The printed ``label`` uses
+those same names.
 """
 
 from __future__ import annotations
@@ -195,6 +198,13 @@ def main(argv=None) -> int:
     print(json.dumps(cuerpo, ensure_ascii=False, indent=2))
     if not args.execute:
         print("Dry run. Pass --execute to upload the outline and start the state machine. This script is not part of deploy.")
+    import check_execution_artifacts as artefactos
+
+    print(
+        "Artifact check codes: "
+        + " ".join(f"{codigo}={etiqueta}" for codigo, etiqueta in sorted(artefactos.ETIQUETAS.items()))
+    )
+    if not args.execute:
         return 0
     if not args.state_machine_arn:
         print("STATE_MACHINE_ARN or --state-machine-arn is required with --execute", file=sys.stderr)

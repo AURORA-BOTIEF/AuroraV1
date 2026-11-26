@@ -71,6 +71,7 @@ foreach ($destino in @(
     Copy-Item $fallback (Join-Path $Root $destino) -Force
 }
 Copy-Item (Join-Path $Root "lambda\quality_report.py") (Join-Path $Root "lambda\strands_notification\quality_report.py") -Force
+Copy-Item (Join-Path $Root "lambda\setup_guide_builder\template_tokens.py") (Join-Path $Root "lambda\strands_lab_planner\template_tokens.py") -Force
 
 Write-Host "-> sam build"
 sam build

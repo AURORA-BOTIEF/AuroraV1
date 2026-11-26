@@ -3,9 +3,16 @@
 
 Exit codes:
     0  labs, lab-guide book, a PPTX, and the Setup Guide PDF are present,
-       and no lab file is a placeholder
-    2  the same files exist, but at least one lab is a placeholder
+       with no lab placeholder and no template tokens
     1  a required deliverable is missing
+    2  those files exist and at least one lab is a regeneration placeholder
+       (AURORA_PLACEHOLDER_PENDING_REGENERATION), and there is no template token
+    3  those files exist and a Setup Guide, lesson, or lab-master-plan
+       template token was delivered or neutralized, and no lab is a placeholder
+    4  those files exist and both a lab placeholder and a template token are present
+
+The printed ``label`` uses the same names: complete, missing, lab_placeholders,
+setup_tokens, lab_placeholders+setup_tokens.
 
 This does not start a course and does not call a model. Pass ``--local`` with
 a directory laid out like the project prefix (``labguide/``, ``book/``,
@@ -30,6 +37,18 @@ if str(_TOKENS) not in sys.path:
 from template_tokens import tokens_en_objeto, tokens_en_texto
 
 MARCA = "AURORA_PLACEHOLDER_PENDING_REGENERATION"
+ETIQUETAS = {
+    0: "complete",
+    1: "missing",
+    2: "lab_placeholders",
+    3: "setup_tokens",
+    4: "lab_placeholders+setup_tokens",
+}
+
+
+def etiqueta_de_codigo(codigo: int) -> str:
+    """Short label for one exit code. Shared with the canary."""
+    return ETIQUETAS.get(codigo, "unknown")
 
 
 def _listar_local(raiz: str) -> list:
@@ -71,22 +90,31 @@ def _es_leccion(clave: str) -> bool:
     return clave.endswith(".md") and ("/lessons/" in f"/{clave}" or clave.startswith("lessons/"))
 
 
+def _declarados(documento: dict) -> list:
+    hallados = []
+    for item in documento.get("placeholders") or []:
+        if isinstance(item, str) and item:
+            hallados.append(item)
+        elif isinstance(item, dict) and item.get("token"):
+            hallados.append(str(item["token"]))
+    registro = documento.get("template_tokens") or {}
+    if isinstance(registro, dict):
+        for item in registro.get("placeholders") or []:
+            if isinstance(item, str) and item:
+                hallados.append(item)
+    return hallados
+
+
 def _tokens_de_archivo(clave: str, texto: str) -> list:
-    """Setup JSON lists tokens that were neutralized. Other files are scanned raw."""
-    if clave == "setupguide/setup-guide.json":
+    """JSON lists neutralized tokens. Markdown is scanned for raw brackets."""
+    if clave in ("setupguide/setup-guide.json", "labguide/lab-master-plan.json"):
         try:
             documento = json.loads(texto)
         except json.JSONDecodeError:
             return tokens_en_texto(texto)
         if not isinstance(documento, dict):
             return tokens_en_texto(texto)
-        declarados = []
-        for item in documento.get("placeholders") or []:
-            if isinstance(item, str) and item:
-                declarados.append(item)
-            elif isinstance(item, dict) and item.get("token"):
-                declarados.append(str(item["token"]))
-        return declarados + tokens_en_objeto(documento)
+        return _declarados(documento) + tokens_en_objeto(documento)
     if clave.startswith("labguide/") and clave.endswith(".md"):
         return tokens_en_texto(texto)
     if _es_leccion(clave):
@@ -103,20 +131,20 @@ def evaluar(claves: list, leer) -> dict:
     ]
     ppt = [clave for clave in claves if clave.lower().endswith(".pptx")]
     pdf = [clave for clave in claves if clave == "setupguide/Setup_Guide.pdf"]
-    placeholders = []
+    lab_placeholders = []
     template_tokens = []
     for clave in claves:
         es_lab = clave in labs
-        if not (es_lab or clave == "setupguide/setup-guide.json" or _es_leccion(clave)):
+        es_plan = clave == "labguide/lab-master-plan.json"
+        if not (es_lab or es_plan or clave == "setupguide/setup-guide.json" or _es_leccion(clave)):
             continue
         try:
             texto = leer(clave)
         except OSError:
             continue
         if es_lab and MARCA in texto:
-            placeholders.append(clave)
+            lab_placeholders.append(clave)
         template_tokens.extend(f"{clave}: {token}" for token in _tokens_de_archivo(clave, texto))
-    placeholders.extend(template_tokens)
     faltan = []
     if not labs:
         faltan.append("labs")
@@ -131,7 +159,8 @@ def evaluar(claves: list, leer) -> dict:
         "lab_guide_book": libros,
         "pptx": ppt,
         "setup_pdf": pdf,
-        "placeholders": placeholders,
+        "placeholders": lab_placeholders,
+        "lab_placeholders": lab_placeholders,
         "template_tokens": template_tokens,
         "missing": faltan,
         "delivered": not faltan,
@@ -141,8 +170,14 @@ def evaluar(claves: list, leer) -> dict:
 def codigo_de_salida(informe: dict) -> int:
     if informe["missing"]:
         return 1
-    if informe["placeholders"]:
+    labs = informe.get("lab_placeholders") or []
+    tokens = informe.get("template_tokens") or []
+    if labs and tokens:
+        return 4
+    if labs:
         return 2
+    if tokens:
+        return 3
     return 0
 
 
@@ -168,14 +203,17 @@ def main(argv=None) -> int:
         informe = evaluar(claves, leer)
     print(
         "delivered={delivered} labs={n_labs} book={n_book} ppt={n_ppt} "
-        "pdf={n_pdf} placeholders={n_ph} missing={missing}".format(
+        "pdf={n_pdf} lab_placeholders={n_lab} setup_tokens={n_tok} "
+        "missing={missing} label={label}".format(
             delivered=informe["delivered"],
             n_labs=len(informe["labs"]),
             n_book=len(informe["lab_guide_book"]),
             n_ppt=len(informe["pptx"]),
             n_pdf=len(informe["setup_pdf"]),
-            n_ph=len(informe["placeholders"]),
+            n_lab=len(informe["lab_placeholders"]),
+            n_tok=len(informe["template_tokens"]),
             missing=",".join(informe["missing"]) or "none",
+            label=etiqueta_de_codigo(codigo_de_salida(informe)),
         )
     )
     return codigo_de_salida(informe)

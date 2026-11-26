@@ -241,7 +241,8 @@ def test_el_checker_distinguie_faltantes_y_placeholders():
             artefactos._listar_local(tmp),
             lambda clave: artefactos._leer_local(tmp, clave),
         )
-        assert artefactos.codigo_de_salida(informe) == 2
+        assert artefactos.codigo_de_salida(informe) == 4
+        assert artefactos.etiqueta_de_codigo(4) == "lab_placeholders+setup_tokens"
 
 
 def test_la_canary_en_seco_no_llama_a_aws():

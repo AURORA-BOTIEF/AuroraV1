@@ -6,6 +6,7 @@ import logging
 from quality_report import (
     alerta_al_propietario,
     construir_informe_de_calidad,
+    entregables_ausentes,
     informe_tiene_hallazgos,
 )
 
@@ -291,9 +292,7 @@ def lambda_handler(event, context):
                         "deliverable": entrega,
                     }
                 )
-            informe["missing_deliverables"] = sorted(
-                {item["deliverable"] for item in informe["quality_issues"] if item.get("deliverable")}
-            )
+            informe["missing_deliverables"] = entregables_ausentes(informe["quality_issues"], event)
         _escribir_informe_de_calidad(event, informe)
     except Exception as exc:
         logger.error("Quality report failed open: %s", exc)

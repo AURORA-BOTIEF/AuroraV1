@@ -908,6 +908,7 @@ def build_setup_guide(bucket, project_folder, outline_key, outline_data, master_
             "last_validation": PH_DATE,
             "source": {"outline": outline_key, "master_plan": f"{project_folder}/labguide/lab-master-plan.json" if master_plan else None, "labs": sorted(labs.keys())},
             "placeholders_count": 0,
+            "repo_url": repo_url,
         },
         "identification": {
             "title": course_meta["title"],
@@ -1006,7 +1007,9 @@ def html_de_guia(doc, bucket, author="Aurora AI"):
 
 def render_pdf(doc, bucket, author="Aurora AI"):
     """PDF with template brackets already replaced. The handler records them first."""
-    html, _pendientes = reemplazar_texto(html_de_guia(doc, bucket, author), {"software": {}, "llm": {}})
+    html, _pendientes, _rellenos = reemplazar_texto(
+        html_de_guia(doc, bucket, author), {"software": {}, "llm": {}}
+    )
     return _pdf_desde_html(html)
 
 
@@ -1026,17 +1029,26 @@ def _llm_una_vez(tokens, catalogo):
             config=Config(connect_timeout=2, read_timeout=8, retries={"max_attempts": 0}),
         )
         contexto = {
-            "course_key": catalogo.get("course_key"),
             "course_version": catalogo.get("course_version"),
+            "generated_on": catalogo.get("generated_on"),
             "software": catalogo.get("software") or {},
+            "commands": (catalogo.get("commands") or [])[:8],
+            "urls_permitidas": catalogo.get("urls_permitidas") or [],
+            "license": catalogo.get("license") or "",
         }
         prompt = (
-            "Completa solo los tokens de plantilla cuyo valor ya está en el contexto. "
-            "No inventes versiones, licencias, contraseñas ni URLs. "
-            "Si no consta, omite la clave. Responde un JSON objeto token -> texto. "
-            "Fill only template tokens whose value is already in the context. "
-            "Do not invent versions, licenses, passwords, or URLs. "
-            "If it is not in the context, omit the key. Reply with a JSON object token -> text.\n"
+            "Completa solo los tokens cuyo valor ya está en el contexto. "
+            "URLs: solo las de urls_permitidas (documentación oficial del fabricante). "
+            "Comandos de prueba: cópialos de los pasos del laboratorio. "
+            "Versiones y licencias: solo si constan en el contexto. "
+            "No inventes enlaces, contraseñas ni claves. Si no consta, omite la clave. "
+            "Responde un JSON objeto token -> texto. "
+            "Fill only tokens whose value is already in the context. "
+            "URLs: only those in urls_permitidas (official vendor documentation). "
+            "Test commands: copy them from the lab steps. "
+            "Versions and licenses: only when the context states them. "
+            "Do not invent links, passwords, or keys. If it is absent, omit the key. "
+            "Reply with a JSON object token -> text.\n"
             f"tokens={json.dumps(tokens, ensure_ascii=False)}\n"
             f"context={json.dumps(contexto, ensure_ascii=False)[:4000]}"
         )
@@ -1213,14 +1225,19 @@ def lambda_handler(event, context):
             bucket, project_folder, outline_key, outline_data, master_plan, labs
         )
         identificacion = doc.get("identification") or {}
+        meta = doc.get("metadata") or {}
         catalogo = construir_catalogo(
             {
+                "title": identificacion.get("title") or meta.get("course_title"),
                 "key": identificacion.get("key"),
                 "version": identificacion.get("version"),
-                "last_validation": (doc.get("metadata") or {}).get("last_validation"),
+                "description": identificacion.get("description"),
+                "last_validation": meta.get("last_validation"),
             },
             master_plan,
             labs,
+            generated_on=(meta.get("generated_at") or "")[:10],
+            repo_url=meta.get("repo_url"),
         )
         doc, html = finalizar_tokens(
             doc,
@@ -1228,7 +1245,10 @@ def lambda_handler(event, context):
             llm=_llm_una_vez,
             render_html=lambda documento: html_de_guia(documento, bucket),
         )
-        hallazgo = quality_issue_de_tokens(doc.get("placeholders") or [])
+        hallazgo = quality_issue_de_tokens(
+            doc.get("placeholders") or [],
+            (doc.get("metadata") or {}).get("tokens_filled") or 0,
+        )
 
         json_key = f"{project_folder}/setupguide/setup-guide.json"
         s3.put_object(
@@ -1260,6 +1280,8 @@ def lambda_handler(event, context):
             "software_count": len(doc["software"]),
             "placeholders_count": doc["metadata"]["placeholders_count"],
             "placeholders": doc["placeholders"],
+            "tokens_filled": doc["metadata"].get("tokens_filled", 0),
+            "tokens_neutralized": doc["metadata"].get("tokens_neutralized", 0),
             "quality_issue": hallazgo,
         }
         respuesta = {

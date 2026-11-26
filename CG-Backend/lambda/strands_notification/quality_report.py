@@ -97,6 +97,54 @@ def _cuerpo_setup(datos: dict) -> dict:
     return cuerpo
 
 
+# A content warning names the deliverable. Only an absent file uses a "missing" label.
+_AUSENTES = {"PDF missing", "PPT missing", "book missing", "lab guide missing"}
+
+
+def _pdf_de_setup_existe(datos: dict) -> bool:
+    cuerpo = _cuerpo_setup(datos)
+    if cuerpo.get("setup_guide_pdf_key"):
+        return True
+    resultado = datos.get("setup_guide_result")
+    payload = resultado.get("Payload") if isinstance(resultado, dict) else None
+    if isinstance(payload, dict) and payload.get("setup_guide_pdf_key"):
+        return True
+    return False
+
+
+def entregables_ausentes(issues: list, datos: Optional[dict] = None) -> list:
+    """File labels for artifacts that were not produced.
+
+    ``deliverable: "Setup Guide"`` is the token warning. It is not a missing
+    PDF. A missing PDF is ``PDF missing``, and only when that file is absent.
+    """
+    datos = datos or {}
+    pdf_existe = _pdf_de_setup_existe(datos)
+    ausentes = set()
+    for item in issues or []:
+        entrega = (item or {}).get("deliverable") or ""
+        if not entrega:
+            continue
+        if entrega == "Setup Guide":
+            continue
+        if entrega == "PDF missing" and pdf_existe:
+            continue
+        if entrega in _AUSENTES or entrega.endswith(" missing"):
+            ausentes.add(entrega)
+    return sorted(ausentes)
+
+
+def _hallazgo_de_payload(datos: dict, nodo: str) -> Optional[dict]:
+    resultado = datos.get(nodo)
+    if not isinstance(resultado, dict):
+        return None
+    payload = resultado.get("Payload") if isinstance(resultado.get("Payload"), dict) else resultado
+    if not isinstance(payload, dict):
+        return None
+    hallazgo = payload.get("quality_issue")
+    return hallazgo if isinstance(hallazgo, dict) else None
+
+
 def construir_informe_de_calidad(event: dict) -> dict:
     """Flatten warnings, placeholders, fallback models, and missing files."""
     datos = _entrada(event)
@@ -112,6 +160,16 @@ def construir_informe_de_calidad(event: dict) -> dict:
             hallazgo_setup.get("severity") or "warning",
             hallazgo_setup.get("deliverable") or "Setup Guide",
         )
+    for nodo in ("lab_planner_result", "master_lab_plan_result"):
+        hallazgo_plan = _hallazgo_de_payload(datos, nodo)
+        if isinstance(hallazgo_plan, dict):
+            _anadir_si_falta(
+                issues,
+                hallazgo_plan.get("step") or "InvokeLabPlanner",
+                hallazgo_plan.get("error"),
+                hallazgo_plan.get("severity") or "warning",
+                hallazgo_plan.get("deliverable") or "",
+            )
     _anadir_si_falta(issues, "InvokeDeckBuilder", datos.get("decks_error"), "error", "PPT missing")
     _anadir_si_falta(issues, "InvokePostGenerationAudit", datos.get("audit_error"), "warning", "")
     _anadir_si_falta(issues, "InvokeBookBuilder", datos.get("book_error"), "error", "book missing")
@@ -163,13 +221,7 @@ def construir_informe_de_calidad(event: dict) -> dict:
         "placeholders": placeholders,
         "failed_lab_ids": failed,
         "models_used": models,
-        "missing_deliverables": sorted(
-            {
-                item["deliverable"]
-                for item in issues
-                if item.get("deliverable")
-            }
-        ),
+        "missing_deliverables": entregables_ausentes(issues, datos),
         "resume": {
             "lab_ids_to_regenerate": failed,
             "LAB_SKIP_IF_EXISTS": "true",

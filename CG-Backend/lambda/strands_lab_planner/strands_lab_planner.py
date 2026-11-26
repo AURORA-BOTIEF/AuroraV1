@@ -24,6 +24,7 @@ from typing import Dict, List, Any, Optional
 
 from bedrock_fallback import fallback_model_ids, run_model_chain
 from optional_fields import leer_campos_opcionales
+from template_tokens import sanear_plan_maestro
 
 from format_budget import aplicar_presupuesto_de_formato, sin_ajuste
 from manual_context import select_manual_context, flatten_to_text
@@ -1706,6 +1707,14 @@ def lambda_handler(event, context):
             nombre="contract-integrity.json",
         )
         
+        # Template tokens are filled from the course, then neutralized. The plan
+        # is saved either way; a leftover is a warning, not a failure.
+        hallazgo_tokens = None
+        try:
+            master_plan, hallazgo_tokens = sanear_plan_maestro(master_plan, course_info)
+        except Exception as token_exc:
+            print(f"⚠️  No se pudo sanear el plan de laboratorios: {token_exc}")
+
         # Step 4: Save to S3
         master_plan_key = save_master_plan_to_s3(
             bucket=course_bucket,
@@ -1724,7 +1733,7 @@ def lambda_handler(event, context):
         print(f"   quality_status: {puerta['quality_status']}")
         print(f"{'='*70}\n")
         
-        return {
+        respuesta = {
             'statusCode': 200,
             'master_plan_key': master_plan_key,
             'total_labs': len(lab_plan_list),
@@ -1738,6 +1747,9 @@ def lambda_handler(event, context):
             'quality_findings': puerta['quality_findings'],
             'quality_warnings': puerta['quality_warnings'],
         }
+        if hallazgo_tokens:
+            respuesta['quality_issue'] = hallazgo_tokens
+        return respuesta
     
     except KeyError as e:
         print(f"❌ Missing required parameter: {e}")
