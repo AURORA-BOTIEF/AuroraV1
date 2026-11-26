@@ -18,8 +18,16 @@ Reliability target: 10 consecutive mixed courses, 100% delivered, and at least
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
+
+_TOKENS = Path(__file__).resolve().parents[1] / "lambda" / "setup_guide_builder"
+if str(_TOKENS) not in sys.path:
+    sys.path.insert(0, str(_TOKENS))
+
+from template_tokens import tokens_en_objeto, tokens_en_texto
 
 MARCA = "AURORA_PLACEHOLDER_PENDING_REGENERATION"
 
@@ -59,6 +67,33 @@ def _listar_s3(bucket: str, proyecto: str):
     return claves, cliente, bucket, prefijo
 
 
+def _es_leccion(clave: str) -> bool:
+    return clave.endswith(".md") and ("/lessons/" in f"/{clave}" or clave.startswith("lessons/"))
+
+
+def _tokens_de_archivo(clave: str, texto: str) -> list:
+    """Setup JSON lists tokens that were neutralized. Other files are scanned raw."""
+    if clave == "setupguide/setup-guide.json":
+        try:
+            documento = json.loads(texto)
+        except json.JSONDecodeError:
+            return tokens_en_texto(texto)
+        if not isinstance(documento, dict):
+            return tokens_en_texto(texto)
+        declarados = []
+        for item in documento.get("placeholders") or []:
+            if isinstance(item, str) and item:
+                declarados.append(item)
+            elif isinstance(item, dict) and item.get("token"):
+                declarados.append(str(item["token"]))
+        return declarados + tokens_en_objeto(documento)
+    if clave.startswith("labguide/") and clave.endswith(".md"):
+        return tokens_en_texto(texto)
+    if _es_leccion(clave):
+        return tokens_en_texto(texto)
+    return []
+
+
 def evaluar(claves: list, leer) -> dict:
     """Classify one project prefix. ``leer(relative_key)`` returns text."""
     labs = [clave for clave in claves if clave.startswith("labguide/lab-") and clave.endswith(".md")]
@@ -69,13 +104,19 @@ def evaluar(claves: list, leer) -> dict:
     ppt = [clave for clave in claves if clave.lower().endswith(".pptx")]
     pdf = [clave for clave in claves if clave == "setupguide/Setup_Guide.pdf"]
     placeholders = []
-    for clave in labs:
+    template_tokens = []
+    for clave in claves:
+        es_lab = clave in labs
+        if not (es_lab or clave == "setupguide/setup-guide.json" or _es_leccion(clave)):
+            continue
         try:
             texto = leer(clave)
         except OSError:
             continue
-        if MARCA in texto:
+        if es_lab and MARCA in texto:
             placeholders.append(clave)
+        template_tokens.extend(f"{clave}: {token}" for token in _tokens_de_archivo(clave, texto))
+    placeholders.extend(template_tokens)
     faltan = []
     if not labs:
         faltan.append("labs")
@@ -91,6 +132,7 @@ def evaluar(claves: list, leer) -> dict:
         "pptx": ppt,
         "setup_pdf": pdf,
         "placeholders": placeholders,
+        "template_tokens": template_tokens,
         "missing": faltan,
         "delivered": not faltan,
     }

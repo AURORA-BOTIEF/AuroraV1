@@ -8,8 +8,8 @@ outline to S3 and starts the state machine; that is a paid run. Do not use
 
 The start payload mirrors a real QA course from the testing environment:
 `content_source=s3`, `outline_s3_key`, `lab_requirements` (empty string),
-and the other root fields the state machine reads with JSONPath. A missing
-field is a `States.Runtime` error and is not caught.
+and the other root fields a real start sends. `--image-model` defaults to
+`gpt-image-2`; pass `none` to skip images.
 
 After the execution finishes, check the prefix with
 `scripts/check_execution_artifacts.py`.
@@ -24,6 +24,19 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# The script directory and the backend root stay importable when the file is
+# launched from another working directory (python path would otherwise miss
+# sibling modules such as check_execution_artifacts).
+_SCRIPTS = Path(__file__).resolve().parent
+_BACKEND = _SCRIPTS.parent
+for _ruta in (_SCRIPTS, _BACKEND, _BACKEND / "lambda"):
+    _texto = str(_ruta)
+    if _texto not in sys.path:
+        sys.path.insert(0, _texto)
+
+# Same model the course form offers as OpenAI GPT Image 2. "none" skips images.
+IMAGE_MODEL_POR_DEFECTO = "gpt-image-2"
 
 # Root fields a real start always sends. Empty string or null is fine.
 # Tasks that used to read the optional ones with `.$` now receive the whole
@@ -113,6 +126,7 @@ def entrada_canary(
     idioma: str = "es",
     outline_s3_key: str | None = None,
     bucket: str | None = None,
+    image_model: str = IMAGE_MODEL_POR_DEFECTO,
 ) -> dict:
     """One short module, theory and labs, Spanish, same fields as a QA start."""
     clave = outline_s3_key or clave_outline(proyecto)
@@ -139,7 +153,7 @@ def entrada_canary(
         "lesson_requirements": "",
         "lab_ids_to_regenerate": None,
         "course_language": idioma,
-        "image_model": "none",
+        "image_model": image_model or IMAGE_MODEL_POR_DEFECTO,
         "lesson_ids_to_update": None,
         "update_mode": False,
         "canary": True,
@@ -170,9 +184,14 @@ def main(argv=None) -> int:
     parser.add_argument("--email", default=os.getenv("OWNER_ALERT_EMAIL", "juan.ossa@netec.com"))
     parser.add_argument("--state-machine-arn", default=os.getenv("STATE_MACHINE_ARN", ""))
     parser.add_argument("--bucket", default=os.getenv("COURSE_BUCKET", "crewai-course-artifacts"))
+    parser.add_argument(
+        "--image-model",
+        default=IMAGE_MODEL_POR_DEFECTO,
+        help="Image model for the start payload. Default gpt-image-2. Pass none to skip images.",
+    )
     args = parser.parse_args(argv)
     proyecto = args.project or f"canary-{time.strftime('%Y%m%d-%H%M%S')}"
-    cuerpo = entrada_canary(proyecto, args.email, bucket=args.bucket)
+    cuerpo = entrada_canary(proyecto, args.email, bucket=args.bucket, image_model=args.image_model)
     print(json.dumps(cuerpo, ensure_ascii=False, indent=2))
     if not args.execute:
         print("Dry run. Pass --execute to upload the outline and start the state machine. This script is not part of deploy.")

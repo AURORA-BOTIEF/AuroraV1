@@ -404,7 +404,9 @@ def test_la_setup_guide_se_genera_despues_de_los_labs_y_no_bloquea():
     estados = _definicion()["States"]
     assert estados["InvokeLabGuideBuilder"]["Next"] == "InvokeSetupGuide"
     guia = estados["InvokeSetupGuide"]
-    assert guia["Next"] == "InvokePostGenerationAudit"
+    assert guia["Next"] == "CheckSetupGuideTokens"
+    assert estados["CheckSetupGuideTokens"]["Default"] == "InvokePostGenerationAudit"
+    assert estados["RecordSetupGuideTokens"]["Next"] == "InvokePostGenerationAudit"
     assert guia["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"
     assert guia["Parameters"]["Payload"]["course_bucket.$"] == "$.course_bucket"
     atrapa = guia["Catch"][0]
@@ -423,7 +425,7 @@ def test_los_enlaces_muertos_se_registran_y_el_curso_sigue():
     The audit Catch records the crash and continues to NotifyCompletion.
     """
     estados = _definicion()["States"]
-    assert estados["InvokeSetupGuide"]["Next"] == "InvokePostGenerationAudit"
+    assert estados["CheckSetupGuideTokens"]["Default"] == "InvokePostGenerationAudit"
     auditoria = estados["InvokePostGenerationAudit"]
     assert auditoria["Next"] == "CheckLinkAudit"
     assert auditoria["Parameters"]["Payload"]["project_folder.$"] == "$.project_folder"

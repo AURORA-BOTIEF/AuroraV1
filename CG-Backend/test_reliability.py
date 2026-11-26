@@ -224,6 +224,24 @@ def test_el_checker_distinguie_faltantes_y_placeholders():
         )
         assert artefactos.codigo_de_salida(informe) == 1
         assert "Setup PDF" in informe["missing"]
+        guia = os.path.join(tmp, "setupguide", "setup-guide.json")
+        os.makedirs(os.path.dirname(guia), exist_ok=True)
+        with open(guia, "w", encoding="utf-8") as fichero:
+            fichero.write('{"placeholders": [], "software": [{"version": "[VERSIÓN POR VALIDAR]"}]}')
+        # The PDF is still missing, so delivery is incomplete.
+        informe = artefactos.evaluar(
+            artefactos._listar_local(tmp),
+            lambda clave: artefactos._leer_local(tmp, clave),
+        )
+        assert any("VERSIÓN POR VALIDAR" in item for item in informe["template_tokens"])
+        pdf = os.path.join(tmp, "setupguide", "Setup_Guide.pdf")
+        with open(pdf, "wb") as fichero:
+            fichero.write(b"%PDF-1.4")
+        informe = artefactos.evaluar(
+            artefactos._listar_local(tmp),
+            lambda clave: artefactos._leer_local(tmp, clave),
+        )
+        assert artefactos.codigo_de_salida(informe) == 2
 
 
 def test_la_canary_en_seco_no_llama_a_aws():
@@ -237,6 +255,8 @@ def test_la_canary_en_seco_no_llama_a_aws():
     assert cuerpo["course_language"] == "es"
     assert cuerpo["user_email"] == "juan.ossa@netec.com"
     assert cuerpo["outline_s3_key"] == "canary-test/outline/canary.yaml"
+    assert cuerpo["image_model"] == "gpt-image-2"
+    assert canary_course.entrada_canary("canary-test", "juan.ossa@netec.com", image_model="none")["image_model"] == "none"
     assert "lab_requirements" in cuerpo
     assert canary_course.main(["--project", "canary-test", "--email", "juan.ossa@netec.com"]) == 0
 

@@ -72,11 +72,46 @@ def _anadir_si_falta(issues: list, step: str, error: Any, severity: str, deliver
     )
 
 
+def _cuerpo_setup(datos: dict) -> dict:
+    """Read the Setup Guide payload. The Lambda body is a JSON string."""
+    resultado = datos.get("setup_guide_result")
+    if not isinstance(resultado, dict):
+        return {}
+    payload = resultado.get("Payload") if isinstance(resultado.get("Payload"), dict) else resultado
+    if not isinstance(payload, dict):
+        return {}
+    cuerpo = payload.get("body")
+    if isinstance(cuerpo, str):
+        try:
+            cuerpo = json.loads(cuerpo)
+        except json.JSONDecodeError:
+            cuerpo = {}
+    if not isinstance(cuerpo, dict):
+        cuerpo = {}
+    else:
+        cuerpo = dict(cuerpo)
+    if isinstance(payload.get("quality_issue"), dict):
+        cuerpo["quality_issue"] = payload["quality_issue"]
+    if payload.get("placeholders") and not cuerpo.get("placeholders"):
+        cuerpo["placeholders"] = payload["placeholders"]
+    return cuerpo
+
+
 def construir_informe_de_calidad(event: dict) -> dict:
     """Flatten warnings, placeholders, fallback models, and missing files."""
     datos = _entrada(event)
     issues = _issues_desde_objeto(datos.get("quality_issues"))
     _anadir_si_falta(issues, "InvokeSetupGuide", datos.get("setup_guide_error"), "error", "PDF missing")
+    cuerpo_setup = _cuerpo_setup(datos)
+    hallazgo_setup = cuerpo_setup.get("quality_issue")
+    if isinstance(hallazgo_setup, dict):
+        _anadir_si_falta(
+            issues,
+            hallazgo_setup.get("step") or "InvokeSetupGuide",
+            hallazgo_setup.get("error"),
+            hallazgo_setup.get("severity") or "warning",
+            hallazgo_setup.get("deliverable") or "Setup Guide",
+        )
     _anadir_si_falta(issues, "InvokeDeckBuilder", datos.get("decks_error"), "error", "PPT missing")
     _anadir_si_falta(issues, "InvokePostGenerationAudit", datos.get("audit_error"), "warning", "")
     _anadir_si_falta(issues, "InvokeBookBuilder", datos.get("book_error"), "error", "book missing")
@@ -104,6 +139,11 @@ def construir_informe_de_calidad(event: dict) -> dict:
             )
 
     placeholders = list(datos.get("placeholders") or [])
+    for token in cuerpo_setup.get("placeholders") or []:
+        if isinstance(token, str) and token:
+            placeholders.append({"kind": "setup_guide", "token": token})
+        elif isinstance(token, dict) and token.get("token"):
+            placeholders.append({"kind": "setup_guide", "token": token["token"]})
     for marca in datos.get("theory_placeholders") or []:
         if marca in (True, "true"):
             placeholders.append({"kind": "lesson", "placeholder": True})

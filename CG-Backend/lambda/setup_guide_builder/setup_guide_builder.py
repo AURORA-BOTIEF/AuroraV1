@@ -40,6 +40,12 @@ from setup_guide_capabilities import (
     syllabus_requirement_corpus,
 )
 from setup_guide_template import SETUP_GUIDE_TEMPLATE
+from template_tokens import (
+    construir_catalogo,
+    finalizar_tokens,
+    quality_issue_de_tokens,
+    reemplazar_texto,
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -936,12 +942,9 @@ def build_setup_guide(bucket, project_folder, outline_key, outline_data, master_
         "placeholders": [],
     }
 
-    pending_versions = sum(1 for s in software if s.get("pending"))
-    doc["metadata"]["placeholders_count"] = (
-        pending_versions
-        + sum(1 for link in identification_links if not link["url"])
-        + (0 if repo_ok else 1)
-    )
+    # placeholders_count is filled by finalizar_tokens from the real brackets.
+    # The old total (pending rows + empty links) did not match placeholders,
+    # which stayed [] while the JSON still contained [VERSIÓN POR VALIDAR].
 
     # Fallback de descripción
     if not doc["identification"]["description"]:
@@ -960,7 +963,7 @@ def build_setup_guide(bucket, project_folder, outline_key, outline_data, master_
 # ---------------------------------------------------------------------------
 # Render PDF
 # ---------------------------------------------------------------------------
-def render_pdf(doc, bucket, author="Aurora AI"):
+def html_de_guia(doc, bucket, author="Aurora AI"):
     local_logo = None
     try:
         local_logo = "/tmp/LogoNetec.png"
@@ -998,8 +1001,60 @@ def render_pdf(doc, bucket, author="Aurora AI"):
         "lab_matrix": doc["lab_matrix"],
         "references": doc["references"],
     }
-    html = Template(SETUP_GUIDE_TEMPLATE).render(context)
+    return Template(SETUP_GUIDE_TEMPLATE).render(context)
+
+
+def render_pdf(doc, bucket, author="Aurora AI"):
+    """PDF with template brackets already replaced. The handler records them first."""
+    html, _pendientes = reemplazar_texto(html_de_guia(doc, bucket, author), {"software": {}, "llm": {}})
     return _pdf_desde_html(html)
+
+
+def _llm_una_vez(tokens, catalogo):
+    """One model call. Any failure leaves the tokens for the neutral sentence."""
+    if os.getenv("SETUP_GUIDE_LLM", "1") == "0":
+        return {}
+    if os.getenv("AWS_EC2_METADATA_DISABLED") == "true" and not os.getenv("AWS_ACCESS_KEY_ID"):
+        return {}
+    if not tokens:
+        return {}
+    try:
+        from botocore.config import Config
+
+        cliente = boto3.client(
+            "bedrock-runtime",
+            config=Config(connect_timeout=2, read_timeout=8, retries={"max_attempts": 0}),
+        )
+        contexto = {
+            "course_key": catalogo.get("course_key"),
+            "course_version": catalogo.get("course_version"),
+            "software": catalogo.get("software") or {},
+        }
+        prompt = (
+            "Completa solo los tokens de plantilla cuyo valor ya está en el contexto. "
+            "No inventes versiones, licencias, contraseñas ni URLs. "
+            "Si no consta, omite la clave. Responde un JSON objeto token -> texto. "
+            "Fill only template tokens whose value is already in the context. "
+            "Do not invent versions, licenses, passwords, or URLs. "
+            "If it is not in the context, omit the key. Reply with a JSON object token -> text.\n"
+            f"tokens={json.dumps(tokens, ensure_ascii=False)}\n"
+            f"context={json.dumps(contexto, ensure_ascii=False)[:4000]}"
+        )
+        modelo = os.getenv("SETUP_GUIDE_LLM_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        respuesta = cliente.converse(
+            modelId=modelo,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 600, "temperature": 0},
+        )
+        texto = respuesta["output"]["message"]["content"][0]["text"]
+        inicio = texto.find("{")
+        fin = texto.rfind("}")
+        if inicio < 0 or fin <= inicio:
+            return {}
+        return json.loads(texto[inicio:fin + 1])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Setup Guide token fill skipped: %s", exc)
+        return {}
 
 
 _MAX_FILAS_POR_TABLA = 4
@@ -1157,6 +1212,23 @@ def lambda_handler(event, context):
         doc = build_setup_guide(
             bucket, project_folder, outline_key, outline_data, master_plan, labs
         )
+        identificacion = doc.get("identification") or {}
+        catalogo = construir_catalogo(
+            {
+                "key": identificacion.get("key"),
+                "version": identificacion.get("version"),
+                "last_validation": (doc.get("metadata") or {}).get("last_validation"),
+            },
+            master_plan,
+            labs,
+        )
+        doc, html = finalizar_tokens(
+            doc,
+            catalogo,
+            llm=_llm_una_vez,
+            render_html=lambda documento: html_de_guia(documento, bucket),
+        )
+        hallazgo = quality_issue_de_tokens(doc.get("placeholders") or [])
 
         json_key = f"{project_folder}/setupguide/setup-guide.json"
         s3.put_object(
@@ -1165,7 +1237,7 @@ def lambda_handler(event, context):
             ContentType="application/json",
         )
 
-        pdf_bytes = render_pdf(doc, bucket)
+        pdf_bytes = _pdf_desde_html(html)
         pdf_key = f"{project_folder}/setupguide/Setup_Guide.pdf"
         s3.put_object(Bucket=bucket, Key=pdf_key, Body=pdf_bytes, ContentType="application/pdf")
 
@@ -1175,24 +1247,31 @@ def lambda_handler(event, context):
             ExpiresIn=3600,
         )
         logger.info("Setup Guide generada: %s", pdf_key)
-        return {
+        cuerpo = {
+            "message": "Setup Guide generada correctamente",
+            "project_folder": project_folder,
+            "course_title": doc["metadata"]["course_title"],
+            "course_key": doc["metadata"]["course_key"],
+            "version": doc["metadata"]["version"],
+            "setup_guide_json_key": json_key,
+            "setup_guide_pdf_key": pdf_key,
+            "download_url": download_url,
+            "lab_count": len(doc["lab_matrix"]),
+            "software_count": len(doc["software"]),
+            "placeholders_count": doc["metadata"]["placeholders_count"],
+            "placeholders": doc["placeholders"],
+            "quality_issue": hallazgo,
+        }
+        respuesta = {
             "statusCode": 200,
             "headers": cors_headers(),
-            "body": json.dumps({
-                "message": "Setup Guide generada correctamente",
-                "project_folder": project_folder,
-                "course_title": doc["metadata"]["course_title"],
-                "course_key": doc["metadata"]["course_key"],
-                "version": doc["metadata"]["version"],
-                "setup_guide_json_key": json_key,
-                "setup_guide_pdf_key": pdf_key,
-                "download_url": download_url,
-                "lab_count": len(doc["lab_matrix"]),
-                "software_count": len(doc["software"]),
-                "placeholders_count": doc["metadata"]["placeholders_count"],
-                "placeholders": doc["placeholders"],
-            }),
+            "body": json.dumps(cuerpo),
         }
+        if hallazgo:
+            respuesta["quality_issue"] = hallazgo
+            respuesta["placeholders"] = doc["placeholders"]
+            respuesta["placeholders_count"] = doc["metadata"]["placeholders_count"]
+        return respuesta
     except Exception as exc:  # noqa: BLE001
         logger.error("Error generando Setup Guide: %s", exc, exc_info=True)
         if not is_api_gateway_event(event):

@@ -979,8 +979,8 @@
       "Type": "Task"
     },
     "InvokeSetupGuide": {
-      "Comment": "Build the consolidated Setup Guide (JSON + PDF). A PDF failure is recorded on $.setup_guide_error and the flow still runs the link audit, so a labs-only course is not delivered with unchecked links. The execution can still succeed; the client status is SUCCEEDED_WITH_WARNINGS.",
-      "Next": "InvokePostGenerationAudit",
+      "Comment": "Build the consolidated Setup Guide (JSON + PDF). A PDF failure is recorded on $.setup_guide_error and the flow still runs the link audit, so a labs-only course is not delivered with unchecked links. Unfilled template tokens are a warning on $.quality_issues and the course still continues.",
+      "Next": "CheckSetupGuideTokens",
       "Parameters": {
         "FunctionName": "${SetupGuideBuilderArn}",
         "Payload": {
@@ -1013,6 +1013,38 @@
         }
       ],
       "Type": "Task"
+    },
+    "CheckSetupGuideTokens": {
+      "Type": "Choice",
+      "Comment": "Template tokens that could not be filled are a warning. The Setup Guide is already written and the course continues.",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.setup_guide_result.Payload.quality_issue.severity",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.setup_guide_result.Payload.quality_issue.severity",
+              "StringEquals": "warning"
+            }
+          ],
+          "Next": "RecordSetupGuideTokens"
+        }
+      ],
+      "Default": "InvokePostGenerationAudit"
+    },
+    "RecordSetupGuideTokens": {
+      "Type": "Pass",
+      "Comment": "Append InvokeSetupGuide token findings to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.InvokeSetupGuide",
+      "Parameters": {
+        "step": "InvokeSetupGuide",
+        "severity": "warning",
+        "deliverable": "Setup Guide",
+        "error.$": "$.setup_guide_result.Payload.quality_issue.error"
+      },
+      "Next": "InvokePostGenerationAudit"
     },
     "InvokePostGenerationAudit": {
       "Comment": "Write the inputs manifest and the link report. A repair rewrites the lab files and applies the same URL edits to book/*LabGuide_complete.md and book/*LabGuide_data.json. Dead links that remain are gated by CheckLinkAudit. A Lambda crash still continues (Catch → NotifyCompletion) so the gate is the payload field, not an exception.",
