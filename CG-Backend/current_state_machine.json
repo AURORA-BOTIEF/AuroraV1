@@ -723,16 +723,7 @@
       "Next": "CheckLabBatchExpansionSuccess",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:LabBatchExpander",
-        "Payload": {
-          "course_bucket.$": "$.course_bucket",
-          "master_plan_key.$": "$.lab_planner_result.Payload.master_plan_key",
-          "model_provider.$": "$.model_provider",
-          "project_folder.$": "$.project_folder",
-          "outline_s3_key.$": "$.outline_s3_key",
-          "manual_text_s3_key.$": "$.manual_text_s3_key",
-          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate",
-          "update_mode.$": "$.update_mode"
-        }
+        "Payload.$": "$"
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lab_batch_expansion",
@@ -767,20 +758,11 @@
       "Type": "Task"
     },
     "ExpandLabsToBatchesBoth": {
-      "Comment": "Expand labs into batches",
+      "Comment": "Expand labs into batches. Payload is the whole state so a missing optional start key is not States.Runtime.",
       "Next": "CheckLabBatchExpansionSuccessBoth",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:LabBatchExpander",
-        "Payload": {
-          "course_bucket.$": "$.course_bucket",
-          "master_plan_key.$": "$.master_lab_plan_result.Payload.master_plan_key",
-          "model_provider.$": "$.model_provider",
-          "project_folder.$": "$.project_folder",
-          "outline_s3_key.$": "$.outline_s3_key",
-          "manual_text_s3_key.$": "$.manual_text_s3_key",
-          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate",
-          "update_mode.$": "$.update_mode"
-        }
+        "Payload.$": "$"
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lab_batch_expansion",
@@ -819,21 +801,7 @@
       "Next": "CheckBatchExpansionSuccess",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:BatchExpander",
-        "Payload": {
-          "content_source.$": "$.content_source",
-          "course_bucket.$": "$.course_bucket",
-          "model_provider.$": "$.model_provider",
-          "modules_to_generate.$": "$.modules_to_generate",
-          "outline_s3_key.$": "$.outline_s3_key",
-          "manual_s3_keys.$": "$.manual_s3_keys",
-          "manual_text_s3_key.$": "$.manual_text_s3_key",
-          "project_folder.$": "$.project_folder",
-          "image_model.$": "$.image_model",
-          "course_language.$": "$.course_language",
-          "lesson_to_generate.$": "$.lesson_to_generate",
-          "lesson_requirements.$": "$.lesson_requirements",
-          "lesson_ids_to_update.$": "$.lesson_ids_to_update"
-        }
+        "Payload.$": "$"
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.batch_expansion",
@@ -868,21 +836,11 @@
       "Type": "Task"
     },
     "GenerateLabMasterPlan": {
-      "Comment": "Generate master lab plan for ALL modules ONCE before parallel processing",
+      "Comment": "Generate master lab plan for ALL modules ONCE before parallel processing. Payload is the whole state so a missing optional start key is not States.Runtime.",
       "Next": "CheckMasterLabPlanResult",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsLabPlanner",
-        "Payload": {
-          "course_bucket.$": "$.course_bucket",
-          "lab_requirements.$": "$.lab_requirements",
-          "model_provider.$": "$.model_provider",
-          "modules_to_generate.$": "$.modules_to_generate",
-          "outline_s3_key.$": "$.outline_s3_key",
-          "manual_s3_keys.$": "$.manual_s3_keys",
-          "manual_text_s3_key.$": "$.manual_text_s3_key",
-          "project_folder.$": "$.project_folder",
-          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
-        }
+        "Payload.$": "$"
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.master_lab_plan_result",
@@ -1105,21 +1063,11 @@
       "Default": "InvokeDeckBuilder"
     },
     "InvokeLabPlanner": {
-      "Comment": "Generate master lab plan for ALL modules",
+      "Comment": "Generate master lab plan for ALL modules. Payload is the whole state so a missing optional start key is not States.Runtime.",
       "Next": "CheckLabPlannerResult",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsLabPlanner",
-        "Payload": {
-          "course_bucket.$": "$.course_bucket",
-          "lab_requirements.$": "$.lab_requirements",
-          "model_provider.$": "$.model_provider",
-          "modules_to_generate.$": "$.modules_to_generate",
-          "outline_s3_key.$": "$.outline_s3_key",
-          "manual_s3_keys.$": "$.manual_s3_keys",
-          "manual_text_s3_key.$": "$.manual_text_s3_key",
-          "project_folder.$": "$.project_folder",
-          "lab_ids_to_regenerate.$": "$.lab_ids_to_regenerate"
-        }
+        "Payload.$": "$"
       },
       "Resource": "arn:aws:states:::lambda:invoke",
       "ResultPath": "$.lab_planner_result",
@@ -1171,6 +1119,7 @@
             "Parameters": {
               "batch_index.$": "$.batch_task.batch_index",
               "image_mappings.$": "$.accumulated_mappings",
+              "image_quality_issue.$": "$.image_quality_issue",
               "lesson_keys.$": "$.batch_result.Payload.lesson_keys",
               "module_number.$": "$.batch_task.module_number",
               "quality_warning.$": "$.batch_result.Payload.quality_warning",
@@ -1188,6 +1137,7 @@
               "module_number.$": "$.batch_task.module_number",
               "lesson_keys": [],
               "image_mappings": {},
+              "image_quality_issue": null,
               "quality_warning": "theory batch failed; placeholder or text-only lesson",
               "placeholder": true,
               "model_used": "",
@@ -1232,7 +1182,7 @@
                     "IsPresent": true
                   }
                 ],
-                "Next": "InitializeImageGeneration"
+                "Next": "CheckImageModel"
               },
               {
                 "Comment": "Success but no visual tags (legitimate skip)",
@@ -1291,6 +1241,7 @@
             "Next": "BatchComplete",
             "Parameters": {
               "accumulated_mappings.$": "$.images_result.Payload.image_mappings",
+              "image_quality_issue.$": "$.images_result.Payload.quality_issue",
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "images_result.$": "$.images_result",
@@ -1304,6 +1255,7 @@
             "Next": "BatchComplete",
             "Parameters": {
               "accumulated_mappings": {},
+              "image_quality_issue": null,
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "images_result.$": "$.images_result",
@@ -1360,7 +1312,9 @@
                 "prompts.$": "$.remaining_prompts",
                 "prompts_prefix.$": "$.visual_result.Payload.prompts_s3_prefix",
                 "image_model.$": "$.batch_task.image_model",
-                "course_language.$": "$.batch_task.course_language"
+                "course_language.$": "$.batch_task.course_language",
+                "accumulated_images.$": "$.accumulated_images",
+                "prior_quality_issue.$": "$.image_quality_issue"
               }
             },
             "Resource": "arn:aws:states:::lambda:invoke",
@@ -1394,12 +1348,74 @@
               }
             ]
           },
+          "CheckImageModel": {
+            "Type": "Choice",
+            "Comment": "Skip image generation when image_model is none, empty, or missing. The lesson continues without images. This is not a failure.",
+            "Choices": [
+              {
+                "Variable": "$.batch_task.image_model",
+                "IsPresent": false,
+                "Next": "SkipImageGeneration"
+              },
+              {
+                "Variable": "$.batch_task.image_model",
+                "IsNull": true,
+                "Next": "SkipImageGeneration"
+              },
+              {
+                "Variable": "$.batch_task.image_model",
+                "StringEquals": "",
+                "Next": "SkipImageGeneration"
+              },
+              {
+                "Variable": "$.batch_task.image_model",
+                "StringEquals": "none",
+                "Next": "SkipImageGeneration"
+              },
+              {
+                "Variable": "$.batch_task.image_model",
+                "StringEquals": "None",
+                "Next": "SkipImageGeneration"
+              },
+              {
+                "Variable": "$.batch_task.image_model",
+                "StringEquals": "NONE",
+                "Next": "SkipImageGeneration"
+              }
+            ],
+            "Default": "InitializeImageGeneration"
+          },
+          "CheckImageLoopCap": {
+            "Type": "Choice",
+            "Comment": "Hard cap of 30 image passes. A batch that never consumes its prompts degrades to text instead of looping.",
+            "Choices": [
+              {
+                "Variable": "$.image_loop_count.n",
+                "NumericGreaterThan": 30,
+                "Next": "ImagesDegraded"
+              }
+            ],
+            "Default": "GenerateBatchImages"
+          },
+          "IncrementImageLoop": {
+            "Type": "Pass",
+            "Comment": "Count one image-generation pass. The cap is checked next.",
+            "ResultPath": "$.image_loop_count",
+            "Parameters": {
+              "n.$": "States.MathAdd($.image_loop_count.n, 1)"
+            },
+            "Next": "CheckImageLoopCap"
+          },
           "InitializeImageGeneration": {
-            "Comment": "Initialize accumulators for multi-batch image processing",
-            "Next": "GenerateBatchImages",
+            "Comment": "Initialize accumulators for multi-batch image processing. image_loop_count starts at 0 and IncrementImageLoop adds one per pass.",
+            "Next": "IncrementImageLoop",
             "Parameters": {
               "accumulated_images": [],
               "accumulated_mappings": {},
+              "image_quality_issue": null,
+              "image_loop_count": {
+                "n": 0
+              },
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "remaining_prompts.$": "$.visual_result.Payload.prompts",
@@ -1452,11 +1468,13 @@
             "Type": "Task"
           },
           "PrepareNextImageBatch": {
-            "Comment": "Prepare next batch of remaining images (auto-resume)",
-            "Next": "GenerateBatchImages",
+            "Comment": "Prepare the next image batch. accumulated_images is the flat list ImagesGen already merged. States.Array would nest the previous list inside a new one on every pass.",
+            "Next": "IncrementImageLoop",
             "Parameters": {
-              "accumulated_images.$": "States.Array($.accumulated_images, $.images_result.Payload.generated_images)",
+              "accumulated_images.$": "$.images_result.Payload.accumulated_images",
               "accumulated_mappings.$": "States.JsonMerge($.accumulated_mappings, $.images_result.Payload.image_mappings, false)",
+              "image_quality_issue.$": "$.images_result.Payload.quality_issue",
+              "image_loop_count.$": "$.image_loop_count",
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "remaining_prompts.$": "$.images_result.Payload.remaining_prompts",
@@ -1466,12 +1484,13 @@
             "Type": "Pass"
           },
           "SkipImageGeneration": {
-            "Comment": "No visual tags found, skip image generation",
+            "Comment": "No visual tags, or image_model is none, empty, or missing. The lesson continues without images.",
             "Next": "BatchComplete",
             "Parameters": {
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "accumulated_mappings": {},
+              "image_quality_issue": null,
               "images_result": {
                 "Payload": {
                   "image_mappings": {},
@@ -1492,6 +1511,7 @@
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
               "accumulated_mappings": {},
+              "image_quality_issue": null,
               "images_result": {
                 "Payload": {
                   "image_mappings": {},
@@ -1510,12 +1530,17 @@
           },
           "ImagesDegraded": {
             "Type": "Pass",
-            "Comment": "Image generation failed. Keep the lesson text and continue.",
+            "Comment": "Image generation failed or hit the 30-pass cap. Keep the lesson text and continue. The warning is carried on the batch so the owner report includes it.",
             "ResultPath": "$",
             "Parameters": {
               "accumulated_mappings.$": "$.accumulated_mappings",
               "batch_result.$": "$.batch_result",
               "batch_task.$": "$.batch_task",
+              "image_quality_issue": {
+                "step": "GenerateBatchImages",
+                "severity": "warning",
+                "error": "La generación de imágenes se detuvo (error o tope de 30 pasadas); la lección sigue en texto. / Image generation stopped (error or the 30-pass cap); the lesson continues as text."
+              },
               "images_result": {
                 "Payload": {
                   "image_mappings": {},
@@ -1529,7 +1554,7 @@
           }
         }
       },
-      "Next": "ChooseCombineResultsPath",
+      "Next": "StampImageIssueList",
       "Parameters": {
         "batch_task.$": "$$.Map.Item.Value"
       },
@@ -1763,6 +1788,52 @@
       ],
       "Type": "Map"
     },
+    "StampImageIssueList": {
+      "Type": "Pass",
+      "Comment": "Materialize image warnings before JsonToString. A [*] projection is not a reference path inside an intrinsic.",
+      "ResultPath": "$.image_issue_list",
+      "Parameters": {
+        "items.$": "$.all_batches_results[*].image_quality_issue"
+      },
+      "Next": "StringifyImageIssues"
+    },
+    "StringifyImageIssues": {
+      "Type": "Pass",
+      "Comment": "One string so the next Choice can see a warning without failing when every batch skipped images.",
+      "ResultPath": "$.image_issue_blob",
+      "Parameters": {
+        "text.$": "States.JsonToString($.image_issue_list.items)"
+      },
+      "Next": "CheckImageIssues"
+    },
+    "CheckImageIssues": {
+      "Type": "Choice",
+      "Comment": "Record an image warning only when a batch actually degraded. Skipping image_model=none is not a finding.",
+      "Choices": [
+        {
+          "Variable": "$.image_issue_blob.text",
+          "IsPresent": false,
+          "Next": "ChooseCombineResultsPath"
+        },
+        {
+          "Variable": "$.image_issue_blob.text",
+          "StringMatches": "*warning*",
+          "Next": "RecordImageIssues"
+        }
+      ],
+      "Default": "ChooseCombineResultsPath"
+    },
+    "RecordImageIssues": {
+      "Type": "Pass",
+      "Comment": "Append GenerateBatchImages to $.quality_issues. The course continues and the owner report carries this finding.",
+      "ResultPath": "$.quality_issues.GenerateBatchImages",
+      "Parameters": {
+        "step": "GenerateBatchImages",
+        "severity": "warning",
+        "error.$": "$.image_issue_blob.text"
+      },
+      "Next": "ChooseCombineResultsPath"
+    },
     "NotifyCompletion": {
       "Comment": "The learner receives the normal delivered email. When $.quality_issues is non-empty the owner (OWNER_ALERT_EMAIL) receives the detail and validation/quality-report.json is written.",
       "Next": "SuccessState",
@@ -1790,7 +1861,27 @@
           "MaxAttempts": 2
         }
       ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.notification_error",
+          "Next": "RecordNotificationIssue"
+        }
+      ],
       "Type": "Task"
+    },
+    "RecordNotificationIssue": {
+      "Type": "Pass",
+      "Comment": "The course is already delivered. A notification failure must not fail the execution.",
+      "ResultPath": "$.quality_issues.RecordNotificationIssue",
+      "Parameters": {
+        "step": "NotifyCompletion",
+        "severity": "warning",
+        "error.$": "States.JsonToString($.notification_error)"
+      },
+      "Next": "SuccessState"
     },
     "StampLabsPlanQuality": {
       "Type": "Pass",
@@ -2055,21 +2146,11 @@
     },
     "RegenerateInvalidLabs": {
       "Type": "Task",
-      "Comment": "One targeted regeneration of the labs that failed the structural check. force_regenerate rewrites them even if a file already exists.",
+      "Comment": "One targeted regeneration of the labs that failed the structural check. The whole state is passed. The writer sets force_regenerate from invalid_lab_ids so a real lab_ids list is not overwritten.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "arn:aws:lambda:us-east-1:746434296869:function:StrandsLabWriter",
-        "Payload": {
-          "course_bucket.$": "$.course_bucket",
-          "project_folder.$": "$.project_folder",
-          "model_provider.$": "$.model_provider",
-          "master_plan_key.$": "$.master_plan_key",
-          "lab_ids.$": "$.lab_validation_result.invalid_lab_ids",
-          "outline_s3_key.$": "$.outline_s3_key",
-          "manual_text_s3_key.$": "$.manual_text_s3_key",
-          "force_regenerate": true,
-          "structural_retry": true
-        }
+        "Payload.$": "$"
       },
       "ResultPath": "$.structural_retry_result",
       "Retry": [

@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from bedrock_fallback import fallback_model_ids, run_model_chain
+from optional_fields import leer_campos_opcionales
 
 from format_budget import aplicar_presupuesto_de_formato, sin_ajuste
 from manual_context import select_manual_context, flatten_to_text
@@ -1349,13 +1350,16 @@ def lambda_handler(event, context):
     print("="*70)
     
     try:
-        # Extract parameters
+        # Extract parameters. The state machine passes the whole state, so extra
+        # keys are ignored and optional start fields are read with .get.
         course_bucket = event.get('course_bucket', 'crewai-course-artifacts')
         outline_key = event['outline_s3_key']
         project_folder = event['project_folder']
         model_provider = event.get('model_provider', 'bedrock')
-        lab_requirements = event.get('lab_requirements')
-        manual_text_s3_key = event.get('manual_text_s3_key')
+        opcionales = leer_campos_opcionales(event)
+        lab_requirements = opcionales['lab_requirements']
+        manual_text_s3_key = opcionales['manual_text_s3_key']
+        manual_s3_keys = opcionales['manual_s3_keys']
 
         # Support bedrock, openai, and google/gemini providers
         original_provider = event.get('model_provider', 'bedrock').lower()
@@ -1377,7 +1381,7 @@ def lambda_handler(event, context):
             modules_to_generate = [int(modules_to_generate)]
         
         # NEW: Get lab IDs to regenerate (takes priority over module filtering)
-        lab_ids_to_regenerate = event.get('lab_ids_to_regenerate')
+        lab_ids_to_regenerate = opcionales['lab_ids_to_regenerate']
         
         print(f"📦 Bucket: {course_bucket}")
         print(f"📄 Outline: {outline_key}")
@@ -1387,6 +1391,7 @@ def lambda_handler(event, context):
         if lab_ids_to_regenerate:
             print(f"🆔 Lab IDs to Regenerate: {lab_ids_to_regenerate}")
         print(f"📋 Additional Requirements: {lab_requirements if lab_requirements else 'None'}")
+        print(f"📎 manual_s3_keys: {manual_s3_keys if manual_s3_keys else 'None'}")
         
         # Step 1: Load outline
         outline_data = load_outline_from_s3(course_bucket, outline_key)

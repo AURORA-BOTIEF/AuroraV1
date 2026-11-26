@@ -38,6 +38,8 @@ import boto3
 import yaml
 from typing import List, Dict, Any
 
+from optional_fields import leer_campos_opcionales
+
 s3_client = boto3.client('s3')
 
 # Maximum lessons per batch (reduced to 3 to prevent Lambda timeouts)
@@ -78,10 +80,12 @@ def lambda_handler(event, context):
         model_provider = event.get('model_provider', 'bedrock')
         content_source = event.get('content_source')
         image_model = event.get('image_model')
-        lesson_requirements = event.get('lesson_requirements', '')  # Optional additional requirements for lessons
-        lesson_to_generate = event.get('lesson_to_generate')  # Specific lesson to regenerate (e.g., "01-02")
-        manual_s3_keys = event.get('manual_s3_keys')
-        manual_text_s3_key = event.get('manual_text_s3_key')
+        opcionales = leer_campos_opcionales(event)
+        # None means the key was absent. A real string, including "", is kept.
+        lesson_requirements = opcionales["lesson_requirements"] if opcionales["lesson_requirements"] is not None else ""
+        lesson_to_generate = opcionales["lesson_to_generate"]
+        manual_s3_keys = opcionales["manual_s3_keys"]
+        manual_text_s3_key = opcionales["manual_text_s3_key"]
         
         if not all([course_bucket, outline_s3_key, project_folder]):
             raise ValueError("Missing required parameters: course_bucket, outline_s3_key, project_folder")
@@ -102,7 +106,7 @@ def lambda_handler(event, context):
         # Actualización de contenidos: varias lecciones en una ejecución ("MM-LL").
         # La lista manda sobre la individual; las lecciones no pedidas quedan como
         # están en {project}/lessons (el resto del curso no se toca).
-        lesson_ids_to_update = event.get("lesson_ids_to_update") or []
+        lesson_ids_to_update = opcionales["lesson_ids_to_update"] or []
         en_actualizacion = bool(lesson_ids_to_update)
         lecciones_por_modulo = {}
         if lesson_ids_to_update:

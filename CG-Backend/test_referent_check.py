@@ -416,6 +416,10 @@ def test_la_state_machine_pasa_el_contexto_al_expansor_de_lotes():
         if not str(parametros.get("FunctionName", "")).endswith(":function:LabBatchExpander"):
             continue
         encontrados += 1
+        # The whole state is passed so a missing optional key is not States.Runtime.
+        # The expander still reads outline_s3_key and manual_text_s3_key with .get.
+        if parametros.get("Payload.$") == "$":
+            continue
         payload = parametros.get("Payload") or {}
         assert "outline_s3_key.$" in payload, f"{nombre} no pasa el temario al expansor"
         assert "manual_text_s3_key.$" in payload, f"{nombre} no pasa el manual al expansor"

@@ -36,6 +36,8 @@ import os
 import boto3
 from typing import List, Dict, Any
 
+from optional_fields import leer_campos_opcionales, resolver_master_plan_key
+
 s3_client = boto3.client('s3')
 
 # One lab per Step Functions batch item so StrandsLabWriter stays under Lambda 15m limit.
@@ -52,15 +54,17 @@ def lambda_handler(event, context):
         print("LAB BATCH EXPANDER - Converting Labs to Batches")
         print("=" * 70)
         
-        # Extract parameters
+        # Extract parameters. A full execution state is accepted: optional keys
+        # are read with .get and master_plan_key may be nested under the planner.
         course_bucket = event.get('course_bucket')
-        master_plan_key = event.get('master_plan_key')
+        master_plan_key = resolver_master_plan_key(event)
         project_folder = event.get('project_folder')
         model_provider = event.get('model_provider', 'bedrock')
+        opcionales = leer_campos_opcionales(event)
         # Contexto de verificación: sin estas dos claves el Writer no puede contrastar
         # lo que escribe contra el temario ni contra el manual (verificación B1).
         outline_s3_key = event.get('outline_s3_key')
-        manual_text_s3_key = event.get('manual_text_s3_key')
+        manual_text_s3_key = opcionales['manual_text_s3_key']
 
         if not all([course_bucket, master_plan_key, project_folder]):
             raise ValueError("Missing required parameters: course_bucket, master_plan_key, project_folder")
@@ -86,7 +90,7 @@ def lambda_handler(event, context):
         
         # Get all labs (optional: only labs listed in lab_ids_to_regenerate)
         lab_plans = master_plan.get('lab_plans', [])
-        lab_ids_filter = event.get('lab_ids_to_regenerate')
+        lab_ids_filter = opcionales['lab_ids_to_regenerate']
         if lab_ids_filter:
             only = {x for x in lab_ids_filter if x}
             before = len(lab_plans)

@@ -22,6 +22,7 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from optional_fields import normalizar_evento_writer
 from copilot_currency import (
     auditar_superficies_copilot,
     construir_informe_moneda,
@@ -2734,6 +2735,9 @@ def lambda_handler(event, context):
     print("="*70)
     
     try:
+        # Full state from RegenerateInvalidLabs carries invalid_lab_ids instead of
+        # lab_ids. A shaped batch payload already has lab_ids and is left as-is.
+        event = normalizar_evento_writer(event)
         # Extract parameters
         course_bucket = event.get('course_bucket', 'crewai-course-artifacts')
         master_plan_key = event['master_plan_key']

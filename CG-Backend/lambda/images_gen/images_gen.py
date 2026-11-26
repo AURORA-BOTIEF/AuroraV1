@@ -30,6 +30,12 @@ from PIL import Image
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from image_batch import (
+    cerrar_lote,
+    modelo_desactivado,
+    respuesta_sin_imagenes,
+)
+
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -636,7 +642,22 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         logger.info(f"🔍 DEBUG - Raw image_model from input: {repr(raw_image_model)} (type: {type(raw_image_model).__name__})")
         logger.info(f"🔍 DEBUG - DEFAULT_IMAGE_MODEL: {DEFAULT_IMAGE_MODEL}")
         logger.info(f"🔍 DEBUG - GEMINI_MODEL: {GEMINI_MODEL}")
-        
+
+        # 'none' or '' used to call Gemini, get a 404, and return 200 with the
+        # same prompts still remaining. The state machine then looped forever.
+        if modelo_desactivado(raw_image_model):
+            logger.info("Image model is none or empty; skipping generation")
+            return respuesta_sin_imagenes(
+                course_bucket=course_bucket,
+                project_folder=project_folder,
+                accumulated_images=exec_input.get("accumulated_images"),
+                prior_quality_issue=exec_input.get("prior_quality_issue"),
+                message=(
+                    "Modelo de imagen vacío o 'none': no se generan imágenes. "
+                    "image_model is empty or 'none': images are not generated."
+                ),
+            )
+
         image_model = (raw_image_model or DEFAULT_IMAGE_MODEL).lower()  # Safe None handling
         logger.info(f"🔍 DEBUG - Final image_model after processing: {image_model}")
         use_openai = is_openai_image_model(image_model)
@@ -738,13 +759,24 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             openai_api_key = get_openai_api_key()
             if not openai_api_key:
                 logger.info("⚠️  OpenAI API key not available; skipping image generation")
-                return {
-                    "statusCode": 200,
-                    "message": "OpenAI API key not available; skipped image generation",
-                    "generated_images": [],
-                    "bucket": course_bucket,
-                    "project_folder": project_folder,
-                }
+                return respuesta_sin_imagenes(
+                    course_bucket=course_bucket,
+                    project_folder=project_folder,
+                    accumulated_images=exec_input.get("accumulated_images"),
+                    prior_quality_issue=exec_input.get("prior_quality_issue"),
+                    message=(
+                        "No hay clave de API de OpenAI; la lección sigue sin imágenes. "
+                        "No OpenAI API key; the lesson continues without images."
+                    ),
+                    quality_issue={
+                        "step": "GenerateBatchImages",
+                        "severity": "warning",
+                        "error": (
+                            "No hay clave de API de OpenAI; no se generaron imágenes. "
+                            "No OpenAI API key; images were not generated."
+                        ),
+                    },
+                )
             openai_model_id = (raw_image_model or DEFAULT_OPENAI_IMAGE_MODEL).strip()
             if not openai_model_id:
                 openai_model_id = DEFAULT_OPENAI_IMAGE_MODEL
@@ -761,24 +793,46 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
 
             if genai is None:
                 logger.info("⚠️  genai library not available; skipping image generation")
-                return {
-                    "statusCode": 200,
-                    "message": "genai library not available; skipped image generation",
-                    "generated_images": [],
-                    "bucket": course_bucket,
-                    "project_folder": project_folder,
-                }
+                return respuesta_sin_imagenes(
+                    course_bucket=course_bucket,
+                    project_folder=project_folder,
+                    accumulated_images=exec_input.get("accumulated_images"),
+                    prior_quality_issue=exec_input.get("prior_quality_issue"),
+                    message=(
+                        "La librería de Gemini no está disponible; la lección sigue sin imágenes. "
+                        "The Gemini library is not available; the lesson continues without images."
+                    ),
+                    quality_issue={
+                        "step": "GenerateBatchImages",
+                        "severity": "warning",
+                        "error": (
+                            "La librería de Gemini no está disponible; no se generaron imágenes. "
+                            "The Gemini library is not available; images were not generated."
+                        ),
+                    },
+                )
 
             google_api_key = get_google_api_key()
             if not google_api_key:
                 logger.info("⚠️  Google API key not available; skipping image generation")
-                return {
-                    "statusCode": 200,
-                    "message": "Google API key not available; skipped image generation",
-                    "generated_images": [],
-                    "bucket": course_bucket,
-                    "project_folder": project_folder,
-                }
+                return respuesta_sin_imagenes(
+                    course_bucket=course_bucket,
+                    project_folder=project_folder,
+                    accumulated_images=exec_input.get("accumulated_images"),
+                    prior_quality_issue=exec_input.get("prior_quality_issue"),
+                    message=(
+                        "No hay clave de API de Google; la lección sigue sin imágenes. "
+                        "No Google API key; the lesson continues without images."
+                    ),
+                    quality_issue={
+                        "step": "GenerateBatchImages",
+                        "severity": "warning",
+                        "error": (
+                            "No hay clave de API de Google; no se generaron imágenes. "
+                            "No Google API key; images were not generated."
+                        ),
+                    },
+                )
 
             try:
                 genai.configure(api_key=google_api_key)
@@ -788,11 +842,24 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 logger.info(f"✅ Initialized Gemini model: {model_to_use}")
             except Exception as e:
                 logger.info(f"❌ Failed to configure Gemini: {e}")
-                return {
-                    "statusCode": 500,
-                    "error": f"Failed to configure Gemini: {e}",
-                    "generated_images": [],
-                }
+                return respuesta_sin_imagenes(
+                    course_bucket=course_bucket,
+                    project_folder=project_folder,
+                    accumulated_images=exec_input.get("accumulated_images"),
+                    prior_quality_issue=exec_input.get("prior_quality_issue"),
+                    message=(
+                        f"No se pudo configurar Gemini: {e}. La lección sigue sin imágenes. "
+                        f"Failed to configure Gemini: {e}. The lesson continues without images."
+                    ),
+                    quality_issue={
+                        "step": "GenerateBatchImages",
+                        "severity": "warning",
+                        "error": (
+                            f"No se pudo configurar Gemini ({e}); no se generaron imágenes. "
+                            f"Failed to configure Gemini ({e}); images were not generated."
+                        ),
+                    },
+                )
         
         generated_images = []
         
@@ -813,15 +880,15 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             except Exception as e:
                 logger.info(f"Error listing lessons: {e}")
             
-            return {
-                "statusCode": 200,
-                "message": "No visual prompts to process",
-                "generated_images": [],
-                "bucket": course_bucket,
-                "project_folder": project_folder,
-                "lesson_keys": lesson_keys,
-                "image_mappings": {}
-            }
+            vacio = respuesta_sin_imagenes(
+                course_bucket=course_bucket,
+                project_folder=project_folder,
+                accumulated_images=exec_input.get("accumulated_images"),
+                prior_quality_issue=exec_input.get("prior_quality_issue"),
+                message="No visual prompts to process",
+            )
+            vacio["lesson_keys"] = lesson_keys
+            return vacio
         
         # Determine how many to process with start_index support
         start_index = exec_input.get('start_index', 0)
@@ -884,6 +951,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         # Track processing start time for timeout monitoring
         processing_start_time = time.time()
         processed_count = 0
+        # Failures and skips advance this cursor. Success-only counting left the
+        # same prompts in remaining_prompts and the state machine retried them.
+        attempted_count = 0
         stopped_due_to_timeout = False
         
         # Process each prompt
@@ -904,7 +974,8 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 logger.warning(f"   Elapsed: {elapsed_time:.1f}s, Remaining: {remaining_seconds:.1f}s, Buffer needed: {TIMEOUT_SAFETY_BUFFER + estimated_next_image_time}s")
                 stopped_due_to_timeout = True
                 break
-            
+
+            attempted_count += 1
             prompt_id = str(prompt_obj.get('id', f'prompt-{idx}'))
             prompt_text = prompt_obj.get('description', '')
             
@@ -1108,12 +1179,18 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         skipped_count = len(skipped_images)
         total_processed = processed_count
         
-        # Prompts not processed yet: the tail skipped by the timeout PLUS any prompts
-        # beyond the per-model batch cap (effective_max). Returning both is required so the
-        # state machine auto-resume loop does not silently drop images.
-        remaining_prompts = []
-        if processed_count < len(prompts_from_input):
-            remaining_prompts = prompts_from_input[processed_count:]
+        # Unattempted tail only. A prompt that failed is consumed: retrying it
+        # returned HTTP 200 with the same remaining_prompts and looped forever.
+        cierre = cerrar_lote(
+            prompts_from_input,
+            attempted_count,
+            failed_images,
+            generated_images,
+            exec_input.get("accumulated_images"),
+            exec_input.get("prior_quality_issue"),
+        )
+        remaining_prompts = cierre["remaining_prompts"]
+        if remaining_prompts:
             if stopped_due_to_timeout:
                 logger.warning(f"⏱️  TIMEOUT: {len(remaining_prompts)} prompts remaining for next batch")
             else:
@@ -1148,7 +1225,14 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         # Determine status code based on results
         status_code = 200 if failed_count == 0 else 207  # 207 = Multi-Status (partial success)
-        
+        quality_issue = cierre["quality_issue"]
+        if failed_images:
+            logger.warning(
+                "Consumed %s failed prompt(s); they will not be retried. %s",
+                failed_count,
+                quality_issue.get("error") if quality_issue else "",
+            )
+
         return {
             "statusCode": status_code,
             "message": f"Generated {successful_count}/{total_processed} images successfully",
@@ -1157,28 +1241,45 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             "project_folder": project_folder,
             "lesson_keys": lesson_keys,
             "image_mappings": image_mappings,
-            "remaining_prompts": remaining_prompts,  # NEW: For automatic resume
+            "remaining_prompts": remaining_prompts,  # Unattempted prompts only
+            "accumulated_images": cierre["accumulated_images"],
+            "quality_issue": quality_issue,
             "statistics": {
                 "total_requested": len(prompts_to_process),
                 "total_processed": total_processed,
                 "successful": successful_count,
                 "failed": failed_count,
                 "skipped": skipped_count,
-                "remaining": len(remaining_prompts),  # NEW: Count of unprocessed prompts
+                "remaining": len(remaining_prompts),
                 "success_rate": f"{(successful_count/total_processed*100):.1f}%" if total_processed > 0 else "0%",
-                "timeout_stopped": stopped_due_to_timeout  # NEW: Flag indicating if stopped early
+                "timeout_stopped": stopped_due_to_timeout
             },
             "failed_details": failed_images if failed_images else []
         }
         
     except Exception as e:
         logger.error(f"❌ FATAL ERROR in lambda_handler: {e}", exc_info=True)
-        return {
-            "statusCode": 500,
-            "error": str(e),
-            "error_type": type(e).__name__,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        degradada = respuesta_sin_imagenes(
+            course_bucket=None,
+            project_folder=None,
+            message=(
+                f"Error de generación de imágenes: {e}. La lección sigue sin imágenes. "
+                f"Image generation error: {e}. The lesson continues without images."
+            ),
+            quality_issue={
+                "step": "GenerateBatchImages",
+                "severity": "warning",
+                "error": (
+                    f"La generación de imágenes falló ({type(e).__name__}: {e}) y no se reintenta. "
+                    f"Image generation failed ({type(e).__name__}: {e}) and will not be retried."
+                ),
+            },
+        )
+        degradada["statusCode"] = 500
+        degradada["error"] = str(e)
+        degradada["error_type"] = type(e).__name__
+        degradada["timestamp"] = datetime.utcnow().isoformat()
+        return degradada
 
 
 if __name__ == '__main__':

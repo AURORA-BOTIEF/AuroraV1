@@ -25,8 +25,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Root fields a real start always sends. Empty string or null is fine;
-# omitting the key is not, because GenerateLabMasterPlan uses `.$` paths.
+# Root fields a real start always sends. Empty string or null is fine.
+# Tasks that used to read the optional ones with `.$` now receive the whole
+# state, so a missing optional key is not a States.Runtime on those tasks.
+# Pass states still copy the keys when a real course sends them.
 CAMPOS_DE_INICIO = (
     "allow_openai_fallback",
     "content_source",

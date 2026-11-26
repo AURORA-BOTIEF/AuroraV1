@@ -182,16 +182,20 @@ def _cumple(condicion, datos):
         return not _cumple(condicion["Not"], datos)
     variable = condicion.get("Variable")
     valor = _resolver(datos, variable)
-    variable = condicion.get("Variable")
-    valor = _resolver(datos, variable)
-    if condicion.get("IsPresent"):
-        return valor is not AUSENTE
+    if "IsPresent" in condicion:
+        presente = valor is not AUSENTE
+        return presente == bool(condicion["IsPresent"])
     if "IsNull" in condicion:
         if valor is AUSENTE:
             return False
         return (valor is None) == bool(condicion["IsNull"])
     if "StringEquals" in condicion:
         return valor == condicion["StringEquals"]
+    if "StringMatches" in condicion:
+        if not isinstance(valor, str):
+            return False
+        patron = re.escape(condicion["StringMatches"]).replace(r"\*", ".*")
+        return re.fullmatch(patron, valor) is not None
     if "NumericEquals" in condicion:
         return valor == condicion["NumericEquals"]
     if "BooleanEquals" in condicion:
@@ -565,6 +569,145 @@ def test_los_lotes_propagan_el_estado_de_calidad():
     assert "States.JsonToString($.lab_quality_summaries)" in (
         estados["StampLabWriterQuality"]["Parameters"]["cause.$"]
     )
+
+
+_CAMPOS_OPCIONALES_DE_INICIO = {
+    "lab_requirements",
+    "manual_s3_keys",
+    "manual_text_s3_key",
+    "lab_ids_to_regenerate",
+    "lesson_to_generate",
+    "lesson_requirements",
+    "lesson_ids_to_update",
+}
+
+_TIPOS_ASL = {
+    "Task", "Pass", "Choice", "Wait", "Succeed", "Fail", "Map", "Parallel",
+}
+
+
+def _estados_anidados(estados):
+    """(ambito, nombre, estado) for the root and every Map iterator."""
+    for nombre, estado in estados.items():
+        yield "root", nombre, estado
+        iterador = (estado.get("Iterator") or {}).get("States") or {}
+        for interno, detalle in iterador.items():
+            yield nombre, interno, detalle
+
+
+def _destinos(estado):
+    for clave in ("Next", "Default"):
+        destino = estado.get(clave)
+        if destino:
+            yield destino
+    for eleccion in estado.get("Choices") or []:
+        if eleccion.get("Next"):
+            yield eleccion["Next"]
+    for atrapa in estado.get("Catch") or []:
+        if atrapa.get("Next"):
+            yield atrapa["Next"]
+
+
+def test_la_definicion_es_asl_valida_y_solo_falla_en_failworkflow():
+    """Valid JSON, every Next/Default/Catch target exists, no Fail besides FailWorkflow."""
+    definicion = _definicion()
+    assert definicion["StartAt"] in definicion["States"]
+    estados = definicion["States"]
+    fallos = []
+    for ambito, nombre, estado in _estados_anidados(estados):
+        assert estado.get("Type") in _TIPOS_ASL, (ambito, nombre, estado.get("Type"))
+        if estado.get("Type") == "Fail":
+            fallos.append((ambito, nombre))
+        alcance = estados if ambito == "root" else estados[ambito]["Iterator"]["States"]
+        for destino in _destinos(estado):
+            assert destino in alcance, (
+                f"{ambito}/{nombre} points to missing state {destino}"
+            )
+        if estado.get("Type") in ("Succeed", "Fail"):
+            assert "Next" not in estado
+        elif estado.get("End") is True:
+            assert "Next" not in estado
+        elif estado.get("Type") == "Choice":
+            assert estado.get("Default") or estado.get("Choices")
+        else:
+            assert estado.get("Next"), f"{ambito}/{nombre} has no Next"
+    assert fallos == [("root", "FailWorkflow")]
+
+
+def test_image_model_none_no_entra_al_bucle_de_imagenes():
+    """none, empty, or missing skips generation and still reaches BatchComplete."""
+    teoria = _definicion()["States"]["ProcessBatchesInParallel"]["Iterator"]["States"]
+    compuerta = teoria["CheckImageModel"]
+    for datos in (
+        {"batch_task": {}},
+        {"batch_task": {"image_model": None}},
+        {"batch_task": {"image_model": ""}},
+        {"batch_task": {"image_model": "none"}},
+        {"batch_task": {"image_model": "None"}},
+        {"batch_task": {"image_model": "NONE"}},
+    ):
+        assert _destino_de_choice(compuerta, datos) == "SkipImageGeneration", datos
+    assert _destino_de_choice(
+        compuerta, {"batch_task": {"image_model": "models/gemini-2.5-flash-image"}}
+    ) == "InitializeImageGeneration"
+    assert teoria["CheckForVisualTags"]["Choices"][0]["Next"] == "CheckImageModel"
+    assert teoria["SkipImageGeneration"]["Next"] == "BatchComplete"
+    assert teoria["InitializeImageGeneration"]["Next"] == "IncrementImageLoop"
+
+
+def test_el_bucle_de_imagenes_tiene_tope_y_no_anida_el_acumulador():
+    teoria = _definicion()["States"]["ProcessBatchesInParallel"]["Iterator"]["States"]
+    assert teoria["InitializeImageGeneration"]["Parameters"]["image_loop_count"] == {"n": 0}
+    assert teoria["IncrementImageLoop"]["Parameters"]["n.$"] == "States.MathAdd($.image_loop_count.n, 1)"
+    assert teoria["IncrementImageLoop"]["Next"] == "CheckImageLoopCap"
+    tope = teoria["CheckImageLoopCap"]
+    assert _destino_de_choice(tope, {"image_loop_count": {"n": 31}}) == "ImagesDegraded"
+    assert _destino_de_choice(tope, {"image_loop_count": {"n": 30}}) == "GenerateBatchImages"
+    assert _destino_de_choice(tope, {"image_loop_count": {"n": 1}}) == "GenerateBatchImages"
+    preparar = teoria["PrepareNextImageBatch"]
+    assert preparar["Next"] == "IncrementImageLoop"
+    assert "States.Array" not in json.dumps(preparar["Parameters"])
+    assert preparar["Parameters"]["accumulated_images.$"] == "$.images_result.Payload.accumulated_images"
+    assert teoria["ImagesDegraded"]["Next"] == "BatchComplete"
+    assert teoria["ImagesDegraded"]["Parameters"]["image_quality_issue"]["severity"] == "warning"
+    aviso = teoria["ImagesDegraded"]["Parameters"]["image_quality_issue"]["error"]
+    assert "lección sigue en texto" in aviso
+    assert "lesson continues as text" in aviso
+    assert teoria["GenerateBatchImages"]["Catch"][0]["Next"] == "ImagesDegraded"
+
+
+def test_las_tareas_no_referencian_claves_opcionales_con_jsonpath():
+    """A missing optional start key must not be a States.Runtime on a Task."""
+    estados = _definicion()["States"]
+    for ambito, nombre, estado in _estados_anidados(estados):
+        if estado.get("Type") != "Task":
+            continue
+        parametros = estado.get("Parameters") or {}
+        assert parametros.get("Payload.$") == "$" or "Payload" in parametros or "Payload.$" in parametros
+        texto = json.dumps(parametros)
+        for clave in _CAMPOS_OPCIONALES_DE_INICIO:
+            assert f"$.{clave}" not in texto, (ambito, nombre, clave)
+    for nombre in (
+        "GenerateLabMasterPlan",
+        "InvokeLabPlanner",
+        "ExpandModulesToBatches",
+        "ExpandLabsToBatches",
+        "ExpandLabsToBatchesBoth",
+        "RegenerateInvalidLabs",
+    ):
+        assert estados[nombre]["Parameters"]["Payload.$"] == "$"
+
+
+def test_notify_completion_no_falla_el_curso():
+    estados = _definicion()["States"]
+    aviso = estados["NotifyCompletion"]["Catch"][0]
+    assert aviso["ErrorEquals"] == ["States.ALL"]
+    assert aviso["Next"] == "RecordNotificationIssue"
+    assert estados["RecordNotificationIssue"]["Next"] == "SuccessState"
+    assert estados["RecordNotificationIssue"]["Type"] == "Pass"
+    assert estados["RecordNotificationIssue"]["ResultPath"] == "$.quality_issues.RecordNotificationIssue"
+    assert estados["SuccessState"]["Type"] == "Succeed"
+    assert estados["FailWorkflow"]["Type"] == "Fail"
     selector = estados["GenerateLabMasterPlan"]["ResultSelector"]["Payload"]
     assert selector["quality_status.$"] == "$.Payload.quality_status"
     assert selector["quality_summary.$"] == "$.Payload.quality_summary"
@@ -643,13 +786,15 @@ def test_los_constructores_no_fallan_el_curso_y_el_planificador_si_puede():
     ):
         assert estados[nombre]["Parameters"]["quality_issues.$"] == "$.quality_issues"
     producidas = _raices_de_parametros(estados["CombineLabResults"]["Parameters"])
-    carga = estados["RegenerateInvalidLabs"]["Parameters"]["Payload"]
-    for clave, ruta in carga.items():
-        if not clave.endswith(".$"):
-            continue
-        raiz = _raiz(ruta)
-        if raiz == "lab_validation_result":
-            continue
+    assert estados["RegenerateInvalidLabs"]["Parameters"]["Payload.$"] == "$"
+    for raiz in (
+        "course_bucket",
+        "project_folder",
+        "model_provider",
+        "master_plan_key",
+        "outline_s3_key",
+        "manual_text_s3_key",
+    ):
         assert raiz in producidas, raiz
     ambas = _raices_de_parametros(estados["CombineLabResultsBoth"]["Parameters"])
     assert "master_plan_key" in ambas
