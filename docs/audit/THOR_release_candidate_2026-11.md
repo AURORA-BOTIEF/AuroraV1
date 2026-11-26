@@ -210,7 +210,7 @@ SAM CLI is not installed in this environment, so `sam validate` was not run. The
 | `test_ppt_quality.py` | 8/8 |
 | `test_provider_lock.py` | pytest 16 passed |
 | `test_quality_gate.py` | 10/10 |
-| `test_reliability.py` | 11/11 |
+| `test_reliability.py` | 12/12 |
 | `test_reading_budget.py` | 6/6 |
 | `test_referent_check.py` | 198/198 |
 | `test_setup_guide_capabilities.py` | 6/6 |
@@ -277,7 +277,7 @@ What changed:
 - Every new Catch appends one key under `$.quality_issues` (`step`, `error`, `severity`, and `deliverable` when a file is missing). Replacing Pass states copy `quality_issues` so it is not dropped.
 - Bedrock calls switch immediately on a daily token quota (`per day`), `ServiceQuotaExceeded`, or `AccessDenied`. Per-minute throttling uses exponential backoff with jitter and switches after the third throttle on that model. The chain is the primary model, then `BEDROCK_FALLBACK_MODELS` (default `us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0`), then the existing OpenAI or Gemini path when those secrets are configured. The model that answered is stored on the lab and in the quality report. The same chain is used by the lab writer, the lab planner, content generation, and the visual planner.
 - `deploy.ps1` runs `scripts/import_handlers_smoke.py` after `sam build`. Nested handlers (`assignments/assign_course.lambda_handler`) import as packages. A missing Python module such as `ppt_quality` aborts the deploy. A Linux native wheel that cannot load on the Windows build host is skipped (`51a3202e`).
-- `scripts/canary_course.py` is not part of deploy. The default is a dry run. `--execute` starts one small Spanish course (one module, theory and labs). `scripts/check_execution_artifacts.py` checks labs, the lab-guide book, a PPTX, and `setupguide/Setup_Guide.pdf`. Exit 0 is complete, 2 means delivered with placeholders, 1 means a file is missing.
+- `scripts/canary_course.py` is not part of deploy. The default is a dry run. `--execute` uploads `scripts/canary_outline.yaml` and starts one small Spanish course (one module, theory and labs). The start payload includes every root field the `content_type=both` path reads with JSONPath, including `content_source=s3`, `outline_s3_key`, and `lab_requirements` as an empty string (`7f9fe6f2`). A missing key is a `States.Runtime` error. `scripts/check_execution_artifacts.py` checks labs, the lab-guide book, a PPTX, and `setupguide/Setup_Guide.pdf`. Exit 0 is complete, 2 means delivered with placeholders, 1 means a file is missing.
 
 Resume a placeholder lab: start a new execution with `lab_ids_to_regenerate` set to `failed_lab_ids` from `validation/quality-report.json` and leave `LAB_SKIP_IF_EXISTS=true`. Files that contain `AURORA_PLACEHOLDER_PENDING_REGENERATION` are rewritten. Finished labs are reused.
 
