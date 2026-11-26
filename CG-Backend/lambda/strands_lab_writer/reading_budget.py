@@ -223,6 +223,59 @@ def mensaje_acortar(medida: dict, en_espanol: bool = True) -> str:
     )
 
 
+def _recortar_prosa(cuerpo: str, max_palabras: int) -> str:
+    partes = re.split(r"\n\s*\n", cuerpo or "")
+    def cuenta(items: list[str]) -> int:
+        return contar_palabras("\n\n".join(items))
+
+    while len(partes) > 2 and cuenta(partes) > max_palabras:
+        eliminado = False
+        for indice in range(len(partes) - 1, 0, -1):
+            trozo = partes[indice].strip()
+            if not trozo or trozo.startswith("#") or trozo.startswith("```"):
+                continue
+            if re.match(r"\d+\.", trozo):
+                continue
+            del partes[indice]
+            eliminado = True
+            break
+        if not eliminado:
+            break
+    return "\n\n".join(partes)
+
+
+def _recortar_anexo(anexo: str, max_palabras: int) -> str:
+    lineas = (anexo or "").splitlines()
+    while len(lineas) > 3 and contar_palabras("\n".join(lineas), incluir_cercas=True) > max_palabras:
+        if lineas[-1].strip():
+            lineas.pop()
+        else:
+            lineas.pop()
+    return "\n".join(lineas)
+
+
+def recortar_a_presupuesto(markdown: str, minutos) -> str:
+    """One trim of prose and annex rows. ``READING_TRIM=0`` leaves the guide.
+
+    Headings, fenced commands and numbered steps stay. If the text is still
+    over the budget, the caller records the existing reading warning.
+    """
+    texto = markdown or ""
+    if os.environ.get("READING_TRIM", "1") == "0":
+        return texto
+    medida = medir_lectura(texto, minutos)
+    if not medida.get("excede"):
+        return texto
+    cuerpo, anexo = partir_anexo(texto)
+    if medida.get("excede_cuerpo"):
+        cuerpo = _recortar_prosa(cuerpo, int(medida.get("palabras_max") or 0))
+    if medida.get("excede_anexo") and anexo:
+        anexo = _recortar_anexo(anexo, int(medida.get("anexo_max") or 0))
+    if anexo:
+        return cuerpo.rstrip() + "\n\n" + anexo.strip() + "\n"
+    return cuerpo
+
+
 def hallazgo_lectura(medida: dict) -> Optional[dict]:
     """Medium finding. The quality gate blocks only on high confidence."""
     if not medida or not medida.get("excede"):

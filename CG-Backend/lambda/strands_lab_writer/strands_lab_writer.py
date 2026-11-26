@@ -43,12 +43,19 @@ from referent_check import (
     requisitos_declarados,
     salidas_de_laboratorios,
     texto_de_anclajes,
+    reparar_anclajes_en_guia,
+    reparar_requisitos_contra_temario,
 )
-from measurable_evidence import hallazgos_validacion_no_medible, mensaje_correccion_validacion
+from measurable_evidence import (
+    hallazgos_validacion_no_medible,
+    mensaje_correccion_validacion,
+    reparar_validacion_no_medible,
+)
 from reading_budget import (
     hallazgo_lectura,
     medir_lectura,
     mensaje_acortar,
+    recortar_a_presupuesto,
     reintento_habilitado as _reintento_lectura_habilitado,
     texto_para_prompt as _texto_presupuesto_lectura,
 )
@@ -1469,15 +1476,20 @@ def _extension_de_entrada(nombre: str) -> str:
 
 
 def _entradas_para_anexo(informe: dict) -> list[str]:
-    """High-confidence B1 inputs that this chapter must carry itself.
+    """High-confidence file inputs this chapter must carry itself.
 
-    Excel, Word, ``.eml``, CSV and SharePoint ``/sites/`` paths. A file created
-    in an earlier lab does not count: the audit is called without ``creados_antes``.
+    Excel, Word, ``.eml``, CSV and SharePoint ``/sites/`` paths. B1 is a file
+    the syllabus never delivers. B2 is a file a later lab produces; with
+    ``ANNEX_FORWARD`` (default on) that file is inlined here too, so the lab
+    still runs alone. ``ANNEX_FORWARD=0`` keeps B1 only.
     """
+    admitidas = {"B1"}
+    if os.environ.get("ANNEX_FORWARD", "1") != "0":
+        admitidas.add("B2")
     vistos: list[str] = []
     claves: set[str] = set()
     for hallazgo in (informe or {}).get("violaciones") or []:
-        if hallazgo.get("verificacion") != "B1" or hallazgo.get("confianza") != "alta":
+        if hallazgo.get("verificacion") not in admitidas or hallazgo.get("confianza") != "alta":
             continue
         valor = str(hallazgo.get("valor") or "").strip().rstrip(".,;:")
         if not valor:
@@ -2975,6 +2987,20 @@ def lambda_handler(event, context):
                         )
 
                         hallazgos_evidencia = hallazgos_validacion_no_medible(verified_guide)
+                        if (
+                            hallazgos_evidencia
+                            and attempt >= MAX_LAB_GENERATION_ATTEMPTS
+                        ):
+                            reparada_validacion = reparar_validacion_no_medible(verified_guide)
+                            if reparada_validacion != verified_guide:
+                                verified_guide = reparada_validacion
+                                hallazgos_evidencia = hallazgos_validacion_no_medible(
+                                    verified_guide
+                                )
+                                print(
+                                    f"  🔧 Validación medible: un pase de reparación "
+                                    f"en el último intento de {lab_id}"
+                                )
                         if hallazgos_evidencia:
                             print(
                                 f"  🔎 Validación medible de {lab_id}: "
@@ -3060,6 +3086,27 @@ def lambda_handler(event, context):
                             ]
 
                         referential_report = _auditar(verified_guide)
+                        if attempt >= MAX_LAB_GENERATION_ATTEMPTS:
+                            reparada = reparar_anclajes_en_guia(
+                                verified_guide,
+                                outline_reference_text,
+                                en_espanol=course_language.startswith("es"),
+                            )
+                            reparada = reparar_requisitos_contra_temario(
+                                reparada, outline_reference_text
+                            )
+                            minutos_lectura = (
+                                duracion_declarada(reparada)
+                                or lab_plan.get("estimated_duration")
+                                or lab_plan.get("duration_minutes")
+                            )
+                            reparada = recortar_a_presupuesto(reparada, minutos_lectura)
+                            if reparada != verified_guide:
+                                verified_guide = reparada
+                                referential_report = _auditar(verified_guide)
+                                print(
+                                    f"  🔧 Reparación dirigida del último intento en {lab_id}"
+                                )
                         altas = _altas(referential_report)
                         # The model gets the remaining attempts to drop an invented
                         # name or use a file the syllabus already delivers. The guide
@@ -3143,9 +3190,38 @@ def lambda_handler(event, context):
                                 f"annex {medida_lectura.get('palabras_anexo')} "
                                 f"(max {medida_lectura.get('anexo_max')})"
                             )
+                        if (
+                            medida_lectura.get("excede")
+                            and attempt >= MAX_LAB_GENERATION_ATTEMPTS
+                        ):
+                            recortada = recortar_a_presupuesto(
+                                verified_guide,
+                                medida_lectura.get("duracion")
+                                or lab_plan.get("estimated_duration"),
+                            )
+                            if recortada != verified_guide:
+                                verified_guide = recortada
+                                medida_lectura = medir_lectura(
+                                    verified_guide,
+                                    medida_lectura.get("duracion")
+                                    or lab_plan.get("estimated_duration"),
+                                )
+                                print(f"  🔧 Lectura recortada al presupuesto en {lab_id}")
                         hallazgo_r1 = hallazgo_lectura(medida_lectura)
                         if hallazgo_r1:
                             referential_report.setdefault("violaciones", []).append(hallazgo_r1)
+                        if (
+                            hallazgos_evidencia
+                            and attempt >= MAX_LAB_GENERATION_ATTEMPTS
+                        ):
+                            for aviso in hallazgos_evidencia:
+                                referential_report.setdefault("violaciones", []).append(
+                                    {
+                                        "verificacion": "R5",
+                                        "confianza": "baja",
+                                        "valor": str(aviso)[:300],
+                                    }
+                                )
 
                         # C6: a Copilot feature, agent, or button must be in the
                         # verified catalog (or the uploaded manual or the syllabus).

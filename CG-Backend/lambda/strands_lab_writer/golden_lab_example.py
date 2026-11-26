@@ -109,6 +109,28 @@ def should_include_golden_lab_example(lab_plan: dict, master_context: Dict[str, 
     return True
 
 
+def build_planner_golden_section() -> str:
+    """Few-shot for the lab planner. ``PLANNER_GOLDEN_LAB=0`` returns empty.
+
+    The planner sees the same LPI-010 slice as the writer and is told not to
+    copy its file names into the plan.
+    """
+    if os.environ.get("PLANNER_GOLDEN_LAB", "1") == "0":
+        return ""
+    slice_md = load_golden_lab_slice()
+    if not slice_md:
+        return ""
+    return (
+        f"{GOLDEN_LAB_SECTION_MARKER}:\n"
+        "Use this Linux Essentials (LPI-010) slice as the shape of a lab plan: "
+        "metadata, one objective, numbered steps, expected output and a check. "
+        "Do not copy its file names, paths or commands into this course. "
+        "Úselo como forma del plan (metadatos, objetivo, pasos, salida esperada "
+        "y comprobación). No copie sus ficheros, rutas ni comandos.\n\n"
+        f"{slice_md}\n"
+    )
+
+
 def build_golden_lab_prompt_section(
     lab_plan: dict,
     master_context: Dict[str, Any],

@@ -43,8 +43,11 @@ from referent_check import (  # noqa: E402
     canonico,
     duracion_declarada,
     entorno_de_peticion,
+    auditar_requisitos,
     extraer_anclajes,
     extraer_referentes,
+    reparar_anclajes_en_guia,
+    reparar_requisitos_contra_temario,
     mensaje_de_correccion,
     preflight_duracion,
     presupuesto_de_duracion,
@@ -1475,7 +1478,9 @@ def test_el_writer_registra_b2_sin_reintentar_si_el_interruptor_esta_apagado():
 
     assert resultado["statusCode"] == 200, resultado
     assert len(contextos) == 1, "REFERENTIAL_RETRY=0 no debe regenerar"
-    assert informes and informes[0]["total_b2"] == 1, informes
+    assert informes and informes[0]["total_b2"] == 0, informes
+    por_lab = informes[0]["por_laboratorio"]["01-01-01"]
+    assert "practica1_mape_sku.xlsx" in por_lab["creados"]
 
 
 # --------------------------------------------------------------------------- #
@@ -3750,8 +3755,8 @@ Abra el archivo /sites/CursoTHOR/Documentos/Libro_SharePoint.xlsx y revise la ho
     assert auditar_laboratorio(en_ingles, fuentes="")["ok"] is True
 
 
-def test_el_anexo_no_tapa_una_dependencia_hacia_delante():
-    """B2 sigue siendo una dependencia: anexar no fabrica la salida de un lab posterior."""
+def test_el_anexo_incluye_la_salida_de_un_laboratorio_posterior():
+    """B2 is still detected, then a fictitious copy is inlined so the lab runs alone."""
     informe = auditar_laboratorio(
         _LAB_QUE_USA_LA_SALIDA_POSTERIOR,
         fuentes=_FUENTES,
@@ -3759,9 +3764,17 @@ def test_el_anexo_no_tapa_una_dependencia_hacia_delante():
     )
     assert any(v["verificacion"] == "B2" for v in informe["violaciones"])
     modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
-    assert modulo.anexar_entradas_no_entregadas(
+    despues = modulo.anexar_entradas_no_entregadas(
         _LAB_QUE_USA_LA_SALIDA_POSTERIOR, informe, is_spanish=True
-    ) == _LAB_QUE_USA_LA_SALIDA_POSTERIOR
+    )
+    assert "Practica1_MAPE_SKU.xlsx" in despues
+    assert "Anexo (datos ficticios)" in despues
+    cerrado = auditar_laboratorio(
+        despues,
+        fuentes=_FUENTES,
+        salidas_posteriores={"01-01-02": ["Practica1_MAPE_SKU.xlsx"]},
+    )
+    assert not any(v["verificacion"] == "B2" for v in cerrado["violaciones"])
 
 
 def test_el_anexo_no_repite_un_fichero_que_el_temario_entrega():
@@ -3890,7 +3903,13 @@ course:
         "### Paso 1: Abrir\n"
         "1. Abra el navegador.\n"
     )
-    assert extraer_anclajes(temario) == {"entidades": [], "prohibiciones": []}
+    anclajes = extraer_anclajes(temario)
+    nombres = [e["nombre"] for e in anclajes["entidades"]]
+    assert "Microsoft Edge" in nombres
+    assert "Copilot Studio" in nombres
+    assert "España" not in nombres
+    assert "Salida Esperada" not in nombres
+    assert anclajes["prohibiciones"] == []
     informe = auditar_laboratorio(lab, temario)
     assert _a2e(informe) == [], _a2e(informe)
 
@@ -4070,6 +4089,81 @@ def test_una_plantilla_completar_no_exime():
     )
     informe = auditar_laboratorio(lab, "")
     assert informe["marcados"] == []
+
+
+def test_el_anexo_incluye_un_fichero_de_un_laboratorio_posterior():
+    """A file a later lab produces is inlined so this lab still runs alone."""
+    modulo = _cargar_modulo("strands_lab_writer", _CARPETA_WRITER)
+    lab = (
+        "# Lab\n"
+        "### Paso 1: Abrir\n"
+        "Abra el archivo informe_final.xlsx antes de continuar.\n"
+    )
+    informe = auditar_laboratorio(
+        lab,
+        fuentes="",
+        salidas_posteriores={"02-00-01": ["informe_final.xlsx"]},
+    )
+    assert any(v.get("verificacion") == "B2" and v.get("confianza") == "alta" for v in informe["violaciones"])
+    despues = modulo.anexar_entradas_no_entregadas(lab, informe, is_spanish=True)
+    assert "informe_final.xlsx" in despues
+    assert "Anexo (datos ficticios)" in despues
+
+
+def test_a2e_nombre_sin_etiqueta_se_bloquea_y_se_repara():
+    """An unlabeled company and country in the syllabus are locked like labeled ones."""
+    temario = "CIBEST CAPITAL opera desde El Salvador con seis fondos."
+    lab = (
+        "## Descripción General\n"
+        "En el contexto de Northstar Digital, el escenario se sitúa en Spain.\n\n"
+        "### Paso 1: Revisar\n"
+        "1. Abra el comparativo.\n"
+    )
+    nombres = {e["rol"]: e["nombre"] for e in extraer_anclajes(temario)["entidades"]}
+    assert nombres.get("organizacion") == "CIBEST CAPITAL"
+    assert nombres.get("lugar") == "El Salvador"
+    informe = auditar_laboratorio(lab, temario, temario=temario)
+    hallazgos = _a2e(informe)
+    assert hallazgos, hallazgos
+    assert any(h["confianza"] == "alta" for h in hallazgos)
+    reparada = reparar_anclajes_en_guia(lab, temario)
+    assert "CIBEST CAPITAL" in reparada
+    assert "El Salvador" in reparada
+
+
+def test_b5_compara_el_sistema_con_el_temario():
+    """An OS the plan invented still fails when the syllabus names another one."""
+    temario = "La práctica se hace en Windows."
+    lab = (
+        "## Entorno\n"
+        "Requisitos: instale Ubuntu y ejecute los comandos siguientes.\n\n"
+        "### Paso 1: Instalar\n"
+        "1. Instale Ubuntu.\n"
+    )
+    plan = "software: Ubuntu 22.04"
+    informe = auditar_requisitos(lab, plan, temario=temario)
+    assert any(item["tipo"] == "os_temario" for item in informe["contradicciones"]), informe
+    reparada = reparar_requisitos_contra_temario(lab, temario)
+    assert "Ubuntu" not in reparada
+    assert "Windows" in reparada or "windows" in reparada.lower()
+    sin_so = "La práctica usa el navegador."
+    solo_aviso = auditar_requisitos(lab, plan, temario=sin_so)
+    assert any(item["tipo"] == "os_temario" for item in solo_aviso["ampliaciones"])
+    assert solo_aviso["contradicciones"] == [] or all(
+        item["tipo"] != "os_temario" for item in solo_aviso["contradicciones"]
+    )
+
+
+def test_b5_senala_una_herramienta_que_el_temario_no_nombra():
+    temario = "Use el navegador de Microsoft 365."
+    lab = (
+        "## Entorno\n"
+        "Requisitos: abra PowerShell y ejecute el script.\n\n"
+        "### Paso 1: Ejecutar\n"
+        "1. Abra PowerShell.\n"
+    )
+    informe = auditar_requisitos(lab, "Windows", temario=temario)
+    assert any(item["tipo"] == "herramienta_temario" for item in informe["ampliaciones"]), informe
 
 
 if __name__ == "__main__":

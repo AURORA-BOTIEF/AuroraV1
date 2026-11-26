@@ -1720,6 +1720,9 @@ _OS_PLAN_RE = re.compile(
     r"\b(windows(?: server)?|macos|apple ios|ubuntu|debian|centos|rhel|"
     r"red hat enterprise linux|fedora|rocky|android|linux)\b"
 )
+_HERRAMIENTA_TEMARIO_RE = re.compile(
+    r"\b(PowerShell|pwsh|bash|zsh|Visual Studio Code|VS Code|Docker|kubectl)\b"
+)
 # Familias: pedir Ubuntu cuando el plan declara Linux no es contradecirlo, y
 # Windows Server es Windows. ``IOS`` a secas se deja fuera a propósito: en este
 # corpus casi siempre es el IOS de Cisco, no el de Apple.
@@ -1923,7 +1926,11 @@ def _versiones_declaradas(declarado: str, herramienta: str) -> list[str]:
     ]
 
 
-def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
+def auditar_requisitos(
+    laboratorio_md: str,
+    requisitos_texto: str,
+    temario: str | None = None,
+) -> dict:
     """B5: ¿el laboratorio exige algo que el plan no declara?
 
     Se separan dos cosas que no valen lo mismo:
@@ -1938,8 +1945,9 @@ def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
     59 laboratorios (4,6 %) con ampliaciones, todas de hardware.
     """
     declarado = requisitos_texto or ""
+    usar_temario = temario is not None and os.environ.get("B5_SYLLABUS", "1") != "0"
     informe = {"ok": True, "contradicciones": [], "ampliaciones": []}
-    if not declarado.strip():
+    if not declarado.strip() and not usar_temario:
         return informe
 
     prosa_original = _PROSA_RE.sub(lambda m: " " * len(m.group(0)), laboratorio_md or "")
@@ -1947,6 +1955,12 @@ def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
         _FAMILIA_OS.get(normalizar(m.group(1)), normalizar(m.group(1)))
         for m in _OS_PLAN_RE.finditer(declarado)
     }
+    familias_temario = set()
+    if usar_temario:
+        familias_temario = {
+            _FAMILIA_OS.get(normalizar(m.group(1)), normalizar(m.group(1)))
+            for m in _OS_RE.finditer(temario or "")
+        }
     magnitudes_plan = _magnitudes(declarado)
 
     def contexto(inicio: int, fin: int) -> str:
@@ -1960,6 +1974,25 @@ def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
         if _es_ilustrativo(prosa_original, m.start(), m.end()):
             continue
         familia = _FAMILIA_OS.get(normalizar(m.group(1)), normalizar(m.group(1)))
+        if usar_temario and familia not in familias_temario:
+            if not _alternativa_de_un_os_declarado(
+                prosa_original, m.start(), m.end(), familias_temario
+            ):
+                if familias_temario:
+                    informe["contradicciones"].append(
+                        {
+                            "tipo": "os_temario",
+                            "valor": m.group(1),
+                            "declarado": sorted(familias_temario),
+                        }
+                    )
+                else:
+                    informe["ampliaciones"].append(
+                        {"tipo": "os_temario", "valor": m.group(1)}
+                    )
+                continue
+        if not declarado.strip():
+            continue
         if familia in familias_plan:
             continue
         if _alternativa_de_un_os_declarado(prosa_original, m.start(), m.end(), familias_plan):
@@ -1970,6 +2003,24 @@ def auditar_requisitos(laboratorio_md: str, requisitos_texto: str) -> dict:
             )
         else:
             informe["ampliaciones"].append({"tipo": "os", "valor": m.group(1)})
+
+    if usar_temario:
+        temario_norm = normalizar(temario or "")
+        for m in _HERRAMIENTA_TEMARIO_RE.finditer(prosa_original):
+            ctx = contexto(m.start(), m.end())
+            if not any(p in ctx for p in _PRESCRIPTIVO) or any(x in ctx for x in _EXCLUYENTE):
+                continue
+            if _es_ilustrativo(prosa_original, m.start(), m.end()):
+                continue
+            if normalizar(m.group(1)) in temario_norm:
+                continue
+            informe["ampliaciones"].append(
+                {"tipo": "herramienta_temario", "valor": m.group(1)}
+            )
+
+    if not declarado.strip():
+        informe["ok"] = not informe["contradicciones"] and not informe["ampliaciones"]
+        return informe
 
     for m in _VERSION_RE.finditer(prosa_original):
         ctx = contexto(m.start(), m.end())
@@ -2201,7 +2252,11 @@ def auditar_laboratorio(
 
     # B5: requisitos técnicos que el laboratorio exige y el plan no declara. La
     # contradicción es de alta confianza; la ampliación se registra con baja.
-    requisitos = auditar_requisitos(laboratorio_md or "", requisitos_texto or "")
+    requisitos = auditar_requisitos(
+        laboratorio_md or "",
+        requisitos_texto or "",
+        temario=temario if temario is not None else None,
+    )
     for hallazgo in requisitos["contradicciones"]:
         violaciones.append(
             {
@@ -3190,13 +3245,27 @@ _ROL_ES = {
     "lugar": "Lugar (exacto)",
     "entidad": "Entidad del escenario (exacta)",
     "entregable": "Entregable obligatorio",
+    "producto": "Producto nombrado en el temario",
 }
 _ROL_EN = {
     "organizacion": "Organization (exact)",
     "lugar": "Place (exact)",
     "entidad": "Scenario entity (exact)",
     "entregable": "Required deliverable",
+    "producto": "Product named in the syllabus",
 }
+_ARRANQUE_COMUN = frozenset({
+    "use", "using", "usa", "usar", "abra", "abrir", "open", "el", "la", "los",
+    "las", "the", "this", "para", "con", "en", "de", "curso", "modulo", "module",
+    "leccion", "lesson", "chapter", "capitulo", "lab", "practica", "practice",
+    "demo", "seccion", "section", "tema", "topic", "actividad", "activity",
+    "introduccion", "introduction", "resumen", "summary", "objetivo", "objective",
+})
+_PALABRA_COMUN = _ARRANQUE_COMUN | frozenset({
+    "general", "esperado", "esperada", "salida", "nivel", "bloom", "interno",
+    "interna", "revision", "comparativo", "ejemplo", "formato", "fecha", "curso",
+    "alumno", "estudiante", "instructor", "guia", "laboratorio", "paso", "pasos",
+})
 
 
 def _sin_adornos(texto: str) -> str:
@@ -3439,7 +3508,10 @@ def extraer_anclajes(temario: str) -> dict:
 
     Reads labels (empresa, país, escenario, entregable), introducers
     (``en el contexto de``), quoted and parenthetical proper names, and
-    ``no debe`` / ``no incluir``. Does not collect every capitalised phrase.
+    ``no debe`` / ``no incluir``. With ``A2E_UNLABELED`` (default on) it also
+    locks unlabeled multiword names, countries that are not date-format
+    examples, and product phrases. It still does not collect every capitalised
+    word.
     """
     bolsa = {"entidades": [], "index": {}, "prohibiciones": []}
     texto = _texto_sin_bloques(temario or "")
@@ -3488,6 +3560,9 @@ def extraer_anclajes(temario: str) -> dict:
                 break
             vistos.add(clave)
             bolsa["prohibiciones"].append({"texto": objeto, "inicio": match.start()})
+
+    if os.environ.get("A2E_UNLABELED", "1") != "0":
+        _escanear_sin_etiqueta(texto, bolsa)
 
     return {
         "entidades": bolsa["entidades"],
@@ -3623,7 +3698,10 @@ def auditar_anclajes(temario: str, texto: str) -> list[dict]:
                 _hallazgo_anclaje(entidad, "reemplazo", obtenido, sustitutos[0][1])
             )
         else:
-            hallazgos.append(_hallazgo_anclaje(entidad, "omision", "", 0))
+            hallazgo = _hallazgo_anclaje(entidad, "omision", "", 0)
+            if entidad.get("rol") == "producto":
+                hallazgo["confianza"] = "baja"
+            hallazgos.append(hallazgo)
     for prohibicion in anclajes["prohibiciones"]:
         if not _afirma_prohibicion(prosa, prohibicion["texto"]):
             continue
@@ -3676,3 +3754,123 @@ def texto_de_anclajes(temario: str, en_espanol: bool = True) -> str:
         for prohibicion in prohibiciones:
             lineas.append(f"- {prohibicion['texto']}")
     return "\n".join(lineas) + "\n"
+
+
+def _ventana_de_ejemplo(texto: str, inicio: int) -> bool:
+    ventana = normalizar(texto[max(0, inicio - 48): inicio + 48])
+    return any(
+        marca in ventana
+        for marca in ("ejemplo", "formato de fecha", "date format", "for example", "por ejemplo")
+    )
+
+
+def _añadir_producto(bolsa: dict, nombre: str, inicio: int) -> None:
+    nombre = _recortar_nombre(nombre)
+    if not nombre or not _es_producto(nombre.split()):
+        return
+    clave = normalizar(nombre)
+    if not clave or clave in _NO_ENTIDAD or clave in bolsa["index"]:
+        return
+    if len(bolsa["entidades"]) >= _MAX_ENTIDADES:
+        return
+    item = {"nombre": nombre, "rol": "producto", "inicio": inicio}
+    bolsa["entidades"].append(item)
+    bolsa["index"][clave] = item
+
+
+def _titulo_util(nombre: str) -> str:
+    tokens = nombre.split()
+    while tokens and normalizar(tokens[0]) in _ARRANQUE_COMUN:
+        tokens = tokens[1:]
+    if len(tokens) < 2:
+        return ""
+    contenido = [token for token in tokens if normalizar(token) not in _CONECTORES_NOMBRE]
+    if not contenido or all(normalizar(token) in _PALABRA_COMUN for token in contenido):
+        return ""
+    return " ".join(tokens)
+
+
+def _escanear_sin_etiqueta(texto: str, bolsa: dict) -> None:
+    """Lock unlabeled syllabus names. Headings and example countries stay out."""
+    for linea in texto.splitlines():
+        if linea.lstrip().startswith("#"):
+            continue
+        for match in _MAYUSCULAS_RE.finditer(linea):
+            _añadir_entidad(bolsa, match.group(1), "organizacion", match.start(), True)
+        for match in _TITULO_RE.finditer(linea):
+            frase = _titulo_util(match.group(1))
+            if not frase:
+                continue
+            if _es_producto(frase.split()):
+                for trozo in re.split(r"\s+(?:y|e|and)\s+", frase):
+                    _añadir_producto(bolsa, trozo.strip(), match.start())
+            else:
+                _añadir_entidad(bolsa, frase, "entidad", match.start(), True)
+    for lugar in _LUGARES:
+        for match in re.finditer(r"\b" + re.escape(lugar) + r"\b", texto):
+            if _ventana_de_ejemplo(texto, match.start()):
+                continue
+            _añadir_entidad(bolsa, lugar, "lugar", match.start(), False)
+
+
+def reparar_anclajes_en_guia(markdown: str, temario: str, en_espanol: bool = True) -> str:
+    """One deterministic pass: put the syllabus name back, or name the omission.
+
+    ``A2E_REPAIR=0`` leaves the guide untouched. Leftover findings stay warnings.
+    """
+    if os.environ.get("A2E_REPAIR", "1") == "0":
+        return markdown or ""
+    texto = markdown or ""
+    for hallazgo in auditar_anclajes(temario or "", texto):
+        if hallazgo.get("confianza") != "alta":
+            continue
+        esperado = str(hallazgo.get("esperado") or "").strip()
+        if not esperado:
+            continue
+        if hallazgo.get("detalle") == "reemplazo":
+            obtenido = str(hallazgo.get("obtenido") or "").split(",")[0].strip()
+            if obtenido and obtenido in texto:
+                texto = texto.replace(obtenido, esperado, 1)
+            continue
+        if hallazgo.get("detalle") == "omision" and esperado not in texto:
+            if en_espanol:
+                nota = (
+                    f"\n\nEl temario fija este nombre: {esperado}. "
+                    f"/ The syllabus fixes this name: {esperado}.\n"
+                )
+            else:
+                nota = (
+                    f"\n\nThe syllabus fixes this name: {esperado}. "
+                    f"/ El temario fija este nombre: {esperado}.\n"
+                )
+            texto = texto.rstrip() + nota
+    return texto
+
+
+def reparar_requisitos_contra_temario(markdown: str, temario: str) -> str:
+    """Replace one contradicted OS with the single OS family the syllabus names.
+
+    ``B5_REPAIR=0`` skips the pass. Several syllabus families, or an OS the
+    syllabus never named, stay a warning.
+    """
+    if os.environ.get("B5_REPAIR", "1") == "0" or not (temario or "").strip():
+        return markdown or ""
+    informe = auditar_requisitos(markdown or "", "", temario=temario)
+    contradicciones = [
+        item for item in informe["contradicciones"] if item.get("tipo") == "os_temario"
+    ]
+    if not contradicciones:
+        return markdown or ""
+    declarado = contradicciones[0].get("declarado") or []
+    if len(declarado) != 1:
+        return markdown or ""
+    if any((item.get("declarado") or []) != declarado for item in contradicciones):
+        return markdown or ""
+    familia = str(declarado[0])
+    visible = "Windows" if familia == "windows" else "Linux" if familia == "linux" else familia
+    texto = markdown or ""
+    for item in contradicciones:
+        valor = str(item.get("valor") or "")
+        if valor and valor in texto:
+            texto = texto.replace(valor, visible)
+    return texto

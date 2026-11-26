@@ -550,6 +550,77 @@ def sin_ajuste(curso: dict | None, master_plan: dict, motivo: str) -> dict:
     )
 
 
+def escalar_plan_existente(curso: dict | None, master_plan: dict) -> dict:
+    """Scale a legacy plan onto the format ceiling without dropping labs.
+
+    A selective update must keep every lab the caller asked to regenerate.
+    Minutes are scaled to the module practice ceiling and then to the course
+    ceiling. ``excede`` stays true only when the scaled plan still cannot fit.
+    """
+    curso = curso or {}
+    planes = _planes(master_plan)
+    perfil = detectar_formato(curso)
+    techo_curso = _total_minutos(curso)
+    practica = _practica_declarada(curso)
+    if practica is not None:
+        techo_curso = practica if techo_curso is None else min(techo_curso, practica)
+    suma_antes = sum(_minutos_plan(plan) for plan in planes)
+    modulos = _modulos(curso)
+    grupos: dict[int, list[dict]] = {}
+    for plan in planes:
+        indice = _indice_modulo(plan, len(modulos) or 1)
+        grupos.setdefault(0 if indice is None else indice, []).append(plan)
+    detalle: list[dict] = []
+    cambio = False
+    for indice, grupo in sorted(grupos.items()):
+        modulo = modulos[indice] if indice < len(modulos) else {}
+        techo = _techo_modulo(modulo, perfil) if modulo else None
+        antes = sum(_minutos_plan(plan) for plan in grupo)
+        if isinstance(techo, int) and antes > techo and grupo:
+            minimo = MINUTOS_MINIMOS if len(grupo) * MINUTOS_MINIMOS <= techo else 1
+            asignados = _asignar([_minutos_plan(plan) for plan in grupo], techo, minimo)
+            for plan, minutos in zip(grupo, asignados):
+                if minutos > 0 and minutos != _minutos_plan(plan):
+                    _fijar_duracion(plan, minutos)
+                    cambio = True
+        despues = sum(_minutos_plan(plan) for plan in grupo)
+        detalle.append(
+            {
+                "modulo": indice + 1,
+                "presupuesto_practica": techo,
+                "minutos_antes": antes,
+                "minutos_despues": despues,
+                "labs_antes": len(grupo),
+                "labs_despues": len(grupo),
+            }
+        )
+    suma = sum(_minutos_plan(plan) for plan in planes)
+    recorte = False
+    if isinstance(techo_curso, int) and suma > techo_curso and planes:
+        minimo = MINUTOS_MINIMOS if len(planes) * MINUTOS_MINIMOS <= techo_curso else 1
+        asignados = _asignar([_minutos_plan(plan) for plan in planes], techo_curso, minimo)
+        for plan, minutos in zip(planes, asignados):
+            if minutos > 0 and minutos != _minutos_plan(plan):
+                _fijar_duracion(plan, minutos)
+                recorte = True
+                cambio = True
+        _refrescar_detalle(detalle, planes)
+        suma = sum(_minutos_plan(plan) for plan in planes)
+    return _informe(
+        perfil=perfil,
+        ajustado=cambio,
+        excede=_excede(detalle, suma, techo_curso),
+        motivo="actualizacion_selectiva",
+        labs_antes=len(planes),
+        labs_despues=len(planes),
+        suma_antes=suma_antes,
+        suma_despues=suma,
+        techo_curso=techo_curso,
+        modulos=detalle,
+        recorte_total_curso=recorte,
+    )
+
+
 def aplicar_presupuesto_de_formato(curso: dict | None, master_plan: dict) -> dict:
     """Merge or drop ``lab_plans`` until they fit the syllabus format budget.
 

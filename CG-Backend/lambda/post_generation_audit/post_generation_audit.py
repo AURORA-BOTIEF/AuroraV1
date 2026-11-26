@@ -647,6 +647,33 @@ def _claves_de_libro(bucket, project_folder):
     return markdown, datos
 
 
+def reconstruir_pie_estadisticas(texto: str) -> str:
+    """Recount the book footer after a link repair. ``BOOK_STATS_REFRESH=0`` skips it.
+
+    The heading stays ``## Book Statistics`` so existing readers keep finding it.
+    The word count is the book above that heading, after the URL edit.
+    """
+    if os.environ.get("BOOK_STATS_REFRESH", "1") == "0":
+        return texto or ""
+    marca = "## Book Statistics"
+    if marca not in (texto or ""):
+        return texto or ""
+    cabeza, _, _resto = texto.partition(marca)
+    palabras = len(re.findall(r"\b[\wÁÉÍÓÚÜÑáéíóúüñ]+\b", cabeza))
+    lecciones = len(re.findall(r"(?m)^#\s+Lesson\s+\d+", cabeza))
+    if lecciones == 0:
+        lecciones = len(re.findall(r"(?m)^#\s+Lecci[oó]n\s+\d+", cabeza))
+    pie = (
+        "## Book Statistics\n\n"
+        f"- **Total Lessons**: {lecciones}\n"
+        f"- **Total Words**: {palabras}\n"
+        "- **Links**: revisados tras la reparación de enlaces. "
+        "/ Reviewed after link repair.\n"
+        f"- **Last Updated**: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+    )
+    return cabeza.rstrip() + "\n\n" + pie
+
+
 def propagar_reparaciones_al_libro(bucket, project_folder, decisiones):
     """Write the same URL edits into the Lab Guide book the builder already saved.
 
@@ -665,6 +692,7 @@ def propagar_reparaciones_al_libro(bucket, project_folder, decisiones):
         nuevo = _aplicar_decisiones(texto, ordenadas)
         if nuevo == texto:
             continue
+        nuevo = reconstruir_pie_estadisticas(nuevo)
         s3.put_object(
             Bucket=bucket,
             Key=clave,

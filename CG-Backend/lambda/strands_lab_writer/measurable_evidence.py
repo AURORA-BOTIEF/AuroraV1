@@ -5,8 +5,14 @@ Shared between the lab writer retry path and ``content_validator`` (keep both co
 
 from __future__ import annotations
 
+import os
 import re
 from typing import List, Tuple
+
+_SUSTITUTO_NO_MEDIBLE = (
+    "Compruebe los elementos que el paso pide. / "
+    "Check the elements the step asks for."
+)
 
 # Phrases and shapes that cannot be verified objectively in a lab guide.
 UNMEASURABLE_PHRASE_RE = re.compile(
@@ -126,3 +132,15 @@ def mensaje_correccion_validacion(hallazgos: List[str]) -> str:
     for h in hallazgos[:12]:
         lineas.append(f"- Corregir: {h}")
     return "\n".join(lineas)
+
+
+def reparar_validacion_no_medible(content: str) -> str:
+    """Rewrite unverifiable phrases. ``VALIDATION_REPAIR=0`` leaves the text.
+
+    Does not invent a password or a full deterministic paragraph. A phrase that
+    still cannot be checked stays a warning for the owner.
+    """
+    if os.environ.get("VALIDATION_REPAIR", "1") == "0":
+        return content or ""
+    texto = UNMEASURABLE_PHRASE_RE.sub(_SUSTITUTO_NO_MEDIBLE, content or "")
+    return INVENTED_SECRET_RE.sub("[POR CONFIRMAR]", texto)

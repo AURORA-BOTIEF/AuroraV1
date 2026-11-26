@@ -26,7 +26,7 @@ from bedrock_fallback import fallback_model_ids, run_model_chain
 from optional_fields import leer_campos_opcionales
 from template_tokens import sanear_plan_maestro
 
-from format_budget import aplicar_presupuesto_de_formato, sin_ajuste
+from format_budget import aplicar_presupuesto_de_formato, escalar_plan_existente, sin_ajuste
 from manual_context import select_manual_context, flatten_to_text
 from audience_adaptation import planner_audience_block, resolve_audience_profile
 from referent_check import (
@@ -855,6 +855,16 @@ def generate_lab_master_plan(
             # Multiple batches - streamlined prompt
             prompt_prefix = f"Create a detailed plan for this batch of labs (batch {batch_idx + 1} of {num_batches})."
         
+        golden_block = ""
+        if os.environ.get("PLANNER_GOLDEN_LAB", "1") != "0":
+            try:
+                from golden_lab_example import build_planner_golden_section
+
+                golden_block = build_planner_golden_section()
+            except Exception as exc:
+                print(f"Planner golden example skipped: {exc}")
+                golden_block = ""
+
         prompt = f"""
 You are an expert technical instructor designing laboratory guides.
 
@@ -868,6 +878,7 @@ LABS IN THIS BATCH ({len(batch_labs)} labs):
 
 REQUIREMENTS: {additional_requirements if additional_requirements else 'None specified'}
 {manual_block}{correction_block}
+{golden_block}
 THOR ALIGNMENT & DEEP TECH SPEC:
 - Software Version Locking: Lock ALL software requirements to exact, explicit version numbers (e.g., PostgreSQL 16.2, Python 3.12.1, Docker 26.0.0). No vague versions like "latest" or "1.x".
 - Licensing & Official Sources: For every software requirement provide the official source URL and the license type. If a value is not confirmed, use [ENLACE OFICIAL] / [LICENCIA POR VALIDAR]. Never invent versions, licenses, capabilities or availability; verify against official documentation.
@@ -1579,9 +1590,12 @@ def lambda_handler(event, context):
         # do not fit the syllabus profile are merged or dropped before the writer runs.
         # A selective update keeps the labs the caller asked to regenerate.
         if lab_ids_to_regenerate:
-            ajuste_formato = sin_ajuste(
-                course_info, master_plan, motivo="actualizacion_selectiva"
-            )
+            if os.environ.get("FORMAT_RECAP_SELECTIVE", "1") == "0":
+                ajuste_formato = sin_ajuste(
+                    course_info, master_plan, motivo="actualizacion_selectiva"
+                )
+            else:
+                ajuste_formato = escalar_plan_existente(course_info, master_plan)
             preflight = preflight_duracion(
                 course_info,
                 master_plan.get("lab_plans") or [],

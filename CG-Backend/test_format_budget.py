@@ -519,14 +519,16 @@ def test_una_actualizacion_selectiva_no_reune_practicas():
         plan_existente={"lab_plans": planes, "additional_requirements": ""},
     )
     assert len(plan["lab_plans"]) == 11
-    assert plan["metadata"]["format_budget"]["ajustado"] is False
     assert plan["metadata"]["format_budget"]["motivo"] == "actualizacion_selectiva"
-    # The cap does not run on a selective update, so a plan that still exceeds
-    # the course is a real A3 failure, not a count mismatch from merging.
+    assert plan["metadata"]["format_budget"]["ajustado"] is True
+    assert plan["metadata"]["format_budget"]["labs_despues"] == 11
+    assert sum(lab["estimated_duration"] for lab in plan["lab_plans"]) <= 30
     puerta = plan["metadata"]["quality_gate"]
-    assert puerta["quality_status"] == "needs_review", puerta
-    assert any(h["verificacion"] == "A3" and h["campo"] == "duration" for h in puerta["quality_findings"])
     assert all(h.get("campo") != "format_budget" for h in puerta["quality_findings"])
+    assert not any(
+        h.get("verificacion") == "A3" and "excede" in str(h.get("detalle") or "")
+        for h in puerta["quality_findings"]
+    )
 
 
 def test_un_lab_de_60_en_un_presupuesto_de_27_no_avisa_tras_rebalancear():

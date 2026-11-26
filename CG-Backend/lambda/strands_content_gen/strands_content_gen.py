@@ -31,7 +31,12 @@ from typing import Dict, List, Any, Optional
 
 from markdown_repair import reparar_markdown
 from manual_context import select_manual_context, flatten_to_text
-from audience_adaptation import content_audience_block, resolve_audience_profile, scale_theory_target_words
+from audience_adaptation import (
+    content_audience_block,
+    promover_teoria_a_demo,
+    resolve_audience_profile,
+    scale_theory_target_words,
+)
 from bedrock_fallback import fallback_model_ids, run_model_chain
 
 MARCA_PLACEHOLDER_LECCION = "AURORA_PLACEHOLDER_PENDING_REGENERATION"
@@ -407,6 +412,7 @@ def generate_batch_single_call(
     # Build lesson specifications
     lesson_specs = []
     for i, lesson in enumerate(batch_lessons, start=batch_start_idx):
+        lesson = promover_teoria_a_demo(lesson, audience_profile)
         l_is_lab = is_lab_lesson(lesson)
         l_is_demo = is_demo_lesson(lesson)
         target_words = calculate_target_words(lesson, module_data)

@@ -190,7 +190,22 @@ def _bytes(presentacion) -> bytes:
     return buffer.getvalue()
 
 
-def lambda_handler(event, context):
+def ejecutar_con_reintento(accion):
+    """Run ``accion`` once more after a crash. ``DECK_RETRY=0`` raises immediately.
+
+    The second failure still propagates, so the state machine records the deck
+    warning and the course continues.
+    """
+    try:
+        return accion()
+    except Exception as exc:
+        if os.environ.get("DECK_RETRY", "1") == "0":
+            raise
+        print(f"Deck builder failed once; retrying: {exc}")
+        return accion()
+
+
+def _construir_decks(event, context):
     course_bucket = (event or {}).get("course_bucket") or BUCKET_POR_DEFECTO
     project = ((event or {}).get("project_folder") or "").strip()
     if not project:
@@ -257,3 +272,7 @@ def lambda_handler(event, context):
         ContentType="application/json",
     )
     return {"statusCode": 200, **resumen}
+
+
+def lambda_handler(event, context):
+    return ejecutar_con_reintento(lambda: _construir_decks(event, context))
