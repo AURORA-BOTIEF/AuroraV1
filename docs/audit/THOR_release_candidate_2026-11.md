@@ -228,7 +228,7 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | # | Item | Baseline | Estimate | Weight | Points | What is still open |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Syllabus anchor | 40% | 78% | 14 | 10.92 | A2e only locks labeled entities. No corpus re-score. Last-attempt evidence gaps still ship. |
-| 2 | Time and format | 45% | 88% | 14 | 12.32 | Reading budget is 60 words per declared minute (30% of a 200 wpm read). The annex has its own 500-word cap. The last attempt still ships a medium R1. The step budget is unchanged. Selective update does not re-cap a legacy plan. |
+| 2 | Time and format | 45% | 92% | 14 | 12.88 | Reading budget is 60 words per declared minute (30% of a 200 wpm read). The annex has its own 500-word cap. The last attempt still ships a medium R1. The step budget is unchanged. Selective update does not re-cap a legacy plan. After a full generation the format budget scales the plan, and `sobre_comprometido` uses those saved minutes, so a 27 min/lab syllabus overrun is not warned once the plan fits. |
 | 3 | Self-contained labs | 35% | 82% | 14 | 11.48 | Annex covers xlsx, docx, eml, csv, and SharePoint. Forward dependencies are not annexed. |
 | 4 | Setup Guide | 50% | 80% | 14 | 11.20 | The lab cell is the id plus a title of about 60 characters, and cells wrap inside the frame. A PDF layout failure is `SUCCEEDED_WITH_WARNINGS` and no longer skips the link audit. The failure stays non-blocking. B5 still compares the lab with the plan. |
 | 5 | Verifiable validation | 30% | 68% | 14 | 9.52 | Retry is on. The last attempt does not fail the course. The validator stays WARNING. |
@@ -239,11 +239,11 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
 | 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
 
-**Overall: 70.29 / 100 = 70.3%** (baseline 33.5%, previous candidate estimate 70.0%).
+**Overall: 70.85 / 100 = 70.9%** (baseline 33.5%, previous candidate estimate 70.3%).
 
-High-priority items 1–5: 55.44 / 70 = 79.2% (baseline 40%, previous estimate 79.2%).
+High-priority items 1–5: 56.00 / 70 = 80.0% (baseline 40%, previous estimate 79.2%).
 
-Product items 1–9: 69.29 / 90 = 77.0% (baseline 36%, previous estimate 76.7%).
+Product items 1–9: 69.85 / 90 = 77.6% (baseline 36%, previous estimate 77.0%).
 
 Item 6 moved for the link-repair follow-up above. This is still an estimate of wired checks, not a new instructor review.
 
@@ -254,7 +254,7 @@ Item 6 moved for the link-repair follow-up above. This is still an estimate of w
 - `LINK_AUDIT_GATE` now defaults to `0`. `LINK_REPAIR=1` still rewrites a dead URL when a living catalog, manual, or syllabus page is a close topical match, and writes the same edit into the Lab Guide book. A remaining dead link is a warning. `CURRENCY_RETRY=1` retries, then saves the lab with a C6 warning.
 - A selective content update of a plan that is still over the format budget records a warning and still saves the plan. A full regeneration is how the planner merges labs down to the ceiling.
 - The quality gate still runs. It does not fail the course. Rollback of this reliability behavior is a redeploy of the previous `thor-release-candidate` revision.
-- Item 10 is still open, and item 11 has no new generated evidence. The 70.3% figure is the estimate in the table above.
+- Item 10 is still open, and item 11 has no new generated evidence. The 70.9% figure is the estimate in the table above.
 - To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. `LINK_REPAIR=0` skips the rewrite and still delivers.
 - Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), "agente de IA" is not an unknown product (`bf0feb63`), and `ppt_quality.py` is packaged with DeckBuilder (`5f8f21de`). Those are not remaining blockers.
 

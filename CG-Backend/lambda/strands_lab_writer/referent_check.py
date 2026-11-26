@@ -2491,7 +2491,11 @@ def mensaje_de_correccion(violaciones: list[dict], ambito: str) -> str:
 _MINUTOS_POR_LAB_PREFLIGHT = 12
 
 
-def preflight_duracion(curso: dict, laboratorios: list[dict]) -> dict:
+def preflight_duracion(
+    curso: dict,
+    laboratorios: list[dict],
+    minutos_plan: dict | None = None,
+) -> dict:
     """¿El temario puede sostener los laboratorios que declara?
 
     Se ejecuta **antes** de generar las guías: no hay pasos ni bloques, solo la
@@ -2506,6 +2510,11 @@ def preflight_duracion(curso: dict, laboratorios: list[dict]) -> dict:
       ``_MINUTOS_POR_LAB_PREFLIGHT``.
 
     Devuelve ``{"modulos": [...], "avisos": n, "modulos_con_aviso": k}``. No bloquea.
+
+    ``minutos_plan`` maps a module prefix (``"01"``) to the minutes of the plan
+    that will actually be saved. After the format budget scales or merges labs,
+    the overcommit check uses those minutes. The syllabus activity sum stays in
+    ``pedido_temario`` and is not, by itself, a warning.
     """
     modulos = (curso or {}).get("modules") or []
     conteo: dict[str, int] = {}
@@ -2538,11 +2547,16 @@ def preflight_duracion(curso: dict, laboratorios: list[dict]) -> dict:
         actividades = modulo.get("lab_activities") or []
         # Solo cuenta lo que el temario **declara**: sumar 30 por defecto a las
         # actividades sin duración fabricaría un sobre-compromiso que no está escrito.
-        pedido = sum(
+        pedido_temario = sum(
             a.get("duration_minutes")
             for a in actividades
             if isinstance(a, dict) and a.get("duration_minutes")
         )
+        prefijo_modulo = f"{indice:02d}"
+        if minutos_plan is not None and prefijo_modulo in minutos_plan:
+            pedido = minutos_plan[prefijo_modulo]
+        else:
+            pedido = pedido_temario
         senales = []
         if pedido and pedido > presupuesto:
             senales.append("sobre_comprometido")
@@ -2557,6 +2571,7 @@ def preflight_duracion(curso: dict, laboratorios: list[dict]) -> dict:
                 "laboratorios": laboratorios_del_modulo,
                 "presupuesto_practica": round(presupuesto, 1),
                 "pedido_actividades": round(pedido, 1),
+                "pedido_temario": round(pedido_temario, 1),
                 "por_laboratorio": round(por_laboratorio, 1),
                 "senales": senales,
             }

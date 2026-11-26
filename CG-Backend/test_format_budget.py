@@ -414,6 +414,7 @@ def test_el_planner_reduce_las_11_practicas_antes_de_guardar():
     assert preflight["gate"]["aplicado"] is True
     assert preflight["gate"]["excede"] is False
     assert "poco_tiempo" not in preflight["modulos"][0]["senales"]
+    assert "sobre_comprometido" not in preflight["modulos"][0]["senales"]
     assert preflight["modulos"][0]["por_laboratorio"] >= 12
     presupuesto = plan["metadata"]["format_budget"]
     assert presupuesto["perfil"] == "conference"
@@ -526,6 +527,45 @@ def test_una_actualizacion_selectiva_no_reune_practicas():
     assert puerta["quality_status"] == "needs_review", puerta
     assert any(h["verificacion"] == "A3" and h["campo"] == "duration" for h in puerta["quality_findings"])
     assert all(h.get("campo") != "format_budget" for h in puerta["quality_findings"])
+
+
+def test_un_lab_de_60_en_un_presupuesto_de_27_no_avisa_tras_rebalancear():
+    """The canary warning was ``sobre_comprometido (27.0 min/lab)`` after the plan already fit."""
+    plan = _handler(
+        {
+            "course": {
+                "title": "Canary de formato",
+                "total_duration_minutes": 90,
+                "language": "es",
+                "modules": [
+                    {
+                        "title": "Módulo",
+                        "duration_minutes": 90,
+                        "percent_practice": 30,
+                        "lab_activities": [
+                            {"title": "Práctica", "duration_minutes": 60}
+                        ],
+                    }
+                ],
+            }
+        },
+        [
+            {
+                "lab_id": "01-00-01",
+                "lab_title": "Práctica",
+                "estimated_duration": 60,
+                "objectives": ["a"],
+                "scope": "Alcance.",
+                "expected_outcomes": ["c"],
+            }
+        ],
+    )
+    assert plan["lab_plans"][0]["estimated_duration"] <= 27
+    preflight = plan["metadata"]["preflight_duracion"]
+    assert preflight["avisos"] == 0, preflight
+    assert "sobre_comprometido" not in preflight["modulos"][0]["senales"]
+    avisos = plan["metadata"]["quality_gate"]["quality_warnings"]
+    assert not any("sobre_comprometido" in (item.get("valor") or "") for item in avisos)
 
 
 def test_regenerar_un_lab_no_cuenta_el_plan_completo_como_sobra():

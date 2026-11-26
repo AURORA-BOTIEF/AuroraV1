@@ -29,6 +29,7 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from markdown_repair import reparar_markdown
 from manual_context import select_manual_context, flatten_to_text
 from audience_adaptation import content_audience_block, resolve_audience_profile, scale_theory_target_words
 from bedrock_fallback import fallback_model_ids, run_model_chain
@@ -1384,10 +1385,16 @@ def lambda_handler(event, context):
         for lesson in generated_lessons:
             lesson_key = f"{project_folder}/lessons/{lesson['filename']}"
             
+            try:
+                cuerpo_leccion = reparar_markdown(lesson['lesson_content'])
+            except Exception as repair_exc:
+                print(f"  ⚠️ Markdown repair skipped for {lesson_key}: {repair_exc}")
+                cuerpo_leccion = lesson['lesson_content']
+            lesson['lesson_content'] = cuerpo_leccion
             s3_client.put_object(
                 Bucket=course_bucket,
                 Key=lesson_key,
-                Body=lesson['lesson_content'].encode('utf-8'),
+                Body=cuerpo_leccion.encode('utf-8'),
                 ContentType='text/markdown'
             )
             

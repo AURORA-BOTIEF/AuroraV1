@@ -19,6 +19,7 @@ from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from markdown_repair import reparar_markdown
 from measurable_evidence import (
     INVENTED_SECRET_RE,
     UNMEASURABLE_PHRASE_RE,
@@ -100,7 +101,7 @@ class ContentValidator:
     # Visual tag pattern
     VISUAL_TAG_PATTERN = re.compile(r'\[VISUAL: (\d{2})-(\d{2})-(\d{4}) - ([^\]]{10,100})\]')
     INVALID_VISUAL_PATTERNS = [
-        (re.compile(r'\[visual:', re.IGNORECASE), "Lowercase 'visual' - must be uppercase VISUAL"),
+        (re.compile(r'\[(?!VISUAL\s*:)[Vv]isual\s*:'), "Lowercase 'visual' - must be uppercase VISUAL"),
         (re.compile(r'\[VISUAL:[^\s]'), "No space after colon in VISUAL tag"),
         (re.compile(r'\[VISUAL: \d+-\d+-\d+\]'), "Missing description in VISUAL tag"),
         (re.compile(r'\[VISUAL: [^\d]'), "VISUAL tag must start with ID (MM-LL-XXXX)"),
@@ -784,6 +785,23 @@ def lambda_handler(event, context):
             
             try:
                 content = load_content_from_s3(course_bucket, key)
+                try:
+                    reparado = reparar_markdown(content)
+                except Exception as repair_exc:
+                    print(f"  ⚠️ Markdown repair skipped: {repair_exc}")
+                    reparado = content
+                if reparado != content:
+                    try:
+                        s3_client.put_object(
+                            Bucket=course_bucket,
+                            Key=key,
+                            Body=reparado.encode("utf-8"),
+                            ContentType="text/markdown",
+                        )
+                        print(f"  ✏️  Repaired fences or VISUAL markers in {key}")
+                    except Exception as escritura:
+                        print(f"  ⚠️ Could not write the repair back to {key}: {escritura}")
+                    content = reparado
                 
                 # Auto-detect content type
                 detected_type = content_type

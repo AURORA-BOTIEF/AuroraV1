@@ -1186,6 +1186,28 @@ def _ficha_de_hallazgo(violacion: dict, verificacion: str = "A1") -> dict:
     }
 
 
+def _minutos_plan_por_modulo(planes) -> dict:
+    """Minutes the saved plan assigns to each module prefix (``01``, ``02``)."""
+    salida: dict = {}
+    for plan in planes or []:
+        if not isinstance(plan, dict):
+            continue
+        prefijo = str(plan.get("lab_id") or "")[:2]
+        if len(prefijo) != 2 or not prefijo.isdigit():
+            continue
+        bruto = plan.get("estimated_duration")
+        if bruto in (None, ""):
+            bruto = plan.get("duration_minutes") or 0
+        try:
+            minutos = int(bruto or 0)
+        except (TypeError, ValueError):
+            minutos = 0
+        if minutos < 0:
+            minutos = 0
+        salida[prefijo] = salida.get(prefijo, 0) + minutos
+    return salida
+
+
 def clasificar_hallazgos_de_plan(
     referential_report: dict,
     duraciones_curso: dict,
@@ -1560,13 +1582,21 @@ def lambda_handler(event, context):
             ajuste_formato = sin_ajuste(
                 course_info, master_plan, motivo="actualizacion_selectiva"
             )
-            preflight = preflight_duracion(course_info, master_plan.get("lab_plans") or [])
+            preflight = preflight_duracion(
+                course_info,
+                master_plan.get("lab_plans") or [],
+                minutos_plan=_minutos_plan_por_modulo(master_plan.get("lab_plans")),
+            )
         else:
             preflight_previo = preflight_duracion(
                 course_info, master_plan.get("lab_plans") or []
             )
             ajuste_formato = aplicar_presupuesto_de_formato(course_info, master_plan)
-            preflight = preflight_duracion(course_info, master_plan.get("lab_plans") or [])
+            preflight = preflight_duracion(
+                course_info,
+                master_plan.get("lab_plans") or [],
+                minutos_plan=_minutos_plan_por_modulo(master_plan.get("lab_plans")),
+            )
             if ajuste_formato.get("ajustado"):
                 preflight["antes"] = {
                     "avisos": preflight_previo.get("avisos"),

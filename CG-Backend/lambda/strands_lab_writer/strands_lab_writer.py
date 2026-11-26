@@ -22,6 +22,7 @@ from botocore.exceptions import ClientError
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from markdown_repair import reparar_markdown
 from optional_fields import normalizar_evento_writer
 from copilot_currency import (
     auditar_superficies_copilot,
@@ -1267,11 +1268,16 @@ def save_lab_guide_to_s3(
         
         filename = f"lab-{lab_id}-{safe_title}.md"
         key = f"{project_folder}/labguide/{filename}"
-        
+        try:
+            cuerpo = reparar_markdown(lab_guide)
+        except Exception as repair_exc:
+            print(f"    ⚠️ Markdown repair skipped for {lab_id}: {repair_exc}")
+            cuerpo = lab_guide
+
         s3_client.put_object(
             Bucket=bucket,
             Key=key,
-            Body=lab_guide.encode('utf-8'),
+            Body=cuerpo.encode('utf-8'),
             ContentType='text/markdown'
         )
         

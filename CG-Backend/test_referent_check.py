@@ -3069,6 +3069,28 @@ def test_el_preflight_avisa_de_un_temario_sobre_comprometido():
     assert set(modulo["senales"]) == {"sobre_comprometido", "poco_tiempo"}
 
 
+def test_el_preflight_usa_los_minutos_del_plan_ya_rebalanceado():
+    """60 min declared against a 27 min practice budget warns until the plan is scaled."""
+    curso = {
+        "modules": [
+            {
+                "duration_minutes": 90,
+                "percent_practice": 30,
+                "lab_activities": [{"duration_minutes": 60}],
+            }
+        ]
+    }
+    laboratorios = [{"lab_id": "01-00-01"}]
+    crudo = preflight_duracion(curso, laboratorios)
+    assert crudo["modulos"][0]["por_laboratorio"] == 27.0
+    assert "sobre_comprometido" in crudo["modulos"][0]["senales"]
+    ajustado = preflight_duracion(curso, laboratorios, minutos_plan={"01": 27})
+    assert ajustado["modulos"][0]["senales"] == []
+    assert ajustado["avisos"] == 0
+    assert ajustado["modulos"][0]["pedido_temario"] == 60.0
+    assert ajustado["modulos"][0]["pedido_actividades"] == 27.0
+
+
 def test_el_preflight_no_avisa_de_un_temario_consistente():
     curso = {
         "modules": [
@@ -3158,10 +3180,13 @@ def test_el_planner_guarda_el_preflight_en_los_metadatos():
     assert len(plan["lab_plans"]) == 7
     assert sum(p["estimated_duration"] for p in plan["lab_plans"]) <= 85
     preflight = plan["metadata"]["preflight_duracion"]
-    assert preflight["avisos"] == 1, preflight
+    assert preflight["antes"]["avisos"] == 1
+    assert "sobre_comprometido" in preflight["antes"]["modulos"][0]["senales"]
+    assert preflight["avisos"] == 0, preflight
     assert preflight["modulos"][0]["laboratorios"] == 7
     assert preflight["modulos"][0]["por_laboratorio"] >= 12
     assert "poco_tiempo" not in preflight["modulos"][0]["senales"]
+    assert "sobre_comprometido" not in preflight["modulos"][0]["senales"]
     assert preflight["gate"]["aplicado"] is True
     assert plan["metadata"]["format_budget"]["ajustado"] is True
 
