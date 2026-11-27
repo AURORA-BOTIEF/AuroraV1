@@ -231,19 +231,19 @@ Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent �
 | 2 | Time and format | 45% | 96% | 14 | 13.44 | Reading budget is 60 words per declared minute. The last attempt trims prose and annex rows once, then ships a medium R1 if still over. Selective update scales a legacy plan to the ceiling and does not drop labs. The step budget is unchanged. |
 | 3 | Self-contained labs | 35% | 90% | 14 | 12.60 | Annex covers xlsx, docx, eml, csv and SharePoint, including a file a later lab produces. A non-file forward mention is still only a finding. |
 | 4 | Setup Guide | 50% | 88% | 14 | 12.32 | B5 compares the lab OS and a short tool list with the syllabus. One syllabus OS family is repaired on the last attempt. An OS the syllabus never named stays a low warning. PDF layout failure stays non-blocking. |
-| 5 | Verifiable validation | 30% | 78% | 14 | 10.92 | The last attempt rewrites an unverifiable phrase and an invented secret marker, then ships any leftover as a low R5 warning. The validator stays WARNING. |
+| 5 | Verifiable validation | 30% | 86% | 14 | 12.04 | Vague ES/EN phrases are rewritten from a file, output line, UI state, or count already in the step. If the step has none, the phrase stays and the writer records a low R5 warning. The validator stays WARNING. |
 | 6 | Currency and links | 30% | 96% | 5 | 4.80 | After a link repair the `## Book Statistics` footer is recounted. Theory-only still skips the audit. Retrieval stays off. |
-| 7 | Audience | 20% | 75% | 5 | 3.75 | Copilot and short-course profiles turn a theory-only lesson into a short instructor demo. A standard course is unchanged. |
-| 8 | PPT | 40% | 80% | 5 | 4.00 | A deck-builder crash is retried once inside the Lambda. The second failure is still the existing non-blocking warning. |
-| 9 | LPI-010 | 0% | 80% | 5 | 4.00 | The planner prompt now carries the same LPI-010 slice as the writer, and is told not to copy its file names. The fixture is still a stand-in. |
+| 7 | Audience | 20% | 84% | 5 | 4.20 | Business users and short formats of 8h or less turn a conceptual lesson into an instructor demo with steps and an expected result. The quality report keeps the theory/demo ratio. A standard course longer than 8h is unchanged. |
+| 8 | PPT | 40% | 88% | 5 | 4.40 | Throttling, timeout, and a bad JSON parse retry with backoff, then one reduced-slide retry. If it still fails, a minimal deck is written from the lesson outline and the report records a warning instead of a missing deck. |
+| 9 | LPI-010 | 0% | 88% | 5 | 4.40 | The planner selects a CLI/Linux, cloud console, or M365/Copilot slice and keeps the LPI-010 marker. Fixture file names, hostnames, and user names copied into the plan are replaced and recorded as a low warning. The slices are still stand-ins. |
 | 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
 | 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
 
-**Overall: 78.87 / 100 = 78.9%** (baseline 33.5%, previous candidate estimate 70.9%).
+**Overall: 81.24 / 100 = 81.2%** (baseline 33.5%, previous candidate estimate 78.9%).
 
-High-priority items 1–5: 61.32 / 70 = 87.6% (baseline 40%, previous estimate 80.0%).
+High-priority items 1–5: 62.44 / 70 = 89.2% (baseline 40%, previous estimate 87.6%).
 
-Product items 1–9: 77.87 / 90 = 86.5% (baseline 36%, previous estimate 77.6%).
+Product items 1–9: 80.24 / 90 = 89.2% (baseline 36%, previous estimate 86.5%).
 
 Item 6 moved for the link-repair follow-up above. This is still an estimate of wired checks, not a new instructor review.
 
@@ -254,7 +254,7 @@ Item 6 moved for the link-repair follow-up above. This is still an estimate of w
 - `LINK_AUDIT_GATE` now defaults to `0`. `LINK_REPAIR=1` still rewrites a dead URL when a living catalog, manual, or syllabus page is a close topical match, and writes the same edit into the Lab Guide book. A remaining dead link is a warning. `CURRENCY_RETRY=1` retries, then saves the lab with a C6 warning.
 - A selective update scales every kept lab to the format ceiling (`FORMAT_RECAP_SELECTIVE=1`) and does not drop labs. If the scaled plan still cannot fit, the overrun is a warning and the plan is still saved. A full regeneration is what merges labs.
 - The quality gate still runs. It does not fail the course. Rollback of this reliability behavior is a redeploy of the previous `thor-release-candidate` revision.
-- Item 10 is still open, and item 11 has no new generated evidence. The 78.9% figure is the estimate in the table above.
+- Item 10 is still open, and item 11 has no new generated evidence. The 81.2% figure is the estimate in the table above.
 - To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. `LINK_REPAIR=0` skips the rewrite and still delivers.
 - Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), "agente de IA" is not an unknown product (`bf0feb63`), and `ppt_quality.py` is packaged with DeckBuilder (`5f8f21de`). Those are not remaining blockers.
 

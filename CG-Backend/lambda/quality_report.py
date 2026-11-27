@@ -145,6 +145,39 @@ def _hallazgo_de_payload(datos: dict, nodo: str) -> Optional[dict]:
     return hallazgo if isinstance(hallazgo, dict) else None
 
 
+def _sumar_ratio(nodo, acum: dict, vistos: set) -> None:
+    """Add every theory_demo_ratio dict found under the execution state."""
+    if id(nodo) in vistos:
+        return
+    vistos.add(id(nodo))
+    if isinstance(nodo, dict):
+        ratio = nodo.get("theory_demo_ratio")
+        if isinstance(ratio, dict) and "theory" in ratio and "demo" in ratio:
+            acum["theory"] += int(ratio.get("theory") or 0)
+            acum["demo"] += int(ratio.get("demo") or 0)
+        for valor in nodo.values():
+            if isinstance(valor, (dict, list)):
+                _sumar_ratio(valor, acum, vistos)
+    elif isinstance(nodo, list):
+        for item in nodo:
+            if isinstance(item, (dict, list)):
+                _sumar_ratio(item, acum, vistos)
+
+
+def _ratio_del_evento(datos: dict) -> dict:
+    acum = {"theory": 0, "demo": 0}
+    _sumar_ratio(datos, acum, set())
+    teoria = acum["theory"]
+    demo = acum["demo"]
+    total = teoria + demo
+    return {
+        "theory": teoria,
+        "demo": demo,
+        "demo_share": round(demo / total, 2) if total else 0,
+        "label": f"{demo} demos / {teoria} teoría. / {demo} demos / {teoria} theory.",
+    }
+
+
 def construir_informe_de_calidad(event: dict) -> dict:
     """Flatten warnings, placeholders, fallback models, and missing files."""
     datos = _entrada(event)
@@ -171,6 +204,15 @@ def construir_informe_de_calidad(event: dict) -> dict:
                 hallazgo_plan.get("deliverable") or "",
             )
     _anadir_si_falta(issues, "InvokeDeckBuilder", datos.get("decks_error"), "error", "PPT missing")
+    hallazgo_deck = _hallazgo_de_payload(datos, "decks_result")
+    if isinstance(hallazgo_deck, dict):
+        _anadir_si_falta(
+            issues,
+            hallazgo_deck.get("step") or "InvokeDeckBuilder",
+            hallazgo_deck.get("error"),
+            hallazgo_deck.get("severity") or "warning",
+            hallazgo_deck.get("deliverable") or "",
+        )
     _anadir_si_falta(issues, "InvokePostGenerationAudit", datos.get("audit_error"), "warning", "")
     _anadir_si_falta(issues, "InvokeBookBuilder", datos.get("book_error"), "error", "book missing")
     _anadir_si_falta(issues, "InvokeLabGuideBuilder", datos.get("lab_guide_error"), "error", "lab guide missing")
@@ -222,6 +264,7 @@ def construir_informe_de_calidad(event: dict) -> dict:
         "failed_lab_ids": failed,
         "models_used": models,
         "missing_deliverables": entregables_ausentes(issues, datos),
+        "theory_demo_ratio": _ratio_del_evento(datos),
         "resume": {
             "lab_ids_to_regenerate": failed,
             "LAB_SKIP_IF_EXISTS": "true",

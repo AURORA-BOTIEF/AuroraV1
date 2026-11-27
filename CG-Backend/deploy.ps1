@@ -72,6 +72,7 @@ foreach ($destino in @(
 }
 Copy-Item (Join-Path $Root "lambda\quality_report.py") (Join-Path $Root "lambda\strands_notification\quality_report.py") -Force
 Copy-Item (Join-Path $Root "lambda\setup_guide_builder\template_tokens.py") (Join-Path $Root "lambda\strands_lab_planner\template_tokens.py") -Force
+# golden_lab_example.py carries the CLI, cloud, and M365 slices plus the anti-copy repair.
 Copy-Item (Join-Path $Root "lambda\strands_lab_writer\golden_lab_example.py") (Join-Path $Root "lambda\strands_lab_planner\golden_lab_example.py") -Force
 $fixturesPlanner = Join-Path $Root "lambda\strands_lab_planner\fixtures"
 New-Item -ItemType Directory -Force -Path $fixturesPlanner | Out-Null

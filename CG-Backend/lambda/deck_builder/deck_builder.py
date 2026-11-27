@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 
 _LAMBDA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -190,22 +191,115 @@ def _bytes(presentacion) -> bytes:
     return buffer.getvalue()
 
 
-def ejecutar_con_reintento(accion):
-    """Run ``accion`` once more after a crash. ``DECK_RETRY=0`` raises immediately.
+def clasificar_fallo_deck(exc: BaseException) -> str:
+    """``transitorio`` for throttling, timeout, or a bad JSON parse. Else ``permanente``."""
+    nombre = type(exc).__name__.lower()
+    if nombre in {"jsondecodeerror", "timeouterror", "readtimeouterror", "connecttimeouterror"}:
+        return "transitorio"
+    texto = f"{nombre} {exc}".lower()
+    marcas = (
+        "throttl",
+        "timeout",
+        "timed out",
+        "too many requests",
+        "rate exceeded",
+        "expecting value",
+        "unterminated",
+        "slow down",
+        "slowdown",
+    )
+    if any(marca in texto for marca in marcas):
+        return "transitorio"
+    return "permanente"
 
-    The second failure still propagates, so the state machine records the deck
-    warning and the course continues.
+
+def ejecutar_con_reintento(accion, reducido=None, esperar=None):
+    """Retry a deck build. ``DECK_RETRY=0`` raises on the first failure.
+
+    A permanent failure gets one plain retry. A transient failure
+    (``DECK_BACKOFF=1``) waits and retries, then ``DECK_REDUCED=1`` tries one
+    smaller deck. The last failure still propagates so the caller can write a
+    fallback deck. ``esperar`` defaults to ``time.sleep``; tests pass their own.
     """
     try:
         return accion()
     except Exception as exc:
         if os.environ.get("DECK_RETRY", "1") == "0":
             raise
+        transitorio = (
+            clasificar_fallo_deck(exc) == "transitorio"
+            and os.environ.get("DECK_BACKOFF", "1") != "0"
+        )
+        pausa = esperar or time.sleep
+        if transitorio:
+            pausa(float(os.environ.get("DECK_BACKOFF_SECONDS", "0.5")))
         print(f"Deck builder failed once; retrying: {exc}")
-        return accion()
+        try:
+            return accion()
+        except Exception as segundo:
+            if not transitorio or reducido is None or os.environ.get("DECK_REDUCED", "1") == "0":
+                raise
+            pausa(float(os.environ.get("DECK_BACKOFF_SECONDS", "0.5")) * 2)
+            print(f"Deck builder reduced-slide retry after: {segundo}")
+            return reducido()
 
 
-def _construir_decks(event, context):
+def _titulos_de_esquema(event) -> list:
+    titulos = []
+    outline = (event or {}).get("outline") or {}
+    curso = outline.get("course") if isinstance(outline, dict) else None
+    if not isinstance(curso, dict):
+        curso = outline if isinstance(outline, dict) else {}
+    for modulo in curso.get("modules") or []:
+        if not isinstance(modulo, dict):
+            continue
+        for leccion in modulo.get("lessons") or []:
+            if isinstance(leccion, dict):
+                titulo = leccion.get("title") or leccion.get("lesson_title") or ""
+            else:
+                titulo = str(leccion)
+            if titulo:
+                titulos.append(str(titulo)[:80])
+    return titulos[:8]
+
+
+def construir_deck_respaldo(event, exc: BaseException) -> dict:
+    """One small deck from the lesson outline. No S3. The caller uploads it.
+
+    ``DECK_FALLBACK=0`` is honored by the handler, which re-raises instead of
+    calling this. The bytes are under ``pptx`` so the handler can store them
+    and drop them from the Step Functions payload.
+    """
+    titulos = _titulos_de_esquema(event) or ["Curso / Course"]
+    slides = [
+        {
+            "title": titulo,
+            "bullets": [
+                "Demostración breve del instructor. / Short instructor demo.",
+                "Resultado esperado: un valor, archivo, línea, estado o conteo de esta lección. / Expected result: a value, file, line, state, or count from this lesson.",
+            ],
+        }
+        for titulo in titulos
+    ]
+    presentacion = _deck("Presentación mínima / Minimal deck", "respaldo", slides)
+    return {
+        "statusCode": 200,
+        "fallback": True,
+        "pptx": _bytes(presentacion),
+        "generados": [{"deck": "Respaldo", "slides": len(slides)}],
+        "quality_issue": {
+            "step": "InvokeDeckBuilder",
+            "severity": "warning",
+            "deliverable": "",
+            "error": (
+                "Presentación mínima de respaldo tras un fallo del deck. / "
+                f"Minimal fallback deck after a deck failure: {type(exc).__name__}"
+            )[:400],
+        },
+    }
+
+
+def _construir_decks(event, context, reducido=False):
     course_bucket = (event or {}).get("course_bucket") or BUCKET_POR_DEFECTO
     project = ((event or {}).get("project_folder") or "").strip()
     if not project:
@@ -216,7 +310,9 @@ def _construir_decks(event, context):
     # --- Glosario --------------------------------------------------------------
     terminos = terminos_del_glosario(course_bucket, project)
     if terminos:
-        pages = paginate_glossary_entries(terminos, max_terms_per_slide=4)
+        pages = paginate_glossary_entries(terminos, max_terms_per_slide=20 if reducido else 4)
+        if reducido:
+            pages = pages[:1]
         slides = []
         for page_idx, page in enumerate(pages):
             bullets = [
@@ -240,6 +336,8 @@ def _construir_decks(event, context):
     tips = []
     for lab_id, texto in _labs(course_bucket, project):
         tips.extend(_tips_de_lab(texto, f"Lab {lab_id}"))
+    if reducido:
+        tips = tips[:2]
     if tips:
         slides = []
         for idx in range(0, len(tips), 2):
@@ -275,4 +373,27 @@ def _construir_decks(event, context):
 
 
 def lambda_handler(event, context):
-    return ejecutar_con_reintento(lambda: _construir_decks(event, context))
+    def completo():
+        return _construir_decks(event, context, reducido=False)
+
+    def corto():
+        return _construir_decks(event, context, reducido=True)
+
+    try:
+        return ejecutar_con_reintento(completo, reducido=corto, esperar=time.sleep)
+    except Exception as exc:
+        if os.environ.get("DECK_FALLBACK", "1") == "0":
+            raise
+        cuerpo = construir_deck_respaldo(event, exc)
+        pptx = cuerpo.pop("pptx", b"")
+        project = ((event or {}).get("project_folder") or "").strip()
+        bucket = (event or {}).get("course_bucket") or BUCKET_POR_DEFECTO
+        if not project or not pptx:
+            raise
+        s3.put_object(
+            Bucket=bucket,
+            Key=f"{project}/deck/Respaldo.pptx",
+            Body=pptx,
+            ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
+        return cuerpo

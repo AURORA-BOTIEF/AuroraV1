@@ -34,6 +34,7 @@ from manual_context import select_manual_context, flatten_to_text
 from audience_adaptation import (
     content_audience_block,
     promover_teoria_a_demo,
+    ratio_teoria_demo,
     resolve_audience_profile,
     scale_theory_target_words,
 )
@@ -411,8 +412,16 @@ def generate_batch_single_call(
 
     # Build lesson specifications
     lesson_specs = []
+    lecciones_del_lote = []
     for i, lesson in enumerate(batch_lessons, start=batch_start_idx):
         lesson = promover_teoria_a_demo(lesson, audience_profile)
+        lecciones_del_lote.append(lesson)
+    generate_batch_single_call.ultimo_ratio = {}
+    if os.environ.get("THEORY_DEMO_RATIO", "1") != "0":
+        try:
+            generate_batch_single_call.ultimo_ratio = ratio_teoria_demo(lecciones_del_lote)
+        except Exception as ratio_exc:
+            print(f"theory/demo ratio skipped: {ratio_exc}")
         l_is_lab = is_lab_lesson(lesson)
         l_is_demo = is_demo_lesson(lesson)
         target_words = calculate_target_words(lesson, module_data)
@@ -462,6 +471,17 @@ def generate_batch_single_call(
     4. ## Resumen de la Demostración (Contexto, conceptos demostrados por el instructor y duración estimada)
     5. ## Referencias Bibliográficas (enlaces https válidos)
 """
+                pasos_demo = lesson.get("demo_steps") or []
+                esperado_demo = lesson.get("expected_result") or ""
+                if pasos_demo or esperado_demo:
+                    lineas_demo = ["    PASOS DEL INSTRUCTOR / INSTRUCTOR STEPS:"]
+                    for numero, paso in enumerate(pasos_demo, 1):
+                        lineas_demo.append(f"    {numero}. {paso}")
+                    if esperado_demo:
+                        lineas_demo.append(
+                            f"    RESULTADO ESPERADO / EXPECTED RESULT: {esperado_demo}"
+                        )
+                    spec += "\n" + "\n".join(lineas_demo) + "\n"
             else:
                 spec = f"""
     {lesson_term} {i + 1}: {l_title} (TIPO: LABORATORIO / ACTIVIDAD PRÁCTICA)
@@ -1372,6 +1392,13 @@ def lambda_handler(event, context):
             module_data=module_data,
             course_data={
                 'title': course_info.get('title', course_data.get('title', 'Course')),
+                'description': course_info.get('description', course_data.get('description', '')),
+                'audience': course_info.get('audience', course_data.get('audience')),
+                'target_audience': course_info.get('target_audience', course_data.get('target_audience')),
+                'total_duration_minutes': course_info.get(
+                    'total_duration_minutes', course_data.get('total_duration_minutes')
+                ),
+                'duration_minutes': course_info.get('duration_minutes', course_data.get('duration_minutes')),
                 'modules': modules,
                 'language': outline_lang_raw,
             },
@@ -1422,7 +1449,7 @@ def lambda_handler(event, context):
         print(f"📊 Total words: {total_words:,}")
         print(f"{'='*70}")
         
-        return {
+        respuesta = {
             'statusCode': 200,
             'message': f'Batch {batch_index}/{total_batches} completed successfully',
             'lesson_keys': lesson_keys,  # Required by Step Functions
@@ -1438,6 +1465,10 @@ def lambda_handler(event, context):
             'quality_warning': '',
             'model_used': _modelo_de_leccion.get('id') or model_provider,
         }
+        ratio = getattr(generate_batch_single_call, "ultimo_ratio", None)
+        if ratio:
+            respuesta["theory_demo_ratio"] = ratio
+        return respuesta
     
     except Exception as e:
         print(f"❌ Error: {str(e)}")

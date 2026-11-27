@@ -6,9 +6,11 @@ Deterministic: no LLM calls. Used by content generation, lab planner and lab wri
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, List, Optional, Union
 
 SHORT_COURSE_MAX_MINUTES = 180
+BUSINESS_COURSE_MAX_MINUTES = 480
 COPILOT_PRODUCTIVITY_STEP_SCALE = 0.6
 COPILOT_PRODUCTIVITY_BLOCK_SCALE = 0.75
 SHORT_COURSE_THEORY_WORD_SCALE = 0.75
@@ -26,6 +28,39 @@ _COPILOT_MARKERS = (
     "end user",
     "end-user",
     "end users",
+)
+
+_BUSINESS_MARKERS = (
+    "usuario de negocio",
+    "usuarios de negocio",
+    "business user",
+    "business users",
+    "finanzas",
+    "finance",
+    "ventas",
+    "sales",
+    "marketing",
+    "recursos humanos",
+    "rrhh",
+    "gerentes",
+    "managers",
+    "analista de negocio",
+    "comercial",
+)
+
+_FORMAT_MARKERS = (
+    "taller",
+    "workshop",
+    "seminario",
+    "seminar",
+    "masterclass",
+    "bootcamp",
+)
+
+_CONCEPTUAL_RE = re.compile(
+    r"concepto|introducci[oó]n|overview|qu[eé]\s+es|what\s+is|fundamentos|"
+    r"teor[ií]a|theory|conceptual|visi[oó]n general|principios|por\s+qu[eé]",
+    re.IGNORECASE,
 )
 
 _PRODUCTIVITY_MARKERS = (
@@ -104,8 +139,10 @@ def resolve_audience_profile(course_info: Optional[dict]) -> Dict[str, Any]:
 
     copilot_signal = _hay_marcador(corpus, _COPILOT_MARKERS)
     productivity_signal = _hay_marcador(corpus, _PRODUCTIVITY_MARKERS) or copilot_signal
+    business_signal = _hay_marcador(corpus, _BUSINESS_MARKERS) or _hay_marcador(corpus, _FORMAT_MARKERS)
     total_minutes = _duracion_total_minutos(course_info)
     is_short = 0 < total_minutes <= SHORT_COURSE_MAX_MINUTES
+    is_business = bool(business_signal and 0 < total_minutes <= BUSINESS_COURSE_MAX_MINUTES)
 
     is_copilot_productivity = bool(copilot_signal and productivity_signal)
 
@@ -113,6 +150,8 @@ def resolve_audience_profile(course_info: Optional[dict]) -> Dict[str, Any]:
         profile_name = "copilot_productivity"
     elif is_short:
         profile_name = "short_seminar"
+    elif is_business:
+        profile_name = "business_course"
     else:
         profile_name = "standard"
 
@@ -120,6 +159,7 @@ def resolve_audience_profile(course_info: Optional[dict]) -> Dict[str, Any]:
         "profile": profile_name,
         "is_copilot_productivity": is_copilot_productivity,
         "is_short_course": is_short,
+        "is_business_course": is_business,
         "total_duration_minutes": total_minutes,
         "audience_labels": audience_bits,
         "step_scale": COPILOT_PRODUCTIVITY_STEP_SCALE if is_copilot_productivity else 1.0,
@@ -171,6 +211,13 @@ AUDIENCE & FORMAT (short course ~{mins} minutes):
 - Favor demos and concise practices; avoid stacking many long labs in one module.
 - Theory in the book should stay brief and point students to the live demo/lab for detail.
 """
+    if profile.get("is_business_course"):
+        return """
+AUDIENCE & FORMAT (business or short format, 8h or less / negocio o formato breve, 8 h o menos):
+- Conceptual lessons are short instructor-led demos with steps and one visible expected result.
+- Las lecciones conceptuales son demos breves del instructor, con pasos y un resultado esperado visible.
+- Do not copy a long theory chapter into the lab plan. / No copie un capítulo teórico largo en el plan.
+"""
     return ""
 
 
@@ -202,6 +249,16 @@ ADAPTACIÓN DE AUDIENCIA (seminario breve):
         return """
 AUDIENCE ADAPTATION (short seminar):
 - Keep instructions compact and focused on effective tool demonstration.
+"""
+    if profile.get("is_business_course"):
+        if spanish:
+            return """
+ADAPTACIÓN DE AUDIENCIA (negocio, 8 h o menos):
+- Si la lección es conceptual, escríbala como una demo breve del instructor: pasos numerados y un resultado esperado visible.
+"""
+        return """
+AUDIENCE ADAPTATION (business, 8h or less):
+- When the lesson is conceptual, write it as a short instructor demo: numbered steps and one visible expected result.
 """
     return ""
 
@@ -248,6 +305,24 @@ AUDIENCE ADAPTATION (short course)
 - Audience: {audience_line}
 - Favor demos and hands-on application; avoid lengthy theory chapters that repeat the demo.
 """
+    if profile.get("is_business_course"):
+        if spanish:
+            return f"""
+═══════════════════════════════════════════════════════════════════════════════
+ADAPTACIÓN DE AUDIENCIA (curso de negocio, 8 h o menos)
+═══════════════════════════════════════════════════════════════════════════════
+- Audiencia: {audience_line}
+- Las lecciones conceptuales son una demostración breve del instructor, con pasos y un resultado esperado visible.
+- No convierta un laboratorio ya práctico en otra demo.
+"""
+        return f"""
+═══════════════════════════════════════════════════════════════════════════════
+AUDIENCE ADAPTATION (business course, 8h or less)
+═══════════════════════════════════════════════════════════════════════════════
+- Audience: {audience_line}
+- Conceptual lessons are a short instructor demo, with steps and a visible expected result.
+- Do not turn a hands-on lab into another demo.
+"""
     return ""
 
 
@@ -262,31 +337,98 @@ def _ya_es_practica(lesson: dict) -> bool:
     return titulo.startswith("demo") or "demostración" in titulo or "laboratorio" in titulo
 
 
-def promover_teoria_a_demo(lesson: dict, profile: Optional[dict]) -> dict:
-    """Turn a theory-only lesson into a short instructor demo when the audience needs one.
+def _es_conceptual(lesson: dict) -> bool:
+    """A lesson that explains an idea rather than a hands-on procedure."""
+    tipo = str(lesson.get("type") or lesson.get("lesson_type") or "").lower()
+    if tipo in {"concept", "conceptual", "overview"}:
+        return True
+    texto = " ".join(str(lesson.get(clave) or "") for clave in ("title", "description"))
+    return bool(_CONCEPTUAL_RE.search(texto))
 
-    ``THEORY_TO_DEMO=0`` leaves the lesson. Standard courses are unchanged.
-    Copilot and short-course profiles get a demo title and a bilingual note.
-    """
-    if os.environ.get("THEORY_TO_DEMO", "1") == "0":
-        return lesson
-    if not isinstance(lesson, dict) or not profile:
-        return lesson
-    if not (profile.get("is_copilot_productivity") or profile.get("is_short_course")):
-        return lesson
-    if _ya_es_practica(lesson):
-        return lesson
+
+def _a_demo(lesson: dict) -> dict:
     nuevo = dict(lesson)
     titulo = str(nuevo.get("title") or "Demostración").strip()
+    pasos = [
+        (
+            f"El instructor presenta «{titulo}» con un ejemplo visible en pantalla. / "
+            f"The instructor presents \"{titulo}\" with a visible on-screen example."
+        ),
+        (
+            "El instructor señala el valor, el archivo, la línea de salida o el estado de la interfaz que demuestra el concepto. / "
+            "The instructor points out the value, file, output line, or UI state that demonstrates the concept."
+        ),
+        (
+            "Los alumnos confirman el resultado esperado antes de continuar. / "
+            "Students confirm the expected result before continuing."
+        ),
+    ]
+    esperado = (
+        f"Resultado esperado: un cambio visible ligado a «{titulo}» (valor, archivo, línea, estado o conteo). / "
+        f"Expected result: a visible change tied to \"{titulo}\" (value, file, line, state, or count)."
+    )
+    nuevo["demo_steps"] = pasos
+    nuevo["expected_result"] = esperado
     if not titulo.lower().startswith("demo"):
         nuevo["title"] = f"Demo: {titulo}"
     nuevo["type"] = "demo"
     nota = (
         "Segmento breve de demostración del instructor. "
-        "/ Short instructor demo segment."
+        "/ Short instructor demo segment. "
+        + " ".join(f"{indice}. {paso}" for indice, paso in enumerate(pasos, 1))
+        + " "
+        + esperado
     )
     nuevo["description"] = (str(nuevo.get("description") or "") + " " + nota).strip()
     return nuevo
+
+
+def promover_teoria_a_demo(lesson: dict, profile: Optional[dict]) -> dict:
+    """Turn a conceptual lesson into a short instructor demo when the audience needs one.
+
+    ``THEORY_TO_DEMO=0`` leaves the lesson. Copilot courses and courses of 3h or
+    less convert every non-practice lesson. ``THEORY_TO_DEMO_BUSINESS=1`` also
+    converts conceptual lessons for business users and short formats of 8h or
+    less. Each converted lesson carries steps and an expected result. A standard
+    course longer than 8h is unchanged.
+    """
+    if os.environ.get("THEORY_TO_DEMO", "1") == "0":
+        return lesson
+    if not isinstance(lesson, dict) or not profile:
+        return lesson
+    if _ya_es_practica(lesson):
+        return lesson
+    copilot_o_corto = bool(profile.get("is_copilot_productivity") or profile.get("is_short_course"))
+    negocio = bool(profile.get("is_business_course")) and os.environ.get("THEORY_TO_DEMO_BUSINESS", "1") != "0"
+    if copilot_o_corto or (negocio and _es_conceptual(lesson)):
+        return _a_demo(lesson)
+    return lesson
+
+
+def ratio_teoria_demo(lecciones) -> dict:
+    """Count theory lessons against instructor demos. Labs stay out of the ratio."""
+    teoria = 0
+    demo = 0
+    for leccion in lecciones or []:
+        if not isinstance(leccion, dict):
+            continue
+        tipo = str(leccion.get("type") or leccion.get("lesson_type") or "").lower()
+        titulo = str(leccion.get("title") or "").lower()
+        if tipo in {"demo", "demostracion", "demostración"} or titulo.startswith("demo"):
+            demo += 1
+        elif tipo in {"lab", "practice", "activity", "lab_activity", "laboratorio", "práctica", "practica"}:
+            continue
+        elif "laboratorio" in titulo:
+            continue
+        else:
+            teoria += 1
+    total = teoria + demo
+    return {
+        "theory": teoria,
+        "demo": demo,
+        "demo_share": round(demo / total, 2) if total else 0,
+        "label": f"{demo} demos / {teoria} teoría. / {demo} demos / {teoria} theory.",
+    }
 
 
 def scale_theory_target_words(base_words: int, profile: Optional[dict], *, is_lab_or_demo: bool) -> int:

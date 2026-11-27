@@ -860,7 +860,7 @@ def generate_lab_master_plan(
             try:
                 from golden_lab_example import build_planner_golden_section
 
-                golden_block = build_planner_golden_section()
+                golden_block = build_planner_golden_section(course_info)
             except Exception as exc:
                 print(f"Planner golden example skipped: {exc}")
                 golden_block = ""
@@ -1758,6 +1758,27 @@ def lambda_handler(event, context):
             master_plan, hallazgo_tokens = sanear_plan_maestro(master_plan, course_info)
         except Exception as token_exc:
             print(f"⚠️  No se pudo sanear el plan de laboratorios: {token_exc}")
+
+        try:
+            from golden_lab_example import reparar_copia_del_ejemplo
+
+            master_plan, copiados = reparar_copia_del_ejemplo(master_plan, course_info)
+            if copiados:
+                puerta.setdefault("quality_warnings", []).append({
+                    "verificacion": "golden_copy",
+                    "confianza": "baja",
+                    "valor": (
+                        "El plan reutilizaba nombres del ejemplo: "
+                        + ", ".join(copiados)
+                        + ". / The plan reused example names: "
+                        + ", ".join(copiados)
+                        + "."
+                    )[:300],
+                    "lab_id": None,
+                    "campo": "golden_example",
+                })
+        except Exception as copia_exc:
+            print(f"⚠️  No se pudo revisar la copia del ejemplo: {copia_exc}")
 
         # Step 4: Save to S3
         master_plan_key = save_master_plan_to_s3(

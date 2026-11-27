@@ -7,8 +7,9 @@ specified technical practice (duration + declared outline contract + technologie
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 # Stable marker for unit tests (also appears in the prompt header).
 GOLDEN_LAB_SECTION_MARKER = "QUALITY REFERENCE LAB (FEW-SHOT — LPI-010 target)"
@@ -109,26 +110,134 @@ def should_include_golden_lab_example(lab_plan: dict, master_context: Dict[str, 
     return True
 
 
-def build_planner_golden_section() -> str:
+_CLOUD_SLICE = """
+# Cloud console reference (shape only)
+- Objective: open the console and confirm one resource.
+- Step: sign in to the cloud console.
+- Expected output: the resource `golden-bucket-aurora` is listed on `vm-golden-01`.
+- Check: the account `admin-golden` sees the resource state.
+No copie estos nombres. / Do not copy these names.
+""".strip()
+
+_M365_SLICE = """
+# Microsoft 365 Copilot reference (shape only)
+- Objective: open the app and produce one visible result.
+- Step: the instructor opens the workbook.
+- Expected output: `ContosoGolden.xlsx` shows the drafted table on `golden-host-m365`.
+- Check: the user `adele.golden@contoso.example` sees the table.
+No copie estos nombres. / Do not copy these names.
+""".strip()
+
+# Names that belong to the fixture, not to the course. Longer tokens first.
+_TOKENS_POR_TIPO = {
+    "cli": (
+        "/home/alumno/lab-permisos/",
+        "scripts/backup.sh",
+        "informe.txt",
+    ),
+    "cloud": (
+        "golden-bucket-aurora",
+        "vm-golden-01",
+        "admin-golden",
+    ),
+    "m365": (
+        "adele.golden@contoso.example",
+        "ContosoGolden.xlsx",
+        "golden-host-m365",
+    ),
+}
+
+
+def tipo_de_ejemplo(course_info=None) -> str:
+    """Pick CLI/Linux, cloud console, or M365/Copilot from the course text."""
+    if isinstance(course_info, str):
+        texto = course_info
+    else:
+        info = course_info or {}
+        texto = " ".join(
+            str(info.get(clave) or "")
+            for clave in ("title", "description", "level", "name", "language")
+        )
+    bajo = texto.lower()
+    if any(marca in bajo for marca in ("copilot", "microsoft 365", "m365", "office 365")):
+        return "m365"
+    if any(
+        marca in bajo
+        for marca in (
+            "aws",
+            "azure",
+            "gcp",
+            "cloud console",
+            "consola cloud",
+            "cloud",
+            "nube",
+            "portal.azure",
+        )
+    ):
+        return "cloud"
+    return "cli"
+
+
+def _slice_por_tipo(tipo: str) -> str:
+    if tipo == "cloud":
+        return _CLOUD_SLICE
+    if tipo == "m365":
+        return _M365_SLICE
+    return load_golden_lab_slice()
+
+
+def build_planner_golden_section(course_info=None) -> str:
     """Few-shot for the lab planner. ``PLANNER_GOLDEN_LAB=0`` returns empty.
 
-    The planner sees the same LPI-010 slice as the writer and is told not to
-    copy its file names into the plan.
+    ``GOLDEN_BY_TYPE=1`` selects the CLI/Linux, cloud console, or M365/Copilot
+    slice. The LPI-010 marker stays on every slice. The planner is told not to
+    copy the fixture's file names, hostnames, or user names.
     """
     if os.environ.get("PLANNER_GOLDEN_LAB", "1") == "0":
         return ""
-    slice_md = load_golden_lab_slice()
+    tipo = "cli"
+    if os.environ.get("GOLDEN_BY_TYPE", "1") != "0":
+        tipo = tipo_de_ejemplo(course_info)
+    slice_md = _slice_por_tipo(tipo)
     if not slice_md:
         return ""
     return (
         f"{GOLDEN_LAB_SECTION_MARKER}:\n"
-        "Use this Linux Essentials (LPI-010) slice as the shape of a lab plan: "
+        "Use this slice as the shape of a lab plan: "
         "metadata, one objective, numbered steps, expected output and a check. "
-        "Do not copy its file names, paths or commands into this course. "
+        "Do not copy its file names, hostnames, user names, paths or commands into this course. "
         "Úselo como forma del plan (metadatos, objetivo, pasos, salida esperada "
-        "y comprobación). No copie sus ficheros, rutas ni comandos.\n\n"
+        "y comprobación). No copie sus ficheros, nombres de equipo, usuarios, rutas ni comandos.\n\n"
         f"{slice_md}\n"
     )
+
+
+def reparar_copia_del_ejemplo(plan, course_info=None) -> Tuple[Any, list]:
+    """Replace fixture names copied into a plan. ``GOLDEN_ANTI_COPY=0`` leaves it.
+
+    A failed rewrite keeps the plan and still returns the names that were found,
+    so the caller can record a low warning. This never raises.
+    """
+    if os.environ.get("GOLDEN_ANTI_COPY", "1") == "0" or not isinstance(plan, dict):
+        return plan, []
+    tipo = "cli"
+    if os.environ.get("GOLDEN_BY_TYPE", "1") != "0":
+        tipo = tipo_de_ejemplo(course_info)
+    try:
+        texto = json.dumps(plan, ensure_ascii=False)
+    except TypeError:
+        return plan, []
+    avisos = []
+    for token in _TOKENS_POR_TIPO.get(tipo) or ():
+        if token in texto:
+            texto = texto.replace(token, "[DEL TEMARIO] / [FROM THE SYLLABUS]")
+            avisos.append(token)
+    if not avisos:
+        return plan, []
+    try:
+        return json.loads(texto), avisos
+    except json.JSONDecodeError:
+        return plan, avisos
 
 
 def build_golden_lab_prompt_section(

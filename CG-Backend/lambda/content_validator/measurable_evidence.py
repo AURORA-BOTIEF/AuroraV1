@@ -17,11 +17,32 @@ _SUSTITUTO_NO_MEDIBLE = (
 # Phrases and shapes that cannot be verified objectively in a lab guide.
 UNMEASURABLE_PHRASE_RE = re.compile(
     r"(?is)"
-    r"(\b\d{1,2}\s*%\s*(de\s*)?(\u00e9xito|exito|success)\b|"
-    r"\b5\s*(pruebas|tests)\s*gen\u00e9ric|"
-    r"listo para producci\u00f3n|"
+    r"("
+    r"\b\d{1,2}\s*%\s*(de\s*)?(éxito|exito|success)\b|"
+    r"\b5\s*(pruebas|tests)\s*genéric|"
+    r"listo para producción|"
+    r"ready for production|"
     r"funciona correctamente|"
-    r"\bproduction[- ]ready\b)"
+    r"\bproduction[- ]ready\b|"
+    r"verifique que todo funcione|"
+    r"deber[ií]a ver que funciona|"
+    r"works as expected|"
+    r"everything is working"
+    r")"
+)
+
+_PASO_RE = re.compile(r"(?m)^###\s")
+_ARCHIVO_RE = re.compile(
+    r"\b[\w.-]+\.(?:txt|csv|xlsx|xls|docx|json|sh|py|md|png|pptx|yml|yaml|log|conf)\b",
+    re.IGNORECASE,
+)
+_SALIDA_RE = re.compile(r"`([^`]{2,80})`")
+_UI_RE = re.compile(
+    r"(?i)\b(bot[oó]n|button|panel|men[uú]|menu|pesta[nñ]a|tab)\s+"
+    r"[A-Za-zÁÉÍÓÚáéíóúñ0-9_-]{2,}"
+)
+_CONTEO_RE = re.compile(
+    r"(?i)\b\d+\s+(?:elementos|items|filas|rows|archivos|files|registros|records|l[ií]neas|lines)\b"
 )
 
 # Examples from the old refinement pass — must not appear as “real” values.
@@ -134,13 +155,84 @@ def mensaje_correccion_validacion(hallazgos: List[str]) -> str:
     return "\n".join(lineas)
 
 
+def _ventana_del_paso(content: str, inicio: int) -> str:
+    """The step that contains ``inicio``, or the whole guide when it has no steps."""
+    cortes = [marca.start() for marca in _PASO_RE.finditer(content)]
+    desde = 0
+    hasta = len(content)
+    for corte in cortes:
+        if corte <= inicio:
+            desde = corte
+        elif corte > inicio:
+            hasta = corte
+            break
+    return content[desde:hasta]
+
+
+def _pista_medible(ventana: str, frase: str) -> Tuple[str, str]:
+    """A file, output line, UI state, or count already written in the step."""
+    limpio = ventana.replace(frase, " ")
+    archivo = _ARCHIVO_RE.search(limpio)
+    if archivo:
+        return "archivo", archivo.group(0)
+    salida = _SALIDA_RE.search(limpio)
+    if salida:
+        return "salida", f"`{salida.group(1)}`"
+    interfaz = _UI_RE.search(limpio)
+    if interfaz:
+        return "ui", interfaz.group(0)
+    conteo = _CONTEO_RE.search(limpio)
+    if conteo:
+        return "conteo", conteo.group(0)
+    return "", ""
+
+
+def _redaccion_medible(tipo: str, pista: str) -> str:
+    if tipo == "archivo":
+        return (
+            f"Compruebe que el archivo {pista} existe y muestra el valor del paso. / "
+            f"Check that the file {pista} exists and shows the value from the step."
+        )
+    if tipo == "salida":
+        return (
+            f"Compruebe que la salida incluye {pista}. / "
+            f"Check that the output includes {pista}."
+        )
+    if tipo == "ui":
+        return (
+            f"Compruebe que la interfaz muestra {pista}. / "
+            f"Check that the interface shows {pista}."
+        )
+    if tipo == "conteo":
+        return (
+            f"Compruebe que el resultado cuenta {pista}. / "
+            f"Check that the result counts {pista}."
+        )
+    return ""
+
+
 def reparar_validacion_no_medible(content: str) -> str:
     """Rewrite unverifiable phrases. ``VALIDATION_REPAIR=0`` leaves the text.
 
-    Does not invent a password or a full deterministic paragraph. A phrase that
-    still cannot be checked stays a warning for the owner.
+    ``VALIDATION_CONTEXT_REPAIR=1`` (default) rewrites each phrase into a
+    measurable check using a file, output line, UI state, or count already in
+    the same step. When the step has none, the phrase stays so the writer can
+    record a low R5 warning. ``VALIDATION_CONTEXT_REPAIR=0`` uses the generic
+    bilingual substitute. This does not invent a password or a value.
     """
     if os.environ.get("VALIDATION_REPAIR", "1") == "0":
         return content or ""
-    texto = UNMEASURABLE_PHRASE_RE.sub(_SUSTITUTO_NO_MEDIBLE, content or "")
+    texto = content or ""
+    contextual = os.environ.get("VALIDATION_CONTEXT_REPAIR", "1") != "0"
+
+    def reemplazo(coincidencia: "re.Match") -> str:
+        if not contextual:
+            return _SUSTITUTO_NO_MEDIBLE
+        tipo, pista = _pista_medible(_ventana_del_paso(texto, coincidencia.start()), coincidencia.group(0))
+        redaccion = _redaccion_medible(tipo, pista)
+        if not redaccion:
+            return coincidencia.group(0)
+        return redaccion
+
+    texto = UNMEASURABLE_PHRASE_RE.sub(reemplazo, texto)
     return INVENTED_SECRET_RE.sub("[POR CONFIRMAR]", texto)
