@@ -1,0 +1,113 @@
+# Despliegue seguro de CG-Backend con reconstrucción automática de la capa PDF ARM64.
+#
+# Contexto (ver RUNBOOK-course-pipeline / nota de PdfLayer):
+#   `sam build` sin Docker construye las capas para x86_64, pero las Lambdas son arm64.
+#   La capa `pdf-dependencies` (xhtml2pdf/Pillow/lxml/cryptography) trae binarios nativos
+#   y DEBE ser aarch64, por eso se publica como zip precompilado en S3.
+#
+# Este script detecta si `lambda-layers/pdf_layer/requirements.txt` cambió respecto al
+# hash registrado. Si cambió (o no hay hash), reconstruye y sube la capa arm64 antes de
+# desplegar. Así no hay que recordar ejecutar el build manualmente.
+#
+# Uso:
+#   powershell -ExecutionPolicy Bypass -File deploy.ps1
+#   powershell -ExecutionPolicy Bypass -File deploy.ps1 -ForceLayerRebuild
+#   powershell -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeploy   # solo reconstruir capa
+
+param(
+    [switch]$ForceLayerRebuild,
+    [switch]$SkipDeploy
+)
+
+$ErrorActionPreference = "Stop"
+$Root = $PSScriptRoot
+$Req = Join-Path $Root "lambda-layers\pdf_layer\requirements.txt"
+$HashFile = Join-Path $Root "lambda-layers\.pdf_layer_requirements.sha256"
+$LayerBuilder = Join-Path $Root "lambda-layers\build-pdf-layer-arm64.ps1"
+
+function Get-RequirementsHash {
+    (Get-FileHash $Req -Algorithm SHA256).Hash
+}
+
+$currentHash = Get-RequirementsHash
+$recordedHash = if (Test-Path $HashFile) { (Get-Content $HashFile -Raw).Trim() } else { "" }
+
+Write-Host "== CG-Backend deploy =="
+Write-Host "requirements.txt hash: $currentHash"
+
+$needsRebuild = $ForceLayerRebuild -or ($currentHash -ne $recordedHash)
+
+if ($needsRebuild) {
+    if ($ForceLayerRebuild) {
+        Write-Host "-> Reconstruyendo capa PDF ARM64 (forzado)."
+    } else {
+        Write-Host "-> requirements.txt cambió. Reconstruyendo capa PDF ARM64."
+    }
+    & powershell -ExecutionPolicy Bypass -File $LayerBuilder
+    if ($LASTEXITCODE -ne 0) { throw "Falló la construcción de la capa PDF ARM64." }
+    Set-Content -Path $HashFile -Value $currentHash -NoNewline
+    Write-Host "-> Hash de requirements.txt actualizado: $HashFile"
+} else {
+    Write-Host "-> requirements.txt sin cambios. Se reutiliza la capa publicada en S3."
+}
+
+if ($SkipDeploy) {
+    Write-Host "SkipDeploy activo: no se ejecuta sam deploy."
+    exit 0
+}
+
+Write-Host "-> Sincronizando ppt_quality.py en los paquetes Lambda que lo importan."
+& python (Join-Path $Root "sync_ppt_quality_packages.py")
+if ($LASTEXITCODE -ne 0) { throw "Fallo la sincronizacion de ppt_quality.py." }
+
+Write-Host "-> Sincronizando bedrock_fallback.py y quality_report.py."
+$fallback = Join-Path $Root "bedrock_fallback.py"
+foreach ($destino in @(
+    "lambda\strands_lab_writer",
+    "lambda\strands_lab_planner",
+    "lambda\strands_content_gen",
+    "lambda\strands_visual_planner"
+)) {
+    Copy-Item $fallback (Join-Path $Root $destino) -Force
+}
+Copy-Item (Join-Path $Root "lambda\quality_report.py") (Join-Path $Root "lambda\strands_notification\quality_report.py") -Force
+Copy-Item (Join-Path $Root "lambda\setup_guide_builder\template_tokens.py") (Join-Path $Root "lambda\strands_lab_planner\template_tokens.py") -Force
+# golden_lab_example.py carries the CLI, cloud, and M365 slices plus the anti-copy repair.
+Copy-Item (Join-Path $Root "lambda\strands_lab_writer\golden_lab_example.py") (Join-Path $Root "lambda\strands_lab_planner\golden_lab_example.py") -Force
+$fixturesPlanner = Join-Path $Root "lambda\strands_lab_planner\fixtures"
+New-Item -ItemType Directory -Force -Path $fixturesPlanner | Out-Null
+Copy-Item (Join-Path $Root "lambda\strands_lab_writer\fixtures\golden_lab_lpi010_slice.md") (Join-Path $fixturesPlanner "golden_lab_lpi010_slice.md") -Force
+# audience_adaptation.py lives next to this script. Each Lambda CodeUri imports
+# the copy inside its own folder, so a combined pytest session can also see the
+# root file when CG-Backend is on sys.path. All four must stay the same file.
+$audiencia = Join-Path $Root "audience_adaptation.py"
+foreach ($destino in @(
+    "lambda\strands_content_gen",
+    "lambda\strands_lab_planner",
+    "lambda\strands_lab_writer"
+)) {
+    Copy-Item $audiencia (Join-Path $Root $destino) -Force
+}
+Copy-Item (Join-Path $Root "lambda\strands_lab_writer\measurable_evidence.py") (Join-Path $Root "lambda\content_validator\measurable_evidence.py") -Force
+Copy-Item (Join-Path $Root "lambda\strands_lab_planner\referent_check.py") (Join-Path $Root "lambda\strands_lab_writer\referent_check.py") -Force
+foreach ($destino in @(
+    "lambda\content_validator",
+    "lambda\strands_lab_writer",
+    "lambda\strands_content_gen"
+)) {
+    Copy-Item (Join-Path $Root "lambda\markdown_repair.py") (Join-Path $Root $destino) -Force
+}
+
+Write-Host "-> sam build"
+sam build
+if ($LASTEXITCODE -ne 0) { throw "sam build falló." }
+
+Write-Host "-> Import smoke: cada handler debe importar. Un ImportError aborta el deploy."
+& python (Join-Path $Root "scripts\import_handlers_smoke.py") --build (Join-Path $Root ".aws-sam\build")
+if ($LASTEXITCODE -ne 0) { throw "Import smoke failed. Deploy aborted." }
+
+Write-Host "-> sam deploy"
+sam deploy --no-confirm-changeset
+if ($LASTEXITCODE -ne 0) { throw "sam deploy falló." }
+
+Write-Host "Despliegue completado."

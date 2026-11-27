@@ -1,0 +1,295 @@
+# THOR release candidate — November 2026
+
+Integrates the twelve open quality-fix pull requests onto `thor-audit-base` (`dd032f6`, client production testing `79b770c` plus the local audit-base commit). This branch is a release candidate. It was not deployed, and no paid AWS or LLM API was called while it was built.
+
+**Reliability (this branch).** The blocking gates described later in this file are superseded. A quality check retries, then records a warning, and the course is still delivered. Only the lab master plan and the lab planner may fail the execution, and only after retry and model fallback. See [Reliability](#reliability).
+
+Baseline and weights: `docs/audit/THOR_quality_audit_2026-11.md` (branch `cursor/thor-quality-audit-bf07`, commit `195e8190`). That document scored the October instructor findings at **33.5%**. The percents below are an estimate of how far the wired checks close those gaps. They are not a new instructor review of generated courses. Items 10 and 11 did not move.
+
+## Merge order
+
+Each merge is `git merge --no-ff` onto `thor-release-candidate`, which was created from `origin/thor-audit-base`. Prompts and `referent_check.py` were merged before the state machine so later prompt edits sat on one writer file. The quality gate (PR 10) landed before the link gate (PR 12) so the terminal states could be joined once.
+
+| Order | PR | Fix | Head | Merge commit |
+| --- | --- | --- | --- | --- |
+| 1 | 2 | 2 instruction filter | `ab769046` | `17eb44c5` |
+| 2 | 6 | 5 duration counting | `06440f81` | `e25e83c0` |
+| 3 | 11 | 4 practice cap | `55143c03` | `783e9b8f` |
+| 4 | 8 | 11 PPT | `8a1e1391` | `cd930c16` |
+| 5 | 5 | 7 Setup Guide and `SUCCEEDED_WITH_WARNINGS` | `6326f6dc` | `ab7fe5d7` |
+| 6 | 7 | 10 audience | `1c56f19a` | `887bb975` |
+| 7 | 3 | 12 LPI-010 example | `7420adbf` | `6418ce7c` |
+| 8 | 4 | 8 verifiable validation | `993180f8` | `4f87f602` |
+| 9 | 9 | 6 self-contained labs | `4ad9cbbb` | `383405bf` |
+| 10 | 13 | 3 entity lock | `676aee2c` | `10c1491c` |
+| 11 | 10 | 1 quality gate | `2ba6e1e4` | `79247a4b` |
+| 12 | 12 | 9 Copilot catalog and link audit | `27946ed6` | `399479e5` |
+
+PR 5 does not add Step Functions states. It adds `SUCCEEDED_WITH_WARNINGS` in `course_generation_status.py` and keeps the Setup Guide catch non-blocking. PR 10 and PR 12 add the fail states.
+
+The two copies of `referent_check.py` (planner and writer) are byte-identical after every merge that touched them.
+
+## Conflicts and resolutions
+
+PRs 2, 6, 11, 8, 5, and 7 merged clean. The writer prompt and the writer loop conflicted from PR 3 onward. Every behavior was kept.
+
+| Merge | Files | Resolution |
+| --- | --- | --- |
+| PR 3 | `strands_lab_writer.py` imports | Kept `audience_adaptation` and `golden_lab_example`. |
+| PR 4 | writer prompt | Kept the golden-lab section and the measurable-evidence section. |
+| PR 9 | writer retry loop | Kept the evidence retry. Audits with `creados_antes=None` and adds the fictitious annex. Did not restore `creados_antes.update` (that variable is gone and would treat another lab's files as declared). |
+| PR 13 | writer prompt, `master_context`, audit call, both `test_referent_check.py` | Kept the audience profile and `syllabus_text`. Kept golden, evidence, and anchor sections. Audit call uses `creados_antes=None` and `temario=outline_reference_text`. Both test blocks stayed (196 tests at that merge). |
+| PR 10 | `exec_status.py`, `strands_notification.py`, writer | `needs_review` outranks a clean pass and outranks warnings. Each lab pops `validation_evidence_correction`. |
+| PR 12 | writer only (ASL auto-merged) | Currency section, pop `currency_correction`, and save the referential and currency reports when the currency check raises. |
+
+After the twelve merges, integration commit `c8cbae73` joins the behaviors that only conflict at runtime. Owner follow-ups from live QA on 25 Nov 2026, merged in `7bc00794`:
+
+- `0bcc6104` (MS-4019): the currency check treats a surface named by the syllabus the same as one named by the manual. Deprecated catalog names still block.
+- `14b4ff2e` (MS-4018): an operating system offered on the same line as an alternative to the declared one (`Windows 10/11 o macOS`) is not a B5 contradiction. A different OS alone still is. Both `referent_check.py` copies stay identical.
+- `311518e9` (COPCHAT_LD): removed the function-local `import os` inside `generate_complete_course` in the infographic generator. That import made `os` local to the whole function, so `os.environ` raised `UnboundLocalError` and every PPT batch failed.
+- `bf0feb63` (MS-4019 rerun): generic agent-type words (`agente de IA`, `agente de Microsoft 365`, `agente personalizado`) are on the currency stoplist, so they are not unknown product names. A named agent such as "agente Magic Scheduler" still blocks. The same `import os` was removed from the `ppt_merger` copy of `html_first_generator.py`, and the shadowing guard now covers that file.
+- `5f8f21de`: `ppt_quality.py` is copied into `lambda/deck_builder/`, `lambda/ppt_merger/`, and `lambda/strands_infographic_generator/`. Those `CodeUri` folders do not see the CG-Backend root, so DeckBuilder raised `ImportModuleError: No module named ppt_quality` after the glossary change. `deploy.ps1` runs `sync_ppt_quality_packages.py` before `sam build`. The three copies match the canonical file.
+
+- `clasificar_hallazgos_de_plan` treats a lab-count gap as a low-confidence warning when the format budget merged labs (`ajustado`) or a selective update still carries `syllabus_items_combined` (`conteo_preservado`), the total does not exceed the course, and `sobran == 0`. An unexplained shortfall or `excede_total` stays high-confidence A3.
+- Selective regeneration counts `extract_all_labs(..., modules_to_generate="all")`, not the filtered lab list, so regenerating one lab is not "extra labs".
+- `NotifyFailure` goes to `RouteTerminalFailure`. If `$.audit_result.Payload.gate.bloquea` is true the execution fails with `LinkAuditFailed`; otherwise `FailWorkflow`. `CheckLinkAudit` still goes to `NotifyFailure` first, so the failure email is sent. `FailLabQualityGate` stays `LabQualityNeedsReview`.
+- Visible status order: `needs_review`, then `link_audit_failed`, then generic `failed`, then `SUCCEEDED_WITH_WARNINGS` (no error), then `passed`.
+- SAM env at the integration: `COPILOT_CATALOG_RETRIEVAL=0` and `CURRENCY_RETRY=1` on `StrandsLabWriter`, `VALIDATION_EVIDENCE_RETRY=1` on `StrandsLabWriter`. `LINK_AUDIT_GATE` was `1` then and is `0` after the reliability pass. No new IAM. The functions are not in a VPC; retrieval and link checks use the existing HTTPS egress.
+- UI copy is Spanish unless the caller passes a language starting with `en`.
+
+## State machine
+
+`CourseGeneratorStateMachine` uses `CG-Backend/current_state_machine.json`. This is the flow after PR 17 (`a87fa97e`). `FailLabQualityGate` and `FailLinkAudit` are not in the definition. The [Reliability](#reliability) section is the policy.
+
+1. Planner and master-plan `needs_review` stamps the plan, records `$.quality_issues.lab_quality` in `NotifyQualityReview`, and continues. `NotifyFailure` goes to `FailWorkflow` only when the planner or the master plan itself fails after retry and model fallback.
+2. Writer batches still run `EvaluateLabQualityGate` and `CheckLabValidation`. A quality finding does not fail the execution. `all_valid=false` runs one targeted regeneration and then delivers with `RecordStructuralWarning`.
+3. `InvokePostGenerationAudit` then `CheckLinkAudit` records a dead-link warning and continues to the decks. The audit still rewrites repaired labs and the Lab Guide book.
+4. Setup Guide, book, lab guide, decks, and audit retry, then record the issue and continue. A missing PDF or PPT is recorded. Theory-only still skips the link audit.
+5. A currency finding on the last attempt saves the lab with a medium C6 warning. One failed lab becomes a bilingual placeholder and does not fail the map.
+
+ASL check on this head (Python walker, not SAM): JSON parses; 77 top-level states, all reachable. Maps: `ProcessLabBatchesInParallelBoth` 3/3, `ProcessBatchesInParallel` 15/15, `ProcessLabBatchesInParallel` 3/3.
+
+## Interactions checked
+
+**Practice cap versus the quality gate.** A full generation that merges extra labs (anchor `lab_id` kept, `syllabus_items_combined` set) no longer fails A3 only because the lab count is shorter than the syllabus activity count. `test_el_planner_reduce_las_11_practicas` expects `quality_status == passed` with low-confidence warnings. A plan that still exceeds the course duration, or a count gap the budget did not cause, is still `needs_review`.
+
+**Selective regeneration (`lab_ids_to_regenerate`).** The planner calls `sin_ajuste(motivo=actualizacion_selectiva)` and does not merge. The gate still runs. The duration audit uses the full syllabus, not the one-lab subset. If the stored plan was already merged, `conteo_preservado` keeps the shorter count as a warning. If the stored plan is still over the course duration (the 11 × 30 minute conference in the test), the gate returns `needs_review` with an A3 duration finding. The writer does not skip those labs: the starter sets `update_mode`, which disables skip-if-exists. The state machine does not skip `CheckLabValidation`.
+
+**Annex versus the gate.** An annexable high-confidence B1 (xlsx, docx, eml, csv, SharePoint `/sites/`) is inlined on the attempt that ships and then re-audited, so the gate can pass. B6, A5, C2, and A2e stay `needs_review`. Forward dependencies are not annexed.
+
+**Frontend.** There is no in-app language switch. Helpers default to Spanish. English is the `lang` argument when it starts with `en`.
+
+| Status or HTTP | Spanish (default) | English |
+| --- | --- | --- |
+| `needs_review` | NECESITA REVISIÓN. "El curso no se entregó: hay laboratorios con hallazgos de alta confianza que necesitan revisión." | NEEDS REVIEW |
+| `SUCCEEDED_WITH_WARNINGS` | COMPLETADO CON ADVERTENCIAS, naming Setup Guide, Auditoría posterior, or Decks | COMPLETED WITH WARNINGS |
+| `link_audit_failed` / `LinkAuditFailed` | ENLACES ROTOS. "El curso no se entregó: hay enlaces públicos muertos (404, 410 o DNS)." | BROKEN LINKS |
+| PPT export 422 | "La presentación no se exportó. El deck no pasó el control de calidad." plus up to three issue messages | "The presentation was not exported. The deck did not pass the quality check." |
+
+`InfographicViewer` throws that message instead of the API string `PPT quality validation failed`. `GeneradorContenido` treats `needs_review` and `link_audit_failed` as errors, and `SUCCEEDED_WITH_WARNINGS` as a success banner (tone warning), not a clean pass.
+
+## Live QA fixes
+
+Four gaps from the 25 Nov 2026 run on this head. None of them called a paid API, and nothing here was deployed.
+
+1. **Reading budget.** Student-facing prose is capped at `LAB_READING_WORDS_PER_MINUTE` (default 60) times the declared duration. A student reads technical Spanish at about 200 words per minute (`LAB_READING_SPEED_WPM`), so 60 words per minute is 30% of the slot and leaves most of the time for doing the lab. A 12-minute lab may contain 720 words of prose (about 4 minutes of reading). A 55-minute lab may contain 3,300. The fictitious-data annex is counted apart, fences included, under `LAB_ANNEX_MAX_WORDS` (default 500). The writer prompt states the ceilings. After generation, while attempts remain and `READING_BUDGET_RETRY` is on, the writer is asked again with the measured counts. The last attempt records R1 at medium confidence and still ships the lab. The quality gate blocks only on high confidence, so this is a warning, not `needs_review`. A lab with no declared duration is told to stay under 1,200 words.
+2. **Setup Guide PDF.** The lab cell is the lab id plus the title, truncated to about 60 characters. Every matrix cell is a reportlab Paragraph measured against an explicit column width (the eight widths sum to 420 pt, inside the A4 frame after padding). Estado inicial drops markdown table syntax. Evidencia is a short summary, not a pasted prompt. `render_pdf` raises on `LayoutError`, a pisa error, or a buffer that is not a PDF, so Step Functions keeps `setup_guide_error` and the client status is `SUCCEEDED_WITH_WARNINGS` when the rest of the run succeeds.
+3. **Labs-only link audit.** The happy path already visited `InvokePostGenerationAudit`. The hole was the Setup Guide catch, which jumped to `NotifyCompletion` and skipped the audit. That catch now goes to the audit. `CheckLinkAudit` is unchanged. Every top-level state stays reachable. Theory-only still does not audit links.
+4. **Dead-link repair.** Before the gate blocks, each 404/410/NXDOMAIN URL is replaced with the closest verified URL from the Copilot catalog (deprecated rows skipped), the manual, or the syllabus. An exact path, ignoring locale, outranks an alias. If nothing verified is close enough, the URL is removed and the anchor text stays. The labs are audited again. The gate blocks only when the second report still has dead links. `LINK_REPAIR=0` keeps the old block-on-first-report behavior. A repair exception keeps the first report, so the gate still runs. Offline tests inject `revisar_enlace` and do not call `urlopen`. `FailLinkAudit` and the failure email point at `labguide/enlaces.json`. The follow-up below is the current rule: a swap needs a topical path or title match, and the Lab Guide book receives the same edit.
+
+## Link repair follow-up (25 Nov 2026)
+
+Two holes in that repair, found in live QA. This pass did not deploy and did not call a paid AWS or LLM API. Catalog pages were fetched with HTTP GET on 2026-11-25. At that follow-up the machine had 57 top-level states. The reliability pass has 77, all reachable. The book update still runs inside `InvokePostGenerationAudit`.
+
+**The Lab Guide book is updated with the labs.** `InvokeLabGuideBuilder` writes `book/Lab_Guide_LabGuide_complete.md` and `book/Lab_Guide_LabGuide_data.json` before the audit. The repair used to rewrite only `labguide/lab-*.md`, so the delivered book could still carry the dead URL. After a repair that changes any lab, the same URL edits are applied to those two book files. A replacement is the same string in the lab, the book markdown, and each lab `content` field in the JSON. Removing a URL keeps the anchor in all three. The JSON `word_count` for a lab whose `content` changed is recomputed from that content. The markdown book's statistics footer is not rebuilt. `LINK_REPAIR=0` does not touch the book.
+
+**A swap requires a topical match, not the product name.** The dead URL's last path segment must appear, in order, in the candidate path or `doc_title`, and that segment must contain a token other than `microsoft`, `copilot`, `365`, `m365`, or `office`. A near-identical path (locale aside) also matches. Overlap on the product name alone does not. Alias score still ranks the candidates that pass that test. One decision is made per dead URL and applied to every lab and the book. If nothing qualifies, the URL is removed and the anchor stays.
+
+Checked-in catalog `2026-11-25.2` (`doc_urls_checked_on` 2026-11-25). Both copies of `copilot_feature_catalog.json` are byte-identical. Every `doc_url` below returned HTTP 200 on that date, and the final page title is the row's topic.
+
+| Row | Old URL | New URL | HTTP on 2026-11-25 |
+| --- | --- | --- | --- |
+| Microsoft 365 Copilot | `https://blogs.bing.com/search/2023/11/our-vision-to-bring-microsoft-copilot-to-everyone-and-more` | `https://learn.microsoft.com/en-us/copilot/plan/copilot-overview` | Old 200, title "Our vision to bring Microsoft Copilot to everyone, and more" (2023 Bing blog). New 200, "What is Microsoft Copilot?" |
+| Copilot Chat | `https://learn.microsoft.com/en-us/copilot/manage/researcher-agent` | `https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-microsoft-365-copilot-chat` | Old 200, "What is Researcher Agent in Microsoft Copilot?" New 200, "Get started with Microsoft Copilot Chat" |
+| Copilot Studio | `https://www.microsoft.com/en-us/copilot/blog/copilot-studio/microsoft-power-virtual-agents-now-part-of-microsoft-copilot-studio/` | `https://learn.microsoft.com/en-us/microsoft-copilot-studio/fundamentals-what-is-copilot-studio` | Old 200, "Microsoft Power Virtual Agents, now part of Microsoft Copilot Studio". New 200, "Overview - Microsoft Copilot Studio" |
+| Agent Builder | `https://learn.microsoft.com/en-us/plugins/agent-builder-build-agents` | same | 200, "Build agents in Agent Builder". This row was already that page. The Power Virtual Agents blog was the Copilot Studio row. |
+| Plan My Day | `https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/agent-template-plan-my-day` | `https://learn.microsoft.com/en-us/plugins/agent-template-plan-my-day` | Old 200 and redirects to the new URL. New 200, "Use the Plan My Day template to build an agent" |
+| Researcher | `https://learn.microsoft.com/en-us/copilot/manage/researcher-agent` | same | 200, "What is Researcher Agent in Microsoft Copilot?" |
+| Analyst | `https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-analyst-in-microsoft-365-copilot` | same | 200, "Get started with Analyst in Microsoft Copilot" |
+| Workflows | `https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-workflows-in-microsoft-365-copilot` | same | 200, "Get started with Workflows in Microsoft Copilot" |
+| Frontier | `https://learn.microsoft.com/en-us/microsoft-365/admin/manage/get-started-frontier?view=o365-worldwide` | same | 200, "Get started with the Microsoft Frontier Program" |
+| Idea Coach | `https://learn.microsoft.com/en-us/training/modules/turn-info-into-decisions-ai-agents/` | same | 200, "Turn Information into Decisions with AI Agents" |
+| Bing Chat Enterprise (deprecated) | the 2023 Bing blog above | `https://learn.microsoft.com/en-us/copilot/plan/copilot-overview` | New 200, "What is Microsoft Copilot?" The blog still returns 200 and is the page that states the 2023-11-15 rename. It is no longer a catalog URL. |
+| Power Virtual Agents (deprecated) | `https://learn.microsoft.com/en-us/microsoft-copilot-studio/requirements-sessions-management` | same | 200, "Manage sessions and capacity for the legacy Power Virtual Agents license" |
+
+Offline cases taken from the QA dead links: an invented support topic `bienvenido-a-microsoft-365-copilot-chat-5e2d3f57`, `microsoft-365-copilot-prompt-engineering`, Teams meeting-recap pages, `.../microsoft-365-copilot/chat`, `best-practices`, `agents`, `instructions`, `instructions/sharepoint-agents`, `onedrive-overview`, and `fincen.gov/resources/statutes-and-regulations` are removed. `support.microsoft.com/copilot-chat` is replaced with the Copilot Chat support page. `.../microsoft-365-copilot/agent-builder` is replaced with the Agent Builder Learn page. The invented Learn path that ends in `microsoft-365-copilot-chat` is still replaced, and an exact manual path still outranks the catalog.
+
+## Bigger gaps (not closed here)
+
+- Item 10, the evaluation form, is still outside this repository.
+- Item 11: the seven critical courses were not regenerated or re-scored. The manifest is still blind to lessons and the book.
+- Measurable-evidence findings retry, and the last attempt still ships. They are not referential violations, so they do not enter the quality gate. `ContentValidator` still records them as WARNING. It also warns when a lab is under 1,000 words, so a 12-minute lab inside the 720-word reading budget can carry that warning. `CheckLabValidation` does not block on it.
+- Currency failures are a generic batch task failure. They do not get their own Step Functions error name.
+- A reading overrun that survives the last attempt ships as a medium R1 warning. It does not set `needs_review`.
+- A Setup Guide PDF failure stays non-blocking (`SUCCEEDED_WITH_WARNINGS`). The link audit and the decks still run unless the link gate blocks.
+- Theory-only courses still skip the link audit.
+- Selective update does not re-apply the format cap, and it does not re-apply the reading budget to a lab that is not regenerated. A legacy over-budget plan cannot be patched one lab at a time until a full plan fits.
+- `COPILOT_CATALOG_RETRIEVAL` is off. Link repair uses the checked-in catalog (`2026-11-25.2`, URLs fetched 2026-11-25) plus URLs already in the manual or the syllabus. A replacement is kept only when the checker calls it alive and the dead path or title is a close topical match. A product-name overlap is removed. The same edits are written into the Lab Guide book. The course still fails if a dead link remains after that one pass. 403/429/5xx stay unverifiable and do not block. The markdown book's statistics footer is not rebuilt, so its word total can lag the repaired labs. The overview page used for Bing Chat Enterprise does not repeat that old name, so turning retrieval on would mark that deprecated row unresolved. A dead URL whose slug is only `idea-coach` is removed, because the Idea Coach training-module path does not contain that slug. A one-token slug such as `/chat` or `/agents` is removed.
+- The LPI-010 fixture is a structural stand-in in the writer prompt only. The planner prompt does not include it.
+- `DELIVERABLES_RETRY` stays off. A high-confidence B3p still blocks through the quality gate; it just does not get an extra model retry unless the flag is turned on.
+- April PPT leftovers outside the pagination and empty-table checks (typography, the GitHub Pages URL, `course_duration_hours` taken from the UI) were not re-verified on a generated deck.
+
+## Environment variables and flags
+
+| Name | Where | Default | Effect |
+| --- | --- | --- | --- |
+| `LINK_AUDIT_GATE` | `PostGenerationAuditFunction` | `0` | Off. Dead links stay in the report. `1` sets `gate.bloquea`, and the state machine records that flag and still delivers. |
+| `LINK_REPAIR` | `PostGenerationAuditFunction` | `1` | Replace a dead URL when the catalog, manual, or syllabus page is a close topical match, or drop the URL and keep the text. The same edits are written to the Lab Guide book. Then the labs are re-audited. `0` does not rewrite. |
+| `READING_BUDGET_RETRY` | `StrandsLabWriter` | `1` | Over-budget prose retries with the measured counts. `0` records a medium finding and ships. The last attempt never fails the lab for length. |
+| `LAB_READING_WORDS_PER_MINUTE` | `StrandsLabWriter` | `60` | Student-facing words allowed per declared minute. 60 of a 200-word reading speed is 30% of the slot. |
+| `LAB_READING_SPEED_WPM` | `StrandsLabWriter` | `200` | Reading speed used to explain the budget. It is not the budget. |
+| `LAB_ANNEX_MAX_WORDS` | `StrandsLabWriter` | `500` | Cap for the fictitious-data annex. Counted apart from the body, fences included. |
+| `COPILOT_CATALOG_RETRIEVAL` | `StrandsLabWriter` | `0` | `1` refreshes the catalog from Microsoft Learn before the currency check. |
+| `CURRENCY_RETRY` | `StrandsLabWriter` | `1` | Blocking Copilot names retry. The last attempt saves the lab and records C6 as a medium warning. `0` records the finding and ships without a retry. |
+| `VALIDATION_EVIDENCE_RETRY` | `StrandsLabWriter` | `1` | Retries a lab whose validation steps are not measurable, until the last attempt, which still ships. |
+| `DELIVERABLES_RETRY` | writer code, not in the template | `0` | Extra model retry for deliverable findings. Off. |
+| `REQUIREMENTS_RETRY` | writer (pre-existing) | `1` | Unchanged. |
+| `ENTORNO_RETRY` | writer (pre-existing) | `1` | Unchanged. |
+| `LAB_SKIP_IF_EXISTS` | `StrandsLabWriter` | `true` | Unchanged. Disabled when `update_mode` or `force_regenerate` is set. |
+
+The quality gate and the format budget still run. They no longer fail the course: findings are warnings on `validation/quality-report.json`. See [Reliability](#reliability).
+
+## Deployment checklist
+
+Do not deploy this branch until it is reviewed. This run did not deploy.
+
+From `CG-Backend`, on a machine with AWS credentials, SAM CLI, and the Netec profile used by `samconfig.toml`:
+
+1. Confirm `samconfig.toml`: stack `crewai-course-generator-stack`, region `us-east-1`, `CAPABILITY_IAM`.
+2. `powershell -ExecutionPolicy Bypass -File deploy.ps1` runs the PDF layer hash check, copies `ppt_quality.py` into the three Lambda packages that import it, then `sam build`, then `sam deploy --no-confirm-changeset`. Use `-SkipDeploy` to rebuild the layer without deploying or syncing. Use `-ForceLayerRebuild` only if the PDF layer must be republished; `lambda-layers/pdf_layer/requirements.txt` did not change in this candidate.
+3. `sam build` without Docker builds layers for x86_64. The PDF layer is the prebuilt aarch64 zip. Do not replace it with the `sam build` output.
+4. The state machine definition is `current_state_machine.json` (`DefinitionUri`). A deploy updates `CourseGeneratorStateMachine` in place.
+5. After deploy, confirm the flags in the table above on the live Lambdas before generating a client course. New on this pass: `READING_BUDGET_RETRY`, `LAB_READING_WORDS_PER_MINUTE`, `LAB_READING_SPEED_WPM`, `LAB_ANNEX_MAX_WORDS`, and `LINK_REPAIR`.
+6. Generate one short non-client course and read `/exec-status`: a clean run is `passed`; a high-confidence lab finding is `needs_review` with error `LabQualityNeedsReview`; a dead link that repair cannot clear is `link_audit_failed` and the email points at `labguide/enlaces.json`; a Setup Guide or deck error on an otherwise successful run is `SUCCEEDED_WITH_WARNINGS`.
+7. Export a deck that fails `ppt_quality` and confirm the UI shows the Spanish 422 text, not `PPT quality validation failed`.
+
+### Rollback
+
+Redeploy commit `dd032f6` (`thor-audit-base`) with the same `deploy.ps1`. That restores the previous template and the previous state machine. There is no flag that disables `LabQualityNeedsReview`.
+
+To soften the new gates without a full rollback, set `LINK_AUDIT_GATE=0`, `CURRENCY_RETRY=0`, and `VALIDATION_EVIDENCE_RETRY=0`, and leave `COPILOT_CATALOG_RETRIEVAL=0`. The quality gate and the format budget stay on until the previous revision is deployed.
+
+## Tests
+
+Re-run on 2026-11-25 after the link-repair follow-up, Python 3.12. Credentials unset. `AWS_DEFAULT_REGION=us-east-1`, `AWS_EC2_METADATA_DISABLED=true`. Offline suite exit 0 for every file below. Frontend `npm ci` and `npm run build` were not re-run; this pass does not change the UI.
+
+Not run, because they call Lambda, Bedrock, Gemini, Imagen, or send mail: `test_bedrock_models.py`, `test_gemini_3.5.py`, `test_imagen_4.py`, `test_notification.py`, `test_notification_gmail.py`.
+
+SAM CLI is not installed in this environment, so `sam validate` was not run. The ASL check above is the substitute.
+
+| Suite | Result |
+| --- | --- |
+| `test_audience_adaptation.py` | 8/8 |
+| `test_audit_diff.py` | 4/4 |
+| `test_batch_expander.py` | 8/8 |
+| `test_content_validator.py` | 17/17 |
+| `test_copilot_currency.py` | 17/17 |
+| `test_course_generation_status.py` | 3/3 |
+| `test_deck_builder.py` | 4/4 |
+| `test_deck_builder_package.py` | pytest 2 passed |
+| `test_demos_support.py` | pytest 11 passed |
+| `test_format_budget.py` | 19/19 |
+| `test_golden_lab_example.py` | 4/4 |
+| `test_lab_heading_normalization.py` | pytest 2 passed |
+| `test_list_projects.py` | 4/4 |
+| `test_manual_context.py` | 19/19 |
+| `test_measurable_evidence.py` | 6/6 |
+| `test_no_import_shadowing.py` | 1/1 |
+| `test_pixel_validation.py` | script OK |
+| `test_post_generation_audit.py` | 25/25 |
+| `test_ppt_quality.py` | 8/8 |
+| `test_provider_lock.py` | pytest 16 passed |
+| `test_quality_gate.py` | 10/10 |
+| `test_reliability.py` | 12/12 |
+| `test_reading_budget.py` | 6/6 |
+| `test_referent_check.py` | 198/198 |
+| `test_setup_guide_capabilities.py` | 6/6 |
+| `test_setup_guide_pdf.py` | 4/4 |
+| `test_starter_api_converter.py` | pytest 10 passed |
+| `test_state_machine.py` | 17/17 |
+| `test_visual_optimizer.py` | script OK |
+| `src/utils/courseStatus.test.mjs`, `pptExportMessage.test.mjs` | not re-run (no UI change); last run on this branch was node:test 8/8 |
+| `npm run build` | not re-run (no UI change) |
+
+## Updated scorecard
+
+Weights are unchanged (items 1–5 at 14, items 6–11 at 5). Points = percent × weight / 100. The October baseline is in parentheses.
+
+| # | Item | Baseline | Estimate | Weight | Points | What is still open |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Syllabus anchor | 40% | 86% | 14 | 12.04 | Unlabeled multiword names, countries (not date-format examples) and product phrases are locked. A product the lab never repeats is a low warning. The last attempt repairs a renamed or omitted high-confidence anchor, then ships any leftover as a warning. No corpus re-score. |
+| 2 | Time and format | 45% | 96% | 14 | 13.44 | Reading budget is 60 words per declared minute. The last attempt trims prose and annex rows once, then ships a medium R1 if still over. Selective update scales a legacy plan to the ceiling and does not drop labs. The step budget is unchanged. |
+| 3 | Self-contained labs | 35% | 90% | 14 | 12.60 | Annex covers xlsx, docx, eml, csv and SharePoint, including a file a later lab produces. A non-file forward mention is still only a finding. |
+| 4 | Setup Guide | 50% | 88% | 14 | 12.32 | B5 compares the lab OS and a short tool list with the syllabus. One syllabus OS family is repaired on the last attempt. An OS the syllabus never named stays a low warning. PDF layout failure stays non-blocking. |
+| 5 | Verifiable validation | 30% | 86% | 14 | 12.04 | Vague ES/EN phrases are rewritten from a file, output line, UI state, or count already in the step. If the step has none, the phrase stays and the writer records a low R5 warning. The validator stays WARNING. |
+| 6 | Currency and links | 30% | 96% | 5 | 4.80 | After a link repair the `## Book Statistics` footer is recounted. Theory-only still skips the audit. Retrieval stays off. |
+| 7 | Audience | 20% | 84% | 5 | 4.20 | Business users and short formats of 8h or less turn a conceptual lesson into an instructor demo with steps and an expected result. The quality report keeps the theory/demo ratio. A standard course longer than 8h is unchanged. |
+| 8 | PPT | 40% | 88% | 5 | 4.40 | Throttling, timeout, and a bad JSON parse retry with backoff, then one reduced-slide retry. If it still fails, a minimal deck is written from the lesson outline and the report records a warning instead of a missing deck. |
+| 9 | LPI-010 | 0% | 88% | 5 | 4.40 | The planner selects a CLI/Linux, cloud console, or M365/Copilot slice and keeps the LPI-010 marker. Fixture file names, hostnames, and user names copied into the plan are replaced and recorded as a low warning. The slices are still stand-ins. |
+| 10 | Evaluation form | 0% | 0% | 5 | 0.00 | Out of repository. |
+| 11 | Close the loop | 20% | 20% | 5 | 1.00 | No new runs of the seven courses. |
+
+**Overall: 81.24 / 100 = 81.2%** (baseline 33.5%, previous candidate estimate 78.9%).
+
+High-priority items 1–5: 62.44 / 70 = 89.2% (baseline 40%, previous estimate 87.6%).
+
+Product items 1–9: 80.24 / 90 = 89.2% (baseline 36%, previous estimate 86.5%).
+
+Item 6 moved for the link-repair follow-up above. This is still an estimate of wired checks, not a new instructor review.
+
+## What blocks a production deploy
+
+- This candidate is not deployed. Deploy only after review, with `CG-Backend/deploy.ps1` against `crewai-course-generator-stack`.
+- `sam validate` and `sam build` were not run here. SAM CLI is not installed in the environment that built the branch.
+- `LINK_AUDIT_GATE` now defaults to `0`. `LINK_REPAIR=1` still rewrites a dead URL when a living catalog, manual, or syllabus page is a close topical match, and writes the same edit into the Lab Guide book. A remaining dead link is a warning. `CURRENCY_RETRY=1` retries, then saves the lab with a C6 warning.
+- A selective update scales every kept lab to the format ceiling (`FORMAT_RECAP_SELECTIVE=1`) and does not drop labs. If the scaled plan still cannot fit, the overrun is a warning and the plan is still saved. A full regeneration is what merges labs.
+- The quality gate still runs. It does not fail the course. Rollback of this reliability behavior is a redeploy of the previous `thor-release-candidate` revision.
+- Item 10 is still open, and item 11 has no new generated evidence. The 81.2% figure is the estimate in the table above.
+- To soften the reading budget without a rollback, set `READING_BUDGET_RETRY=0` (the overrun is recorded and the lab still ships) or raise `LAB_READING_WORDS_PER_MINUTE`. `LINK_REPAIR=0` skips the rewrite and still delivers.
+- Live QA on 25 Nov 2026 is already on this head: the syllabus authorizes named Copilot surfaces (`0bcc6104`), an alternative OS on the same line is not a B5 block (`14b4ff2e`), the `import os` that crashed every deck is gone in both generator copies (`311518e9`, `bf0feb63`), "agente de IA" is not an unknown product (`bf0feb63`), and `ppt_quality.py` is packaged with DeckBuilder (`5f8f21de`). Those are not remaining blockers.
+
+## Reliability
+
+Course generation is not blocked by a quality check. A check repairs or retries, then degrades to a warning. The course is delivered. Findings go to the owner (`OWNER_ALERT_EMAIL`, default `juan.ossa@netec.com`) and to `<project>/validation/quality-report.json`. The learner receives the normal delivered email. A failure is not shown to the learner unless the lab master plan or the lab planner failed after retry and model fallback.
+
+Production sample that motivated this (12 runs): 7 failed on our own gates (link gate 4, C6 currency 2, B5 1), 2 failed on Bedrock `ThrottlingException` "Too many tokens per day" for `us.anthropic.claude-opus-4-6-v1`, and 2 succeeded while dropping a deliverable (Setup Guide `LayoutError` on a 2x8 table, DeckBuilder `ImportModuleError` fixed in `5f8f21de`). Applied quotas: Opus 4.6 at 5 RPM / 3M TPM, Sonnet 4.6 at 10 RPM / 6M TPM.
+
+What changed:
+
+- `CheckLabValidation` and the plan stamps no longer end in `FailLabQualityGate`. `NotifyQualityReview` records `$.quality_issues.lab_quality` and continues to lab expansion or `InvokeLabGuideBuilder`. It does not email the learner.
+- `all_valid=false` runs one targeted regeneration (`RegenerateInvalidLabs`, `force_regenerate`) and then delivers with `RecordStructuralWarning`.
+- B1/B2/B3p/B5/B6 and a missing objective already shipped the last draft. C6 now does the same: the last attempt saves the lab and records a medium warning. The format cap records `quality_warning` and still saves the plan. The reading budget already shipped on the last attempt.
+- S3 lab writes retry. A count mismatch is logged and the batch continues.
+- `CheckLinkAudit` records a warning and continues to the decks. `LINK_AUDIT_GATE` defaults to `0`. `LINK_REPAIR` stays `1`. `FailLinkAudit` is gone.
+- Theory: `BatchFailState` and `VisualPlannerFailed` are Pass states. `GenerateBatchImages` has a Catch. A content-generation exception writes a bilingual text-only placeholder lesson and returns 200. The theory map Catch still builds the book from whatever lessons exist.
+- Lab maps retry `RuntimeError` once after 120 seconds. The per-lab fail state is a Pass, so one lab cannot fail the Map. The writer returns a bilingual placeholder marked `AURORA_PLACEHOLDER_PENDING_REGENERATION`.
+- Builders (`InvokeBookBuilder`, `InvokeLabGuideBuilder`, Setup Guide, decks, audit) retry with backoff and then record the issue. A missing PPT is `PPT missing`. A missing Setup PDF is `PDF missing`. The course continues.
+- Every new Catch appends one key under `$.quality_issues` (`step`, `error`, `severity`, and `deliverable` when a file is missing). Replacing Pass states copy `quality_issues` so it is not dropped.
+- Bedrock calls switch immediately on a daily token quota (`per day`), `ServiceQuotaExceeded`, or `AccessDenied`. Per-minute throttling uses exponential backoff with jitter and switches after the third throttle on that model. The chain is the primary model, then `BEDROCK_FALLBACK_MODELS` (default `us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0`), then the existing OpenAI or Gemini path when those secrets are configured. The model that answered is stored on the lab and in the quality report. The same chain is used by the lab writer, the lab planner, content generation, and the visual planner.
+- `deploy.ps1` runs `scripts/import_handlers_smoke.py` after `sam build`. Nested handlers (`assignments/assign_course.lambda_handler`) import as packages. A missing Python module such as `ppt_quality` aborts the deploy. A Linux native wheel that cannot load on the Windows build host is skipped (`51a3202e`).
+- `scripts/canary_course.py` is not part of deploy. The default is a dry run. `--execute` uploads `scripts/canary_outline.yaml` and starts one small Spanish course (one module, theory and labs). The start payload includes every root field the `content_type=both` path reads with JSONPath, including `content_source=s3`, `outline_s3_key`, and `lab_requirements` as an empty string (`7f9fe6f2`). A missing key is a `States.Runtime` error. `scripts/check_execution_artifacts.py` checks labs, the lab-guide book, a PPTX, and `setupguide/Setup_Guide.pdf`. Exit 0 is complete, 2 means delivered with placeholders, 1 means a file is missing.
+
+Resume a placeholder lab: start a new execution with `lab_ids_to_regenerate` set to `failed_lab_ids` from `validation/quality-report.json` and leave `LAB_SKIP_IF_EXISTS=true`. Files that contain `AURORA_PLACEHOLDER_PENDING_REGENERATION` are rewritten. Finished labs are reused.
+
+Flags added or changed:
+
+| Name | Where | Default |
+| --- | --- | --- |
+| `BEDROCK_FALLBACK_MODELS` | ContentGen, VisualPlanner, LabPlanner, LabWriter | `us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| `OWNER_ALERT_EMAIL` | StrandsNotification | `juan.ossa@netec.com` |
+| `LINK_AUDIT_GATE` | PostGenerationAudit | `0` (was `1`) |
+| `LINK_REPAIR` | PostGenerationAudit | `1` (unchanged) |
+
+Reliability target after deploy: 10 consecutive mixed courses, 100% delivered, and at least 90% with zero placeholders. Daily QA budget in production: 2 full courses. The canary is a separate small run, not one of those two.
+
+The state machine stays fully reachable (more than 57 top-level states). `NotifyFailure` remains only on the planner and master-plan path, and it goes to `FailWorkflow`.

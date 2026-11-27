@@ -1,0 +1,261 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║              PPT GENERATOR FIXES - TESTING SCENARIOS & VALIDATION            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+SCENARIO 1: Single-Line Title, No Subtitle
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title: "¿Qué es Azure Databricks?"
+Subtitle: (none)
+Content: 3 bullet points
+
+Expected Layout:
+  Z=0.5"    ┌─────────────────────────────────────┐
+            │ ¿Qué es Azure Databricks?           │ 0.7" height
+  Z=1.2"    └─────────────────────────────────────┘
+            
+  Z=1.35"   ┌─────────────────────────────────────┐
+            │ • Bullet 1                          │ ~2.0"
+            │ • Bullet 2                          │
+            │ • Bullet 3                          │
+  Z=3.35"   └─────────────────────────────────────┘
+
+Verification:
+  ✓ Title fully visible
+  ✓ No overlap between title and bullets
+  ✓ Content positioned at correct Z=1.35"
+  ✓ Proper spacing (0.15" gap)
+
+---
+
+SCENARIO 2: Multi-Line Title (2 lines), Single-Line Subtitle
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title: "Plataforma unificada de análisis basada en Apache Spark"
+(This is ~60 chars, will wrap to 2 lines at 50 chars/line)
+Subtitle: "Definición y Propósito"
+Content: Several bullets
+
+Expected Layout:
+  Z=0.5"    ┌─────────────────────────────────────┐
+            │ Plataforma unificada de análisis    │
+            │ basada en Apache Spark              │ 1.15" height (2 lines)
+  Z=1.65"   └─────────────────────────────────────┘
+            
+  Z=1.8"    ┌─────────────────────────────────────┐
+            │ Definición y Propósito              │ 0.5" height
+  Z=2.3"    └─────────────────────────────────────┘
+            
+  Z=2.45"   ┌─────────────────────────────────────┐
+            │ • Plataforma 'lakehouse' que combina │ ~3.0"
+            │ • Elimina complejidad de infra...   │
+            │ • Colaboración integrada con...     │
+  Z=5.45"   └─────────────────────────────────────┘
+
+Verification:
+  ✓ Title not cut off (fully visible)
+  ✓ "Plataforma" line NOT overlapping "Definición"
+  ✓ "Definición" NOT overlapping bullet content
+  ✓ Gap between title and subtitle = 0.15" ✓
+  ✓ Gap between subtitle and content = 0.15" ✓
+  ✓ All content visible without scrolling
+
+KEY TEST: This reproduces the original issue screenshot. Should now be fixed!
+
+---
+
+SCENARIO 3: Single-Line Title, Multi-Line Subtitle
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title: "Module 1: Introduction"
+Subtitle: "This module covers the fundamentals and basic concepts that you need to understand" (wraps to 2 lines)
+Content: Multiple bullets
+
+Expected Layout:
+  Z=0.5"    ┌─────────────────────────────────────┐
+            │ Module 1: Introduction              │ 0.7" height
+  Z=1.2"    └─────────────────────────────────────┘
+            
+  Z=1.35"   ┌─────────────────────────────────────┐
+            │ This module covers the fundamentals │
+            │ and basic concepts that you need    │ 0.85" height (2 lines)
+  Z=2.2"    └─────────────────────────────────────┘
+            
+  Z=2.35"   ┌─────────────────────────────────────┐
+            │ • Concept 1                         │
+            │ • Concept 2                         │
+            │ • Concept 3                         │
+  Z=5.35"   └─────────────────────────────────────┘
+
+Verification:
+  ✓ Title fully visible
+  ✓ Title NOT overlapping subtitle
+  ✓ Subtitle NOT overlapping bullets
+  ✓ All content visible
+
+---
+
+SCENARIO 4: Long Title (3+ lines)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title: "Understanding the complete architecture of modern cloud computing systems"
+(~85 chars, wraps to 2 lines, maybe 3)
+Subtitle: (none)
+Content: Bullets
+
+Expected Behavior:
+  ✓ Title calculates to 1.15" or 1.6" depending on line wrapping
+  ✓ Content positions correctly below title + 0.15" gap
+  ✓ No overlap with unusually tall title
+
+---
+
+SCENARIO 5: No Subtitle (Edge Case)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title: "Lesson Title"
+Subtitle: (empty/none)
+Content: 5+ bullets
+
+Expected Behavior:
+  ✓ Content positions at default: 0.5 + 0.7 + 0.15 = 1.35"
+  ✓ Maximum content height: 7.5 - 1.35 - 0.3 = 5.85"
+  ✓ Can fit 5-6 bullets in single slide
+
+---
+
+SCENARIO 6: Overflow Detection
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title: "Topic"
+Content: 10+ bullets + 1 image
+
+CloudWatch Logs Should Show:
+  ✓ Accurate pixel measurements (based on PPT inches)
+  ✓ Example: "Content height: 450px > MAX (499px), needs split"
+  ✓ OR: "Content height: 480px, fits with margin"
+  ✓ NO spurious warnings for content that actually fits
+
+Validation:
+  ✓ Log messages use consistent measurement units
+  ✓ Split boundaries are logical (between content blocks)
+  ✓ No content is cut off in resulting slides
+
+---
+
+VERIFICATION CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PowerPoint Output Tests:
+
+[ ] Scenario 1: Single-line title
+    ✓ Title fully visible
+    ✓ Content not cut off
+    ✓ Professional appearance
+
+[ ] Scenario 2: Multi-line title + subtitle (MAIN TEST CASE)
+    ✓ "Plataforma unificada..." NOT overlapping "Definición y Propósito"
+    ✓ "Definición y Propósito" NOT overlapping bullets
+    ✓ 0.15" visible gaps between elements
+    ✓ Layout matches professional standards
+
+[ ] Scenario 3: Tall subtitle
+    ✓ Title and subtitle don't overlap
+    ✓ Subtitle and content don't overlap
+    ✓ Proper spacing maintained
+
+[ ] Scenario 4: Very long title
+    ✓ Title text fully visible (not cut off)
+    ✓ Content positioned correctly below
+    ✓ No layout issues with unusual title length
+
+[ ] Scenario 5: No subtitle edge case
+    ✓ Content still positioned correctly
+    ✓ No errors in layout engine
+
+[ ] Scenario 6: Overflow handling
+    ✓ Generate full course
+    ✓ Monitor CloudWatch for measurement consistency
+    ✓ Verify splits happen at correct points
+    ✓ No false warnings
+
+CloudWatch Log Tests:
+
+[ ] Launch slide rendering
+[ ] Find logs for specific slide
+[ ] Verify format: "Title height: X.XXX", "Subtitle top: X.XXX"
+[ ] Verify consistency: measurements make sense
+[ ] Verify no errors: no exceptions or stack traces
+
+Performance Tests:
+
+[ ] Time first PPT generation (baseline)
+[ ] Time second generation (should be similar)
+[ ] Memory usage (should be unchanged)
+[ ] No Lambda timeout issues
+
+---
+
+SUCCESS CRITERIA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ PASS if:
+  • Scenario 2 (multi-line title + subtitle) shows NO overlap
+  • All text boxes display without clipping
+  • Spacing between elements is consistent (0.15")
+  • CloudWatch logs show accurate measurements
+  • Performance is unchanged from before
+  • No new errors or warnings in logs
+
+❌ FAIL if:
+  • Any text overlap detected in PowerPoint
+  • Content cut off below visible area
+  • Inconsistent spacing (some gaps larger/smaller)
+  • Measurements in logs don't match actual layout
+  • Generation time increased significantly
+  • New errors in CloudWatch logs
+
+---
+
+REGRESSION CHECKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Compare against previous version:
+
+[ ] Same number of slides generated (no unexpected splits)
+[ ] Same execution time (±5%)
+[ ] Same number of warnings (maybe fewer)
+[ ] Slide count in full 16-lesson course: should be similar
+[ ] Visual quality: should be BETTER (fixed overlaps)
+
+---
+
+CRITICAL TEST CASE: THE AZURE DATABRICKS SLIDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THIS IS THE SLIDE FROM YOUR SCREENSHOT!
+
+Title: "¿Qué es Azure Databricks?"
+Subtitle: "Plataforma unificada de análisis basada en Apache Spark" +
+          "Definición y Propósito"
+
+Content:
+  • Plataforma 'lakehouse' que combina data warehouses (rendimiento,
+    gobernanza, ACID) con data lakes (flexibilidad, escala, datos no
+    estructurados)
+  • Elimina complejidad de infraestructura: permite enfocarse en extraer
+    valor de datos en lugar de gestionar clústeres
+  • Colaboración integrada con notebooks interactivos, control de versiones
+    y trabajo simultáneo
+  • Integración nativa profunda con servicios Azure (ADLS, Key Vault, AAD,
+    DevOps, Power BI)
+
+Expected AFTER fix:
+  ✓ Title "¿Qué es Azure Databricks?" at Z=0.5" to Z=1.15"
+  ✓ Subtitle starts at Z=1.3" (NOT overlapping title)
+  ✓ Bullets start at Z=2.0"+ (NOT overlapping subtitle)
+  ✓ All content visible
+  ✓ Professional appearance
+
+If this looks good in PowerPoint, ALL tests pass! ✅
+

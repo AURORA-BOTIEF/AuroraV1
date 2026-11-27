@@ -1,0 +1,33 @@
+course:
+  title: 'Canary: Microsoft 365 Copilot Chat'
+  description: Curso canario de un módulo para verificar la entrega de labs, libro, PPT y Setup Guide.
+  language: es
+  level: beginner
+  audience:
+  - Profesionales que empiezan a usar Microsoft 365 Copilot Chat.
+  prerequisites:
+  - Cuenta Microsoft 365 y acceso a Copilot Chat en el navegador.
+  total_duration_minutes: 45
+  learning_outcomes:
+  - Al finalizar, el participante podrá abrir Copilot Chat, redactar un prompt claro y obtener un resumen ejecutivo de un caso ficticio.
+  modules:
+  - title: 'Capítulo 1: Primer prompt en Copilot Chat'
+    summary: Acceso a Copilot Chat y un prompt guiado para resumir un caso ficticio.
+    duration_minutes: 45
+    percent_theory: 40
+    percent_practice: 60
+    bloom_level: Aplicar
+    lessons:
+    - title: 1.1 Qué es Copilot Chat y cómo estructurar un prompt
+      duration_minutes: 15
+      bloom_level: Comprender
+      topics:
+      - title: 1.1 Qué es Copilot Chat y cómo estructurar un prompt
+        duration_minutes: 15
+        bloom_level: Comprender
+    lab_activities:
+    - title: Práctica 1. Redactar un prompt para resumir una oportunidad ficticia
+      type: lab
+      bloom_level: Aplicar
+      duration_minutes: 30
+      description: Crear un prompt con objetivo, contexto y formato para resumir una oportunidad de inversión ficticia dirigida a una audiencia ejecutiva.

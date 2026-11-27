@@ -1,0 +1,110 @@
+course:
+  title: Preparación de entornos Linux
+  description: "Curso demo para validar la Setup Guide consolidada de Thor. Preparar, configurar y validar una máquina virtual Linux con memoria swap persistente, discos adicionales e interfaces de red, siguiendo únicamente la guía del curso."
+  language: es
+  level: beginner
+  audience:
+  - Administradores de sistemas que inician su preparación en entornos Linux.
+  - Personal técnico que necesita replicar un laboratorio Linux de forma reproducible.
+  prerequisites:
+  - Conocimientos básicos de línea de comandos
+  - Computador con acceso a internet
+  - Permisos de administración local durante la preparación
+  total_duration_minutes: 480
+  learning_outcomes:
+  - Verificar la versión, arquitectura y kernel del sistema operativo.
+  - Actualizar el sistema y aplicar paquetes pendientes sin errores críticos.
+  - Crear y persistir una memoria swap de 16 GB con respaldo de la configuración.
+  - Identificar, formatear y montar discos adicionales de forma segura.
+  - Configurar y validar las interfaces de red del laboratorio.
+  hours_total: 8.0
+  hours_theory: 2.0
+  hours_practice: 6.0
+  modules:
+  - title: 'Capítulo 1: Validación base del entorno'
+    summary: Verificar el sistema operativo y dejar el entorno actualizado antes de instalar componentes.
+    duration_minutes: 120
+    percent_theory: 30
+    percent_practice: 70
+    bloom_level: Aplicar
+    lessons:
+    - title: 1.1 Versión, arquitectura y kernel del sistema
+      duration_minutes: 20
+      bloom_level: Comprender
+      topics:
+      - 1.1 Versión, arquitectura y kernel del sistema
+    - title: 1.2 Catálogo de paquetes y actualizaciones pendientes
+      duration_minutes: 20
+      bloom_level: Aplicar
+      topics:
+      - 1.2 Catálogo de paquetes y actualizaciones pendientes
+    lab_activities:
+    - title: 'Lab: Confirmar el sistema operativo'
+      duration_minutes: 40
+      bloom_level: Aplicar
+      type: lab
+      objective: Verificar versión, arquitectura y kernel del sistema antes de instalar componentes.
+      description: "Comprobar con cat /etc/os-release, uname -m y uname -r que la salida coincide con la versión, edición, arquitectura y kernel aprobados, y registrar la evidencia."
+    - title: 'Lab: Actualizar el sistema'
+      duration_minutes: 40
+      bloom_level: Aplicar
+      type: lab
+      objective: Actualizar el catálogo y aplicar los paquetes pendientes antes de continuar.
+      description: "Ejecutar apt update y apt upgrade, registrar la salida sin errores críticos y confirmar que las actualizaciones se completaron."
+
+  - title: 'Capítulo 2: Almacenamiento y memoria swap'
+    summary: Configurar memoria swap persistente y preparar los discos adicionales del laboratorio.
+    duration_minutes: 180
+    percent_theory: 20
+    percent_practice: 80
+    bloom_level: Aplicar
+    lessons:
+    - title: 2.1 Persistencia de la configuración del sistema
+      duration_minutes: 25
+      bloom_level: Comprender
+      topics:
+      - 2.1 Persistencia de la configuración del sistema
+    - title: 2.2 Identificación segura de dispositivos de bloque
+      duration_minutes: 35
+      bloom_level: Analizar
+      topics:
+      - 2.2 Identificación segura de dispositivos de bloque
+    lab_activities:
+    - title: 'Lab: Configurar memoria swap'
+      duration_minutes: 60
+      bloom_level: Aplicar
+      type: lab
+      objective: Crear una swap de 16 GB, proteger el archivo y hacer persistente la configuración.
+      description: "Crear /swapfile con fallocate, protegerlo con chmod 600, activarlo con mkswap y swapon, respaldar /etc/fstab antes de editar y confirmar la persistencia con swapon --show y free -h."
+    - title: 'Lab: Preparar los discos adicionales'
+      duration_minutes: 60
+      bloom_level: Aplicar
+      type: lab
+      objective: Identificar con precisión los discos de 20 GB antes de particionar, formatear o montar.
+      description: "Usar lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS para confirmar los dispositivos y su contenido antes de cualquier operación destructiva."
+
+  - title: 'Capítulo 3: Red y cierre del laboratorio'
+    summary: Configurar las interfaces de red y validar el entorno completo antes del curso.
+    duration_minutes: 180
+    percent_theory: 20
+    percent_practice: 80
+    bloom_level: Aplicar
+    lessons:
+    - title: 3.1 Direccionamiento y modos de red
+      duration_minutes: 30
+      bloom_level: Comprender
+      topics:
+      - 3.1 Direccionamiento y modos de red
+    lab_activities:
+    - title: 'Lab: Configurar las interfaces de red'
+      duration_minutes: 75
+      bloom_level: Aplicar
+      type: lab
+      objective: Registrar nombre, velocidad, modo, direccionamiento y propósito de cada interfaz.
+      description: "Comprobar ip -br link, ip -br address y nmcli device status; confirmar que la interfaz principal tiene conectividad y la secundaria conserva el estado inicial definido."
+    - title: 'Demo: Validación integral del entorno'
+      duration_minutes: 75
+      bloom_level: Comprender
+      type: demo
+      objective: Demostrar la validación integral del entorno desde un estado limpio.
+      description: "El instructor ejecuta la verificación completa del entorno (sistema, swap, discos y red) y muestra cómo diagnosticar los fallos más frecuentes."

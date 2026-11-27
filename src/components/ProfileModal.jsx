@@ -2,6 +2,9 @@
 import './ProfileModal.css';
 import defaultFoto from '../assets/default.jpg';
 import { useState } from 'react';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { S3Client } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 
 function ProfileModal({ token }) {
   const [visible, setVisible] = useState(false);
@@ -10,7 +13,8 @@ function ProfileModal({ token }) {
   const [foto, setFoto] = useState(defaultFoto);
   const [archivo, setArchivo] = useState(null);
 
-  const perfilUrl = import.meta.env.VITE_API_UPLOAD;
+  const BUCKET = import.meta.env.VITE_COURSE_BUCKET || 'crewai-course-artifacts';
+  const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
 
   const handleFotoChange = (e) => {
     const file = e.target.files[0];
@@ -28,29 +32,53 @@ function ProfileModal({ token }) {
 
   const subirFotoAS3 = async () => {
     const userId = parseJwt(token).sub;
-    const nombreArchivo = `${userId}.jpg`;
+    const nombreArchivo = `profiles/${userId}.jpg`;
 
-    const presign = await fetch(perfilUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: token,
-        'Content-Type': 'application/json',
+    // Use Amplify session credentials to upload directly to S3 with IAM auth
+    const session = await fetchAuthSession();
+    if (!session || !session.credentials) throw new Error('No se encontraron credenciales autenticadas');
+
+    const s3Client = new S3Client({
+      region: AWS_REGION,
+      credentials: session.credentials,
+    });
+
+    const bucketName = BUCKET;
+    const fileSize = archivo.size || 0;
+    const MAX_SINGLE_PUT = 64 * 1024 * 1024; // 64MB
+
+    const upload = new Upload({
+      client: s3Client,
+      params: {
+        Bucket: bucketName,
+        Key: nombreArchivo,
+        Body: archivo,
+        ContentType: archivo.type,
       },
-      body: JSON.stringify({
-        fileName: nombreArchivo,
-        fileType: archivo.type,
-      }),
+      queueSize: 3,
+      partSize: Math.min(MAX_SINGLE_PUT, Math.max(5 * 1024 * 1024, fileSize + 1)),
     });
 
-    const data = await presign.json();
-    const res = await fetch(data.url, {
-      method: 'PUT',
-      headers: { 'Content-Type': archivo.type },
-      body: archivo,
-    });
+    try {
+      await upload.done();
+    } catch (err) {
+      console.warn('Profile upload failed, attempting PutObject fallback:', err && err.message);
+      const msg = String(err && err.message || '').toLowerCase();
+      if (msg.includes('crc32') || msg.includes('checksum')) {
+        // Fallback to single PUT
+        await s3Client.send(new PutObjectCommand({
+          Bucket: bucketName,
+          Key: nombreArchivo,
+          Body: archivo,
+          ContentType: archivo.type,
+        }));
+      } else {
+        throw err;
+      }
+    }
 
-    if (!res.ok) throw new Error('Error al subir a S3');
-    return data.url.split('?')[0];
+    // Return the object URL (public URL assumes bucket/object ACL or CloudFront)
+    return `https://${BUCKET}.s3.amazonaws.com/${nombreArchivo}`;
   };
 
   const guardarPerfil = async () => {
